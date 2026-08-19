@@ -3,8 +3,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "./firebase";
 
-// URL definida directamente
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyXN_38YE0WIX1QHT915n9rJOnQPYeH3npgJ49E7T_OJFyP70eyB0NaD3mXr9yeYMlfzQ/exec";
 
 // Layout y Auth
@@ -32,6 +33,7 @@ import TareasTemplate from '@/pages/TareasTemplate';
 
 const AuthenticatedApp = () => {
   const { user, setUser } = useAuth();
+  const [loadingSession, setLoadingSession] = useState(true);
   
   const [globalData, setGlobalData] = useState({
     facturas: [],
@@ -43,6 +45,60 @@ const AuthenticatedApp = () => {
     clientes: [],
     movimientos: []
   });
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const response = await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({ tabla: 'Usuarios', action: 'list' })
+          });
+          const data = await response.json();
+          
+          if (Array.isArray(data)) {
+            const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
+            
+            // Búsqueda flexible ignorando espacios y mayúsculas
+            const userInfo = data.find(u => 
+              String(u.email || '').trim().toLowerCase() === emailFirebase
+            );
+            
+            const nombreFinal = userInfo?.nombre || userInfo?.Nombre || firebaseUser.email.split('@')[0];
+            const rolFinal = userInfo?.role || userInfo?.rol || userInfo?.Role || 'admin';
+
+            setUser({
+              ...firebaseUser,
+              nombre: nombreFinal,
+              role: rolFinal,
+              rol: rolFinal
+            });
+          } else {
+            setUser({
+              ...firebaseUser,
+              nombre: firebaseUser.email.split('@')[0],
+              role: 'admin',
+              rol: 'admin'
+            });
+          }
+        } catch (error) {
+          console.error("Error al obtener perfil del usuario:", error);
+          setUser({
+            ...firebaseUser,
+            nombre: firebaseUser.email.split('@')[0],
+            role: 'admin',
+            rol: 'admin'
+          });
+        }
+      } else {
+        setUser(null);
+      }
+      setLoadingSession(false);
+    });
+
+    return () => unsubscribe();
+  }, [setUser]);
 
   const cargarDatos = async () => {
     try {
@@ -79,7 +135,14 @@ const AuthenticatedApp = () => {
     setUser(userData);
   };
 
-  // Si no hay usuario logueado, muestra obligatoriamente el Login
+  if (loadingSession) {
+    return (
+      <div className="min-h-screen bg-[#070e1b] flex items-center justify-center text-white font-medium">
+        Cargando sistema GI-MO...
+      </div>
+    );
+  }
+
   if (!user) {
     return <Login GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} onLoginSuccess={handleLoginSuccess} />;
   }

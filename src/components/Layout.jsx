@@ -14,18 +14,21 @@ import { tienePermiso } from '@/lib/permissions';
 import logoSidebar from '@/assets/LogoSolo.png';
 import logoLogin from '@/assets/LogoSICESA.jpg';
 
+import { signOut } from "firebase/auth";
+import { auth } from "@/firebase";
+
 const allNavItems = [
-  { icon: LayoutDashboard, label: 'Dashboard',        path: '/',                   key: null },
-  { icon: Users,           label: 'Clientes',        path: '/clientes',     key: 'clientes' },
+  { icon: LayoutDashboard, label: 'Dashboard',        path: '/',                     key: null },
+  { icon: Users,           label: 'Clientes',         path: '/clientes',     key: 'clientes' },
   { icon: Truck,           label: 'Proveedores',     path: '/proveedores',    key: 'proveedores' },
-  { icon: Building2,       label: 'Obras',           path: '/obras',          key: 'obras' },
-  { icon: ClipboardList,   label: 'Insumos',         path: '/insumos',        key: 'insumos' },
+  { icon: Building2,       label: 'Obras',            path: '/obras',          key: 'obras' },
+  { icon: ClipboardList,   label: 'Insumos',          path: '/insumos',        key: 'insumos' },
   { icon: BookOpen,        label: 'Maestro de Tareas',path: '/tareas-template', key: 'presupuestos' },
-  { icon: Calculator,      label: 'Presupuestos',    path: '/presupuestos',   key: 'presupuestos' },
-  { icon: CalendarDays,    label: 'Planificación',   path: '/planificacion',  key: 'planificacion' },
-  { icon: ShoppingCart,    label: 'Compras',         path: '/compras',        key: 'compras' },
-  { icon: Wallet,          label: 'Tesorería',       path: '/tesoreria',      key: 'tesoreria' },
-  { icon: BarChart3,       label: 'Control y Reportes', path: '/reportes',    key: 'reportes' },
+  { icon: Calculator,      label: 'Presupuestos',     path: '/presupuestos',   key: 'presupuestos' },
+  { icon: CalendarDays,    label: 'Planificación',    path: '/planificacion',  key: 'planificacion' },
+  { icon: ShoppingCart,    label: 'Compras',          path: '/compras',        key: 'compras' },
+  { icon: Wallet,          label: 'Tesorería',        path: '/tesoreria',      key: 'tesoreria' },
+  { icon: BarChart3,       label: 'Control y Reportes', path: '/reportes',   key: 'reportes' },
 ];
 
 export default function Layout() {
@@ -207,24 +210,25 @@ export default function Layout() {
         </div>
       )}
 
-      {/* --- PIE DEL SIDEBAR (Muestra el usuario operador) --- */}
-      <div className="p-3 border-t border-slate-700 space-y-1">
+      {/* --- PIE DEL SIDEBAR (Muestra el usuario y botón de cerrar sesión) --- */}
+      <div className="p-3 border-t border-slate-700 space-y-2">
         {!collapsed && (
-          <div className="mb-2 px-2 py-2 bg-slate-900/50 rounded-lg">
+          <div className="px-2 py-2 bg-slate-900/50 rounded-lg">
             <p className="text-white text-sm font-bold truncate">{user?.nombre || user?.email}</p>
             <p className="text-amber-500 text-xs font-medium truncate uppercase tracking-wide">
               {(user?.role === 'admin' || user?.rol === 'admin') ? 'Administrador' : (user?.role || user?.rol || 'Usuario')}
             </p>
           </div>
         )}
+        
         <button
-          onClick={() => logout()}
-          className="flex items-center gap-3 w-full px-4 py-2 rounded-lg text-slate-400 hover:bg-slate-700 hover:text-white transition-all cursor-pointer"
+          onClick={() => signOut(auth)}
+          className="w-full flex items-center gap-2 px-3 py-2 text-xs font-medium text-red-400 hover:bg-red-500/10 rounded-lg transition-colors cursor-pointer"
+          title="Cerrar sesión"
         >
-          <LogOut className="w-4 h-4 flex-shrink-0" />
-          {!collapsed && <span className="text-sm">Cerrar sesión</span>}
+          <LogOut className="w-4 h-4 shrink-0" />
+          {!collapsed && <span>Cerrar sesión</span>}
         </button>
-        {!collapsed && <p className="text-slate-600 text-xs text-center pt-1">v1.0.0 © 2026</p>}
       </div>
     </div>
   );

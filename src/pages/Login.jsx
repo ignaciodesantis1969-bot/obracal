@@ -4,8 +4,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, Lock, Loader2 } from "lucide-react";
 import logoSice from "@/assets/LogoSICESA.jpg";
+import { signInWithEmailAndPassword } from "firebase/auth";
+import { auth } from "@/firebase";
 
-export default function Login({ GOOGLE_SCRIPT_URL, onLoginSuccess }) {
+export default function Login({ onLoginSuccess }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -17,26 +19,13 @@ export default function Login({ GOOGLE_SCRIPT_URL, onLoginSuccess }) {
     setLoading(true);
 
     try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Usuarios',
-          action: 'login',
-          data: { email, password }
-        })
-      });
-      
-      const result = await response.json();
-
-      if (result.success) {
-        onLoginSuccess(result.user);
-      } else {
-        setError(result.message || "Email o contraseña incorrectos.");
+      const userCredential = await signInWithEmailAndPassword(auth, email, password);
+      if (onLoginSuccess) {
+        onLoginSuccess(userCredential.user);
       }
     } catch (err) {
       console.error(err);
-      setError("Error de conexión con el servidor.");
+      setError("Correo o contraseña incorrectos.");
     } finally {
       setLoading(false);
     }
