@@ -1,0 +1,1259 @@
+import { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock } from 'lucide-react';
+
+export default function PresupuestoDetalle() {
+  const { id: presupuestoId } = useParams();
+
+  const [presupuesto, setPresupuesto] = useState(null);
+  const [obra, setObra] = useState(null);
+  const [cliente, setCliente] = useState(null);
+  const [itemsDetalle, setItemsDetalle] = useState([]);
+  const [maestroTareas, setMaestroTareas] = useState([]);
+  const [certificados, setCertificados] = useState([]);
+  const [insumosList, setInsumosList] = useState([]);
+  const [rubrosList, setRubrosList] = useState([]); 
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [activeTab, setActiveTab] = useState('costos');
+
+  const [isRubroModalOpen, setIsRubroModalOpen] = useState(false);
+  const [isTareaModalOpen, setIsTareaModalOpen] = useState(false);
+  const [nombreNuevoRubro, setNombreNuevoRubro] = useState('');
+  const [editingTarea, setEditingTarea] = useState(null);
+
+  const [isNuevoGGModalOpen, setIsNuevoGGModalOpen] = useState(false);
+  const [isSavingGG, setIsSavingGG] = useState(false);
+  const [nuevoGastoGeneral, setNuevoGastoGeneral] = useState({ concepto: '', unitario: '' });
+
+  const [nuevaTarea, setNuevaTarea] = useState({
+    rubro: '',
+    tarea: '',
+    unidad: 'm2',
+    cantidad: 1,
+    costo_unitario: 0,
+    insumos: ''
+  });
+
+  const [gastosGeneralesInsumos, setGastosGeneralesInsumos] = useState([
+    { id: 1, concepto: 'Programa de Seguridad', cantidad: 1, unitario: 150000 },
+    { id: 2, concepto: 'Visita Lic. Seguridad e Higiene', cantidad: 1, unitario: 0 },
+    { id: 3, concepto: 'Técnico Perm. Seg. e Higiene', cantidad: 1, unitario: 0 },
+    { id: 4, concepto: 'Ropa de Trabajo', cantidad: 1, unitario: 0 }
+  ]);
+
+  const [porcentajeComisionVenta, setPorcentajeComisionVenta] = useState(0); 
+  const [porcentajeImprevistos, setPorcentajeImprevistos] = useState(1.5); 
+
+  const [impuestosPorcentajes, setImpuestosPorcentajes] = useState({
+    iibb: 3.5,
+    gastosFinancieros: 0,
+    ganancias: 5.4,
+    sellados: 0,
+    beneficio: 20.27
+  });
+
+  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyXN_38YE0WIX1QHT915n9rJOnQPYeH3npgJ49E7T_OJFyP70eyB0NaD3mXr9yeYMlfzQ/exec";
+
+  const cargarDatosDetalle = async () => {
+    setIsLoading(true);
+    try {
+      const response = await fetch(GOOGLE_SCRIPT_URL, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
+        body: JSON.stringify({ action: 'cargarDetalleCompleto' }) 
+      });
+
+      const data = await response.json();
+
+      const presupuestosList = data.presupuestos || [];
+      const obrasList = data.obras || [];
+      const clientesList = data.clientes || [];
+      const mtList = data.maestro || [];
+      const certList = data.certificados || [];
+      const insList = data.insumos || [];
+      const rubList = data.rubros || [];
+
+      const presActual = presupuestosList.find(p => String(p.id) === String(presupuestoId));
+      setPresupuesto(presActual || {});
+
+      if (presActual && presActual.obra_id) {
+        const obraEncontrada = obrasList.find(o => String(o.id) === String(presActual.obra_id));
+        setObra(obraEncontrada || {});
+        if (obraEncontrada) {
+          const clienteId = obraEncontrada.cliente_id || obraEncontrada.clienteId;
+          const clienteEncontrado = clientesList.find(c => String(c.id) === String(clienteId));
+          setCliente(clienteEncontrado || {});
+        }
+      }
+
+      let itemsParseados = [];
+      try {
+        if (presActual && presActual.items_detalle) {
+          itemsParseados = typeof presActual.items_detalle === 'string' ? JSON.parse(presActual.items_detalle) : presActual.items_detalle;
+        }
+      } catch (e) {
+        itemsParseados = [];
+      }
+
+      if (!Array.isArray(itemsParseados) || itemsParseados.length === 0) {
+        itemsParseados = [
+          { rubro: 'RUBRO GENERAL / PRINCIPAL', tareas: [] }
+        ];
+      }
+
+      setItemsDetalle(itemsParseados);
+      setMaestroTareas(Array.isArray(mtList) ? mtList : []);
+      setCertificados(Array.isArray(certList) ? certList : []);
+      setInsumosList(Array.isArray(insList) ? insList : []);
+      setRubrosList(Array.isArray(rubList) ? rubList : []);
+    } catch (err) {
+      console.error("Error al cargar detalle:", err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => { 
+    if (presupuestoId) {
+      cargarDatosDetalle(); 
+    } else {
+      setIsLoading(false);
+    }
+  }, [presupuestoId]);
+
+  // Validar si está entregado
+  const estadoActual = String(presupuesto?.estado || 'borrador').toLowerCase();
+  const esEntregado = estadoActual === 'entregado';
+
+  const guardarEstructuraPresupuesto = async (nuevosItems, nuevoCoef = null) => {
+    if (esEntregado) {
+      alert("⚠️ Este presupuesto se encuentra en estado 'Entregado' y no puede ser modificado.");
+      return;
+    }
+
+    let costoDirectoTotal = 0;
+    nuevosItems.forEach(r => {
+      (r.tareas || []).forEach(t => {
+        costoDirectoTotal += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0);
+      });
+    });
+
+    const coef = nuevoCoef !== null ? nuevoCoef : (Number(presupuesto?.coeficiente_pase) || 1.30);
+    const precioVentaTotal = costoDirectoTotal * coef;
+
+    const datosActualizados = {
+      ...presupuesto,
+      costo_directo: costoDirectoTotal,
+      precio_venta: precioVentaTotal,
+      coeficiente_pase: coef,
+      items_detalle: JSON.stringify(nuevosItems)
+    };
+
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'Presupuestos', action: 'update', id: presupuestoId, data: datosActualizados })
+      });
+      setPresupuesto(datosActualizados);
+    } catch (err) {
+      console.error("Error al guardar en Google Sheets:", err);
+      alert("Hubo un error al guardar los cambios.");
+    }
+  };
+
+  const generarCodigoRubroAutomatico = () => {
+    if (!rubrosList || rubrosList.length === 0) return 'R001';
+    let maxNum = 0;
+    rubrosList.forEach(r => {
+      const cod = String(r.codigo || r.Codigo || '');
+      if (cod.startsWith('R')) {
+        const num = parseInt(cod.replace('R', ''), 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+    return `R${String(maxNum + 1).padStart(3, '0')}`;
+  };
+
+  const handleCrearRubro = async (e) => {
+    e.preventDefault();
+    if (esEntregado) return;
+    if (!nombreNuevoRubro.trim()) return;
+    const nombreRubroUpper = nombreNuevoRubro.trim().toUpperCase();
+    
+    if (itemsDetalle.some(r => r.rubro === nombreRubroUpper)) {
+      alert("El rubro ya existe en este presupuesto.");
+      return;
+    }
+
+    const codigoGenerado = generarCodigoRubroAutomatico();
+
+    const nuevos = [...itemsDetalle, { rubro: nombreRubroUpper, tareas: [] }];
+    setItemsDetalle(nuevos);
+    await guardarEstructuraPresupuesto(nuevos);
+
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'Rubros',
+          action: 'create',
+          data: {
+            codigo: codigoGenerado,
+            nombre: nombreRubroUpper,
+            descripcion: 'Creado desde presupuesto'
+          }
+        })
+      });
+      const dataRes = await res.json();
+      
+      setRubrosList([
+        ...rubrosList, 
+        { id: dataRes.id || Date.now(), codigo: codigoGenerado, nombre: nombreRubroUpper, descripcion: 'Creado desde presupuesto' }
+      ]);
+    } catch (err) {
+      console.error("Error al guardar el rubro en la base de datos:", err);
+    }
+
+    setNombreNuevoRubro('');
+    setIsRubroModalOpen(false);
+  };
+
+  const handleEliminarRubro = (nombreRubro) => {
+    if (esEntregado) {
+      alert("⚠️ Presupuesto bloqueado (Entregado).");
+      return;
+    }
+    if (window.confirm(`¿Estás seguro de eliminar el rubro "${nombreRubro}" y todas sus tareas asociadas?`)) {
+      const nuevos = itemsDetalle.filter(r => r.rubro !== nombreRubro);
+      setItemsDetalle(nuevos);
+      guardarEstructuraPresupuesto(nuevos);
+    }
+  };
+
+  const handleGuardarTarea = (e) => {
+    e.preventDefault();
+    if (esEntregado) return;
+    if (!nuevaTarea.rubro || !nuevaTarea.tarea) {
+      alert("Complete el rubro y el nombre de la tarea.");
+      return;
+    }
+
+    let nuevosItems;
+    if (editingTarea) {
+      nuevosItems = itemsDetalle.map(r => {
+        if (r.rubro === nuevaTarea.rubro) {
+          return {
+            ...r,
+            tareas: r.tareas.map(t => t.id === editingTarea.id ? { ...nuevaTarea, id: editingTarea.id } : t)
+          };
+        } else {
+          return {
+            ...r,
+            tareas: r.tareas.filter(t => t.id !== editingTarea.id)
+          };
+        }
+      });
+      const existeEnDestino = nuevosItems.some(r => r.rubro === nuevaTarea.rubro && r.tareas.some(t => t.id === editingTarea.id));
+      if (!existeEnDestino) {
+        nuevosItems = nuevosItems.map(r => {
+          if (r.rubro === nuevaTarea.rubro) {
+            return { ...r, tareas: [...r.tareas, { ...nuevaTarea, id: editingTarea.id }] };
+          }
+          return r;
+        });
+      }
+    } else {
+      nuevosItems = itemsDetalle.map(r => {
+        if (r.rubro === nuevaTarea.rubro) {
+          return {
+            ...r,
+            tareas: [...r.tareas, { ...nuevaTarea, id: Date.now() }]
+          };
+        }
+        return r;
+      });
+    }
+
+    setItemsDetalle(nuevosItems);
+    guardarEstructuraPresupuesto(nuevosItems);
+    setIsTareaModalOpen(false);
+    setEditingTarea(null);
+    setNuevaTarea({ rubro: '', tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
+  };
+
+  const handleEditarTareaClick = (rubroName, tarea) => {
+    if (esEntregado) {
+      alert("⚠️ Presupuesto bloqueado (Entregado).");
+      return;
+    }
+    setNuevaTarea({
+      rubro: rubroName,
+      tarea: tarea.tarea || '',
+      unidad: tarea.unidad || 'm2',
+      cantidad: tarea.cantidad || 1,
+      costo_unitario: tarea.costo_unitario || 0,
+      insumos: tarea.insumos || ''
+    });
+    setEditingTarea(tarea);
+    setIsTareaModalOpen(true);
+  };
+
+  const handleEliminarTarea = (nombreRubro, tareaId) => {
+    if (esEntregado) {
+      alert("⚠️ Presupuesto bloqueado (Entregado).");
+      return;
+    }
+    if (window.confirm("¿Eliminar esta tarea?")) {
+      const nuevos = itemsDetalle.map(r => {
+        if (r.rubro === nombreRubro) {
+          return {
+            ...r,
+            tareas: r.tareas.filter(t => t.id !== tareaId)
+          };
+        }
+        return r;
+      });
+      setItemsDetalle(nuevos);
+      guardarEstructuraPresupuesto(nuevos);
+    }
+  };
+
+  const handleCrearGastoGeneral = async (e) => {
+    e.preventDefault();
+    if (esEntregado) return;
+    if (!nuevoGastoGeneral.concepto) return;
+    setIsSavingGG(true);
+    
+    const nuevoIns = {
+      codigo: 'GG-' + Date.now().toString().slice(-4),
+      nombre: nuevoGastoGeneral.concepto.toUpperCase(),
+      categoria: 'GASTOS GENERALES',
+      tipo: 'Gastos Generales',
+      unidad: 'un',
+      costo_unitario: Number(nuevoGastoGeneral.unitario) || 0,
+      estado: 'activo'
+    };
+
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'Insumos', action: 'create', data: nuevoIns })
+      });
+      const data = await res.json();
+      
+      const insumoCreado = { ...nuevoIns, id: data.id || Date.now() };
+      
+      setInsumosList([...insumosList, insumoCreado]);
+      setGastosGeneralesInsumos([
+        ...gastosGeneralesInsumos,
+        { id: insumoCreado.id, concepto: insumoCreado.nombre, cantidad: 1, unitario: insumoCreado.costo_unitario }
+      ]);
+
+      setIsNuevoGGModalOpen(false);
+      setNuevoGastoGeneral({ concepto: '', unitario: '' });
+    } catch (err) {
+      alert("Error al guardar el gasto general en la base de datos.");
+    } finally {
+      setIsSavingGG(false);
+    }
+  };
+
+  if (isLoading) {
+    return <div className="p-12 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-amber-500" /></div>;
+  }
+
+  let costoTotalGeneral = 0;
+  let totalTareasCount = 0;
+  itemsDetalle.forEach(r => {
+    totalTareasCount += (r.tareas || []).length;
+    (r.tareas || []).forEach(t => {
+      costoTotalGeneral += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0);
+    });
+  });
+
+  const costoDirectoBase = costoTotalGeneral;
+
+  const insumosDisponiblesGG = insumosList.filter(i => {
+    const cat = String(i.categoria || i.tipo || i.rubro || '').trim().toUpperCase();
+    return cat.includes('GASTOS') || cat.includes('GENERAL');
+  });
+
+  const totalInsumosGG = gastosGeneralesInsumos.reduce((acc, item) => acc + ((Number(item.cantidad) || 0) * (Number(item.unitario) || 0)), 0);
+  const montoComisionVenta = costoDirectoBase * (porcentajeComisionVenta / 100);
+  const montoImprevistos = costoDirectoBase * (porcentajeImprevistos / 100);
+  const totalGastosGenerales = totalInsumosGG + montoComisionVenta + montoImprevistos;
+
+  const sumaPorcentajesPV = Number(impuestosPorcentajes.iibb) + 
+                            Number(impuestosPorcentajes.gastosFinancieros) + 
+                            Number(impuestosPorcentajes.ganancias) + 
+                            Number(impuestosPorcentajes.sellados) + 
+                            Number(impuestosPorcentajes.beneficio);
+
+  const factorDivisorPV = 1 - (sumaPorcentajesPV / 100);
+  const precioVentaCalculado = factorDivisorPV > 0 ? (costoDirectoBase + totalGastosGenerales) / factorDivisorPV : costoDirectoBase;
+  const coeficientePaseCalculado = costoDirectoBase > 0 ? precioVentaCalculado / costoDirectoBase : 1;
+  const coeficientePase = Number(presupuesto?.coeficiente_pase) || coeficientePaseCalculado;
+  const precioVentaGeneral = costoDirectoBase * coeficientePase;
+
+  const certsPresupuesto = certificados.filter(c => String(c.presupuesto_id) === String(presupuestoId) || String(c.obra_id) === String(presupuesto?.obra_id));
+
+  let totalPresupuestadoVenta = 0;
+  let totalFacturadoGeneral = 0;
+
+  const rubrosResumen = itemsDetalle.map(rubroObj => {
+    let costoRubro = 0;
+    (rubroObj.tareas || []).forEach(t => {
+      costoRubro += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0);
+    });
+    const presupuestadoVentaRubro = costoRubro * coeficientePase;
+    totalPresupuestadoVenta += presupuestadoVentaRubro;
+
+    let facturadoRubro = 0;
+    certsPresupuesto.forEach(c => {
+      let cItems = [];
+      try { cItems = typeof c.items_detalle === 'string' ? JSON.parse(c.items_detalle) : (c.items_detalle || []); } catch (e) { cItems = []; }
+      if (Array.isArray(cItems) && cItems.length > 0) {
+        cItems.forEach(ci => {
+          if (String(ci.rubro || '').trim().toUpperCase() === String(rubroObj.rubro).trim().toUpperCase()) {
+            facturadoRubro += Number(ci.monto || ci.facturado || ci.total || 0);
+          }
+        });
+      } else if (c.rubro && String(c.rubro).trim().toUpperCase() === String(rubroObj.rubro).trim().toUpperCase()) {
+        facturadoRubro += Number(c.monto || c.total || 0);
+      }
+    });
+
+    totalFacturadoGeneral += facturadoRubro;
+    return { rubro: rubroObj.rubro, presupuestado: presupuestadoVentaRubro, facturado: facturadoRubro, diferencia: presupuestadoVentaRubro - facturadoRubro, ejecucion: presupuestadoVentaRubro > 0 ? (facturadoRubro / presupuestadoVentaRubro) * 100 : 0 };
+  });
+
+  const saldoDisponibleGeneral = totalPresupuestadoVenta - totalFacturadoGeneral;
+  const porcentajeEjecucionGeneral = totalPresupuestadoVenta > 0 ? (totalFacturadoGeneral / totalPresupuestadoVenta) * 100 : 0;
+
+  const rubrosDisponiblesMaestro = [...new Set([
+    ...rubrosList.map(r => String(r.nombre || r.Nombre || '').trim().toUpperCase()),
+    ...maestroTareas.map(m => String(m.rubro || m.Rubro || m.RUBRO || '').trim().toUpperCase())
+  ].filter(Boolean))];
+
+  const maestroTareasFiltradas = maestroTareas.filter(m => {
+    if (!nuevaTarea.rubro) return true;
+    const rubroMaestro = String(m.rubro || m.Rubro || m.RUBRO || '').trim().toUpperCase();
+    const rubroSeleccionado = String(nuevaTarea.rubro || '').trim().toUpperCase();
+    return rubroMaestro === rubroSeleccionado && m.tarea !== '---';
+  });
+
+  return (
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      
+      {/* Botón de Regreso */}
+      <div>
+        <Link 
+          to="/presupuestos"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 transition-colors shadow-sm"
+        >
+          <ArrowLeft className="w-4 h-4" /> Volver a Presupuestos
+        </Link>
+      </div>
+
+      {/* Alerta si está Entregado */}
+      {esEntregado && (
+        <div className="bg-purple-50 border border-purple-200 text-purple-900 px-5 py-4 rounded-2xl flex items-center gap-3 shadow-sm">
+          <Lock className="w-5 h-5 text-purple-600 shrink-0" />
+          <div className="text-xs">
+            <span className="font-extrabold uppercase tracking-wide block">Presupuesto Bloqueado (Entregado)</span>
+            Este presupuesto se encuentra en estado Entregado, por lo que no se permite modificar tareas, insumos ni eliminar registros.
+          </div>
+        </div>
+      )}
+
+      {/* CABECERA SUPERIOR */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-lg font-bold text-xs">{presupuesto?.codigo || '---'}</span>
+            <span className="px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-extrabold text-[11px] uppercase">{presupuesto?.version || 'v1'}</span>
+            <h1 className="text-xl font-extrabold text-slate-900">{presupuesto?.nombre || 'Detalle de Presupuesto'}</h1>
+            <span className={`px-2.5 py-1 rounded-full font-bold text-xs uppercase ${esEntregado ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700'}`}>{presupuesto?.estado || 'borrador'}</span>
+          </div>
+          <p className="text-slate-500 text-sm mt-1.5 flex items-center gap-4">
+            <span><strong>Obra:</strong> {obra?.nombre || obra?.nombre_obra || 'Sin obra asignada'}</span>
+            <span>•</span>
+            <span><strong>Cliente:</strong> {cliente?.razon_social || cliente?.nombre || 'Sin cliente asignado'}</span>
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <button 
+            disabled={esEntregado}
+            onClick={() => setIsRubroModalOpen(true)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-colors shadow-sm ${esEntregado ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-900 text-white'}`}
+          >
+            <FolderPlus className="w-4 h-4" /> Nuevo Rubro
+          </button>
+          <button 
+            disabled={esEntregado}
+            onClick={() => {
+              if (itemsDetalle.length === 0) { alert("Cree un rubro primero."); return; }
+              setEditingTarea(null);
+              setNuevaTarea({ rubro: itemsDetalle[0].rubro, tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
+              setIsTareaModalOpen(true);
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-colors shadow-sm ${esEntregado ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-amber-500 hover:bg-amber-600 text-white'}`}
+          >
+            <Plus className="w-4 h-4" /> Nueva Tarea
+          </button>
+        </div>
+      </div>
+
+      {/* TARJETAS DE MÉTRICAS */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <span className="text-xs font-bold text-slate-400 uppercase">Costo Directo</span>
+          <h3 className="text-2xl font-black text-slate-900 mt-1">$ {costoTotalGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <span className="text-xs font-bold text-slate-400 uppercase">Precio de Venta</span>
+          <h3 className="text-2xl font-black text-amber-600 mt-1">$ {precioVentaGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <span className="text-xs font-bold text-slate-400 uppercase">Coeficiente de Pase</span>
+          <h3 className="text-2xl font-black text-slate-800 mt-1">{coeficientePase.toFixed(4)}</h3>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <span className="text-xs font-bold text-slate-400 uppercase">Rubros / Tareas</span>
+          <h3 className="text-2xl font-black text-slate-800 mt-1">{itemsDetalle.length} / {totalTareasCount}</h3>
+        </div>
+      </div>
+
+      {/* PESTAÑAS EN FORMATO CÁPSULA */}
+      <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-300 shadow-sm inline-flex gap-1">
+        <button 
+          onClick={() => setActiveTab('costos')}
+          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all ${activeTab === 'costos' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+        >
+          Presupuesto de Costos
+        </button>
+        <button 
+          onClick={() => setActiveTab('real_vs_presupuestado')}
+          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all ${activeTab === 'real_vs_presupuestado' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+        >
+          Real vs Presupuestado
+        </button>
+        <button 
+          onClick={() => setActiveTab('multiplicador')}
+          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all ${activeTab === 'multiplicador' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+        >
+          Multiplicador / Comercial
+        </button>
+      </div>
+
+      {/* CONTENIDO SEGÚN PESTAÑA ACTIVA */}
+      {activeTab === 'costos' && (
+        <div className="space-y-4">
+          {itemsDetalle.map((rubroObj, rIdx) => {
+            const tareasDelRubro = rubroObj.tareas || [];
+            let costoRubro = 0;
+            tareasDelRubro.forEach(t => { costoRubro += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0); });
+
+            return (
+              <div key={rIdx} className="bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm group/rubro">
+                <div className="bg-slate-800 text-white px-6 py-3.5 flex justify-between items-center">
+                  <span className="font-extrabold text-sm tracking-wide uppercase">{rubroObj.rubro}</span>
+                  <div className="flex items-center gap-4">
+                    <span className="font-black text-amber-400">$ {costoRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                    {!esEntregado && (
+                      <button 
+                        onClick={() => handleEliminarRubro(rubroObj.rubro)} 
+                        className="text-red-400 hover:text-red-200 p-1 rounded transition-colors flex items-center gap-1 text-xs font-semibold bg-slate-900/40 px-2 py-1 border border-red-500/30"
+                        title="Eliminar Rubro Completo"
+                      >
+                        <Trash2 className="w-3.5 h-3.5"/> Eliminar Rubro
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                <div className="divide-y divide-slate-100">
+                  {tareasDelRubro.length === 0 ? (
+                    <div className="px-6 py-6 text-xs text-slate-400 italic text-center">No hay tareas cargadas en este rubro. Hacé clic en "Nueva Tarea" para agregar.</div>
+                  ) : (
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
+                          <th className="px-6 py-3">Tarea e Insumos</th>
+                          <th className="px-4 py-3">Unidad</th>
+                          <th className="px-4 py-3 text-center">Cantidad</th>
+                          <th className="px-4 py-3 text-right">Costo Unit.</th>
+                          <th className="px-6 py-3 text-right">Costo Total</th>
+                          <th className="px-4 py-3 text-right">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {tareasDelRubro.map(t => {
+                          const cant = Number(t.cantidad) || 0;
+                          const cUnit = Number(t.costo_unitario) || 0;
+                          const cTot = cant * cUnit;
+
+                          return (
+                            <tr key={t.id} className="hover:bg-slate-50 group">
+                              <td className="px-6 py-3">
+                                <div className="font-semibold text-slate-800">{t.tarea}</div>
+                                {t.insumos && (
+                                  <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                                    <span className="font-bold text-slate-600">Insumos:</span> {t.insumos}
+                                  </div>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 uppercase text-slate-600">{t.unidad}</td>
+                              <td className="px-4 py-3 text-center font-bold text-slate-800">{cant}</td>
+                              <td className="px-4 py-3 text-right text-slate-600">$ {cUnit.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="px-6 py-3 text-right font-black text-slate-900">$ {cTot.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="px-4 py-3 text-right">
+                                {!esEntregado && (
+                                  <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => handleEditarTareaClick(rubroObj.rubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea (Cómputo)">
+                                      <Edit2 className="w-3.5 h-3.5"/>
+                                    </button>
+                                    <button onClick={() => handleEliminarTarea(rubroObj.rubro, t.id)} className="p-1 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar Tarea">
+                                      <Trash2 className="w-3.5 h-3.5"/>
+                                    </button>
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {activeTab === 'real_vs_presupuestado' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white p-5 rounded-2xl border border-blue-200 shadow-sm">
+              <span className="text-xs font-bold text-slate-400 uppercase">Total Presupuestado</span>
+              <h3 className="text-2xl font-black text-slate-900 mt-1">$ {totalPresupuestadoVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-sm">
+              <span className="text-xs font-bold text-slate-400 uppercase">Total Facturado</span>
+              <h3 className="text-2xl font-black text-amber-600 mt-1">$ {totalFacturadoGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+              <p className="text-[11px] font-semibold text-amber-600 mt-1">{porcentajeEjecucionGeneral.toFixed(1)}% ejecutado</p>
+            </div>
+            <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-sm">
+              <span className="text-xs font-bold text-slate-400 uppercase">Saldo Disponible</span>
+              <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {saldoDisponibleGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th className="px-6 py-4">Rubro</th>
+                  <th className="px-4 py-4 text-right">Presupuestado</th>
+                  <th className="px-4 py-4 text-right">Facturado</th>
+                  <th className="px-4 py-4 text-right">Diferencia</th>
+                  <th className="px-6 py-4 text-center">Ejecución</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {rubrosResumen.map((r, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50 transition-colors">
+                    <td className="px-6 py-4 font-extrabold text-slate-900 uppercase">{r.rubro}</td>
+                    <td className="px-4 py-4 text-right font-semibold text-slate-800">$ {r.presupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-4 text-right font-bold text-amber-600">$ {r.facturado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-4 text-right font-medium text-emerald-600 flex items-center justify-end gap-1">
+                      <TrendingUp className="w-3 h-3" /> $ {r.diferencia.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-6 py-4">
+                      <div className="flex items-center justify-center gap-3">
+                        <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
+                          <div 
+                            className="bg-amber-500 h-full rounded-full transition-all duration-500" 
+                            style={{ width: `${Math.min(r.ejecucion, 100)}%` }}
+                          ></div>
+                        </div>
+                        <span className="font-bold text-slate-700 w-10 text-right">{r.ejecucion.toFixed(0)}%</span>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+                <tr className="bg-slate-50 font-black text-slate-900 border-t-2 border-slate-200">
+                  <td className="px-6 py-4 uppercase">Total</td>
+                  <td className="px-4 py-4 text-right">$ {totalPresupuestadoVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-4 py-4 text-right text-amber-600">$ {totalFacturadoGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-4 py-4 text-right text-emerald-600">$ {saldoDisponibleGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-6 py-4 text-center">
+                    <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full text-[11px]">
+                      {porcentajeEjecucionGeneral.toFixed(1)}%
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'multiplicador' && (
+        <div className="bg-white p-8 rounded-2xl border border-slate-300 shadow-sm space-y-8 max-w-5xl mx-auto">
+          <div className="flex items-center justify-between border-b pb-4">
+            <div className="flex items-center gap-3">
+              <Calculator className="w-6 h-6 text-amber-500" />
+              <h3 className="text-lg font-bold text-slate-800">Multiplicador — Cálculo del Coeficiente de Pase</h3>
+            </div>
+            <div className="text-sm font-semibold text-slate-500">
+              Costo Directo base: <strong className="text-slate-900">$ {costoDirectoBase.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+              <h4 className="font-extrabold text-sm text-slate-800 uppercase">Gastos Generales (Insumos y Valores Fijos)</h4>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <select 
+                  disabled={esEntregado}
+                  className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 flex-1 sm:flex-none disabled:bg-slate-100 disabled:cursor-not-allowed"
+                  onChange={(e) => {
+                    const insId = e.target.value;
+                    if (!insId) return;
+                    const ins = insumosList.find(i => String(i.id) === String(insId));
+                    if (ins) {
+                      setGastosGeneralesInsumos([
+                        ...gastosGeneralesInsumos,
+                        {
+                          id: Date.now(),
+                          concepto: ins.nombre || ins.insumo || ins.descripcion || '',
+                          cantidad: 1,
+                          unitario: Number(ins.costo || ins.precio || ins.costo_unitario || 0)
+                        }
+                      ]);
+                    }
+                    e.target.value = '';
+                  }}
+                >
+                  <option value="">+ Seleccionar Insumo (Gastos Generales)...</option>
+                  {insumosDisponiblesGG.map(ins => (
+                    <option key={ins.id} value={ins.id}>
+                      {ins.nombre || ins.insumo || ins.descripcion} ($ {Number(ins.costo || ins.precio || ins.costo_unitario || 0).toLocaleString('es-AR')})
+                    </option>
+                  ))}
+                </select>
+
+                <button 
+                  disabled={esEntregado}
+                  onClick={() => setIsNuevoGGModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-colors shrink-0 disabled:bg-slate-300 disabled:cursor-not-allowed"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Crear Nuevo Manual
+                </button>
+              </div>
+            </div>
+
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                    <th className="px-4 py-3">Concepto</th>
+                    <th className="px-4 py-3 w-28 text-center">Cantidad</th>
+                    <th className="px-4 py-3 w-40 text-right">Unitario ($)</th>
+                    <th className="px-4 py-3 w-40 text-right">Total ($)</th>
+                    <th className="px-4 py-3 w-16 text-center">Acción</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {gastosGeneralesInsumos.map((item, index) => {
+                    const subtotal = (Number(item.cantidad) || 0) * (Number(item.unitario) || 0);
+                    return (
+                      <tr key={item.id} className="hover:bg-slate-50">
+                        <td className="px-4 py-2.5">
+                          <input 
+                            type="text" 
+                            disabled={esEntregado}
+                            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                            value={item.concepto}
+                            onChange={(e) => {
+                              const nuevo = [...gastosGeneralesInsumos];
+                              nuevo[index].concepto = e.target.value;
+                              setGastosGeneralesInsumos(nuevo);
+                            }}
+                          />
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <input 
+                            type="number" 
+                            disabled={esEntregado}
+                            step="0.01"
+                            className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                            value={item.cantidad}
+                            onChange={(e) => {
+                              const nuevo = [...gastosGeneralesInsumos];
+                              nuevo[index].cantidad = e.target.value;
+                              setGastosGeneralesInsumos(nuevo);
+                            }}
+                          />
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <input 
+                            type="number" 
+                            disabled={esEntregado}
+                            step="0.01"
+                            className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                            value={item.unitario}
+                            onChange={(e) => {
+                              const nuevo = [...gastosGeneralesInsumos];
+                              nuevo[index].unitario = e.target.value;
+                              setGastosGeneralesInsumos(nuevo);
+                            }}
+                          />
+                        </td>
+                        <td className="px-4 py-2.5 text-right font-black text-slate-900">
+                          $ {subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          {!esEntregado && (
+                            <button 
+                              onClick={() => {
+                                setGastosGeneralesInsumos(gastosGeneralesInsumos.filter(i => i.id !== item.id));
+                              }}
+                              className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                              title="Eliminar"
+                            >
+                              <Trash2 className="w-4 h-4 mx-auto" />
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+
+                  <tr className="bg-slate-50/50">
+                    <td className="px-4 py-3 font-bold text-slate-800">Comisión de Venta</td>
+                    <td className="px-4 py-3 text-center text-slate-500 font-semibold">% s/ CD</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <input 
+                          type="number" 
+                          disabled={esEntregado}
+                          step="0.01"
+                          className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-amber-600 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                          value={porcentajeComisionVenta}
+                          onChange={(e) => setPorcentajeComisionVenta(e.target.value)}
+                        />
+                        <span className="text-slate-500">%</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-black text-amber-600">
+                      $ {montoComisionVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-4 py-3 text-center text-slate-300">-</td>
+                  </tr>
+
+                  <tr className="bg-slate-50/50">
+                    <td className="px-4 py-3 font-bold text-slate-800">Imprevistos</td>
+                    <td className="px-4 py-3 text-center text-slate-500 font-semibold">% s/ CD</td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <input 
+                          type="number" 
+                          disabled={esEntregado}
+                          step="0.01"
+                          className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-amber-600 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                          value={porcentajeImprevistos}
+                          onChange={(e) => setPorcentajeImprevistos(e.target.value)}
+                        />
+                        <span className="text-slate-500">%</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right font-black text-amber-600">
+                      $ {montoImprevistos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-4 py-3 text-center text-slate-300">-</td>
+                  </tr>
+                </tbody>
+              </table>
+              <div className="bg-slate-100 px-6 py-3 flex justify-between items-center border-t border-slate-200 font-black text-slate-900 text-xs">
+                <span>TOTAL Gastos Generales</span>
+                <span className="text-amber-600">$ {totalGastosGenerales.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <h4 className="font-extrabold text-sm text-slate-800 uppercase">Impuestos y Beneficio (% sobre precio de venta)</h4>
+
+            <div className="border border-slate-200 rounded-xl overflow-hidden">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                    <th className="px-6 py-3">Concepto</th>
+                    <th className="px-6 py-3 w-40 text-center">Porcentaje (%)</th>
+                    <th className="px-6 py-3 w-48 text-right">Monto calculado</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  <tr className="hover:bg-slate-50">
+                    <td className="px-6 py-3 font-semibold text-slate-800">Imp. a los Ingresos Brutos (IIBB)</td>
+                    <td className="px-6 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <input 
+                          type="number" 
+                          disabled={esEntregado}
+                          step="0.001"
+                          className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                          value={impuestosPorcentajes.iibb}
+                          onChange={(e) => setImpuestosPorcentajes({...impuestosPorcentajes, iibb: e.target.value})}
+                        />
+                        <span className="text-slate-500">%</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-3 text-right font-bold text-slate-900">
+                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.iibb) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-slate-50">
+                    <td className="px-6 py-3 font-semibold text-slate-800">Gastos Financieros</td>
+                    <td className="px-6 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <input 
+                          type="number" 
+                          disabled={esEntregado}
+                          step="0.001"
+                          className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                          value={impuestosPorcentajes.gastosFinancieros}
+                          onChange={(e) => setImpuestosPorcentajes({...impuestosPorcentajes, gastosFinancieros: e.target.value})}
+                        />
+                        <span className="text-slate-500">%</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-3 text-right font-bold text-slate-900">
+                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.gastosFinancieros) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-slate-50">
+                    <td className="px-6 py-3 font-semibold text-slate-800">Impuesto a las Ganancias</td>
+                    <td className="px-6 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <input 
+                          type="number" 
+                          disabled={esEntregado}
+                          step="0.001"
+                          className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                          value={impuestosPorcentajes.ganancias}
+                          onChange={(e) => setImpuestosPorcentajes({...impuestosPorcentajes, ganancias: e.target.value})}
+                        />
+                        <span className="text-slate-500">%</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-3 text-right font-bold text-slate-900">
+                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.ganancias) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                  <tr className="hover:bg-slate-50">
+                    <td className="px-6 py-3 font-semibold text-slate-800">Sellados</td>
+                    <td className="px-6 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <input 
+                          type="number" 
+                          disabled={esEntregado}
+                          step="0.001"
+                          className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                          value={impuestosPorcentajes.sellados}
+                          onChange={(e) => setImpuestosPorcentajes({...impuestosPorcentajes, sellados: e.target.value})}
+                        />
+                        <span className="text-slate-500">%</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-3 text-right font-bold text-slate-900">
+                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.sellados) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                  <tr className="bg-emerald-50/50 hover:bg-emerald-50">
+                    <td className="px-6 py-3 font-extrabold text-emerald-800">Beneficio</td>
+                    <td className="px-6 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <input 
+                          type="number" 
+                          disabled={esEntregado}
+                          step="0.001"
+                          className="w-24 bg-white border border-emerald-300 rounded-lg px-2 py-1.5 text-center font-bold text-emerald-700 outline-none focus:border-emerald-500 disabled:bg-slate-50"
+                          value={impuestosPorcentajes.beneficio}
+                          onChange={(e) => setImpuestosPorcentajes({...impuestosPorcentajes, beneficio: e.target.value})}
+                        />
+                        <span className="text-emerald-700">%</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-3 text-right font-black text-emerald-700">
+                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.beneficio) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <span className="text-[11px] font-bold text-slate-400 uppercase">Suma % porcentuales</span>
+              <h4 className="text-lg font-black text-slate-800 mt-0.5">{sumaPorcentajesPV.toFixed(3)}%</h4>
+            </div>
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <span className="text-[11px] font-bold text-slate-400 uppercase">% Gastos Generales</span>
+              <h4 className="text-lg font-black text-slate-800 mt-0.5">
+                {costoDirectoBase > 0 ? ((totalGastosGenerales / costoDirectoBase) * 100).toFixed(3) : 0}%
+              </h4>
+            </div>
+            <div className="bg-blue-50/50 p-4 rounded-xl border border-blue-200">
+              <span className="text-[11px] font-bold text-blue-600 uppercase">Coeficiente Primario</span>
+              <h4 className="text-lg font-black text-blue-700 mt-0.5">{coeficientePaseCalculado.toFixed(5)}</h4>
+            </div>
+            <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
+              <span className="text-[11px] font-bold text-emerald-600 uppercase">Precio de Venta</span>
+              <h4 className="text-lg font-black text-emerald-700 mt-0.5">$ {precioVentaCalculado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h4>
+            </div>
+          </div>
+
+          <div className="bg-amber-50 border border-amber-300 p-6 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4">
+            <div>
+              <span className="text-xs font-black text-amber-800 uppercase tracking-wider">COEFICIENTE DE PASE</span>
+              <h2 className="text-3xl font-black text-slate-900 mt-1">{coeficientePaseCalculado.toFixed(4)}</h2>
+              <p className="text-xs text-amber-900 font-medium mt-0.5">Precio de Venta = Costo Directo × {coeficientePaseCalculado.toFixed(4)}</p>
+            </div>
+            <button
+              disabled={esEntregado}
+              onClick={() => {
+                guardarEstructuraPresupuesto(itemsDetalle, coeficientePaseCalculado);
+                alert("¡Coeficiente de Pase aplicado y guardado con éxito!");
+              }}
+              className="px-6 py-3 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm shadow-md transition-colors flex items-center gap-2"
+            >
+              Aplicar al Presupuesto
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL NUEVO RUBRO */}
+      {isRubroModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
+              <h3 className="font-bold text-slate-900">Crear Nuevo Rubro</h3>
+              <button onClick={() => setIsRubroModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+            </div>
+            <form onSubmit={handleCrearRubro} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar o Escribir Rubro *</label>
+                <select 
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm uppercase font-semibold outline-none focus:border-amber-500 mb-2"
+                  value={nombreNuevoRubro}
+                  onChange={(e) => setNombreNuevoRubro(e.target.value)}
+                >
+                  <option value="">Seleccionar de la lista de Rubros...</option>
+                  {rubrosDisponiblesMaestro.map((rName, idx) => (
+                    <option key={idx} value={rName}>{rName}</option>
+                  ))}
+                </select>
+                <input 
+                  type="text" 
+                  placeholder="O escribe un nuevo rubro aquí..."
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm uppercase font-semibold outline-none focus:border-amber-500"
+                  value={nombreNuevoRubro}
+                  onChange={(e) => setNombreNuevoRubro(e.target.value.toUpperCase())}
+                />
+              </div>
+              <div className="flex justify-end gap-2 pt-2">
+                <button type="button" onClick={() => setIsRubroModalOpen(false)} className="px-4 py-2 text-sm text-slate-600">Cancelar</button>
+                <button type="submit" className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold">Guardar Rubro</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL NUEVA / EDITAR TAREA */}
+      {isTareaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
+              <h3 className="font-bold text-slate-900">{editingTarea ? 'Modificar Tarea' : 'Agregar Nueva Tarea'}</h3>
+              <button onClick={() => setIsTareaModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+            </div>
+            <form onSubmit={handleGuardarTarea} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar Rubro *</label>
+                <select 
+                  required
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:border-amber-500"
+                  value={nuevaTarea.rubro}
+                  onChange={(e) => setNuevaTarea({...nuevaTarea, rubro: e.target.value})}
+                >
+                  <option value="">Seleccione un rubro...</option>
+                  {Array.isArray(itemsDetalle) && itemsDetalle.length > 0 ? (
+                    itemsDetalle.map((r, i) => (
+                      <option key={i} value={r.rubro}>{r.rubro}</option>
+                    ))
+                  ) : (
+                    <option value="" disabled>No hay rubros creados</option>
+                  )}
+                </select>
+              </div>
+
+              {!editingTarea && (
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cargar desde el Maestro (para el rubro seleccionado)</label>
+                  <select 
+                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
+                    onChange={(e) => {
+                      const tareaMt = maestroTareas.find(m => String(m.id) === String(e.target.value));
+                      if (tareaMt) {
+                        setNuevaTarea({
+                          ...nuevaTarea,
+                          rubro: tareaMt.rubro || nuevaTarea.rubro,
+                          tarea: tareaMt.tarea || '',
+                          unidad: tareaMt.unidad || 'm2',
+                          costo_unitario: Number(tareaMt.costo_estimado) || 0,
+                          insumos: tareaMt.insumos || tareaMt.materiales || ''
+                        });
+                      }
+                    }}
+                  >
+                    <option value="">Elegir plantilla del Maestro de Tareas...</option>
+                    {maestroTareasFiltradas.map(m => (
+                      <option key={m.id} value={m.id}>{m.tarea} ($ {Number(m.costo_estimado || 0).toLocaleString('es-AR')})</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de la Tarea *</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Descripción de la tarea"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
+                  value={nuevaTarea.tarea}
+                  onChange={(e) => setNuevaTarea({...nuevaTarea, tarea: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Insumos / Materiales</label>
+                <input 
+                  type="text" 
+                  placeholder="Ej: Cemento, Arena, Hierro..."
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
+                  value={nuevaTarea.insumos}
+                  onChange={(e) => setNuevaTarea({...nuevaTarea, insumos: e.target.value})}
+                />
+              </div>
+
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Unidad</label>
+                  <select 
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none"
+                    value={nuevaTarea.unidad}
+                    onChange={(e) => setNuevaTarea({...nuevaTarea, unidad: e.target.value})}
+                  >
+                    <option value="m2">m²</option>
+                    <option value="m3">m³</option>
+                    <option value="ml">ml</option>
+                    <option value="un">un</option>
+                    <option value="gl">gl</option>
+                    <option value="hs">hs</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cantidad / Cómputo</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    required
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none font-bold"
+                    value={nuevaTarea.cantidad}
+                    onChange={(e) => setNuevaTarea({...nuevaTarea, cantidad: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Unit. ($)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    required
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none font-bold"
+                    value={nuevaTarea.costo_unitario}
+                    onChange={(e) => setNuevaTarea({...nuevaTarea, costo_unitario: e.target.value})}
+                  />
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button type="button" onClick={() => setIsTareaModalOpen(false)} className="px-4 py-2 text-sm text-slate-600">Cancelar</button>
+                <button type="submit" className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold">{editingTarea ? 'Actualizar Tarea' : 'Guardar Tarea'}</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL CREAR GASTO GENERAL MANUAL A BASE DE DATOS */}
+      {isNuevoGGModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-sm overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
+              <h3 className="font-bold text-slate-900">Nuevo Gasto en Base de Datos</h3>
+              <button onClick={() => setIsNuevoGGModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+            </div>
+            <form onSubmit={handleCrearGastoGeneral} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto / Nombre *</label>
+                <input 
+                  type="text" 
+                  required
+                  placeholder="Ej: Licencia Especial"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
+                  value={nuevoGastoGeneral.concepto}
+                  onChange={(e) => setNuevoGastoGeneral({...nuevoGastoGeneral, concepto: e.target.value})}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto Unitario ($) *</label>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  required
+                  placeholder="Costo total del gasto"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-bold"
+                  value={nuevoGastoGeneral.unitario}
+                  onChange={(e) => setNuevoGastoGeneral({...nuevoGastoGeneral, unitario: e.target.value})}
+                />
+              </div>
+              <p className="text-[10px] text-slate-500 leading-tight">
+                * Este concepto se guardará automáticamente en el Maestro de Insumos como "Gastos Generales" y se sumará a esta tabla.
+              </p>
+              <div className="flex justify-end gap-2 pt-2 border-t mt-4">
+                <button type="button" onClick={() => setIsNuevoGGModalOpen(false)} className="px-4 py-2 text-sm text-slate-600">Cancelar</button>
+                <button type="submit" disabled={isSavingGG} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
+                  {isSavingGG ? <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</> : 'Guardar y Agregar'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+    </div>
+  );
+}
