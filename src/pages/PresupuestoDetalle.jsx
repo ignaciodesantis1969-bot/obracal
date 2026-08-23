@@ -35,12 +35,7 @@ export default function PresupuestoDetalle() {
     insumos: ''
   });
 
-  const [gastosGeneralesInsumos, setGastosGeneralesInsumos] = useState([
-    { id: 1, concepto: 'Programa de Seguridad', cantidad: 1, unitario: 150000 },
-    { id: 2, concepto: 'Visita Lic. Seguridad e Higiene', cantidad: 1, unitario: 0 },
-    { id: 3, concepto: 'Técnico Perm. Seg. e Higiene', cantidad: 1, unitario: 0 },
-    { id: 4, concepto: 'Ropa de Trabajo', cantidad: 1, unitario: 0 }
-  ]);
+  const [gastosGeneralesInsumos, setGastosGeneralesInsumos] = useState([]);
 
   const [porcentajeComisionVenta, setPorcentajeComisionVenta] = useState(0); 
   const [porcentajeImprevistos, setPorcentajeImprevistos] = useState(1.5); 
@@ -50,6 +45,7 @@ export default function PresupuestoDetalle() {
     gastosFinancieros: 0,
     ganancias: 5.4,
     sellados: 0,
+    debitosCreditos: 0,
     beneficio: 20.27
   });
 
@@ -77,13 +73,41 @@ export default function PresupuestoDetalle() {
       const presActual = presupuestosList.find(p => String(p.id) === String(presupuestoId));
       setPresupuesto(presActual || {});
 
-      if (presActual && presActual.obra_id) {
-        const obraEncontrada = obrasList.find(o => String(o.id) === String(presActual.obra_id));
-        setObra(obraEncontrada || {});
-        if (obraEncontrada) {
-          const clienteId = obraEncontrada.cliente_id || obraEncontrada.clienteId;
-          const clienteEncontrado = clientesList.find(c => String(c.id) === String(clienteId));
-          setCliente(clienteEncontrado || {});
+      if (presActual) {
+        // Recuperar datos comerciales guardados si existen
+        if (presActual.gastos_generales_insumos) {
+          try {
+            const gg = typeof presActual.gastos_generales_insumos === 'string' 
+              ? JSON.parse(presActual.gastos_generales_insumos) 
+              : presActual.gastos_generales_insumos;
+            if (Array.isArray(gg)) setGastosGeneralesInsumos(gg);
+          } catch (e) {}
+        }
+        if (presActual.porcentaje_comision_venta !== undefined && presActual.porcentaje_comision_venta !== null && presActual.porcentaje_comision_venta !== '') {
+          setPorcentajeComisionVenta(Number(presActual.porcentaje_comision_venta));
+        }
+        if (presActual.porcentaje_imprevistos !== undefined && presActual.porcentaje_imprevistos !== null && presActual.porcentaje_imprevistos !== '') {
+          setPorcentajeImprevistos(Number(presActual.porcentaje_imprevistos));
+        }
+        if (presActual.impuestos_porcentajes) {
+          try {
+            const imp = typeof presActual.impuestos_porcentajes === 'string'
+              ? JSON.parse(presActual.impuestos_porcentajes)
+              : presActual.impuestos_porcentajes;
+            if (imp && typeof imp === 'object') {
+              setImpuestosPorcentajes(prev => ({ ...prev, ...imp }));
+            }
+          } catch (e) {}
+        }
+
+        if (presActual.obra_id) {
+          const obraEncontrada = obrasList.find(o => String(o.id) === String(presActual.obra_id));
+          setObra(obraEncontrada || {});
+          if (obraEncontrada) {
+            const clienteId = obraEncontrada.cliente_id || obraEncontrada.clienteId;
+            const clienteEncontrado = clientesList.find(c => String(c.id) === String(clienteId));
+            setCliente(clienteEncontrado || {});
+          }
         }
       }
 
@@ -147,7 +171,11 @@ export default function PresupuestoDetalle() {
       costo_directo: costoDirectoTotal,
       precio_venta: precioVentaTotal,
       coeficiente_pase: coef,
-      items_detalle: JSON.stringify(nuevosItems)
+      items_detalle: JSON.stringify(nuevosItems),
+      gastos_generales_insumos: JSON.stringify(gastosGeneralesInsumos),
+      porcentaje_comision_venta: porcentajeComisionVenta,
+      porcentaje_imprevistos: porcentajeImprevistos,
+      impuestos_porcentajes: JSON.stringify(impuestosPorcentajes)
     };
 
     try {
@@ -348,10 +376,11 @@ export default function PresupuestoDetalle() {
       const insumoCreado = { ...nuevoIns, id: data.id || Date.now() };
       
       setInsumosList([...insumosList, insumoCreado]);
-      setGastosGeneralesInsumos([
+      const nuevosGG = [
         ...gastosGeneralesInsumos,
         { id: insumoCreado.id, concepto: insumoCreado.nombre, cantidad: 1, unitario: insumoCreado.costo_unitario }
-      ]);
+      ];
+      setGastosGeneralesInsumos(nuevosGG);
 
       setIsNuevoGGModalOpen(false);
       setNuevoGastoGeneral({ concepto: '', unitario: '' });
@@ -391,6 +420,7 @@ export default function PresupuestoDetalle() {
                             Number(impuestosPorcentajes.gastosFinancieros) + 
                             Number(impuestosPorcentajes.ganancias) + 
                             Number(impuestosPorcentajes.sellados) + 
+                            Number(impuestosPorcentajes.debitosCreditos) + 
                             Number(impuestosPorcentajes.beneficio);
 
   const factorDivisorPV = 1 - (sumaPorcentajesPV / 100);
@@ -772,70 +802,76 @@ export default function PresupuestoDetalle() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {gastosGeneralesInsumos.map((item, index) => {
-                    const subtotal = (Number(item.cantidad) || 0) * (Number(item.unitario) || 0);
-                    return (
-                      <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-2.5">
-                          <input 
-                            type="text" 
-                            disabled={esEntregado}
-                            className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
-                            value={item.concepto}
-                            onChange={(e) => {
-                              const nuevo = [...gastosGeneralesInsumos];
-                              nuevo[index].concepto = e.target.value;
-                              setGastosGeneralesInsumos(nuevo);
-                            }}
-                          />
-                        </td>
-                        <td className="px-4 py-2.5 text-center">
-                          <input 
-                            type="number" 
-                            disabled={esEntregado}
-                            step="0.01"
-                            className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
-                            value={item.cantidad}
-                            onChange={(e) => {
-                              const nuevo = [...gastosGeneralesInsumos];
-                              nuevo[index].cantidad = e.target.value;
-                              setGastosGeneralesInsumos(nuevo);
-                            }}
-                          />
-                        </td>
-                        <td className="px-4 py-2.5 text-right">
-                          <input 
-                            type="number" 
-                            disabled={esEntregado}
-                            step="0.01"
-                            className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
-                            value={item.unitario}
-                            onChange={(e) => {
-                              const nuevo = [...gastosGeneralesInsumos];
-                              nuevo[index].unitario = e.target.value;
-                              setGastosGeneralesInsumos(nuevo);
-                            }}
-                          />
-                        </td>
-                        <td className="px-4 py-2.5 text-right font-black text-slate-900">
-                          $ {subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-4 py-2.5 text-center">
-                          {!esEntregado && (
-                            <button 
-                              onClick={() => {
-                                setGastosGeneralesInsumos(gastosGeneralesInsumos.filter(i => i.id !== item.id));
+                  {gastosGeneralesInsumos.length === 0 ? (
+                    <tr>
+                      <td colSpan="5" className="px-4 py-6 text-center text-slate-400 italic">No hay gastos generales agregados.</td>
+                    </tr>
+                  ) : (
+                    gastosGeneralesInsumos.map((item, index) => {
+                      const subtotal = (Number(item.cantidad) || 0) * (Number(item.unitario) || 0);
+                      return (
+                        <tr key={item.id} className="hover:bg-slate-50">
+                          <td className="px-4 py-2.5">
+                            <input 
+                              type="text" 
+                              disabled={esEntregado}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                              value={item.concepto}
+                              onChange={(e) => {
+                                const nuevo = [...gastosGeneralesInsumos];
+                                nuevo[index].concepto = e.target.value;
+                                setGastosGeneralesInsumos(nuevo);
                               }}
-                              className="p-1 text-slate-400 hover:text-red-600 transition-colors"
-                              title="Eliminar"
-                            >
-                              <Trash2 className="w-4 h-4 mx-auto" />
-                            </button>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
+                            />
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            <input 
+                              type="number" 
+                              disabled={esEntregado}
+                              step="0.01"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                              value={item.cantidad}
+                              onChange={(e) => {
+                                const nuevo = [...gastosGeneralesInsumos];
+                                nuevo[index].cantidad = e.target.value;
+                                setGastosGeneralesInsumos(nuevo);
+                              }}
+                            />
+                          </td>
+                          <td className="px-4 py-2.5 text-right">
+                            <input 
+                              type="number" 
+                              disabled={esEntregado}
+                              step="0.01"
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                              value={item.unitario}
+                              onChange={(e) => {
+                                const nuevo = [...gastosGeneralesInsumos];
+                                nuevo[index].unitario = e.target.value;
+                                setGastosGeneralesInsumos(nuevo);
+                              }}
+                            />
+                          </td>
+                          <td className="px-4 py-2.5 text-right font-black text-slate-900">
+                            $ {subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-2.5 text-center">
+                            {!esEntregado && (
+                              <button 
+                                onClick={() => {
+                                  setGastosGeneralesInsumos(gastosGeneralesInsumos.filter(i => i.id !== item.id));
+                                }}
+                                className="p-1 text-slate-400 hover:text-red-600 transition-colors"
+                                title="Eliminar"
+                              >
+                                <Trash2 className="w-4 h-4 mx-auto" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
 
                   <tr className="bg-slate-50/50">
                     <td className="px-4 py-3 font-bold text-slate-800">Comisión de Venta</td>
@@ -890,7 +926,7 @@ export default function PresupuestoDetalle() {
           </div>
 
           <div className="space-y-4">
-            <h4 className="font-extrabold text-sm text-slate-800 uppercase">Impuestos y Beneficio (% sobre precio de venta)</h4>
+            <h4 className="font-extrabold text-sm text-slate-800 uppercase">Impuestos y Beneficio</h4>
 
             <div className="border border-slate-200 rounded-xl overflow-hidden">
               <table className="w-full text-left text-xs">
@@ -978,6 +1014,25 @@ export default function PresupuestoDetalle() {
                       $ {(precioVentaCalculado * (Number(impuestosPorcentajes.sellados) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                     </td>
                   </tr>
+                  <tr className="hover:bg-slate-50">
+                    <td className="px-6 py-3 font-semibold text-slate-800">Impuesto a los débitos y créditos</td>
+                    <td className="px-6 py-3 text-center">
+                      <div className="flex items-center justify-center gap-1">
+                        <input 
+                          type="number" 
+                          disabled={esEntregado}
+                          step="0.001"
+                          className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                          value={impuestosPorcentajes.debitosCreditos}
+                          onChange={(e) => setImpuestosPorcentajes({...impuestosPorcentajes, debitosCreditos: e.target.value})}
+                        />
+                        <span className="text-slate-500">%</span>
+                      </div>
+                    </td>
+                    <td className="px-6 py-3 text-right font-bold text-slate-900">
+                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.debitosCreditos) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                  </tr>
                   <tr className="bg-emerald-50/50 hover:bg-emerald-50">
                     <td className="px-6 py-3 font-extrabold text-emerald-800">Beneficio</td>
                     <td className="px-6 py-3 text-center">
@@ -1033,7 +1088,7 @@ export default function PresupuestoDetalle() {
               disabled={esEntregado}
               onClick={() => {
                 guardarEstructuraPresupuesto(itemsDetalle, coeficientePaseCalculado);
-                alert("¡Coeficiente de Pase aplicado y guardado con éxito!");
+                alert("¡Coeficiente de Pase y datos comerciales aplicados y guardados con éxito!");
               }}
               className="px-6 py-3 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm shadow-md transition-colors flex items-center gap-2"
             >
