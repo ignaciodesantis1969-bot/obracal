@@ -349,7 +349,7 @@ export default function Presupuestos() {
                 const estadoActual = String(p.estado || 'borrador').toLowerCase();
 
                 return (
-                  <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                  <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
                     <td className="px-6 py-4 font-bold text-blue-600">{p.codigo || '---'}</td>
                     <td className="px-6 py-4 font-semibold text-slate-800">{p.nombre || 'Sin nombre'}</td>
                     <td className="px-4 py-4 text-center">
@@ -384,7 +384,7 @@ export default function Presupuestos() {
                       </select>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
                           onClick={() => handleActualizarPresupuestoVersion(p)}
                           className="p-2 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 hover:border-blue-300 rounded-xl shadow-sm transition-all flex items-center justify-center"

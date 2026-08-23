@@ -228,7 +228,7 @@ export default function Proveedores() {
                 const emailValor = p.email || 'Sin email';
 
                 return (
-                  <tr key={p.id} className="hover:bg-slate-50 transition-colors">
+                  <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
                     <td className="px-6 py-4 font-bold text-blue-600">{p.codigo || '---'}</td>
                     <td className="px-6 py-4 font-semibold text-slate-800">{razonSocialValor}</td>
                     <td className="px-6 py-4">
@@ -244,7 +244,7 @@ export default function Proveedores() {
                       </div>
                     </td>
                     <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
                           onClick={() => {
                             setEditingProveedor(p);

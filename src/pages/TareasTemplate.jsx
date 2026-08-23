@@ -647,7 +647,7 @@ export default function TareasTemplate() {
                                             <span className="text-xs text-slate-400 block">Costo/u</span>
                                             <span className="text-sm font-black text-slate-900">$ {Number(item.costo_estimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
                                         </div>
-                                        <div className="flex items-center gap-1">
+                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                             <button onClick={(e) => { e.stopPropagation(); handleDuplicarTarea(item); }} className="p-1.5 text-slate-500 hover:text-blue-600 bg-white border rounded-md shadow-sm" title="Duplicar tarea"><Copy className="w-4 h-4"/></button>
                                             <button onClick={(e) => { e.stopPropagation(); handleEditarTarea(item); }} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded-md shadow-sm" title="Editar tarea"><Edit2 className="w-4 h-4"/></button>
                                             <button onClick={(e) => { e.stopPropagation(); handleEliminar(item.id); }} className="p-1.5 text-slate-500 hover:text-red-600 bg-white border rounded-md shadow-sm" title="Eliminar tarea"><Trash2 className="w-4 h-4"/></button>
