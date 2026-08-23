@@ -9,6 +9,7 @@ export default function Insumos() {
   
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
+  const [filtroProveedor, setFiltroProveedor] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
@@ -169,7 +170,9 @@ export default function Insumos() {
     
     const coincideBusqueda = nombreInsumo.includes(term) || codigoCompleto.includes(term) || proveedorNombre.includes(term) || tipoInsumo.includes(term);
     const coincideFiltroTipo = filtroTipo ? tipoInsumo.includes(filtroTipo.toLowerCase()) : true;
-    return coincideBusqueda && coincideFiltroTipo;
+    const coincideFiltroProveedor = filtroProveedor ? String(i.proveedor_id) === String(filtroProveedor) : true;
+    
+    return coincideBusqueda && coincideFiltroTipo && coincideFiltroProveedor;
   });
 
   return (
@@ -297,18 +300,30 @@ export default function Insumos() {
               className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none focus:border-amber-500"
             />
           </div>
-          <select
-            value={filtroTipo}
-            onChange={(e) => setFiltroTipo(e.target.value)}
-            className="bg-slate-50 border border-slate-300 rounded-lg px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-amber-500 font-semibold"
-          >
-            <option value="">Todos los tipos</option>
-            <option value="Material">Material</option>
-            <option value="Mano de Obra">Mano de Obra</option>
-            <option value="Equipo/Maquinaria">Equipo/Maquinaria</option>
-            <option value="Gastos Generales">Gastos Generales</option>
-            <option value="Subcontrato">Subcontrato</option>
-          </select>
+          <div className="flex flex-col sm:flex-row gap-2">
+            <select
+              value={filtroProveedor}
+              onChange={(e) => setFiltroProveedor(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-lg px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-amber-500 font-semibold"
+            >
+              <option value="">Todos los proveedores</option>
+              {proveedores.map(p => (
+                <option key={p.id} value={p.id}>{p.razon_social || p.nombre}</option>
+              ))}
+            </select>
+            <select
+              value={filtroTipo}
+              onChange={(e) => setFiltroTipo(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-lg px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-amber-500 font-semibold"
+            >
+              <option value="">Todos los tipos</option>
+              <option value="Material">Material</option>
+              <option value="Mano de Obra">Mano de Obra</option>
+              <option value="Equipo/Maquinaria">Equipo/Maquinaria</option>
+              <option value="Gastos Generales">Gastos Generales</option>
+              <option value="Subcontrato">Subcontrato</option>
+            </select>
+          </div>
         </div>
 
         {error && <div className="p-4 bg-red-50 text-red-600 text-sm text-center">{error}</div>}

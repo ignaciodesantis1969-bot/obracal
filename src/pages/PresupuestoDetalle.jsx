@@ -73,31 +73,63 @@ export default function PresupuestoDetalle() {
       const presActual = presupuestosList.find(p => String(p.id) === String(presupuestoId));
       setPresupuesto(presActual || {});
 
+      let itemsParseados = [];
+      let comercialParseado = null;
+
       if (presActual) {
-        // Recuperar datos comerciales guardados si existen
-        if (presActual.gastos_generales_insumos) {
-          try {
-            const gg = typeof presActual.gastos_generales_insumos === 'string' 
-              ? JSON.parse(presActual.gastos_generales_insumos) 
-              : presActual.gastos_generales_insumos;
-            if (Array.isArray(gg)) setGastosGeneralesInsumos(gg);
-          } catch (e) {}
-        }
-        if (presActual.porcentaje_comision_venta !== undefined && presActual.porcentaje_comision_venta !== null && presActual.porcentaje_comision_venta !== '') {
-          setPorcentajeComisionVenta(Number(presActual.porcentaje_comision_venta));
-        }
-        if (presActual.porcentaje_imprevistos !== undefined && presActual.porcentaje_imprevistos !== null && presActual.porcentaje_imprevistos !== '') {
-          setPorcentajeImprevistos(Number(presActual.porcentaje_imprevistos));
-        }
-        if (presActual.impuestos_porcentajes) {
-          try {
-            const imp = typeof presActual.impuestos_porcentajes === 'string'
-              ? JSON.parse(presActual.impuestos_porcentajes)
-              : presActual.impuestos_porcentajes;
-            if (imp && typeof imp === 'object') {
-              setImpuestosPorcentajes(prev => ({ ...prev, ...imp }));
+        try {
+          if (presActual.items_detalle) {
+            const parsed = typeof presActual.items_detalle === 'string' ? JSON.parse(presActual.items_detalle) : presActual.items_detalle;
+            if (parsed && !Array.isArray(parsed) && parsed.rubros) {
+              itemsParseados = parsed.rubros;
+              comercialParseado = parsed.comercial;
+            } else if (Array.isArray(parsed)) {
+              itemsParseados = parsed;
             }
-          } catch (e) {}
+          }
+        } catch (e) {
+          itemsParseados = [];
+        }
+
+        // Recuperar datos comerciales guardados (desde la estructura unificada o campos sueltos)
+        if (comercialParseado) {
+          if (Array.isArray(comercialParseado.gastos_generales_insumos)) {
+            setGastosGeneralesInsumos(comercialParseado.gastos_generales_insumos);
+          }
+          if (comercialParseado.porcentaje_comision_venta !== undefined) {
+            setPorcentajeComisionVenta(Number(comercialParseado.porcentaje_comision_venta));
+          }
+          if (comercialParseado.porcentaje_imprevistos !== undefined) {
+            setPorcentajeImprevistos(Number(comercialParseado.porcentaje_imprevistos));
+          }
+          if (comercialParseado.impuestos_porcentajes) {
+            setImpuestosPorcentajes(prev => ({ ...prev, ...comercialParseado.impuestos_porcentajes }));
+          }
+        } else {
+          if (presActual.gastos_generales_insumos) {
+            try {
+              const gg = typeof presActual.gastos_generales_insumos === 'string' 
+                ? JSON.parse(presActual.gastos_generales_insumos) 
+                : presActual.gastos_generales_insumos;
+              if (Array.isArray(gg)) setGastosGeneralesInsumos(gg);
+            } catch (e) {}
+          }
+          if (presActual.porcentaje_comision_venta !== undefined && presActual.porcentaje_comision_venta !== null && presActual.porcentaje_comision_venta !== '') {
+            setPorcentajeComisionVenta(Number(presActual.porcentaje_comision_venta));
+          }
+          if (presActual.porcentaje_imprevistos !== undefined && presActual.porcentaje_imprevistos !== null && presActual.porcentaje_imprevistos !== '') {
+            setPorcentajeImprevistos(Number(presActual.porcentaje_imprevistos));
+          }
+          if (presActual.impuestos_porcentajes) {
+            try {
+              const imp = typeof presActual.impuestos_porcentajes === 'string'
+                ? JSON.parse(presActual.impuestos_porcentajes)
+                : presActual.impuestos_porcentajes;
+              if (imp && typeof imp === 'object') {
+                setImpuestosPorcentajes(prev => ({ ...prev, ...imp }));
+              }
+            } catch (e) {}
+          }
         }
 
         if (presActual.obra_id) {
@@ -109,15 +141,6 @@ export default function PresupuestoDetalle() {
             setCliente(clienteEncontrado || {});
           }
         }
-      }
-
-      let itemsParseados = [];
-      try {
-        if (presActual && presActual.items_detalle) {
-          itemsParseados = typeof presActual.items_detalle === 'string' ? JSON.parse(presActual.items_detalle) : presActual.items_detalle;
-        }
-      } catch (e) {
-        itemsParseados = [];
       }
 
       if (!Array.isArray(itemsParseados) || itemsParseados.length === 0) {
@@ -166,12 +189,23 @@ export default function PresupuestoDetalle() {
     const coef = nuevoCoef !== null ? nuevoCoef : (Number(presupuesto?.coeficiente_pase) || 1.30);
     const precioVentaTotal = costoDirectoTotal * coef;
 
+    // Empaquetar rubros y datos comerciales en items_detalle para asegurar persistencia total
+    const estructuraCompleta = {
+      rubros: nuevosItems,
+      comercial: {
+        gastos_generales_insumos: gastosGeneralesInsumos,
+        porcentaje_comision_venta: porcentajeComisionVenta,
+        porcentaje_imprevistos: porcentajeImprevistos,
+        impuestos_porcentajes: impuestosPorcentajes
+      }
+    };
+
     const datosActualizados = {
       ...presupuesto,
       costo_directo: costoDirectoTotal,
       precio_venta: precioVentaTotal,
       coeficiente_pase: coef,
-      items_detalle: JSON.stringify(nuevosItems),
+      items_detalle: JSON.stringify(estructuraCompleta),
       gastos_generales_insumos: JSON.stringify(gastosGeneralesInsumos),
       porcentaje_comision_venta: porcentajeComisionVenta,
       porcentaje_imprevistos: porcentajeImprevistos,
