@@ -109,6 +109,7 @@ export default function Tesoreria({
         facturas_aplicadas: JSON.stringify(formData.facturas_aplicadas)
       };
 
+      // 1. Guardar el movimiento en Tesorería
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -130,6 +131,39 @@ export default function Tesoreria({
       }
 
       if (data.success || data.id) {
+        // 2. Actualizar estados de las facturas aplicadas (pagado / pagado parcial)
+        if (Array.isArray(formData.facturas_aplicadas)) {
+          for (const item of formData.facturas_aplicadas) {
+            if (!item.factura_id) continue;
+            const facturaObj = facturas.find(f => String(f.id || f.ID) === String(item.factura_id));
+            if (facturaObj) {
+              const totalFactura = Number(facturaObj.total || facturaObj.Total || 0);
+              const montoAplicado = Number(item.monto || 0);
+              
+              let nuevoEstado = 'pendiente';
+              if (montoAplicado >= totalFactura) {
+                nuevoEstado = 'pagado';
+              } else if (montoAplicado > 0) {
+                nuevoEstado = 'pagado parcial';
+              }
+
+              await fetch(GOOGLE_SCRIPT_URL, {
+                method: 'POST',
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify({
+                  tabla: 'Facturas',
+                  action: 'update',
+                  id: facturaObj.id || facturaObj.ID,
+                  data: {
+                    ...facturaObj,
+                    estado_pago: nuevoEstado
+                  }
+                })
+              });
+            }
+          }
+        }
+
         setIsModalOpen(false);
         cargarDatos();
       } else {
@@ -205,10 +239,10 @@ export default function Tesoreria({
     return concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
   });
 
-  // Facturas a Pagar (Pendientes)
+  // Facturas a Pagar (Pendientes o Pagadas Parcialmente)
   const facturasAPagar = facturas.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
-    return estado === 'pendiente';
+    return estado === 'pendiente' || estado === 'pagado parcial';
   });
 
   // Agrupaciones Cash Flow
@@ -400,6 +434,7 @@ export default function Tesoreria({
                   const totalVal = Number(f.total || f.Total || 0) || 0;
                   const codigoDisplay = f.codigo || f.Codigo || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const nFactura = f.n_factura || f.N_factura || '---';
+                  const estadoPago = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
 
                   return (
                     <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
@@ -409,8 +444,8 @@ export default function Tesoreria({
                       <td className="px-4 py-4 font-semibold text-rose-600">{formatearFechaDisplay(f.vencimiento || f.Vencimiento)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-center">
-                        <span className="px-2.5 py-1 rounded-full font-bold text-[10px] uppercase bg-amber-100 text-amber-800">
-                          pendiente
+                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado parcial' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'}`}>
+                          {estadoPago}
                         </span>
                       </td>
                     </tr>
