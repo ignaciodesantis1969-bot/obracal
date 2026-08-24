@@ -42,7 +42,7 @@ export default function Tesoreria({
     fecha_vencimiento: '',
     neto_gravado: 0,
     iva_21: 0,
-    iva_10.5: 0,
+    iva_105: 0,
     otros_tributos: 0,
     total: 0
   });
