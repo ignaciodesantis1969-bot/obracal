@@ -27,7 +27,7 @@ export default function Compras({
 
   const [localLoading, setLocalLoading] = useState(false);
 
-  // Estado para buscapersonas/buscador rápido de insumos dentro de la factura
+  // Estado para buscador rápido de insumos dentro de la factura
   const [busquedaInsumoTerm, setBusquedaInsumoTerm] = useState('');
 
   // Formulario Factura
@@ -153,7 +153,7 @@ export default function Compras({
                 (p.razon_social && p.razon_social.toLowerCase().includes(data.proveedor.toLowerCase())) ||
                 (p.nombre && p.nombre.toLowerCase().includes(data.proveedor.toLowerCase()))
               );
-              if (provMatch) proveedorEncontradoId = provMatch.id;
+              if (provMatch) proveedorEncontradoId = provMatch.id || provMatch.ID || provMatch.Id;
             }
 
             setFormData(prev => ({
@@ -210,7 +210,8 @@ export default function Compras({
   };
 
   const handleEditarFacturaClick = (f) => {
-    setEditingId(f.id);
+    const realId = f.id || f.ID || f.Id;
+    setEditingId(realId);
     let insumosParseados = [];
     try {
       if (typeof f.insumos_comprados === 'string') {
@@ -237,7 +238,7 @@ export default function Compras({
         ...prev.insumos_comprados,
         { 
           id: Date.now(), 
-          insumo_id: insumoPreseleccionado ? insumoPreseleccionado.id : '', 
+          insumo_id: insumoPreseleccionado ? (insumoPreseleccionado.id || insumoPreseleccionado.ID || insumoPreseleccionado.Id) : '', 
           cantidad: 1, 
           unidad: insumoPreseleccionado ? (insumoPreseleccionado.unidad || 'unidad') : 'unidad', 
           p_unitario: insumoPreseleccionado ? Number(insumoPreseleccionado.costo_unitario || insumoPreseleccionado.precio || 0) : 0, 
@@ -252,9 +253,8 @@ export default function Compras({
       if (item.id === id) {
         let actualizado = { ...item, [campo]: valor };
         
-        // Si cambia el insumo_id, autocompletar precio unitario y unidad si existe
         if (campo === 'insumo_id') {
-          const insEncontrado = insumosList.find(i => String(i.id) === String(valor));
+          const insEncontrado = insumosList.find(i => String(i.id || i.ID || i.Id) === String(valor));
           if (insEncontrado) {
             actualizado.p_unitario = Number(insEncontrado.costo_unitario || insEncontrado.precio || 0);
             actualizado.unidad = insEncontrado.unidad || 'unidad';
@@ -332,8 +332,13 @@ export default function Compras({
     }
   };
 
-  // Corrección robusta para asegurar el borrado correcto en Google Sheets
-  const handleEliminarFactura = async (id) => {
+  // Corrección robusta para obtener el ID independientemente de si viene como id, ID o Id
+  const handleEliminarFactura = async (f) => {
+    const facturaId = f.id || f.ID || f.Id;
+    if (!facturaId) {
+      alert("⚠️ Error: No se pudo identificar el ID de esta factura.");
+      return;
+    }
     if (!window.confirm("¿Estás seguro de eliminar esta factura?")) return;
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -342,7 +347,7 @@ export default function Compras({
         body: JSON.stringify({ 
           tabla: 'Facturas', 
           action: 'delete', 
-          id: id 
+          id: facturaId 
         })
       });
       const data = await res.json().catch(() => ({ success: true }));
@@ -408,7 +413,8 @@ export default function Compras({
   };
 
   const handleEditarOcClick = (oc) => {
-    setEditingOcId(oc.id);
+    const realId = oc.id || oc.ID || oc.Id;
+    setEditingOcId(realId);
     let insumosParseados = [];
     try {
       if (typeof oc.insumos_oc === 'string') {
@@ -463,13 +469,18 @@ export default function Compras({
     }
   };
 
-  const handleEliminarOc = async (id) => {
+  const handleEliminarOc = async (oc) => {
+    const ocId = oc.id || oc.ID || oc.Id;
+    if (!ocId) {
+      alert("⚠️ Error: No se pudo identificar el ID de esta Orden de Compra.");
+      return;
+    }
     if (!window.confirm("¿Estás seguro de eliminar esta Orden de Compra?")) return;
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'OrdenesCompra', action: 'delete', id })
+        body: JSON.stringify({ tabla: 'OrdenesCompra', action: 'delete', id: ocId })
       });
       const data = await res.json().catch(() => ({ success: true }));
       if (data.success !== false) {
@@ -483,7 +494,8 @@ export default function Compras({
   };
 
   const facturasFiltradas = facturas.filter(f => {
-    const matchProveedor = !filtroProveedor || String(f.proveedor_id) === String(filtroProveedor);
+    const provId = f.proveedor_id || f.Proveedor_id || f.PROVEEDOR_ID;
+    const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
     let matchFecha = true;
     if (filtroFechaDesde && f.fecha && f.fecha < filtroFechaDesde) matchFecha = false;
     if (filtroFechaHasta && f.fecha && f.fecha > filtroFechaHasta) matchFecha = false;
@@ -491,7 +503,8 @@ export default function Compras({
   });
 
   const ordenesFiltradas = ordenesCompra.filter(oc => {
-    const matchProveedor = !filtroProveedor || String(oc.proveedor_id) === String(filtroProveedor);
+    const provId = oc.proveedor_id || oc.Proveedor_id || oc.PROVEEDOR_ID;
+    const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
     let matchFecha = true;
     if (filtroFechaDesde && oc.fecha && oc.fecha < filtroFechaDesde) matchFecha = false;
     if (filtroFechaHasta && oc.fecha && oc.fecha > filtroFechaHasta) matchFecha = false;
@@ -565,7 +578,7 @@ export default function Compras({
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
           <select value={filtroProveedor} onChange={(e) => setFiltroProveedor(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500">
             <option value="">Todos los Proveedores</option>
-            {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social || p.nombre}</option>)}
+            {proveedores.map(p => <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>)}
           </select>
         </div>
         <div>
@@ -614,18 +627,20 @@ export default function Compras({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {facturasFiltradas.map((f, index) => {
-                  const prov = proveedores.find(p => String(p.id) === String(f.proveedor_id));
-                  const pres = presupuestos.find(pr => String(pr.id) === String(f.presupuesto_id));
+                  const provId = f.proveedor_id || f.Proveedor_id || f.PROVEEDOR_ID;
+                  const presId = f.presupuesto_id || f.Presupuesto_id || f.PRESUPUESTO_ID;
+                  const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
+                  const pres = presupuestos.find(pr => String(pr.id || pr.ID) === String(presId));
                   const totalVal = Number(f.total) || 0;
                   const estadoPago = String(f.estado_pago || 'pendiente').toLowerCase();
                   
                   const numeroFacturaDisplay = f.n_factura || f.numero_factura || f.nro_factura || '---';
-                  const presupuestoDisplay = pres?.codigo || pres?.nombre || f.presupuesto_id || '---';
+                  const presupuestoDisplay = pres?.codigo || pres?.nombre || presId || '---';
                   const codigoDisplay = f.codigo || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const archivoLink = f.archivo_url || f.archivo || '';
 
                   return (
-                    <tr key={f.id || index} className="hover:bg-slate-50 transition-colors">
+                    <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-4 py-4 font-semibold text-slate-800">{numeroFacturaDisplay}</td>
                       <td className="px-4 py-4"><span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-bold rounded text-[10px]">{f.comprobante_tipo || f.tipo_comprobante || 'Factura A'}</span></td>
@@ -651,7 +666,7 @@ export default function Compras({
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button onClick={() => handleEditarFacturaClick(f)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarFactura(f.id)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEliminarFactura(f)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
                     </tr>
@@ -686,14 +701,16 @@ export default function Compras({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {ordenesFiltradas.map((oc, index) => {
-                  const prov = proveedores.find(p => String(p.id) === String(oc.proveedor_id));
-                  const obra = obras.find(o => String(o.id) === String(oc.obra_id));
+                  const provId = oc.proveedor_id || oc.Proveedor_id;
+                  const obraId = oc.obra_id || oc.Obra_id;
+                  const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
+                  const obra = obras.find(o => String(o.id || o.ID) === String(obraId));
                   const totalVal = Number(oc.total) || 0;
                   const estadoOc = String(oc.estado || 'pendiente').toLowerCase();
                   const codigoDisplay = oc.codigo || `OC-${String(index + 1).padStart(4, '0')}`;
 
                   return (
-                    <tr key={oc.id || index} className="hover:bg-slate-50 transition-colors">
+                    <tr key={oc.id || oc.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : (obra?.nombre || '---')}</td>
@@ -708,7 +725,7 @@ export default function Compras({
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button onClick={() => handleEditarOcClick(oc)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarOc(oc.id)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEliminarOc(oc)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
                     </tr>
@@ -734,14 +751,14 @@ export default function Compras({
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra *</label>
                   <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formDataOc.obra_id} onChange={(e) => setFormDataOc({...formDataOc, obra_id: e.target.value})}>
                     <option value="">Seleccionar...</option>
-                    {obras.map(o => <option key={o.id} value={o.id}>{o.codigo} - {o.nombre || o.nombre_obra}</option>)}
+                    {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.codigo} - {o.nombre || o.nombre_obra}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Proveedor *</label>
                   <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500" value={formDataOc.proveedor_id} onChange={(e) => setFormDataOc({...formDataOc, proveedor_id: e.target.value})}>
                     <option value="">Seleccionar...</option>
-                    {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social || p.nombre}</option>)}
+                    {proveedores.map(p => <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>)}
                   </select>
                 </div>
                 <div>
@@ -886,21 +903,21 @@ export default function Compras({
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Proveedor</label>
                   <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500" value={formData.proveedor_id} onChange={(e) => setFormData({...formData, proveedor_id: e.target.value})}>
                     <option value="">Seleccione proveedor...</option>
-                    {proveedores.map(p => <option key={p.id} value={p.id}>{p.razon_social || p.nombre}</option>)}
+                    {proveedores.map(p => <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
                   <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
                     <option value="">Seleccione obra...</option>
-                    {obras.map(o => <option key={o.id} value={o.id}>{o.codigo} - {o.nombre || o.nombre_obra}</option>)}
+                    {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.codigo} - {o.nombre || o.nombre_obra}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto</label>
                   <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
                     <option value="">Seleccione presupuesto...</option>
-                    {presupuestos.map(pr => <option key={pr.id} value={pr.id}>{pr.codigo} - {pr.nombre}</option>)}
+                    {presupuestos.map(pr => <option key={pr.id || pr.ID} value={pr.id || pr.ID}>{pr.codigo} - {pr.nombre}</option>)}
                   </select>
                 </div>
                 <div>
@@ -954,7 +971,7 @@ export default function Compras({
                 </div>
               )}
 
-              {/* SECCIÓN MEJORADA DE IMPUTACIÓN RÁPIDA DE INSUMOS */}
+              {/* SECCIÓN DE IMPUTACIÓN RÁPIDA DE INSUMOS */}
               <div className="space-y-4 pt-4 border-t">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                   <div>
@@ -986,7 +1003,6 @@ export default function Compras({
                   </div>
                 </div>
 
-                {/* Si hay búsqueda activa, mostrar resultados rápidos para selección en un listado desplegable/tarjetas */}
                 {busquedaInsumoTerm && (
                   <div className="bg-slate-50 border border-amber-300 rounded-xl p-3 max-h-40 overflow-y-auto space-y-1.5 shadow-sm">
                     <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide block mb-1">Resultados de búsqueda ({insumosFiltradosModal.length}):</span>
@@ -995,7 +1011,7 @@ export default function Compras({
                     ) : (
                       insumosFiltradosModal.map(ins => (
                         <div 
-                          key={ins.id} 
+                          key={ins.id || ins.ID} 
                           onClick={() => {
                             handleAgregarInsumoComprado(ins);
                             setBusquedaInsumoTerm('');
@@ -1034,7 +1050,7 @@ export default function Compras({
                           <td className="px-3 py-2">
                             <select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={item.insumo_id} onChange={(e) => handleCambiarInsumoComprado(item.id, 'insumo_id', e.target.value)}>
                               <option value="">Seleccionar insumo...</option>
-                              {insumosList.map(ins => <option key={ins.id} value={ins.id}>{ins.nombre} {ins.codigo ? `(${ins.codigo})` : ''}</option>)}
+                              {insumosList.map(ins => <option key={ins.id || ins.ID} value={ins.id || ins.ID}>{ins.nombre} {ins.codigo ? `(${ins.codigo})` : ''}</option>)}
                             </select>
                           </td>
                           <td className="px-3 py-2 text-center"><input type="number" step="0.01" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-amber-500" value={item.cantidad} onChange={(e) => handleCambiarInsumoComprado(item.id, 'cantidad', e.target.value)} /></td>
