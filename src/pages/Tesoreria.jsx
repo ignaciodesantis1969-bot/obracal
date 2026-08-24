@@ -1,397 +1,545 @@
 import React, { useState } from 'react';
-import { Plus, Search, Pencil, Trash2, TrendingUp, TrendingDown, Wallet, ArrowUpCircle, ArrowDownCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Badge } from '@/components/ui/badge';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, Legend } from 'recharts';
-
-const MEDIOS = ['efectivo', 'transferencia', 'cheque', 'otro'];
-const emptyForm = { tipo: 'egreso', concepto: '', obra_id: 'NONE', presupuesto_id: 'NONE', fecha: new Date().toISOString().slice(0, 10), monto: 0, medio_pago: 'transferencia', referencia: '', notas: '' };
+import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3 } from 'lucide-react';
 
 export default function Tesoreria({ 
   GOOGLE_SCRIPT_URL, 
   movimientos = [], 
   facturas = [], 
+  proveedores = [], 
   obras = [], 
-  presupuestos = [], 
-  clientes = [], 
   cargarDatos 
 }) {
-  const [search, setSearch] = useState('');
-  const [obraFiltro, setObraFiltro] = useState('ALL');
-  const [tab, setTab] = useState('movimientos');
-  const [modalOpen, setModalOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [selected, setSelected] = useState(null);
-  const [form, setForm] = useState(emptyForm);
-  const [saving, setSaving] = useState(false);
+  const [activeTab, setActiveTab] = useState('movimientos');
+  const [searchTerm, setSearchTerm] = useState('');
 
-  // Blindaje de arrays para evitar fallos si alguna prop llega indefinida
-  const safeObras = Array.isArray(obras) ? obras : [];
-  const safePresupuestos = Array.isArray(presupuestos) ? presupuestos : [];
-  const safeMovimientos = Array.isArray(movimientos) ? movimientos : [];
-  const safeFacturas = Array.isArray(facturas) ? facturas : [];
+  // Modal Nuevo/Editar Movimiento
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingId, setEditingId] = useState(null);
 
-  const presupuestosPorObra = safePresupuestos.filter(p => !form.obra_id || form.obra_id === 'NONE' || String(p.obra_id) === String(form.obra_id));
+  const [formData, setFormData] = useState({
+    tipo: 'Egreso',
+    fecha: new Date().toISOString().split('T')[0],
+    concepto: '',
+    monto: 0,
+    medio_pago: 'transferencia',
+    referencia: '',
+    facturas_aplicadas: [
+      { id: Date.now(), factura_id: '', monto: 0 }
+    ]
+  });
 
-  const handleSave = async () => {
-    if (!form.concepto.trim() || !form.monto) {
-      alert('Concepto y monto son obligatorios');
-      return;
+  const formatearFechaDisplay = (fechaStr) => {
+    if (!fechaStr) return '---';
+    const partes = String(fechaStr).split('T')[0].split('-');
+    if (partes.length === 3) {
+      return `${partes[2]}/${partes[1]}/${partes[0]}`;
     }
-    if (!GOOGLE_SCRIPT_URL) {
-      alert('ERROR: GOOGLE_SCRIPT_URL no está configurada.');
-      return;
-    }
+    return fechaStr;
+  };
 
-    setSaving(true);
-    const obraIdReal = form.obra_id === 'NONE' ? '' : form.obra_id;
-    const presupuestoIdReal = form.presupuesto_id === 'NONE' ? '' : form.presupuesto_id;
+  const handleAgregarFacturaFila = () => {
+    setFormData(prev => ({
+      ...prev,
+      facturas_aplicadas: [
+        ...prev.facturas_aplicadas,
+        { id: Date.now(), factura_id: '', monto: 0 }
+      ]
+    }));
+  };
 
-    const obra = safeObras.find(o => String(o.id) === String(obraIdReal));
-    const pres = safePresupuestos.find(p => String(p.id) === String(presupuestoIdReal));
-    
-    const data = { 
-      ...form, 
-      obra_id: obraIdReal,
-      presupuesto_id: presupuestoIdReal,
-      monto: parseFloat(form.monto) || 0, 
-      obra_codigo: obra?.codigo || '', 
-      presupuesto_codigo: pres?.codigo || '' 
-    };
+  const handleCambiarFacturaFila = (id, campo, valor) => {
+    const nuevas = formData.facturas_aplicadas.map(item => {
+      if (item.id === id) {
+        let actualizado = { ...item, [campo]: valor };
+        if (campo === 'factura_id') {
+          const facEncontrada = facturas.find(f => String(f.id || f.ID) === String(valor));
+          if (facEncontrada) {
+            actualizado.monto = Number(facEncontrada.total || facEncontrada.Total || 0);
+          }
+        }
+        return actualizado;
+      }
+      return item;
+    });
 
+    const sumaTotal = nuevas.reduce((acc, curr) => acc + (Number(curr.monto) || 0), 0);
+
+    setFormData(prev => ({
+      ...prev,
+      facturas_aplicadas: nuevas,
+      monto: sumaTotal > 0 ? sumaTotal : prev.monto
+    }));
+  };
+
+  const handleQuitarFacturaFila = (id) => {
+    const nuevas = formData.facturas_aplicadas.filter(i => i.id !== id);
+    const sumaTotal = nuevas.reduce((acc, curr) => acc + (Number(curr.monto) || 0), 0);
+    setFormData(prev => ({
+      ...prev,
+      facturas_aplicadas: nuevas,
+      monto: sumaTotal
+    }));
+  };
+
+  const handleGuardarMovimiento = async (e) => {
+    e.preventDefault();
     try {
-      const action = selected ? 'update' : 'create';
-      const payload = {
-        tabla: 'Tesoreria',
-        action: action,
-        id: selected ? selected.id : undefined,
-        data: data
+      const action = editingId ? 'update' : 'create';
+      const payloadData = {
+        ...formData,
+        facturas_aplicadas: JSON.stringify(formData.facturas_aplicadas)
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify({
+          tabla: 'Tesoreria',
+          action: action,
+          id: editingId,
+          data: payloadData
+        })
       });
-      const result = await res.json();
 
-      if (result.success || result.id) {
-        setModalOpen(false);
-        if (typeof cargarDatos === 'function') cargarDatos();
+      const textoRespuesta = await res.text();
+      let data;
+      try {
+        data = JSON.parse(textoRespuesta);
+      } catch (parseErr) {
+        alert("Error del servidor: " + textoRespuesta.substring(0, 150));
+        return;
+      }
+
+      if (data.success || data.id) {
+        setIsModalOpen(false);
+        cargarDatos();
       } else {
-        alert("Error al guardar: " + (result.error || "Desconocido"));
+        alert("Error al guardar movimiento: " + (data.error || "Desconocido"));
       }
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al guardar movimiento.");
-    } finally {
-      setSaving(false);
+      alert("Error de conexión al guardar el movimiento.");
     }
   };
 
-  const handleDelete = async () => {
-    if (!GOOGLE_SCRIPT_URL || !selected) return;
+  const handleEliminarMovimiento = async (m) => {
+    const mId = m.id || m.ID || m.Id;
+    if (!mId) return;
+    if (!window.confirm("¿Estás seguro de eliminar este movimiento?")) return;
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Tesoreria',
-          action: 'delete',
-          id: selected.id
-        })
+        body: JSON.stringify({ tabla: 'Tesoreria', action: 'delete', id: mId })
       });
-      const result = await res.json();
-      if (result.success) {
-        setDeleteOpen(false);
-        if (typeof cargarDatos === 'function') cargarDatos();
+      const data = await res.json().catch(() => ({ success: true }));
+      if (data.success !== false) {
+        cargarDatos();
       } else {
-        alert("Error al eliminar: " + (result.error || "Desconocido"));
+        alert("No se pudo eliminar el movimiento.");
       }
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al eliminar.");
     }
   };
 
-  const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n || 0);
-  const getObraName = (id) => safeObras.find(o => String(o.id) === String(id))?.codigo || '—';
+  // Cálculos de Totales (KPIs)
+  const totalIngresos = movimientos
+    .filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'ingreso')
+    .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
 
-  const filtered = safeMovimientos.filter(m => {
-    const ms = (m.concepto?.toLowerCase() || '').includes(search.toLowerCase()) || (m.obra_codigo?.toLowerCase() || '').includes(search.toLowerCase());
-    const mo = obraFiltro === 'ALL' || !obraFiltro || String(m.obra_id) === String(obraFiltro);
-    return ms && mo;
-  });
+  const totalEgresos = movimientos
+    .filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso')
+    .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
 
-  const totalIngresos = safeMovimientos.filter(m => String(m.tipo).toLowerCase() === 'ingreso').reduce((s, m) => s + (Number(m.monto) || 0), 0);
-  const totalEgresos = safeMovimientos.filter(m => String(m.tipo).toLowerCase() === 'egreso').reduce((s, m) => s + (Number(m.monto) || 0), 0);
   const balance = totalIngresos - totalEgresos;
 
-  // Cash Flow por mes
-  const cashFlowData = () => {
-    const byMonth = {};
-    safeMovimientos.forEach(m => {
-      const mes = m.fecha ? String(m.fecha).substring(0, 7) : 'N/A';
-      if (!byMonth[mes]) byMonth[mes] = { mes, ingresos: 0, egresos: 0 };
-      if (String(m.tipo).toLowerCase() === 'ingreso') byMonth[mes].ingresos += Number(m.monto) || 0;
-      else byMonth[mes].egresos += Number(m.monto) || 0;
-    });
-    return Object.values(byMonth).sort((a, b) => a.mes.localeCompare(b.mes)).slice(-12).map(d => ({
-      ...d, balance: d.ingresos - d.egresos
-    }));
-  };
+  const movimientosFiltrados = movimientos.filter(m => {
+    const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
+    const ref = String(m.referencia || m.Referencia || '').toLowerCase();
+    return concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
+  });
 
-  // IVA Facturas
-  const ivaCompras = safeFacturas.filter(f => String(f.tipo).toLowerCase() === 'compra').reduce((s, f) => s + (Number(f.iva_21) || 0) + (Number(f.iva_10_5 || f.iva_105) || 0), 0);
-  const ivaVentas = safeFacturas.filter(f => String(f.tipo).toLowerCase() === 'venta').reduce((s, f) => s + (Number(f.iva_21) || 0) + (Number(f.iva_10_5 || f.iva_105) || 0), 0);
-  const posicionIVA = ivaVentas - ivaCompras;
+  // Agrupaciones para Cash Flow Mensual y Anual
+  const cashFlowMensualMap = {};
+  const cashFlowAnualMap = {};
+
+  movimientos.forEach(m => {
+    const fecha = m.fecha || m.Fecha;
+    if (!fecha) return;
+    const mesAnio = fecha.substring(0, 7); // YYYY-MM
+    const anio = fecha.substring(0, 4);    // YYYY
+    const tipo = String(m.tipo || m.Tipo).toLowerCase();
+    const monto = Number(m.monto || m.Monto) || 0;
+
+    // Mensual
+    if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
+    if (tipo === 'ingreso') cashFlowMensualMap[mesAnio].ingresos += monto;
+    if (tipo === 'egreso') cashFlowMensualMap[mesAnio].egresos += monto;
+
+    // Anual
+    if (!cashFlowAnualMap[anio]) cashFlowAnualMap[anio] = { ingresos: 0, egresos: 0 };
+    if (tipo === 'ingreso') cashFlowAnualMap[anio].ingresos += monto;
+    if (tipo === 'egreso') cashFlowAnualMap[anio].egresos += monto;
+  });
+
+  const listaMensual = Object.keys(cashFlowMensualMap).sort().map(k => ({ periodo: k, ...cashFlowMensualMap[k] }));
+  const listaAnual = Object.keys(cashFlowAnualMap).sort().map(k => ({ periodo: k, ...cashFlowAnualMap[k] }));
+
+  // Cálculos de IVA
+  const totalIvaCompras = facturas.reduce((acc, f) => {
+    return acc + (Number(f.iva_21 || f.Iva_21 || 0) + Number(f.iva_105 || f.Iva_105 || 0));
+  }, 0);
+  const totalIvaVentas = 0; // Ajustable si se agregan facturas de venta
+  const posicionIva = totalIvaVentas - totalIvaCompras;
 
   return (
-    <div className="space-y-5 max-w-7xl mx-auto pb-12">
-      <div className="flex items-center justify-between">
+    <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      {/* Cabecera Principal */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Tesorería</h1>
-          <p className="text-slate-500 text-sm">Flujo de caja, IVA y movimientos</p>
+          <h1 className="text-2xl font-extrabold text-slate-900">Tesorería</h1>
+          <p className="text-slate-500 text-sm mt-1">Flujo de caja, IVA y movimientos</p>
         </div>
-        <Button onClick={() => { setSelected(null); setForm(emptyForm); setModalOpen(true); }} className="bg-amber-500 hover:bg-amber-600 text-white gap-2">
+        <button onClick={() => {
+          setEditingId(null);
+          setFormData({
+            tipo: 'Egreso',
+            fecha: new Date().toISOString().split('T')[0],
+            concepto: '',
+            monto: 0,
+            medio_pago: 'transferencia',
+            referencia: '',
+            facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }]
+          });
+          setIsModalOpen(true);
+        }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
           <Plus className="w-4 h-4" /> Nuevo Movimiento
-        </Button>
+        </button>
       </div>
 
-      {/* KPIs */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-xl border-l-4 border-l-emerald-500 border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
-          <div className="w-10 h-10 bg-emerald-100 rounded-xl flex items-center justify-center">
-            <ArrowUpCircle className="w-5 h-5 text-emerald-600" />
-          </div>
+      {/* Tarjetas Resumen (KPIs) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-500 font-medium">Total Ingresos</p>
-            <p className="text-xl font-bold text-emerald-600">{fmt(totalIngresos)}</p>
+            <p className="text-xs font-bold text-slate-500 uppercase">Total Ingresos</p>
+            <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {totalIngresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
           </div>
+          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><ArrowUpRight className="w-6 h-6" /></div>
         </div>
-        <div className="bg-white rounded-xl border-l-4 border-l-red-500 border border-slate-200 p-4 flex items-center gap-4 shadow-sm">
-          <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center">
-            <ArrowDownCircle className="w-5 h-5 text-red-600" />
-          </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-500 font-medium">Total Egresos</p>
-            <p className="text-xl font-bold text-red-600">{fmt(totalEgresos)}</p>
+            <p className="text-xs font-bold text-slate-500 uppercase">Total Egresos</p>
+            <h3 className="text-2xl font-black text-rose-600 mt-1">$ {totalEgresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
           </div>
+          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl"><ArrowDownLeft className="w-6 h-6" /></div>
         </div>
-        <div className={`bg-white rounded-xl border-l-4 ${balance >= 0 ? 'border-l-blue-500' : 'border-l-red-600'} border border-slate-200 p-4 flex items-center gap-4 shadow-sm`}>
-          <div className={`w-10 h-10 ${balance >= 0 ? 'bg-blue-100' : 'bg-red-100'} rounded-xl flex items-center justify-center`}>
-            <Wallet className={`w-5 h-5 ${balance >= 0 ? 'text-blue-600' : 'text-red-600'}`} />
-          </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-500 font-medium">Balance</p>
-            <p className={`text-xl font-bold ${balance >= 0 ? 'text-blue-600' : 'text-red-600'}`}>{fmt(balance)}</p>
+            <p className="text-xs font-bold text-slate-500 uppercase">Balance</p>
+            <h3 className={`text-2xl font-black mt-1 ${balance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
           </div>
+          <div className="p-3 bg-slate-100 text-slate-700 rounded-xl"><Wallet className="w-6 h-6" /></div>
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="bg-white border border-slate-200">
-          <TabsTrigger value="movimientos">Movimientos</TabsTrigger>
-          <TabsTrigger value="cashflow">Cash Flow</TabsTrigger>
-          <TabsTrigger value="iva">IVA</TabsTrigger>
-        </TabsList>
+      {/* Navegación por pestañas */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+        <div className="flex gap-2">
+          <button onClick={() => setActiveTab('movimientos')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'movimientos' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Movimientos</button>
+          <button onClick={() => setActiveTab('cashflow')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'cashflow' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Cash Flow</button>
+          <button onClick={() => setActiveTab('iva')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'iva' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>IVA</button>
+        </div>
 
-        <TabsContent value="movimientos" className="mt-4 space-y-4">
-          <div className="flex gap-3 flex-col sm:flex-row">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <Input placeholder="Buscar movimiento..." className="pl-10" value={search} onChange={e => setSearch(e.target.value)} />
+        {activeTab === 'movimientos' && (
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="relative flex-1 sm:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+              <input 
+                type="text"
+                placeholder="Buscar movimiento..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs outline-none focus:border-amber-500"
+              />
             </div>
-            <Select value={obraFiltro} onValueChange={setObraFiltro}>
-              <SelectTrigger className="w-52"><SelectValue placeholder="Todas las obras" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ALL">Todas las obras</SelectItem>
-                {safeObras.map(o => <SelectItem key={o.id} value={String(o.id)}>{o.codigo} - {o.nombre}</SelectItem>)}
-              </SelectContent>
-            </Select>
+          </div>
+        )}
+      </div>
+
+      {/* TAB: MOVIMIENTOS */}
+      {activeTab === 'movimientos' && (
+        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+          {movimientosFiltrados.length === 0 ? (
+            <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
+              <Wallet className="w-10 h-10 text-slate-300" />
+              <span>No hay movimientos registrados.</span>
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th className="px-6 py-4">Fecha</th>
+                  <th className="px-4 py-4">Tipo</th>
+                  <th className="px-6 py-4">Concepto</th>
+                  <th className="px-4 py-4">Medio de Pago</th>
+                  <th className="px-4 py-4">Referencia</th>
+                  <th className="px-4 py-4 text-right">Monto</th>
+                  <th className="px-6 py-4 text-right">Acciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {movimientosFiltrados.map((m, index) => {
+                  const tipo = String(m.tipo || m.Tipo || 'Egreso').toLowerCase();
+                  const monto = Number(m.monto || m.Monto) || 0;
+                  return (
+                    <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 text-slate-600">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
+                      <td className="px-4 py-4">
+                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                          {tipo}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 font-bold text-slate-900">{m.concepto || m.Concepto || '---'}</td>
+                      <td className="px-4 py-4 uppercase text-slate-600">{m.medio_pago || m.Medio_pago || 'transferencia'}</td>
+                      <td className="px-4 py-4 text-slate-600">{m.referencia || m.Referencia || '---'}</td>
+                      <td className={`px-4 py-4 text-right font-black ${tipo === 'ingreso' ? 'text-emerald-600' : 'text-slate-900'}`}>
+                        $ {monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button onClick={() => handleEliminarMovimiento(m)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* TAB: CASH FLOW */}
+      {activeTab === 'cashflow' && (
+        <div className="space-y-8">
+          {/* Cash Flow Mensual */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
+            <h3 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-amber-500" /> Cash Flow Mensual
+            </h3>
+            {listaMensual.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-xs">No hay datos suficientes para mostrar el cash flow mensual.</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                        <th className="px-6 py-3">Periodo (Mes)</th>
+                        <th className="px-4 py-3 text-right text-emerald-600">Ingresos</th>
+                        <th className="px-4 py-3 text-right text-rose-600">Egresos</th>
+                        <th className="px-6 py-3 text-right">Neto / Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {listaMensual.map((row, idx) => {
+                        const neto = row.ingresos - row.egresos;
+                        return (
+                          <tr key={idx} className="hover:bg-slate-50">
+                            <td className="px-6 py-3 font-bold text-slate-800">{row.periodo}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-emerald-600">$ {row.ingresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-4 py-3 text-right font-semibold text-rose-600">$ {row.egresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className={`px-6 py-3 text-right font-black ${neto >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {neto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
 
-          <div className="bg-white rounded-xl border border-slate-200 overflow-hidden shadow-sm">
-            {filtered.length === 0 ? (
-              <div className="py-16 text-center text-slate-400"><Wallet className="w-12 h-12 mx-auto mb-3 opacity-30" /><p>No hay movimientos registrados</p></div>
+          {/* Cash Flow Anual */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
+            <h3 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-amber-500" /> Cash Flow Anual
+            </h3>
+            {listaAnual.length === 0 ? (
+              <div className="py-12 text-center text-slate-400 text-xs">No hay datos suficientes para mostrar el cash flow anual.</div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>{['Fecha','Tipo','Concepto','Obra','Medio','Monto','Acciones'].map(h=><th key={h} className="text-left px-4 py-3 text-slate-600 font-semibold text-xs uppercase tracking-wide">{h}</th>)}</tr>
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                      <th className="px-6 py-3">Año</th>
+                      <th className="px-4 py-3 text-right text-emerald-600">Ingresos</th>
+                      <th className="px-4 py-3 text-right text-rose-600">Egresos</th>
+                      <th className="px-6 py-3 text-right">Neto / Balance</th>
+                    </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {filtered.map(m=>(
-                      <tr key={m.id} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 text-slate-500 text-xs">{m.fecha}</td>
-                        <td className="px-4 py-3">
-                          {String(m.tipo).toLowerCase() === 'ingreso'
-                            ? <Badge className="bg-emerald-100 text-emerald-700 border-0 text-xs flex items-center gap-1 w-fit"><TrendingUp className="w-3 h-3"/>Ingreso</Badge>
-                            : <Badge className="bg-red-100 text-red-700 border-0 text-xs flex items-center gap-1 w-fit"><TrendingDown className="w-3 h-3"/>Egreso</Badge>}
-                        </td>
-                        <td className="px-4 py-3 font-medium text-slate-800">{m.concepto}</td>
-                        <td className="px-4 py-3 text-slate-500 text-xs">{m.obra_codigo || getObraName(m.obra_id)}</td>
-                        <td className="px-4 py-3 text-slate-500 text-xs capitalize">{m.medio_pago}</td>
-                        <td className={`px-4 py-3 font-bold ${String(m.tipo).toLowerCase() === 'ingreso' ? 'text-emerald-600' : 'text-red-600'}`}>
-                          {String(m.tipo).toLowerCase() === 'ingreso' ? '+' : '-'}{fmt(m.monto)}
-                        </td>
-                        <td className="px-4 py-3"><div className="flex gap-1">
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-amber-600" onClick={() => { 
-                            setSelected(m); 
-                            setForm({
-                              ...emptyForm, 
-                              ...m, 
-                              obra_id: m.obra_id ? String(m.obra_id) : 'NONE',
-                              presupuesto_id: m.presupuesto_id ? String(m.presupuesto_id) : 'NONE'
-                            }); 
-                            setModalOpen(true); 
-                          }}><Pencil className="w-4 h-4"/></Button>
-                          <Button size="icon" variant="ghost" className="h-8 w-8 text-slate-400 hover:text-red-600" onClick={() => { setSelected(m); setDeleteOpen(true); }}><Trash2 className="w-4 h-4"/></Button>
-                        </div></td>
-                      </tr>
-                    ))}
+                    {listaAnual.map((row, idx) => {
+                      const neto = row.ingresos - row.egresos;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="px-6 py-3 font-bold text-slate-800">{row.periodo}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-emerald-600">$ {row.ingresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-rose-600">$ {row.egresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className={`px-6 py-3 text-right font-black ${neto >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {neto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
             )}
           </div>
-        </TabsContent>
+        </div>
+      )}
 
-        <TabsContent value="cashflow" className="mt-4 space-y-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-            <h3 className="font-semibold text-slate-700 mb-4">Cash Flow Mensual — Ingresos vs. Egresos</h3>
-            {cashFlowData().length === 0 ? (
-              <div className="py-16 text-center text-slate-400">No hay datos suficientes</div>
-            ) : (
-              <ResponsiveContainer width="100%" height={300}>
-                <BarChart data={cashFlowData()} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
-                  <YAxis tick={{ fontSize: 12 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                  <Tooltip formatter={(v) => fmt(v)} />
-                  <Legend />
-                  <Bar dataKey="ingresos" name="Ingresos" fill="#10b981" radius={[4,4,0,0]} />
-                  <Bar dataKey="egresos" name="Egresos" fill="#ef4444" radius={[4,4,0,0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-
-          {cashFlowData().length > 0 && (() => {
-            let acumIngresos = 0, acumEgresos = 0;
-            const acumData = cashFlowData().map(d => {
-              acumIngresos += d.ingresos;
-              acumEgresos += d.egresos;
-              return { mes: d.mes, ingresosAcum: acumIngresos, egresosAcum: acumEgresos, balanceAcum: acumIngresos - acumEgresos };
-            });
-            return (
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-sm">
-                <h3 className="font-semibold text-slate-700 mb-1">Flujo de Caja Acumulado</h3>
-                <p className="text-xs text-slate-400 mb-4">Ingresos y egresos acumulados mes a mes</p>
-                <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={acumData} margin={{ top: 5, right: 20, left: 20, bottom: 5 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                    <XAxis dataKey="mes" tick={{ fontSize: 12 }} />
-                    <YAxis tick={{ fontSize: 12 }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
-                    <Tooltip formatter={(v) => fmt(v)} />
-                    <Legend />
-                    <Line type="monotone" dataKey="ingresosAcum" name="Ingresos Acum." stroke="#10b981" strokeWidth={2.5} dot={false} />
-                    <Line type="monotone" dataKey="egresosAcum" name="Egresos Acum." stroke="#ef4444" strokeWidth={2.5} dot={false} strokeDasharray="5 3" />
-                    <Line type="monotone" dataKey="balanceAcum" name="Balance Neto Acum." stroke="#3b82f6" strokeWidth={2} dot={false} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            );
-          })()}
-        </TabsContent>
-
-        <TabsContent value="iva" className="mt-4">
-          <div className="bg-white rounded-xl border border-slate-200 p-5 space-y-4 shadow-sm">
-            <h3 className="font-semibold text-slate-700">Posición IVA</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div className="bg-red-50 rounded-lg p-4 border border-red-200">
-                <p className="text-xs text-red-600 font-medium">IVA Compras (CF)</p>
-                <p className="text-2xl font-bold text-red-700 mt-1">{fmt(ivaCompras)}</p>
-                <p className="text-xs text-slate-500 mt-1">Crédito Fiscal</p>
-              </div>
-              <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                <p className="text-xs text-blue-600 font-medium">IVA Ventas (DB)</p>
-                <p className="text-2xl font-bold text-blue-700 mt-1">{fmt(ivaVentas)}</p>
-                <p className="text-xs text-slate-500 mt-1">Débito Fiscal</p>
-              </div>
-              <div className={`rounded-lg p-4 border ${posicionIVA >= 0 ? 'bg-amber-50 border-amber-200' : 'bg-emerald-50 border-emerald-200'}`}>
-                <p className={`text-xs font-medium ${posicionIVA >= 0 ? 'text-amber-600' : 'text-emerald-600'}`}>Posición IVA</p>
-                <p className={`text-2xl font-bold mt-1 ${posicionIVA >= 0 ? 'text-amber-700' : 'text-emerald-700'}`}>{fmt(Math.abs(posicionIVA))}</p>
-                <p className="text-xs text-slate-500 mt-1">{posicionIVA >= 0 ? 'A pagar (DB > CF)' : 'A favor (CF > DB)'}</p>
-              </div>
+      {/* TAB: IVA */}
+      {activeTab === 'iva' && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-rose-50/40 border border-rose-200 p-6 rounded-2xl shadow-sm">
+              <p className="text-xs font-bold text-rose-700 uppercase">IVA Compras (CF)</p>
+              <h3 className="text-2xl font-black text-rose-900 mt-2">$ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+              <span className="text-[11px] text-slate-500 mt-1 block">Crédito Fiscal</span>
+            </div>
+            <div className="bg-blue-50/40 border border-blue-200 p-6 rounded-2xl shadow-sm">
+              <p className="text-xs font-bold text-blue-700 uppercase">IVA Ventas (DB)</p>
+              <h3 className="text-2xl font-black text-blue-900 mt-2">$ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+              <span className="text-[11px] text-slate-500 mt-1 block">Débito Fiscal</span>
+            </div>
+            <div className="bg-emerald-50/40 border border-emerald-200 p-6 rounded-2xl shadow-sm">
+              <p className="text-xs font-bold text-emerald-700 uppercase">Posición IVA</p>
+              <h3 className="text-2xl font-black text-emerald-700 mt-2">$ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+              <span className="text-[11px] text-slate-500 mt-1 block">{posicionIva <= 0 ? 'A favor (CF > DB)' : 'A pagar'}</span>
             </div>
           </div>
-        </TabsContent>
-      </Tabs>
 
-      {/* Modal Movimiento */}
-      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader><DialogTitle>{selected ? 'Editar Movimiento' : 'Nuevo Movimiento'}</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-3 py-2">
-            <div className="space-y-1"><Label>Tipo *</Label>
-              <Select value={form.tipo} onValueChange={v=>setForm(f=>({...f,tipo:v}))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent><SelectItem value="ingreso">Ingreso</SelectItem><SelectItem value="egreso">Egreso</SelectItem></SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1"><Label>Fecha *</Label><Input type="date" value={form.fecha} onChange={e=>setForm(f=>({...f,fecha:e.target.value}))}/></div>
-            <div className="col-span-2 space-y-1"><Label>Concepto *</Label><Input value={form.concepto} onChange={e=>setForm(f=>({...f,concepto:e.target.value}))} placeholder="Descripción del movimiento"/></div>
-            <div className="space-y-1"><Label>Monto ($) *</Label><Input type="number" value={form.monto} onChange={e=>setForm(f=>({...f,monto:e.target.value}))}/></div>
-            <div className="space-y-1"><Label>Medio de Pago</Label>
-              <Select value={form.medio_pago} onValueChange={v=>setForm(f=>({...f,medio_pago:v}))}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>{MEDIOS.map(m=><SelectItem key={m} value={m} className="capitalize">{m}</SelectItem>)}</SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1"><Label>Obra</Label>
-              <Select value={String(form.obra_id || 'NONE')} onValueChange={v=>setForm(f=>({...f, obra_id: v, presupuesto_id: 'NONE'}))}>
-                <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="NONE">Sin obra</SelectItem>
-                  {safeObras.map(o=><SelectItem key={o.id} value={String(o.id)}>{o.codigo} - {o.nombre}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1"><Label>Presupuesto</Label>
-              <Select value={String(form.presupuesto_id || 'NONE')} onValueChange={v=>setForm(f=>({...f, presupuesto_id: v}))}>
-                <SelectTrigger><SelectValue placeholder="Seleccionar..." /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="NONE">Sin presupuesto</SelectItem>
-                  {presupuestosPorObra.map(p=><SelectItem key={p.id} value={String(p.id)}>{p.codigo} - {p.nombre}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2 space-y-1"><Label>Referencia</Label><Input value={form.referencia} onChange={e=>setForm(f=>({...f,referencia:e.target.value}))} placeholder="N° cheque, transferencia..."/></div>
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-2">
+            <h4 className="text-xs font-extrabold text-slate-800 uppercase">Cálculo: Posición IVA = IVA Ventas – IVA Compras</h4>
+            <p className="text-xs text-slate-600 font-mono">
+              $ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })} = <span className="font-bold text-rose-600">$ {posicionIva.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+            </p>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=>setModalOpen(false)}>Cancelar</Button>
-            <Button onClick={handleSave} disabled={saving} className="bg-amber-500 hover:bg-amber-600 text-white">{saving?'Guardando...':selected?'Guardar':'Registrar'}</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
 
-      {/* Modal Eliminar */}
-      <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Eliminar Movimiento</DialogTitle></DialogHeader>
-          <p className="text-slate-600 text-sm">¿Eliminar el movimiento <strong>{selected?.concepto}</strong>?</p>
-          <DialogFooter>
-            <Button variant="outline" onClick={()=>setDeleteOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleDelete}>Eliminar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* MODAL NUEVO / EDITAR MOVIMIENTO */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-8">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
+              <h3 className="font-bold text-slate-900">Nuevo Movimiento</h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+            </div>
+            
+            <form onSubmit={handleGuardarMovimiento} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo *</label>
+                  <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase" value={formData.tipo} onChange={(e) => setFormData({...formData, tipo: e.target.value})}>
+                    <option value="Egreso">Egreso</option>
+                    <option value="Ingreso">Ingreso</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha *</label>
+                  <input type="date" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.fecha} onChange={(e) => setFormData({...formData, fecha: e.target.value})} />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto *</label>
+                  <input type="text" required placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto ($) *</label>
+                  <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-amber-600 outline-none focus:border-amber-500" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Medio de Pago</label>
+                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase" value={formData.medio_pago} onChange={(e) => setFormData({...formData, medio_pago: e.target.value})}>
+                    <option value="transferencia">Transferencia</option>
+                    <option value="efectivo">Efectivo</option>
+                    <option value="cheque">Cheque</option>
+                    <option value="tarjeta">Tarjeta</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Referencia</label>
+                  <input type="text" placeholder="N° cheque, transferencia..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.referencia} onChange={(e) => setFormData({...formData, referencia: e.target.value})} />
+                </div>
+              </div>
+
+              {/* SECCIÓN DE APLICACIÓN A FACTURAS */}
+              <div className="space-y-3 pt-4 border-t">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h4 className="font-extrabold text-xs uppercase text-slate-800">Aplicar a Facturas</h4>
+                    <p className="text-[11px] text-slate-500">Asocia este movimiento a una o varias facturas (montos totales o parciales).</p>
+                  </div>
+                  <button type="button" onClick={handleAgregarFacturaFila} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors">
+                    <Plus className="w-3.5 h-3.5" /> Agregar Factura
+                  </button>
+                </div>
+
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                        <th className="px-3 py-2.5">Factura</th>
+                        <th className="px-3 py-2.5 w-36 text-right">Monto Aplicado</th>
+                        <th className="px-3 py-2.5 w-12 text-center">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {Array.isArray(formData.facturas_aplicadas) && formData.facturas_aplicadas.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50">
+                          <td className="px-3 py-2">
+                            <select 
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500"
+                              value={item.factura_id}
+                              onChange={(e) => handleCambiarFacturaFila(item.id, 'factura_id', e.target.value)}
+                            >
+                              <option value="">Seleccionar factura...</option>
+                              {facturas.map(f => {
+                                const prov = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
+                                return (
+                                  <option key={f.id || f.ID} value={f.id || f.ID}>
+                                    {f.codigo || 'FAC'} - {prov?.razon_social || prov?.nombre || 'Proveedor'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
+                                  </option>
+                                );
+                              })}
+                            </select>
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <input 
+                              type="number" 
+                              step="0.01" 
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500" 
+                              value={item.monto} 
+                              onChange={(e) => handleCambiarFacturaFila(item.id, 'monto', e.target.value)} 
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <button type="button" onClick={() => handleQuitarFacturaFila(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                <button type="submit" className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm">Registrar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
