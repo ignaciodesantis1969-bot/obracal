@@ -61,12 +61,15 @@ export default function Insumos() {
     return `INS${String(num).padStart(3, '0')}`;
   };
 
-  const obtenerCodigoCompleto = (insumo) => {
+  const obtenerCodigosSeparados = (insumo) => {
     const proveedor = proveedores.find(p => String(p.id) === String(insumo.proveedor_id));
     const codProveedor = proveedor && proveedor.codigo ? proveedor.codigo : 'PR000X';
     let codInsumo = insumo.codigo || 'INS001';
-    if (codInsumo.includes('-')) return codInsumo;
-    return `${codProveedor}-${codInsumo}`;
+    if (codInsumo.includes('-')) {
+      const parts = codInsumo.split('-');
+      return { prov: parts[0], ins: parts.slice(1).join('-') };
+    }
+    return { prov: codProveedor, ins: codInsumo };
   };
 
   const obtenerClaseTipo = (tipo) => {
@@ -166,7 +169,8 @@ export default function Insumos() {
     const nombreInsumo = (i.nombre || i.insumo || i.descripcion || '').toLowerCase();
     const tipoInsumo = (i.tipo || i.categoria || '').toLowerCase();
     const proveedorNombre = obtenerNombreProveedor(i.proveedor_id).toLowerCase();
-    const codigoCompleto = obtenerCodigoCompleto(i).toLowerCase();
+    const { prov, ins } = obtenerCodigosSeparados(i);
+    const codigoCompleto = `${prov}-${ins}`.toLowerCase();
     
     const coincideBusqueda = nombreInsumo.includes(term) || codigoCompleto.includes(term) || proveedorNombre.includes(term) || tipoInsumo.includes(term);
     const coincideFiltroTipo = filtroTipo ? tipoInsumo.includes(filtroTipo.toLowerCase()) : true;
@@ -329,17 +333,17 @@ export default function Insumos() {
         {error && <div className="p-4 bg-red-50 text-red-600 text-sm text-center">{error}</div>}
 
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
+          <table className="w-full text-left border-collapse table-fixed">
             <thead>
               <tr className="bg-slate-100 text-xs font-semibold text-slate-600 uppercase border-b">
-                <th className="px-6 py-4">Código</th>
-                <th className="px-6 py-4">Nombre / Descripción</th>
-                <th className="px-6 py-4">Tipo / Categoría</th>
-                <th className="px-6 py-4">Proveedor</th>
-                <th className="px-6 py-4">Unidad</th>
-                <th className="px-6 py-4">Costo Unitario</th>
-                <th className="px-6 py-4">Estado</th>
-                <th className="px-6 py-4 text-right">Acciones</th>
+                <th className="w-[11%] px-4 py-4">Código</th>
+                <th className="w-[28%] px-4 py-4">Nombre / Descripción</th>
+                <th className="w-[14%] px-4 py-4">Tipo / Categoría</th>
+                <th className="w-[17%] px-4 py-4">Proveedor</th>
+                <th className="w-[8%] px-3 py-4">Unidad</th>
+                <th className="w-[12%] px-4 py-4 text-right">Costo Unitario</th>
+                <th className="w-[5%] px-2 py-4 text-center">Estado</th>
+                <th className="w-[5%] px-2 py-4 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
@@ -349,7 +353,7 @@ export default function Insumos() {
                 <tr><td colSpan="8" className="px-6 py-12 text-center text-slate-500 text-sm">No se encontraron insumos.</td></tr>
               ) : (
                 insumosFiltrados.map((i, idx) => {
-                  const codigoCompleto = obtenerCodigoCompleto(i);
+                  const { prov, ins } = obtenerCodigosSeparados(i);
                   const nombreProveedor = obtenerNombreProveedor(i.proveedor_id);
                   const tipoActual = i.tipo || i.categoria || 'Material';
                   const nombreInsumo = i.nombre || i.insumo || i.descripcion || '—';
@@ -357,21 +361,34 @@ export default function Insumos() {
 
                   return (
                     <tr key={i.id || idx} className="hover:bg-slate-50 transition-colors group">
-                      <td className="px-6 py-4 whitespace-nowrap"><span className="font-bold text-blue-600 text-sm">{codigoCompleto}</span></td>
-                      <td className="px-6 py-4"><span className="font-semibold text-slate-800 text-sm">{nombreInsumo}</span></td>
-                      <td className="px-6 py-4 whitespace-nowrap">
+                      <td className="w-[11%] px-4 py-4 whitespace-nowrap">
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">{prov}</div>
+                        <div className="font-bold text-blue-600 text-xs mt-0.5">{ins}</div>
+                      </td>
+                      <td className="w-[28%] px-4 py-4">
+                        <span className="font-semibold text-slate-800 text-sm break-words block">{nombreInsumo}</span>
+                      </td>
+                      <td className="w-[14%] px-4 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${obtenerClaseTipo(tipoActual)}`}>
                           {tipoActual}
                         </span>
                       </td>
-                      <td className="px-6 py-4"><span className="text-slate-700 text-sm">{nombreProveedor}</span></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><span className="text-slate-600 uppercase text-xs font-semibold bg-slate-100 px-2.5 py-1 rounded border">{i.unidad || '—'}</span></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><span className="font-bold text-amber-600 text-sm">$ {costoUnit ? Number(costoUnit).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '0,00'}</span></td>
-                      <td className="px-6 py-4 whitespace-nowrap"><span className="inline-flex px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800">{i.estado || 'Activo'}</span></td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right">
-                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => handleEditarClick(i)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded-md shadow-sm" title="Editar"><Edit2 className="w-4 h-4" /></button>
-                          <button onClick={() => handleEliminar(i.id)} className="p-1.5 text-slate-500 hover:text-red-600 bg-white border rounded-md shadow-sm" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
+                      <td className="w-[17%] px-4 py-4">
+                        <span className="text-slate-700 text-sm truncate block" title={nombreProveedor}>{nombreProveedor}</span>
+                      </td>
+                      <td className="w-[8%] px-3 py-4 whitespace-nowrap">
+                        <span className="text-slate-600 uppercase text-xs font-semibold bg-slate-100 px-2 py-1 rounded border inline-block">{i.unidad || '—'}</span>
+                      </td>
+                      <td className="w-[12%] px-4 py-4 text-right whitespace-nowrap">
+                        <span className="font-bold text-amber-600 text-sm">$ {costoUnit ? Number(costoUnit).toLocaleString('es-AR', { minimumFractionDigits: 2 }) : '0,00'}</span>
+                      </td>
+                      <td className="w-[5%] px-2 py-4 text-center whitespace-nowrap">
+                        <span className="inline-flex px-2 py-0.5 rounded-full text-[10px] font-medium bg-emerald-100 text-emerald-800">{i.estado || 'Activo'}</span>
+                      </td>
+                      <td className="w-[5%] px-2 py-4 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <button onClick={() => handleEditarClick(i)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded-md shadow-sm" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEliminar(i.id)} className="p-1.5 text-slate-500 hover:text-red-600 bg-white border rounded-md shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
                     </tr>
