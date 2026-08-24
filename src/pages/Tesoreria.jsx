@@ -163,7 +163,6 @@ export default function Tesoreria({
   const procesarArchivoFacturaVenta = (archivo) => {
     setLeyendoFactura(true);
     setTimeout(() => {
-      // Datos simulados extraídos del archivo subido
       const netoSimulado = 150000;
       const ivaSimulado = netoSimulado * 0.21;
       const totalSimulado = netoSimulado + ivaSimulado;
@@ -264,7 +263,7 @@ export default function Tesoreria({
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
-          tabla: 'FacturasVenta',
+          tabla: 'FacturasVenta', // Apunta a la pestaña dedicada en Google Sheets
           action: 'create',
           data: {
             ...formDataVenta,
@@ -272,13 +271,22 @@ export default function Tesoreria({
           }
         })
       });
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
+
+      const textoRespuesta = await res.text();
+      let data;
+      try {
+        data = JSON.parse(textoRespuesta);
+      } catch (parseErr) {
+        alert("Error del servidor: " + textoRespuesta.substring(0, 150));
+        return;
+      }
+
+      if (data.success || data.id) {
         setIsFacturaVentaModalOpen(false);
         alert("Factura de Venta registrada correctamente.");
         cargarDatos();
       } else {
-        alert("Error al guardar factura de venta.");
+        alert("Error al guardar factura de venta: " + (data.error || "Desconocido"));
       }
     } catch (err) {
       console.error(err);
