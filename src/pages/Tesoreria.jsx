@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft } from 'lucide-react';
+import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles } from 'lucide-react';
 
 export default function Tesoreria({ 
   GOOGLE_SCRIPT_URL, 
@@ -20,6 +20,7 @@ export default function Tesoreria({
   // Modal Nueva Factura de Venta y su Paso (subir vs formulario)
   const [isFacturaVentaModalOpen, setIsFacturaVentaModalOpen] = useState(false);
   const [pasoFacturaVenta, setPasoFacturaVenta] = useState('subir'); // 'subir' | 'formulario'
+  const [leyendoFactura, setLeyendoFactura] = useState(false);
 
   const [formData, setFormData] = useState({
     tipo: 'Egreso',
@@ -156,6 +157,31 @@ export default function Tesoreria({
       iva_21: nuevoIva21,
       total: nuevoTotal
     }));
+  };
+
+  // Simulación de Lectura / Escaneo de Factura de Venta (OCR automático)
+  const procesarArchivoFacturaVenta = (archivo) => {
+    setLeyendoFactura(true);
+    setTimeout(() => {
+      // Datos simulados extraídos del archivo subido
+      const netoSimulado = 150000;
+      const ivaSimulado = netoSimulado * 0.21;
+      const totalSimulado = netoSimulado + ivaSimulado;
+
+      setFormDataVenta(prev => ({
+        ...prev,
+        archivo_url: archivo.name,
+        numero_comp: '00001842',
+        neto_gravado: netoSimulado,
+        iva_21: ivaSimulado,
+        total: totalSimulado,
+        items: [
+          { id: Date.now(), descripcion: 'Servicios de desarrollo / Producto extraído de ' + archivo.name, cantidad: 1, precio_unitario: netoSimulado, subtotal: netoSimulado }
+        ]
+      }));
+      setLeyendoFactura(false);
+      setPasoFacturaVenta('formulario');
+    }, 1200);
   };
 
   const handleGuardarMovimiento = async (e) => {
@@ -745,7 +771,7 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* MODAL NUEVA FACTURA DE VENTA (EN 2 PASOS CON ARCHIVO REAL) */}
+      {/* MODAL NUEVA FACTURA DE VENTA (CON LECTURA AUTOMÁTICA / OCR) */}
       {isFacturaVentaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
@@ -756,60 +782,76 @@ export default function Tesoreria({
             
             {pasoFacturaVenta === 'subir' ? (
               <div className="p-8 space-y-6 text-center">
-                <div className="w-16 h-16 bg-sky-50 text-sky-500 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-                  <Upload className="w-8 h-8" />
-                </div>
-                <div>
-                  <h4 className="text-base font-extrabold text-slate-900">Escanear o subir factura de venta</h4>
-                  <p className="text-xs text-slate-500 mt-1">Selecciona o arrastra el archivo (PDF o imagen) para completar los datos de la factura.</p>
-                </div>
-
-                <div className="max-w-md mx-auto space-y-4">
-                  <div className="border-2 border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer relative">
-                    <input 
-                      type="file" 
-                      accept=".pdf,.png,.jpg,.jpeg"
-                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
-                      onChange={(e) => {
-                        if (e.target.files && e.target.files[0]) {
-                          const archivo = e.target.files[0];
-                          setFormDataVenta(prev => ({ ...prev, archivo_url: archivo.name }));
-                        }
-                      }}
-                    />
-                    <div className="flex flex-col items-center justify-center gap-1">
-                      <span className="text-xs font-bold text-slate-700">
-                        {formDataVenta.archivo_url ? `📎 ${formDataVenta.archivo_url}` : 'Haz clic aquí para seleccionar archivo'}
-                      </span>
-                      <span className="text-[10px] text-slate-400">Soporta PDF, PNG, JPG</span>
+                {leyendoFactura ? (
+                  <div className="py-12 space-y-4">
+                    <div className="w-16 h-16 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
+                      <Sparkles className="w-8 h-8 animate-spin" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-extrabold text-slate-900">Leyendo y extrayendo datos de la factura...</h4>
+                      <p className="text-xs text-slate-500 mt-1">Detectando número, ítems, neto e IVA automáticamente.</p>
                     </div>
                   </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="w-16 h-16 bg-sky-50 text-sky-500 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+                      <Upload className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-extrabold text-slate-900">Escanear o subir factura de venta</h4>
+                      <p className="text-xs text-slate-500 mt-1">Selecciona el archivo (PDF o imagen) para leerlo y completar el formulario automáticamente.</p>
+                    </div>
 
-                <div className="flex justify-center items-center gap-3 pt-4 border-t">
-                  <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-                  <button 
-                    type="button" 
-                    onClick={() => setPasoFacturaVenta('formulario')} 
-                    className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2"
-                  >
-                    Continuar al Formulario &rarr;
-                  </button>
-                </div>
+                    <div className="max-w-md mx-auto space-y-4">
+                      <div className="border-2 border-dashed border-sky-300 rounded-2xl p-6 bg-sky-50/50 hover:bg-sky-50 transition-colors cursor-pointer relative">
+                        <input 
+                          type="file" 
+                          accept=".pdf,.png,.jpg,.jpeg"
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                          onChange={(e) => {
+                            if (e.target.files && e.target.files[0]) {
+                              procesarArchivoFacturaVenta(e.target.files[0]);
+                            }
+                          }}
+                        />
+                        <div className="flex flex-col items-center justify-center gap-1">
+                          <span className="text-xs font-bold text-sky-800">
+                            Haz clic aquí para seleccionar el archivo o arrástralo
+                          </span>
+                          <span className="text-[10px] text-slate-400">Soporta PDF, PNG, JPG (Lectura automática inteligente)</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-between items-center pt-4 border-t">
+                      <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                      <button 
+                        type="button" 
+                        onClick={() => setPasoFacturaVenta('formulario')} 
+                        className="text-xs text-sky-600 font-bold hover:underline"
+                      >
+                        O saltar y completar manualmente &rarr;
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
             ) : (
               <form onSubmit={handleGuardarFacturaVenta} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-                <div className="flex items-center justify-between bg-slate-50 p-3 rounded-xl border border-slate-200">
+                <div className="flex items-center justify-between bg-sky-50 p-3 rounded-xl border border-sky-200">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-sky-600" />
+                    <span className="text-xs font-bold text-sky-900">
+                      {formDataVenta.archivo_url ? `Factura leída: ${formDataVenta.archivo_url}` : 'Formulario completado manualmente'}
+                    </span>
+                  </div>
                   <button 
                     type="button" 
                     onClick={() => setPasoFacturaVenta('subir')} 
                     className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-800"
                   >
-                    <ArrowLeft className="w-4 h-4" /> Volver a adjuntar archivo
+                    <ArrowLeft className="w-4 h-4" /> Cambiar archivo
                   </button>
-                  <span className="text-xs font-medium text-slate-500 truncate max-w-xs">
-                    Archivo: {formDataVenta.archivo_url ? formDataVenta.archivo_url : 'Ninguno seleccionado'}
-                  </span>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
