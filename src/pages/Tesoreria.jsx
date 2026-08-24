@@ -54,7 +54,7 @@ export default function Tesoreria({
         if (campo === 'factura_id') {
           const facEncontrada = facturas.find(f => String(f.id || f.ID) === String(valor));
           if (facEncontrada) {
-            actualizado.monto = Number(facEncontrada.total || facEncontrada.Total || 0);
+            actualizado.monto = Number(facEncontrada.total || facEncontrada.Total || facEncontrada.TOTAL || 0);
           }
         }
         return actualizado;
@@ -167,8 +167,8 @@ export default function Tesoreria({
   movimientos.forEach(m => {
     const fecha = m.fecha || m.Fecha;
     if (!fecha) return;
-    const mesAnio = fecha.substring(0, 7); // YYYY-MM
-    const anio = fecha.substring(0, 4);    // YYYY
+    const mesAnio = fecha.substring(0, 7); 
+    const anio = fecha.substring(0, 4);    
     const tipo = String(m.tipo || m.Tipo).toLowerCase();
     const monto = Number(m.monto || m.Monto) || 0;
 
@@ -184,12 +184,15 @@ export default function Tesoreria({
   const listaMensual = Object.keys(cashFlowMensualMap).sort().map(k => ({ periodo: k, ...cashFlowMensualMap[k] }));
   const listaAnual = Object.keys(cashFlowAnualMap).sort().map(k => ({ periodo: k, ...cashFlowAnualMap[k] }));
 
-  // Cálculos de IVA
+  // Cálculos robustos de IVA considerando todas las variantes de mayúsculas/minúsculas
   const totalIvaCompras = facturas.reduce((acc, f) => {
-    return acc + (Number(f.iva_21 || f.Iva_21 || 0) + Number(f.iva_105 || f.Iva_105 || 0));
+    const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || f.IVA21 || 0);
+    const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || f.IVA105 || f['iva_10.5'] || 0);
+    return acc + iva21 + iva105;
   }, 0);
+
   const totalIvaVentas = 0; 
-  const posicionIva = totalIvaVentas - totalIvaCompras;
+  const posicionIva = totalIvaVentas - totalIvaCompras; // Negativo significa a favor (CF > DB)
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -409,13 +412,13 @@ export default function Tesoreria({
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-2">
             <h4 className="text-xs font-extrabold text-slate-800 uppercase">Cálculo: Posición IVA = IVA Ventas – IVA Compras</h4>
             <p className="text-xs text-slate-600 font-mono">
-              $ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })} = <span className="font-bold text-rose-600">$ {posicionIva.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+              $ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })} = <span className="font-bold text-emerald-600">$ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })} (A favor)</span>
             </p>
           </div>
         </div>
       )}
 
-      {/* MODAL NUEVO MOVIMIENTO (SIN OBRA NI PRESUPUESTO, SOLO FACTURAS) */}
+      {/* MODAL NUEVO MOVIMIENTO */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-8">
@@ -460,7 +463,7 @@ export default function Tesoreria({
                 </div>
               </div>
 
-              {/* SECCIÓN DE APLICACIÓN A FACTURAS (Múltiples facturas, montos totales o parciales) */}
+              {/* SECCIÓN DE APLICACIÓN A FACTURAS */}
               <div className="space-y-3 pt-4 border-t">
                 <div className="flex justify-between items-center">
                   <div>
