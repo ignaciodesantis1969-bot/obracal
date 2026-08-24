@@ -91,7 +91,6 @@ export default function PresupuestoDetalle() {
           itemsParseados = [];
         }
 
-        // Recuperar datos comerciales guardados (desde la estructura unificada o campos sueltos)
         if (comercialParseado) {
           if (Array.isArray(comercialParseado.gastos_generales_insumos)) {
             setGastosGeneralesInsumos(comercialParseado.gastos_generales_insumos);
@@ -169,7 +168,6 @@ export default function PresupuestoDetalle() {
     }
   }, [presupuestoId]);
 
-  // Validar si está entregado
   const estadoActual = String(presupuesto?.estado || 'borrador').toLowerCase();
   const esEntregado = estadoActual === 'entregado';
 
@@ -189,7 +187,6 @@ export default function PresupuestoDetalle() {
     const coef = nuevoCoef !== null ? nuevoCoef : (Number(presupuesto?.coeficiente_pase) || 1.30);
     const precioVentaTotal = costoDirectoTotal * coef;
 
-    // Empaquetar rubros y datos comerciales en items_detalle para asegurar persistencia total
     const estructuraCompleta = {
       rubros: nuevosItems,
       comercial: {
@@ -622,13 +619,15 @@ export default function PresupuestoDetalle() {
             const tareasDelRubro = rubroObj.tareas || [];
             let costoRubro = 0;
             tareasDelRubro.forEach(t => { costoRubro += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0); });
+            const precioVentaRubro = costoRubro * coeficientePase;
 
             return (
               <div key={rIdx} className="bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm group/rubro">
                 <div className="bg-slate-800 text-white px-6 py-3.5 flex justify-between items-center">
                   <span className="font-extrabold text-sm tracking-wide uppercase">{rubroObj.rubro}</span>
-                  <div className="flex items-center gap-4">
-                    <span className="font-black text-amber-400">$ {costoRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                  <div className="flex items-center gap-6">
+                    <span className="text-xs text-slate-300">Costo: <strong className="text-amber-400">$ {costoRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong></span>
+                    <span className="text-xs text-slate-300">Venta: <strong className="text-emerald-400">$ {precioVentaRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong></span>
                     {!esEntregado && (
                       <button 
                         onClick={() => handleEliminarRubro(rubroObj.rubro)} 
@@ -645,15 +644,16 @@ export default function PresupuestoDetalle() {
                   {tareasDelRubro.length === 0 ? (
                     <div className="px-6 py-6 text-xs text-slate-400 italic text-center">No hay tareas cargadas en este rubro. Hacé clic en "Nueva Tarea" para agregar.</div>
                   ) : (
-                    <table className="w-full text-left text-xs">
+                    <table className="w-full text-left text-xs table-fixed">
                       <thead>
                         <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
-                          <th className="px-6 py-3">Tarea e Insumos</th>
-                          <th className="px-4 py-3">Unidad</th>
-                          <th className="px-4 py-3 text-center">Cantidad</th>
-                          <th className="px-4 py-3 text-right">Costo Unit.</th>
-                          <th className="px-6 py-3 text-right">Costo Total</th>
-                          <th className="px-4 py-3 text-right">Acciones</th>
+                          <th className="w-[30%] px-6 py-3">Tarea e Insumos</th>
+                          <th className="w-[8%] px-2 py-3 text-center">Unidad</th>
+                          <th className="w-[9%] px-2 py-3 text-center">Cantidad</th>
+                          <th className="w-[13%] px-3 py-3 text-right">Costo Unit.</th>
+                          <th className="w-[13%] px-3 py-3 text-right">Costo Total</th>
+                          <th className="w-[13%] px-3 py-3 text-right">Precio Venta</th>
+                          <th className="w-[14%] px-4 py-3 text-right">Acciones</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -661,10 +661,11 @@ export default function PresupuestoDetalle() {
                           const cant = Number(t.cantidad) || 0;
                           const cUnit = Number(t.costo_unitario) || 0;
                           const cTot = cant * cUnit;
+                          const pVentaItem = cTot * coeficientePase;
 
                           return (
                             <tr key={t.id} className="hover:bg-slate-50 group">
-                              <td className="px-6 py-3">
+                              <td className="w-[30%] px-6 py-3 break-words">
                                 <div className="font-semibold text-slate-800">{t.tarea}</div>
                                 {t.insumos && (
                                   <div className="text-[11px] text-slate-500 font-normal mt-0.5">
@@ -672,11 +673,12 @@ export default function PresupuestoDetalle() {
                                   </div>
                                 )}
                               </td>
-                              <td className="px-4 py-3 uppercase text-slate-600">{t.unidad}</td>
-                              <td className="px-4 py-3 text-center font-bold text-slate-800">{cant}</td>
-                              <td className="px-4 py-3 text-right text-slate-600">$ {cUnit.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                              <td className="px-6 py-3 text-right font-black text-slate-900">$ {cTot.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                              <td className="px-4 py-3 text-right">
+                              <td className="w-[8%] px-2 py-3 uppercase text-slate-600 text-center">{t.unidad}</td>
+                              <td className="w-[9%] px-2 py-3 text-center font-bold text-slate-800">{cant}</td>
+                              <td className="w-[13%] px-3 py-3 text-right text-slate-600">$ {cUnit.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="w-[13%] px-3 py-3 text-right font-black text-slate-900">$ {cTot.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="w-[13%] px-3 py-3 text-right font-black text-amber-600">$ {pVentaItem.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="w-[14%] px-4 py-3 text-right">
                                 {!esEntregado && (
                                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button onClick={() => handleEditarTareaClick(rubroObj.rubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea (Cómputo)">
@@ -1254,7 +1256,7 @@ export default function PresupuestoDetalle() {
                   <select 
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none"
                     value={nuevaTarea.unidad}
-                    onChange={(e) => setNuevaTarea({...nuevaTarea, unidad: e.target.value})}
+                    onChange={(e) => setNuevaTarea({...nuevaTagre, unidad: e.target.value})}
                   >
                     <option value="m2">m²</option>
                     <option value="m3">m³</option>

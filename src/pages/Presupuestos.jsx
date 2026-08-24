@@ -121,7 +121,6 @@ export default function Presupuestos() {
     }
   };
 
-  // Cambiar estado con validación de bloqueo
   const handleCambiarEstado = async (id, nuevoEstado) => {
     const p = presupuestos.find(presu => String(presu.id) === String(id));
     if (String(p?.estado || '').toLowerCase() === 'entregado') {
@@ -321,17 +320,17 @@ export default function Presupuestos() {
         {presupuestosFiltrados.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">No se encontraron presupuestos cargados.</div>
         ) : (
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-xs table-fixed">
             <thead>
               <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                <th className="px-6 py-4">Código</th>
-                <th className="px-6 py-4">Nombre del Presupuesto</th>
-                <th className="px-4 py-4 text-center">Versión</th>
-                <th className="px-6 py-4">Obra Asociada</th>
-                <th className="px-4 py-4 text-right">Costo Directo</th>
-                <th className="px-4 py-4 text-right">Precio Venta</th>
-                <th className="px-4 py-4 text-center">Estado</th>
-                <th className="px-6 py-4 text-right">Acciones</th>
+                <th className="w-[12%] px-6 py-4">Código</th>
+                <th className="w-[24%] px-4 py-4">Nombre del Presupuesto</th>
+                <th className="w-[7%] px-2 py-4 text-center">Versión</th>
+                <th className="w-[20%] px-4 py-4">Obra Asociada</th>
+                <th className="w-[14%] px-4 py-4 text-right">Costo Directo</th>
+                <th className="w-[14%] px-4 py-4 text-right">Precio Venta</th>
+                <th className="w-[10%] px-2 py-4 text-center">Estado</th>
+                <th className="w-[9%] px-2 py-4 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -350,22 +349,24 @@ export default function Presupuestos() {
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
-                    <td className="px-6 py-4 font-bold text-blue-600">{p.codigo || '---'}</td>
-                    <td className="px-6 py-4 font-semibold text-slate-800">{p.nombre || 'Sin nombre'}</td>
-                    <td className="px-4 py-4 text-center">
-                      <span className="px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-extrabold text-[11px] uppercase">
+                    <td className="w-[12%] px-6 py-4 font-bold text-blue-600 truncate">{p.codigo || '---'}</td>
+                    <td className="w-[24%] px-4 py-4 font-semibold text-slate-800 truncate" title={p.nombre}>{p.nombre || 'Sin nombre'}</td>
+                    <td className="w-[7%] px-2 py-4 text-center">
+                      <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-extrabold text-[11px] uppercase">
                         {versionVisual}
                       </span>
                     </td>
-                    <td className="px-6 py-4 text-slate-600">{obraAsociada?.nombre || obraAsociada?.nombre_obra || 'Sin obra asignada'}</td>
-                    <td className="px-4 py-4 text-right font-medium text-slate-700">$ {costoDir.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-4 text-right font-black text-amber-600">$ {precioVta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-4 text-center">
+                    <td className="w-[20%] px-4 py-4 text-slate-600 truncate" title={obraAsociada?.nombre || obraAsociada?.nombre_obra || 'Sin obra asignada'}>
+                      {obraAsociada?.nombre || obraAsociada?.nombre_obra || 'Sin obra asignada'}
+                    </td>
+                    <td className="w-[14%] px-4 py-4 text-right font-medium text-slate-700 whitespace-nowrap">$ {costoDir.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="w-[14%] px-4 py-4 text-right font-black text-amber-600 whitespace-nowrap">$ {precioVta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="w-[10%] px-2 py-4 text-center">
                       <select
                         value={estadoActual}
                         disabled={estadoActual === 'entregado'}
                         onChange={(e) => handleCambiarEstado(p.id, e.target.value)}
-                        className={`px-3 py-1 rounded-full font-bold text-[10px] uppercase border outline-none transition-colors ${
+                        className={`w-full px-2 py-1 rounded-full font-bold text-[10px] uppercase border outline-none transition-colors ${
                           estadoActual === 'entregado' 
                             ? 'bg-purple-100 text-purple-800 border-purple-300 cursor-not-allowed opacity-75' 
                             : estadoActual === 'aprobado' 
@@ -383,32 +384,32 @@ export default function Presupuestos() {
                         <option value="rechazado">Rechazado</option>
                       </select>
                     </td>
-                    <td className="px-6 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <td className="w-[9%] px-2 py-4 text-right">
+                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button 
                           onClick={() => handleActualizarPresupuestoVersion(p)}
-                          className="p-2 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 hover:border-blue-300 rounded-xl shadow-sm transition-all flex items-center justify-center"
+                          className="p-1.5 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 hover:border-blue-300 rounded-lg shadow-sm transition-all flex items-center justify-center"
                           title="Actualizar Precios y Generar Nueva Versión"
                         >
-                          <RefreshCw className="w-4 h-4" />
+                          <RefreshCw className="w-3.5 h-3.5" />
                         </button>
                         <Link 
                           to={`/presupuestos/${p.id}`}
-                          className="p-2 text-slate-600 hover:text-amber-600 bg-white border border-slate-200 hover:border-amber-300 rounded-xl shadow-sm transition-all flex items-center justify-center"
+                          className="p-1.5 text-slate-600 hover:text-amber-600 bg-white border border-slate-200 hover:border-amber-300 rounded-lg shadow-sm transition-all flex items-center justify-center"
                           title="Ver Detalle del Presupuesto"
                         >
-                          <Eye className="w-4 h-4" />
+                          <Eye className="w-3.5 h-3.5" />
                         </Link>
                         <button 
                           onClick={() => handleEliminar(p.id, p.estado)}
-                          className={`p-2 bg-white border rounded-xl shadow-sm transition-all ${
+                          className={`p-1.5 bg-white border rounded-lg shadow-sm transition-all ${
                             estadoActual === 'entregado' 
                               ? 'text-slate-300 border-slate-100 cursor-not-allowed' 
                               : 'text-slate-400 hover:text-red-600 border-slate-200 hover:border-red-300'
                           }`}
                           title={estadoActual === 'entregado' ? "Presupuesto entregado (Bloqueado)" : "Eliminar Presupuesto"}
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </td>
