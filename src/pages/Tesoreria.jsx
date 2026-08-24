@@ -172,12 +172,10 @@ export default function Tesoreria({
     const tipo = String(m.tipo || m.Tipo).toLowerCase();
     const monto = Number(m.monto || m.Monto) || 0;
 
-    // Mensual
     if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
     if (tipo === 'ingreso') cashFlowMensualMap[mesAnio].ingresos += monto;
     if (tipo === 'egreso') cashFlowMensualMap[mesAnio].egresos += monto;
 
-    // Anual
     if (!cashFlowAnualMap[anio]) cashFlowAnualMap[anio] = { ingresos: 0, egresos: 0 };
     if (tipo === 'ingreso') cashFlowAnualMap[anio].ingresos += monto;
     if (tipo === 'egreso') cashFlowAnualMap[anio].egresos += monto;
@@ -190,12 +188,11 @@ export default function Tesoreria({
   const totalIvaCompras = facturas.reduce((acc, f) => {
     return acc + (Number(f.iva_21 || f.Iva_21 || 0) + Number(f.iva_105 || f.Iva_105 || 0));
   }, 0);
-  const totalIvaVentas = 0; // Ajustable si se agregan facturas de venta
+  const totalIvaVentas = 0; 
   const posicionIva = totalIvaVentas - totalIvaCompras;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Cabecera Principal */}
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Tesorería</h1>
@@ -218,7 +215,6 @@ export default function Tesoreria({
         </button>
       </div>
 
-      {/* Tarjetas Resumen (KPIs) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
           <div>
@@ -243,7 +239,6 @@ export default function Tesoreria({
         </div>
       </div>
 
-      {/* Navegación por pestañas */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
         <div className="flex gap-2">
           <button onClick={() => setActiveTab('movimientos')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'movimientos' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Movimientos</button>
@@ -267,7 +262,6 @@ export default function Tesoreria({
         )}
       </div>
 
-      {/* TAB: MOVIMIENTOS */}
       {activeTab === 'movimientos' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
           {movimientosFiltrados.length === 0 ? (
@@ -318,10 +312,8 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* TAB: CASH FLOW */}
       {activeTab === 'cashflow' && (
         <div className="space-y-8">
-          {/* Cash Flow Mensual */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
             <h3 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-amber-500" /> Cash Flow Mensual
@@ -329,37 +321,34 @@ export default function Tesoreria({
             {listaMensual.length === 0 ? (
               <div className="py-12 text-center text-slate-400 text-xs">No hay datos suficientes para mostrar el cash flow mensual.</div>
             ) : (
-              <div className="space-y-4">
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
-                        <th className="px-6 py-3">Periodo (Mes)</th>
-                        <th className="px-4 py-3 text-right text-emerald-600">Ingresos</th>
-                        <th className="px-4 py-3 text-right text-rose-600">Egresos</th>
-                        <th className="px-6 py-3 text-right">Neto / Balance</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {listaMensual.map((row, idx) => {
-                        const neto = row.ingresos - row.egresos;
-                        return (
-                          <tr key={idx} className="hover:bg-slate-50">
-                            <td className="px-6 py-3 font-bold text-slate-800">{row.periodo}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-emerald-600">$ {row.ingresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                            <td className="px-4 py-3 text-right font-semibold text-rose-600">$ {row.egresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                            <td className={`px-6 py-3 text-right font-black ${neto >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {neto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                      <th className="px-6 py-3">Periodo (Mes)</th>
+                      <th className="px-4 py-3 text-right text-emerald-600">Ingresos</th>
+                      <th className="px-4 py-3 text-right text-rose-600">Egresos</th>
+                      <th className="px-6 py-3 text-right">Neto / Balance</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {listaMensual.map((row, idx) => {
+                      const neto = row.ingresos - row.egresos;
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="px-6 py-3 font-bold text-slate-800">{row.periodo}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-emerald-600">$ {row.ingresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-3 text-right font-semibold text-rose-600">$ {row.egresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className={`px-6 py-3 text-right font-black ${neto >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {neto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
               </div>
             )}
           </div>
 
-          {/* Cash Flow Anual */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
             <h3 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-amber-500" /> Cash Flow Anual
@@ -397,7 +386,6 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* TAB: IVA */}
       {activeTab === 'iva' && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -427,7 +415,7 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* MODAL NUEVO / EDITAR MOVIMIENTO */}
+      {/* MODAL NUEVO MOVIMIENTO (SIN OBRA NI PRESUPUESTO, SOLO FACTURAS) */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-8">
@@ -472,7 +460,7 @@ export default function Tesoreria({
                 </div>
               </div>
 
-              {/* SECCIÓN DE APLICACIÓN A FACTURAS */}
+              {/* SECCIÓN DE APLICACIÓN A FACTURAS (Múltiples facturas, montos totales o parciales) */}
               <div className="space-y-3 pt-4 border-t">
                 <div className="flex justify-between items-center">
                   <div>
