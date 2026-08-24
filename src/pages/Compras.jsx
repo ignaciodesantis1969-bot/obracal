@@ -80,7 +80,7 @@ export default function Compras({
     return fechaStr;
   };
 
-  // Función auxiliar para adaptar cualquier formato de fecha al input HTML (YYYY-MM-DD)
+  // Función robusta para adaptar cualquier formato de fecha al input HTML (YYYY-MM-DD)
   const formatearFechaParaInput = (fechaStr) => {
     if (!fechaStr) return '';
     const soloFecha = String(fechaStr).split('T')[0];
@@ -96,7 +96,7 @@ export default function Compras({
   const generarSiguienteCodigoFactura = () => {
     if (!facturas || facturas.length === 0) return 'FAC-0001';
     const maxNum = facturas.reduce((max, f) => {
-      const codeStr = f.codigo || '';
+      const codeStr = f.codigo || f.Codigo || f.CODIGO || '';
       const match = codeStr.match(/FAC-(\d+)/i);
       if (match) {
         const num = parseInt(match[1], 10);
@@ -110,7 +110,7 @@ export default function Compras({
   const generarSiguienteCodigoOc = () => {
     if (!ordenesCompra || ordenesCompra.length === 0) return 'OC-0001';
     const maxNum = ordenesCompra.reduce((max, oc) => {
-      const codeStr = oc.codigo || '';
+      const codeStr = oc.codigo || oc.Codigo || oc.CODIGO || '';
       const match = codeStr.match(/OC-(\d+)/i);
       if (match) {
         const num = parseInt(match[1], 10);
@@ -173,8 +173,8 @@ export default function Compras({
               ...prev,
               n_factura: data.n_factura || data.numero_factura || data.nro_factura || prev.n_factura,
               proveedor_id: proveedorEncontradoId || prev.proveedor_id,
-              fecha: formatearFechaParaInput(data.fecha) || prev.fecha,
-              vencimiento: formatearFechaParaInput(data.vencimiento) || prev.vencimiento,
+              fecha: formatearFechaParaInput(data.fecha || data.Fecha || data.FECHA) || prev.fecha,
+              vencimiento: formatearFechaParaInput(data.vencimiento || data.Vencimiento || data.VENCIMIENTO) || prev.vencimiento,
               subtotal: Number(data.subtotal) || prev.subtotal,
               iva_21: Number(data.iva_21) || prev.iva_21,
               iva_105: Number(data.iva_105) || prev.iva_105,
@@ -225,12 +225,14 @@ export default function Compras({
   const handleEditarFacturaClick = (f) => {
     const realId = f.id || f.ID || f.Id;
     setEditingId(realId);
+    
     let insumosParseados = [];
+    const rawInsumos = f.insumos_comprados || f.Insumos_comprados || f.INSUMOS_COMPRADOS;
     try {
-      if (typeof f.insumos_comprados === 'string') {
-        insumosParseados = JSON.parse(f.insumos_comprados);
-      } else if (Array.isArray(f.insumos_comprados)) {
-        insumosParseados = f.insumos_comprados;
+      if (typeof rawInsumos === 'string') {
+        insumosParseados = JSON.parse(rawInsumos);
+      } else if (Array.isArray(rawInsumos)) {
+        insumosParseados = rawInsumos;
       }
     } catch (err) {
       insumosParseados = [];
@@ -240,10 +242,13 @@ export default function Compras({
       insumosParseados = [{ id: Date.now(), insumo_id: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
     }
 
+    const fechaCruda = f.fecha || f.Fecha || f.FECHA;
+    const vencCrudo = f.vencimiento || f.Vencimiento || f.VENCIMIENTO;
+
     setFormData({ 
       ...f, 
-      fecha: formatearFechaParaInput(f.fecha),
-      vencimiento: formatearFechaParaInput(f.vencimiento),
+      fecha: formatearFechaParaInput(fechaCruda),
+      vencimiento: formatearFechaParaInput(vencCrudo),
       insumos_comprados: insumosParseados 
     });
     setIsFacturaModalOpen(true);
@@ -290,7 +295,7 @@ export default function Compras({
 
     const nuevoSubtotal = nuevos.reduce((acc, curr) => acc + (Number(curr.total) || 0), 0);
     const nuevoIva = nuevoSubtotal * 0.21;
-    const nuevoTotal = nuevoSubtotal + nuevoIva + Number(formData.iva_105) + Number(formData.persp_iibb_bsas) + Number(formData.persp_iibb_caba) + Number(formData.otros_impuestos);
+    const nuevoTotal = nuevoSubtotal + nuevoIva + Number(formData.iva_105 || 0) + Number(formData.persp_iibb_bsas || 0) + Number(formData.persp_iibb_caba || 0) + Number(formData.otros_impuestos || 0);
 
     setFormData(prev => ({
       ...prev,
@@ -305,7 +310,7 @@ export default function Compras({
     const nuevos = formData.insumos_comprados.filter(i => i.id !== id);
     const nuevoSubtotal = nuevos.reduce((acc, curr) => acc + (Number(curr.total) || 0), 0);
     const nuevoIva = nuevoSubtotal * 0.21;
-    const nuevoTotal = nuevoSubtotal + nuevoIva + Number(formData.iva_105) + Number(formData.persp_iibb_bsas) + Number(formData.persp_iibb_caba) + Number(formData.otros_impuestos);
+    const nuevoTotal = nuevoSubtotal + nuevoIva + Number(formData.iva_105 || 0) + Number(formData.persp_iibb_bsas || 0) + Number(formData.persp_iibb_caba || 0) + Number(formData.otros_impuestos || 0);
     setFormData(prev => ({
       ...prev,
       insumos_comprados: nuevos,
@@ -449,11 +454,12 @@ export default function Compras({
     const realId = oc.id || oc.ID || oc.Id;
     setEditingOcId(realId);
     let insumosParseados = [];
+    const rawInsumos = oc.insumos_oc || oc.Insumos_oc || oc.INSUMOS_OC;
     try {
-      if (typeof oc.insumos_oc === 'string') {
-        insumosParseados = JSON.parse(oc.insumos_oc);
-      } else if (Array.isArray(oc.insumos_oc)) {
-        insumosParseados = oc.insumos_oc;
+      if (typeof rawInsumos === 'string') {
+        insumosParseados = JSON.parse(rawInsumos);
+      } else if (Array.isArray(rawInsumos)) {
+        insumosParseados = rawInsumos;
       }
     } catch (err) {
       insumosParseados = [];
@@ -463,10 +469,13 @@ export default function Compras({
       insumosParseados = [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
     }
 
+    const fechaCruda = oc.fecha || oc.Fecha || oc.FECHA;
+    const entregaCruda = oc.fecha_entrega || oc.Fecha_entrega || oc.FECHA_ENTREGA;
+
     setFormDataOc({ 
       ...oc, 
-      fecha: formatearFechaParaInput(oc.fecha),
-      fecha_entrega: formatearFechaParaInput(oc.fecha_entrega),
+      fecha: formatearFechaParaInput(fechaCruda),
+      fecha_entrega: formatearFechaParaInput(entregaCruda),
       insumos_oc: insumosParseados 
     });
     setIsOcModalOpen(true);
@@ -541,24 +550,26 @@ export default function Compras({
   const facturasFiltradas = facturas.filter(f => {
     const provId = f.proveedor_id || f.Proveedor_id || f.PROVEEDOR_ID;
     const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
+    const fFecha = f.fecha || f.Fecha || f.FECHA;
     let matchFecha = true;
-    if (filtroFechaDesde && f.fecha && f.fecha < filtroFechaDesde) matchFecha = false;
-    if (filtroFechaHasta && f.fecha && f.fecha > filtroFechaHasta) matchFecha = false;
+    if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
+    if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
     return matchProveedor && matchFecha;
   });
 
   const ordenesFiltradas = ordenesCompra.filter(oc => {
     const provId = oc.proveedor_id || oc.Proveedor_id || oc.PROVEEDOR_ID;
     const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
+    const ocFecha = oc.fecha || oc.Fecha || oc.FECHA;
     let matchFecha = true;
-    if (filtroFechaDesde && oc.fecha && oc.fecha < filtroFechaDesde) matchFecha = false;
-    if (filtroFechaHasta && oc.fecha && oc.fecha > filtroFechaHasta) matchFecha = false;
+    if (filtroFechaDesde && ocFecha && ocFecha < filtroFechaDesde) matchFecha = false;
+    if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
     return matchProveedor && matchFecha;
   });
 
   const insumosFiltradosModal = insumosList.filter(ins => 
-    String(ins.nombre || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase()) ||
-    String(ins.codigo || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase())
+    String(ins.nombre || ins.Nombre || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase()) ||
+    String(ins.codigo || ins.Codigo || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase())
   );
 
   return (
@@ -675,22 +686,23 @@ export default function Compras({
                   const presId = f.presupuesto_id || f.Presupuesto_id || f.PRESUPUESTO_ID;
                   const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
                   const pres = presupuestos.find(pr => String(pr.id || pr.ID) === String(presId));
-                  const totalVal = Number(f.total) || 0;
-                  const estadoPago = String(f.estado_pago || 'pendiente').toLowerCase();
+                  const totalVal = Number(f.total || f.Total || f.TOTAL) || 0;
+                  const estadoPago = String(f.estado_pago || f.Estado_pago || f.ESTADO_PAGO || 'pendiente').toLowerCase();
                   
-                  const numeroFacturaDisplay = f.n_factura || f.numero_factura || f.nro_factura || '---';
+                  const numeroFacturaDisplay = f.n_factura || f.N_factura || f.N_FACTURA || f.numero_factura || f.nro_factura || '---';
                   const presupuestoDisplay = pres?.codigo || pres?.nombre || presId || '---';
-                  const codigoDisplay = f.codigo || `FAC-${String(index + 1).padStart(4, '0')}`;
-                  const archivoLink = f.archivo_url || f.archivo || '';
+                  const codigoDisplay = f.codigo || f.Codigo || f.CODIGO || `FAC-${String(index + 1).padStart(4, '0')}`;
+                  const archivoLink = f.archivo_url || f.Archivo_url || f.ARCHIVOURI || f.archivo || '';
+                  const fechaDisplay = f.fecha || f.Fecha || f.FECHA;
 
                   return (
                     <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-4 py-4 font-semibold text-slate-800">{numeroFacturaDisplay}</td>
-                      <td className="px-4 py-4"><span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-bold rounded text-[10px]">{f.comprobante_tipo || f.tipo_comprobante || 'Factura A'}</span></td>
+                      <td className="px-4 py-4"><span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-bold rounded text-[10px]">{f.comprobante_tipo || f.Comprobante_tipo || f.COMPROBANTE_TIPO || 'Factura A'}</span></td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || f.proveedor || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600">{presupuestoDisplay}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha)}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaDisplay)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{estadoPago}</span></td>
                       <td className="px-4 py-4 text-center">
@@ -749,17 +761,19 @@ export default function Compras({
                   const obraId = oc.obra_id || oc.Obra_id;
                   const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
                   const obra = obras.find(o => String(o.id || o.ID) === String(obraId));
-                  const totalVal = Number(oc.total) || 0;
-                  const estadoOc = String(oc.estado || 'pendiente').toLowerCase();
-                  const codigoDisplay = oc.codigo || `OC-${String(index + 1).padStart(4, '0')}`;
+                  const totalVal = Number(oc.total || oc.Total || oc.TOTAL) || 0;
+                  const estadoOc = String(oc.estado || oc.Estado || oc.ESTADO || 'pendiente').toLowerCase();
+                  const codigoDisplay = oc.codigo || oc.Codigo || oc.CODIGO || `OC-${String(index + 1).padStart(4, '0')}`;
+                  const fechaDisplay = oc.fecha || oc.Fecha || oc.FECHA;
+                  const entregaDisplay = oc.fecha_entrega || oc.Fecha_entrega || oc.FECHA_ENTREGA;
 
                   return (
                     <tr key={oc.id || oc.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : (obra?.nombre || '---')}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(oc.fecha)}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(oc.fecha_entrega)}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaDisplay)}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(entregaDisplay)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-center">
                         <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoOc === 'aprobada' ? 'bg-emerald-100 text-emerald-800' : estadoOc === 'recibida' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
@@ -1063,11 +1077,11 @@ export default function Compras({
                           className="flex justify-between items-center bg-white hover:bg-amber-100/60 border border-slate-200 px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs"
                         >
                           <div>
-                            <span className="font-bold text-slate-800">{ins.nombre}</span>
-                            <span className="text-slate-400 ml-2 font-mono text-[10px]">({ins.codigo || 'S/C'})</span>
+                            <span className="font-bold text-slate-800">{ins.nombre || ins.Nombre}</span>
+                            <span className="text-slate-400 ml-2 font-mono text-[10px]">({ins.codigo || ins.Codigo || 'S/C'})</span>
                           </div>
                           <div className="flex items-center gap-3">
-                            <span className="text-amber-600 font-black">$ {Number(ins.costo_unitario || ins.precio || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                            <span className="text-amber-600 font-black">$ {Number(ins.costo_unitario || ins.Costo_unitario || ins.precio || ins.Precio || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
                             <span className="px-2 py-0.5 bg-amber-500 text-white rounded font-bold text-[10px]">Agregar +</span>
                           </div>
                         </div>
@@ -1094,7 +1108,7 @@ export default function Compras({
                           <td className="px-3 py-2">
                             <select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={item.insumo_id} onChange={(e) => handleCambiarInsumoComprado(item.id, 'insumo_id', e.target.value)}>
                               <option value="">Seleccionar insumo...</option>
-                              {insumosList.map(ins => <option key={ins.id || ins.ID} value={ins.id || ins.ID}>{ins.nombre} {ins.codigo ? `(${ins.codigo})` : ''}</option>)}
+                              {insumosList.map(ins => <option key={ins.id || ins.ID} value={ins.id || ins.ID}>{ins.nombre || ins.Nombre} {ins.codigo ? `(${ins.codigo})` : ''}</option>)}
                             </select>
                           </td>
                           <td className="px-3 py-2 text-center"><input type="number" step="0.01" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-amber-500" value={item.cantidad} onChange={(e) => handleCambiarInsumoComprado(item.id, 'cantidad', e.target.value)} /></td>
