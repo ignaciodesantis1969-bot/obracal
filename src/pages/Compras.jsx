@@ -80,6 +80,19 @@ export default function Compras({
     return fechaStr;
   };
 
+  // Función auxiliar para adaptar cualquier formato de fecha al input HTML (YYYY-MM-DD)
+  const formatearFechaParaInput = (fechaStr) => {
+    if (!fechaStr) return '';
+    const soloFecha = String(fechaStr).split('T')[0];
+    if (soloFecha.includes('/')) {
+      const partes = soloFecha.split('/');
+      if (partes.length === 3) {
+        return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
+      }
+    }
+    return soloFecha;
+  };
+
   const generarSiguienteCodigoFactura = () => {
     if (!facturas || facturas.length === 0) return 'FAC-0001';
     const maxNum = facturas.reduce((max, f) => {
@@ -160,8 +173,8 @@ export default function Compras({
               ...prev,
               n_factura: data.n_factura || data.numero_factura || data.nro_factura || prev.n_factura,
               proveedor_id: proveedorEncontradoId || prev.proveedor_id,
-              fecha: data.fecha || prev.fecha,
-              vencimiento: data.vencimiento || prev.vencimiento,
+              fecha: formatearFechaParaInput(data.fecha) || prev.fecha,
+              vencimiento: formatearFechaParaInput(data.vencimiento) || prev.vencimiento,
               subtotal: Number(data.subtotal) || prev.subtotal,
               iva_21: Number(data.iva_21) || prev.iva_21,
               iva_105: Number(data.iva_105) || prev.iva_105,
@@ -227,7 +240,12 @@ export default function Compras({
       insumosParseados = [{ id: Date.now(), insumo_id: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
     }
 
-    setFormData({ ...f, insumos_comprados: insumosParseados });
+    setFormData({ 
+      ...f, 
+      fecha: formatearFechaParaInput(f.fecha),
+      vencimiento: formatearFechaParaInput(f.vencimiento),
+      insumos_comprados: insumosParseados 
+    });
     setIsFacturaModalOpen(true);
   };
 
@@ -303,7 +321,6 @@ export default function Compras({
       const action = editingId ? 'update' : 'create';
       const codigoFinal = editingId ? formData.codigo : generarSiguienteCodigoFactura();
       
-      // Sanitizar archivo_url si es un Base64 gigante para evitar Failed to fetch
       let urlLimpia = formData.archivo_url;
       if (urlLimpia && urlLimpia.startsWith('data:')) {
         urlLimpia = "Comprobante_Adjunto"; 
@@ -446,7 +463,12 @@ export default function Compras({
       insumosParseados = [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
     }
 
-    setFormDataOc({ ...oc, insumos_oc: insumosParseados });
+    setFormDataOc({ 
+      ...oc, 
+      fecha: formatearFechaParaInput(oc.fecha),
+      fecha_entrega: formatearFechaParaInput(oc.fecha_entrega),
+      insumos_oc: insumosParseados 
+    });
     setIsOcModalOpen(true);
   };
 
