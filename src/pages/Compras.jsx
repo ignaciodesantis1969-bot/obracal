@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart } from 'lucide-react';
+import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart, Search } from 'lucide-react';
 
 export default function Compras({ 
   GOOGLE_SCRIPT_URL, 
@@ -27,6 +27,9 @@ export default function Compras({
 
   const [localLoading, setLocalLoading] = useState(false);
 
+  // Estado para buscapersonas/buscador rápido de insumos dentro de la factura
+  const [busquedaInsumoTerm, setBusquedaInsumoTerm] = useState('');
+
   // Formulario Factura
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
@@ -52,7 +55,7 @@ export default function Compras({
     ]
   });
 
-  // Formulario Orden de Compra (OC) exacto al diseño solicitado
+  // Formulario Orden de Compra (OC)
   const [formDataOc, setFormDataOc] = useState({
     codigo: 'OC-0001',
     proveedor_id: '',
@@ -227,12 +230,19 @@ export default function Compras({
     setIsFacturaModalOpen(true);
   };
 
-  const handleAgregarInsumoComprado = () => {
+  const handleAgregarInsumoComprado = (insumoPreseleccionado = null) => {
     setFormData(prev => ({
       ...prev,
       insumos_comprados: [
         ...prev.insumos_comprados,
-        { id: Date.now(), insumo_id: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }
+        { 
+          id: Date.now(), 
+          insumo_id: insumoPreseleccionado ? insumoPreseleccionado.id : '', 
+          cantidad: 1, 
+          unidad: insumoPreseleccionado ? (insumoPreseleccionado.unidad || 'unidad') : 'unidad', 
+          p_unitario: insumoPreseleccionado ? Number(insumoPreseleccionado.costo_unitario || insumoPreseleccionado.precio || 0) : 0, 
+          total: insumoPreseleccionado ? Number(insumoPreseleccionado.costo_unitario || insumoPreseleccionado.precio || 0) : 0 
+        }
       ]
     }));
   };
@@ -240,7 +250,18 @@ export default function Compras({
   const handleCambiarInsumoComprado = (id, campo, valor) => {
     const nuevos = formData.insumos_comprados.map(item => {
       if (item.id === id) {
-        const actualizado = { ...item, [campo]: valor };
+        let actualizado = { ...item, [campo]: valor };
+        
+        // Si cambia el insumo_id, autocompletar precio unitario y unidad si existe
+        if (campo === 'insumo_id') {
+          const insEncontrado = insumosList.find(i => String(i.id) === String(valor));
+          if (insEncontrado) {
+            actualizado.p_unitario = Number(insEncontrado.costo_unitario || insEncontrado.precio || 0);
+            actualizado.unidad = insEncontrado.unidad || 'unidad';
+            actualizado.total = (Number(actualizado.cantidad) || 0) * Number(actualizado.p_unitario);
+          }
+        }
+
         if (campo === 'cantidad' || campo === 'p_unitario') {
           actualizado.total = (Number(actualizado.cantidad) || 0) * (Number(actualizado.p_unitario) || 0);
         }
@@ -311,17 +332,28 @@ export default function Compras({
     }
   };
 
+  // Corrección robusta para asegurar el borrado correcto en Google Sheets
   const handleEliminarFactura = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar esta factura?")) return;
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Facturas', action: 'delete', id })
+        body: JSON.stringify({ 
+          tabla: 'Facturas', 
+          action: 'delete', 
+          id: id 
+        })
       });
-      cargarDatos();
+      const data = await res.json().catch(() => ({ success: true }));
+      if (data.success !== false) {
+        cargarDatos();
+      } else {
+        alert("No se pudo eliminar la factura: " + (data.error || 'Desconocido'));
+      }
     } catch (err) {
       console.error(err);
+      alert("Error de conexión al intentar eliminar la factura.");
     }
   };
 
@@ -434,12 +466,17 @@ export default function Compras({
   const handleEliminarOc = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar esta Orden de Compra?")) return;
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ tabla: 'OrdenesCompra', action: 'delete', id })
       });
-      cargarDatos();
+      const data = await res.json().catch(() => ({ success: true }));
+      if (data.success !== false) {
+        cargarDatos();
+      } else {
+        alert("No se pudo eliminar la Orden de Compra.");
+      }
     } catch (err) {
       console.error(err);
     }
@@ -460,6 +497,12 @@ export default function Compras({
     if (filtroFechaHasta && oc.fecha && oc.fecha > filtroFechaHasta) matchFecha = false;
     return matchProveedor && matchFecha;
   });
+
+  // Lista de insumos filtrados para imputación rápida
+  const insumosFiltradosModal = insumosList.filter(ins => 
+    String(ins.nombre || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase()) ||
+    String(ins.codigo || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase())
+  );
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -677,7 +720,7 @@ export default function Compras({
         </div>
       )}
 
-      {/* MODAL NUEVA / EDITAR ORDEN DE COMPRA (DISEÑO EXACTO) */}
+      {/* MODAL NUEVA / EDITAR ORDEN DE COMPRA */}
       {isOcModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
@@ -719,7 +762,6 @@ export default function Compras({
                 </div>
               </div>
 
-              {/* Items / Insumos para la OC */}
               <div className="space-y-3 pt-4 border-t">
                 <div className="flex justify-between items-center">
                   <h4 className="font-extrabold text-xs uppercase text-slate-800">Items</h4>
@@ -765,7 +807,6 @@ export default function Compras({
                   </table>
                 </div>
 
-                {/* Subtotal, IVA y Totales al pie exactos al diseño */}
                 <div className="flex justify-end gap-6 pt-2 text-xs font-bold text-slate-700">
                   <span>Subtotal: <span className="font-black text-slate-900">$ {Number(formDataOc.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span></span>
                   <span>IVA 21%: <span className="font-black text-slate-900">$ {Number(formDataOc.iva_21 || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span></span>
@@ -810,7 +851,7 @@ export default function Compras({
       {/* MODAL CREAR / EDITAR FACTURA */}
       {isFacturaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-4xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">Nueva Factura (Confirmación y Corrección de Datos)</h3>
               <button onClick={() => setIsFacturaModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
@@ -820,7 +861,7 @@ export default function Compras({
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación.</span>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo</label>
                   <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.tipo} onChange={(e) => setFormData({...formData, tipo: e.target.value})}>
@@ -901,7 +942,7 @@ export default function Compras({
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Otros Impuestos ($)</label>
                   <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500" value={formData.otros_impuestos} onChange={(e) => setFormData({...formData, otros_impuestos: e.target.value})} />
                 </div>
-                <div className="sm:col-span-2">
+                <div className="sm:col-span-3">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Total ($)</label>
                   <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-amber-600 outline-none focus:border-amber-500" value={formData.total} onChange={(e) => setFormData({...formData, total: e.target.value})} />
                 </div>
@@ -913,13 +954,67 @@ export default function Compras({
                 </div>
               )}
 
-              <div className="space-y-3 pt-4 border-t">
-                <div className="flex justify-between items-center">
-                  <h4 className="font-extrabold text-xs uppercase text-slate-800">Insumos comprados</h4>
-                  <button type="button" onClick={handleAgregarInsumoComprado} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-colors">
-                    <Plus className="w-3.5 h-3.5" /> Agregar insumo
-                  </button>
+              {/* SECCIÓN MEJORADA DE IMPUTACIÓN RÁPIDA DE INSUMOS */}
+              <div className="space-y-4 pt-4 border-t">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                  <div>
+                    <h4 className="font-extrabold text-xs uppercase text-slate-800">Insumos comprados (Imputación)</h4>
+                    <p className="text-[11px] text-slate-500">Busca y selecciona los insumos rápidamente para asignarlos.</p>
+                  </div>
+                  
+                  {/* Buscador Rápido de Insumos para Agregar */}
+                  <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="relative flex-1 sm:w-64">
+                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                      <input 
+                        type="text"
+                        placeholder="Buscar insumo para agregar..."
+                        value={busquedaInsumoTerm}
+                        onChange={(e) => setBusquedaInsumoTerm(e.target.value)}
+                        className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-amber-500"
+                      />
+                    </div>
+                    {busquedaInsumoTerm && (
+                      <button 
+                        type="button" 
+                        onClick={() => setBusquedaInsumoTerm('')} 
+                        className="text-xs text-slate-500 hover:text-slate-800 font-bold"
+                      >
+                        Limpiar
+                      </button>
+                    )}
+                  </div>
                 </div>
+
+                {/* Si hay búsqueda activa, mostrar resultados rápidos para selección en un listado desplegable/tarjetas */}
+                {busquedaInsumoTerm && (
+                  <div className="bg-slate-50 border border-amber-300 rounded-xl p-3 max-h-40 overflow-y-auto space-y-1.5 shadow-sm">
+                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide block mb-1">Resultados de búsqueda ({insumosFiltradosModal.length}):</span>
+                    {insumosFiltradosModal.length === 0 ? (
+                      <div className="text-xs text-slate-400 italic py-1">No se encontraron insumos con ese nombre o código.</div>
+                    ) : (
+                      insumosFiltradosModal.map(ins => (
+                        <div 
+                          key={ins.id} 
+                          onClick={() => {
+                            handleAgregarInsumoComprado(ins);
+                            setBusquedaInsumoTerm('');
+                          }}
+                          className="flex justify-between items-center bg-white hover:bg-amber-100/60 border border-slate-200 px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs"
+                        >
+                          <div>
+                            <span className="font-bold text-slate-800">{ins.nombre}</span>
+                            <span className="text-slate-400 ml-2 font-mono text-[10px]">({ins.codigo || 'S/C'})</span>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className="text-amber-600 font-black">$ {Number(ins.costo_unitario || ins.precio || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                            <span className="px-2 py-0.5 bg-amber-500 text-white rounded font-bold text-[10px]">Agregar +</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                )}
 
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
@@ -938,8 +1033,8 @@ export default function Compras({
                         <tr key={item.id} className="hover:bg-slate-50">
                           <td className="px-3 py-2">
                             <select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={item.insumo_id} onChange={(e) => handleCambiarInsumoComprado(item.id, 'insumo_id', e.target.value)}>
-                              <option value="">Seleccionar...</option>
-                              {insumosList.map(ins => <option key={ins.id} value={ins.id}>{ins.nombre}</option>)}
+                              <option value="">Seleccionar insumo...</option>
+                              {insumosList.map(ins => <option key={ins.id} value={ins.id}>{ins.nombre} {ins.codigo ? `(${ins.codigo})` : ''}</option>)}
                             </select>
                           </td>
                           <td className="px-3 py-2 text-center"><input type="number" step="0.01" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-amber-500" value={item.cantidad} onChange={(e) => handleCambiarInsumoComprado(item.id, 'cantidad', e.target.value)} /></td>
@@ -951,6 +1046,12 @@ export default function Compras({
                       ))}
                     </tbody>
                   </table>
+                </div>
+
+                <div className="flex justify-start">
+                  <button type="button" onClick={() => handleAgregarInsumoComprado(null)} className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-colors">
+                    <Plus className="w-3.5 h-3.5" /> Agregar línea vacía
+                  </button>
                 </div>
               </div>
 
