@@ -80,17 +80,28 @@ export default function Compras({
     return fechaStr;
   };
 
-  // Función robusta para adaptar cualquier formato de fecha al input HTML (YYYY-MM-DD)
+  // Función robusta adaptada al formato DD/MM/YYYY de Google Sheets para inputs HTML (YYYY-MM-DD)
   const formatearFechaParaInput = (fechaStr) => {
     if (!fechaStr) return '';
-    const soloFecha = String(fechaStr).split('T')[0];
-    if (soloFecha.includes('/')) {
-      const partes = soloFecha.split('/');
+    const str = String(fechaStr).trim().split('T')[0];
+    
+    // Si viene en formato DD/MM/YYYY (ej: 24/07/2026)
+    if (str.includes('/')) {
+      const partes = str.split('/');
       if (partes.length === 3) {
-        return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
+        const dia = partes[0].padStart(2, '0');
+        const mes = partes[1].padStart(2, '0');
+        const anio = partes[2];
+        return `${anio}-${mes}-${dia}`;
       }
     }
-    return soloFecha;
+    
+    // Si ya viene en formato YYYY-MM-DD
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+      return str;
+    }
+
+    return str;
   };
 
   const generarSiguienteCodigoFactura = () => {
