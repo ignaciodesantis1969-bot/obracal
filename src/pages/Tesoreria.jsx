@@ -745,7 +745,7 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* MODAL NUEVA FACTURA DE VENTA (EN 2 PASOS: SUBIR ARCHIVO PRIMERO) */}
+      {/* MODAL NUEVA FACTURA DE VENTA (EN 2 PASOS CON ARCHIVO REAL) */}
       {isFacturaVentaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
@@ -761,19 +761,28 @@ export default function Tesoreria({
                 </div>
                 <div>
                   <h4 className="text-base font-extrabold text-slate-900">Escanear o subir factura de venta</h4>
-                  <p className="text-xs text-slate-500 mt-1">Adjunta el archivo (PDF o imagen) para leerlo y completar los datos automáticamente.</p>
+                  <p className="text-xs text-slate-500 mt-1">Selecciona o arrastra el archivo (PDF o imagen) para completar los datos de la factura.</p>
                 </div>
 
                 <div className="max-w-md mx-auto space-y-4">
-                  <div className="border-2 border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer">
+                  <div className="border-2 border-dashed border-slate-300 rounded-2xl p-6 bg-slate-50 hover:bg-slate-100 transition-colors cursor-pointer relative">
                     <input 
-                      type="text" 
-                      placeholder="Pegar URL o ruta del archivo escaneado..." 
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 text-center"
-                      value={formDataVenta.archivo_url}
-                      onChange={(e) => setFormDataVenta({...formDataVenta, archivo_url: e.target.value})}
+                      type="file" 
+                      accept=".pdf,.png,.jpg,.jpeg"
+                      className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                      onChange={(e) => {
+                        if (e.target.files && e.target.files[0]) {
+                          const archivo = e.target.files[0];
+                          setFormDataVenta(prev => ({ ...prev, archivo_url: archivo.name }));
+                        }
+                      }}
                     />
-                    <span className="text-[10px] text-slate-400 mt-2 block">Soporta PDF, PNG, JPG</span>
+                    <div className="flex flex-col items-center justify-center gap-1">
+                      <span className="text-xs font-bold text-slate-700">
+                        {formDataVenta.archivo_url ? `📎 ${formDataVenta.archivo_url}` : 'Haz clic aquí para seleccionar archivo'}
+                      </span>
+                      <span className="text-[10px] text-slate-400">Soporta PDF, PNG, JPG</span>
+                    </div>
                   </div>
                 </div>
 
