@@ -319,7 +319,17 @@ export default function Compras({
           data: payloadData
         })
       });
-      const data = await res.json();
+
+      const textoRespuesta = await res.text();
+      let data;
+      try {
+        data = JSON.parse(textoRespuesta);
+      } catch (parseErr) {
+        console.error("Respuesta no JSON del servidor:", textoRespuesta);
+        alert("Error del servidor (Respuesta no válida): " + textoRespuesta.substring(0, 150));
+        return;
+      }
+
       if (data.success || data.id) {
         setIsFacturaModalOpen(false);
         cargarDatos();
@@ -328,11 +338,10 @@ export default function Compras({
       }
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al guardar factura.");
+      alert("Error de conexión al guardar factura: " + err.message);
     }
   };
 
-  // Corrección robusta para obtener el ID independientemente de si viene como id, ID o Id
   const handleEliminarFactura = async (f) => {
     const facturaId = f.id || f.ID || f.Id;
     if (!facturaId) {
@@ -456,7 +465,14 @@ export default function Compras({
           data: payloadData
         })
       });
-      const data = await res.json();
+      const textoRespuesta = await res.text();
+      let data;
+      try {
+        data = JSON.parse(textoRespuesta);
+      } catch (parseErr) {
+        alert("Error del servidor: " + textoRespuesta.substring(0, 150));
+        return;
+      }
       if (data.success || data.id) {
         setIsOcModalOpen(false);
         cargarDatos();
@@ -511,7 +527,6 @@ export default function Compras({
     return matchProveedor && matchFecha;
   });
 
-  // Lista de insumos filtrados para imputación rápida
   const insumosFiltradosModal = insumosList.filter(ins => 
     String(ins.nombre || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase()) ||
     String(ins.codigo || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase())
