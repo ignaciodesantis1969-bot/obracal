@@ -1,11 +1,12 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3 } from 'lucide-react';
+import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock } from 'lucide-react';
 
 export default function Tesoreria({ 
   GOOGLE_SCRIPT_URL, 
   movimientos = [], 
   facturas = [], 
   proveedores = [], 
+  clientes = [], 
   obras = [], 
   cargarDatos 
 }) {
@@ -15,6 +16,9 @@ export default function Tesoreria({
   // Modal Nuevo/Editar Movimiento
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+
+  // Modal Nueva Factura de Venta
+  const [isFacturaVentaModalOpen, setIsFacturaVentaModalOpen] = useState(false);
 
   const [formData, setFormData] = useState({
     tipo: 'Egreso',
@@ -26,6 +30,21 @@ export default function Tesoreria({
     facturas_aplicadas: [
       { id: Date.now(), factura_id: '', monto: 0 }
     ]
+  });
+
+  // Formulario Factura de Venta
+  const [formDataVenta, setFormDataVenta] = useState({
+    tipo_comprobante: 'Factura de Crédito Electrónica MiPyMEs (FCE)',
+    punto_venta: '00001',
+    numero_comp: '',
+    cliente_id: '',
+    fecha_emision: new Date().toISOString().split('T')[0],
+    fecha_vencimiento: '',
+    neto_gravado: 0,
+    iva_21: 0,
+    iva_10.5: 0,
+    otros_tributos: 0,
+    total: 0
   });
 
   const formatearFechaDisplay = (fechaStr) => {
@@ -122,6 +141,32 @@ export default function Tesoreria({
     }
   };
 
+  const handleGuardarFacturaVenta = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'FacturasVenta',
+          action: 'create',
+          data: formDataVenta
+        })
+      });
+      const data = await res.json().catch(() => ({ success: true }));
+      if (data.success !== false) {
+        setIsFacturaVentaModalOpen(false);
+        alert("Factura de Venta registrada correctamente.");
+        cargarDatos();
+      } else {
+        alert("Error al guardar factura de venta.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error de conexión al registrar la factura de venta.");
+    }
+  };
+
   const handleEliminarMovimiento = async (m) => {
     const mId = m.id || m.ID || m.Id;
     if (!mId) return;
@@ -160,7 +205,13 @@ export default function Tesoreria({
     return concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
   });
 
-  // Agrupaciones para Cash Flow Mensual y Anual
+  // Facturas a Pagar (Pendientes)
+  const facturasAPagar = facturas.filter(f => {
+    const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
+    return estado === 'pendiente';
+  });
+
+  // Agrupaciones Cash Flow
   const cashFlowMensualMap = {};
   const cashFlowAnualMap = {};
 
@@ -184,15 +235,15 @@ export default function Tesoreria({
   const listaMensual = Object.keys(cashFlowMensualMap).sort().map(k => ({ periodo: k, ...cashFlowMensualMap[k] }));
   const listaAnual = Object.keys(cashFlowAnualMap).sort().map(k => ({ periodo: k, ...cashFlowAnualMap[k] }));
 
-  // Cálculos robustos de IVA considerando todas las variantes de mayúsculas/minúsculas
+  // IVA
   const totalIvaCompras = facturas.reduce((acc, f) => {
-    const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || f.IVA21 || 0);
-    const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || f.IVA105 || f['iva_10.5'] || 0);
+    const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
+    const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
     return acc + iva21 + iva105;
   }, 0);
 
   const totalIvaVentas = 0; 
-  const posicionIva = totalIvaVentas - totalIvaCompras; // Negativo significa a favor (CF > DB)
+  const posicionIva = totalIvaVentas - totalIvaCompras;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -201,21 +252,26 @@ export default function Tesoreria({
           <h1 className="text-2xl font-extrabold text-slate-900">Tesorería</h1>
           <p className="text-slate-500 text-sm mt-1">Flujo de caja, IVA y movimientos</p>
         </div>
-        <button onClick={() => {
-          setEditingId(null);
-          setFormData({
-            tipo: 'Egreso',
-            fecha: new Date().toISOString().split('T')[0],
-            concepto: '',
-            monto: 0,
-            medio_pago: 'transferencia',
-            referencia: '',
-            facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }]
-          });
-          setIsModalOpen(true);
-        }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
-          <Plus className="w-4 h-4" /> Nuevo Movimiento
-        </button>
+        <div className="flex items-center gap-3">
+          <button onClick={() => setIsFacturaVentaModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
+            <Plus className="w-4 h-4" /> + Nueva Factura Venta
+          </button>
+          <button onClick={() => {
+            setEditingId(null);
+            setFormData({
+              tipo: 'Egreso',
+              fecha: new Date().toISOString().split('T')[0],
+              concepto: '',
+              monto: 0,
+              medio_pago: 'transferencia',
+              referencia: '',
+              facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }]
+            });
+            setIsModalOpen(true);
+          }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
+            <Plus className="w-4 h-4" /> Nuevo Movimiento
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -242,9 +298,11 @@ export default function Tesoreria({
         </div>
       </div>
 
+      {/* Navegación por pestañas incluyendo Facturas a pagar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap">
           <button onClick={() => setActiveTab('movimientos')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'movimientos' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Movimientos</button>
+          <button onClick={() => setActiveTab('facturas_pagar')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'facturas_pagar' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Facturas a pagar ({facturasAPagar.length})</button>
           <button onClick={() => setActiveTab('cashflow')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'cashflow' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Cash Flow</button>
           <button onClick={() => setActiveTab('iva')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'iva' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>IVA</button>
         </div>
@@ -305,6 +363,55 @@ export default function Tesoreria({
                       </td>
                       <td className="px-6 py-4 text-right">
                         <button onClick={() => handleEliminarMovimiento(m)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* TAB: FACTURAS A PAGAR */}
+      {activeTab === 'facturas_pagar' && (
+        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+          {facturasAPagar.length === 0 ? (
+            <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
+              <Clock className="w-10 h-10 text-slate-300" />
+              <span>No hay facturas pendientes de pago.</span>
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th className="px-6 py-4">Código / N° Factura</th>
+                  <th className="px-6 py-4">Proveedor</th>
+                  <th className="px-4 py-4">Fecha Emisión</th>
+                  <th className="px-4 py-4">Vencimiento</th>
+                  <th className="px-4 py-4 text-right">Total a Pagar</th>
+                  <th className="px-4 py-4 text-center">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {facturasAPagar.map((f, index) => {
+                  const provId = f.proveedor_id || f.Proveedor_id;
+                  const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
+                  const totalVal = Number(f.total || f.Total || 0) || 0;
+                  const codigoDisplay = f.codigo || f.Codigo || `FAC-${String(index + 1).padStart(4, '0')}`;
+                  const nFactura = f.n_factura || f.N_factura || '---';
+
+                  return (
+                    <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
+                      <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay} <span className="text-slate-500 font-normal">({nFactura})</span></td>
+                      <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha || f.Fecha)}</td>
+                      <td className="px-4 py-4 font-semibold text-rose-600">{formatearFechaDisplay(f.vencimiento || f.Vencimiento)}</td>
+                      <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-4 text-center">
+                        <span className="px-2.5 py-1 rounded-full font-bold text-[10px] uppercase bg-amber-100 text-amber-800">
+                          pendiente
+                        </span>
                       </td>
                     </tr>
                   );
@@ -526,6 +633,76 @@ export default function Tesoreria({
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
                 <button type="submit" className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm">Registrar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL NUEVA FACTURA DE VENTA */}
+      {isFacturaVentaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-xl overflow-hidden my-8">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-sky-50">
+              <h3 className="font-bold text-sky-900">+ Nueva Factura de Venta (FCE)</h3>
+              <button onClick={() => setIsFacturaVentaModalOpen(false)} className="text-sky-400 hover:text-sky-700"><X className="w-5 h-5"/></button>
+            </div>
+            
+            <form onSubmit={handleGuardarFacturaVenta} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Comprobante</label>
+                <input type="text" className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none" value={formDataVenta.tipo_comprobante} disabled />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Punto de Venta</label>
+                  <input type="text" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.punto_venta} onChange={(e) => setFormDataVenta({...formDataVenta, punto_venta: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Comp. Nro *</label>
+                  <input type="text" required placeholder="Ej: 00000171" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.numero_comp} onChange={(e) => setFormDataVenta({...formDataVenta, numero_comp: e.target.value})} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cliente / Empresa (Razón Social) *</label>
+                <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({...formDataVenta, cliente_id: e.target.value})}>
+                  <option value="">Seleccione cliente...</option>
+                  {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
+                  <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_emision} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_emision: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Vto. Pago</label>
+                  <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_vencimiento: e.target.value})} />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Importe Neto Gravado ($) *</label>
+                  <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500" value={formDataVenta.neto_gravado} onChange={(e) => {
+                    const neto = Number(e.target.value) || 0;
+                    const iva21 = neto * 0.21;
+                    const total = neto + iva21 + Number(formDataVenta.otros_tributos);
+                    setFormDataVenta({...formDataVenta, neto_gravado: neto, iva_21: iva21, total: total});
+                  }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 21% ($)</label>
+                  <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500" value={formDataVenta.iva_21} onChange={(e) => setFormDataVenta({...formDataVenta, iva_21: e.target.value})} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Importe Total ($) *</label>
+                <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                <button type="submit" className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold shadow-sm">Guardar Factura Venta</button>
               </div>
             </form>
           </div>
