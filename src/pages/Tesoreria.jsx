@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock } from 'lucide-react';
+import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload } from 'lucide-react';
 
 export default function Tesoreria({ 
   GOOGLE_SCRIPT_URL, 
@@ -32,19 +32,23 @@ export default function Tesoreria({
     ]
   });
 
-  // Formulario Factura de Venta
+  // Formulario Factura de Venta ampliado
   const [formDataVenta, setFormDataVenta] = useState({
-    tipo_comprobante: 'Factura de Crédito Electrónica MiPyMEs (FCE)',
+    tipo_comprobante: 'FACTURA A',
     punto_venta: '00001',
     numero_comp: '',
     cliente_id: '',
     fecha_emision: new Date().toISOString().split('T')[0],
     fecha_vencimiento: '',
+    items: [
+      { id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }
+    ],
     neto_gravado: 0,
     iva_21: 0,
     iva_105: 0,
     otros_tributos: 0,
-    total: 0
+    total: 0,
+    archivo_url: ''
   });
 
   const formatearFechaDisplay = (fechaStr) => {
@@ -100,6 +104,59 @@ export default function Tesoreria({
     }));
   };
 
+  // Manejo de ítems de la Factura de Venta
+  const handleAgregarItemVenta = () => {
+    setFormDataVenta(prev => ({
+      ...prev,
+      items: [
+        ...prev.items,
+        { id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }
+      ]
+    }));
+  };
+
+  const handleCambiarItemVenta = (id, campo, valor) => {
+    const nuevosItems = formDataVenta.items.map(item => {
+      if (item.id === id) {
+        const actualizado = { ...item, [campo]: valor };
+        if (campo === 'cantidad' || campo === 'precio_unitario') {
+          const cant = campo === 'cantidad' ? Number(valor) || 0 : Number(item.cantidad) || 0;
+          const precio = campo === 'precio_unitario' ? Number(valor) || 0 : Number(item.precio_unitario) || 0;
+          actualizado.subtotal = cant * precio;
+        }
+        return actualizado;
+      }
+      return item;
+    });
+
+    const nuevoNeto = nuevosItems.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
+    const nuevoIva21 = nuevoNeto * 0.21;
+    const nuevoTotal = nuevoNeto + nuevoIva21 + Number(formDataVenta.otros_tributos || 0);
+
+    setFormDataVenta(prev => ({
+      ...prev,
+      items: nuevosItems,
+      neto_gravado: nuevoNeto,
+      iva_21: nuevoIva21,
+      total: nuevoTotal
+    }));
+  };
+
+  const handleQuitarItemVenta = (id) => {
+    const nuevosItems = formDataVenta.items.filter(i => i.id !== id);
+    const nuevoNeto = nuevosItems.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
+    const nuevoIva21 = nuevoNeto * 0.21;
+    const nuevoTotal = nuevoNeto + nuevoIva21 + Number(formDataVenta.otros_tributos || 0);
+
+    setFormDataVenta(prev => ({
+      ...prev,
+      items: nuevosItems,
+      neto_gravado: nuevoNeto,
+      iva_21: nuevoIva21,
+      total: nuevoTotal
+    }));
+  };
+
   const handleGuardarMovimiento = async (e) => {
     e.preventDefault();
     try {
@@ -109,7 +166,6 @@ export default function Tesoreria({
         facturas_aplicadas: JSON.stringify(formData.facturas_aplicadas)
       };
 
-      // 1. Guardar el movimiento en Tesorería
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -131,7 +187,6 @@ export default function Tesoreria({
       }
 
       if (data.success || data.id) {
-        // 2. Actualizar estados de las facturas aplicadas (pagado / pagado parcial)
         if (Array.isArray(formData.facturas_aplicadas)) {
           for (const item of formData.facturas_aplicadas) {
             if (!item.factura_id) continue;
@@ -184,7 +239,10 @@ export default function Tesoreria({
         body: JSON.stringify({
           tabla: 'FacturasVenta',
           action: 'create',
-          data: formDataVenta
+          data: {
+            ...formDataVenta,
+            items: JSON.stringify(formDataVenta.items)
+          }
         })
       });
       const data = await res.json().catch(() => ({ success: true }));
@@ -239,13 +297,11 @@ export default function Tesoreria({
     return concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
   });
 
-  // Facturas a Pagar (Pendientes o Pagadas Parcialmente)
   const facturasAPagar = facturas.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
     return estado === 'pendiente' || estado === 'pagado parcial';
   });
 
-  // Agrupaciones Cash Flow
   const cashFlowMensualMap = {};
   const cashFlowAnualMap = {};
 
@@ -269,7 +325,6 @@ export default function Tesoreria({
   const listaMensual = Object.keys(cashFlowMensualMap).sort().map(k => ({ periodo: k, ...cashFlowMensualMap[k] }));
   const listaAnual = Object.keys(cashFlowAnualMap).sort().map(k => ({ periodo: k, ...cashFlowAnualMap[k] }));
 
-  // IVA
   const totalIvaCompras = facturas.reduce((acc, f) => {
     const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
     const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
@@ -332,7 +387,6 @@ export default function Tesoreria({
         </div>
       </div>
 
-      {/* Navegación por pestañas incluyendo Facturas a pagar */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setActiveTab('movimientos')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'movimientos' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Movimientos</button>
@@ -407,7 +461,6 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* TAB: FACTURAS A PAGAR */}
       {activeTab === 'facturas_pagar' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
           {facturasAPagar.length === 0 ? (
@@ -605,7 +658,6 @@ export default function Tesoreria({
                 </div>
               </div>
 
-              {/* SECCIÓN DE APLICACIÓN A FACTURAS */}
               <div className="space-y-3 pt-4 border-t">
                 <div className="flex justify-between items-center">
                   <div>
@@ -674,21 +726,37 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* MODAL NUEVA FACTURA DE VENTA */}
+      {/* MODAL NUEVA FACTURA DE VENTA AMPLIADO */}
       {isFacturaVentaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-xl overflow-hidden my-8">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-sky-50">
-              <h3 className="font-bold text-sky-900">+ Nueva Factura de Venta (FCE)</h3>
+              <h3 className="font-bold text-sky-900">+ Nueva Factura de Venta</h3>
               <button onClick={() => setIsFacturaVentaModalOpen(false)} className="text-sky-400 hover:text-sky-700"><X className="w-5 h-5"/></button>
             </div>
             
-            <form onSubmit={handleGuardarFacturaVenta} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Comprobante</label>
-                <input type="text" className="w-full bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold text-slate-700 outline-none" value={formDataVenta.tipo_comprobante} disabled />
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleGuardarFacturaVenta} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+              {/* 1. Tipo de Comprobante, Pto Vta y Nro */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-3">
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Comprobante *</label>
+                  <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 uppercase" value={formDataVenta.tipo_comprobante} onChange={(e) => setFormDataVenta({...formDataVenta, tipo_comprobante: e.target.value})}>
+                    <option value="FACTURA A">FACTURA A</option>
+                    <option value="NOTA DE DEBITO A">NOTA DE DEBITO A</option>
+                    <option value="NOTA DE CREDITO A">NOTA DE CREDITO A</option>
+                    <option value="RECIBO A">RECIBO A</option>
+                    <option value="FACTURA B">FACTURA B</option>
+                    <option value="NOTA DE DEBITO B">NOTA DE DEBITO B</option>
+                    <option value="NOTA DE CREDITO B">NOTA DE CREDITO B</option>
+                    <option value="RECIBO B">RECIBO B</option>
+                    <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A</option>
+                    <option value="NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A">NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A</option>
+                    <option value="NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A">NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A</option>
+                    <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B</option>
+                    <option value="NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B">NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B</option>
+                    <option value="NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B">NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B</option>
+                  </select>
+                </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Punto de Venta</label>
                   <input type="text" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.punto_venta} onChange={(e) => setFormDataVenta({...formDataVenta, punto_venta: e.target.value})} />
@@ -697,15 +765,17 @@ export default function Tesoreria({
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Comp. Nro *</label>
                   <input type="text" required placeholder="Ej: 00000171" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.numero_comp} onChange={(e) => setFormDataVenta({...formDataVenta, numero_comp: e.target.value})} />
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cliente *</label>
+                  <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({...formDataVenta, cliente_id: e.target.value})}>
+                    <option value="">Seleccione cliente...</option>
+                    {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cliente / Empresa (Razón Social) *</label>
-                <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({...formDataVenta, cliente_id: e.target.value})}>
-                  <option value="">Seleccione cliente...</option>
-                  {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
+
+              {/* Fechas */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
                   <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_emision} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_emision: e.target.value})} />
@@ -715,24 +785,104 @@ export default function Tesoreria({
                   <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_vencimiento: e.target.value})} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+
+              {/* 2. Cuadro con detalles de conceptos y montos parciales */}
+              <div className="space-y-3 pt-4 border-t">
+                <div className="flex justify-between items-center">
+                  <h4 className="font-extrabold text-xs uppercase text-slate-800">Detalle de Conceptos / Ítems</h4>
+                  <button type="button" onClick={handleAgregarItemVenta} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-xs font-bold transition-colors">
+                    <Plus className="w-3.5 h-3.5" /> Agregar Ítem
+                  </button>
+                </div>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                        <th className="px-3 py-2.5">Descripción / Producto / Servicio</th>
+                        <th className="px-3 py-2.5 w-20 text-center">Cant.</th>
+                        <th className="px-3 py-2.5 w-28 text-right">P. Unitario</th>
+                        <th className="px-3 py-2.5 w-28 text-right">Subtotal</th>
+                        <th className="px-3 py-2.5 w-12 text-center">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {formDataVenta.items.map((item) => (
+                        <tr key={item.id} className="hover:bg-slate-50">
+                          <td className="px-3 py-2">
+                            <input 
+                              type="text" 
+                              placeholder="Detalle del concepto..." 
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-sky-500"
+                              value={item.descripcion}
+                              onChange={(e) => handleCambiarItemVenta(item.id, 'descripcion', e.target.value)}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input 
+                              type="number" 
+                              step="0.01" 
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-sky-500"
+                              value={item.cantidad}
+                              onChange={(e) => handleCambiarItemVenta(item.id, 'cantidad', e.target.value)}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right">
+                            <input 
+                              type="number" 
+                              step="0.01" 
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-sky-500"
+                              value={item.precio_unitario}
+                              onChange={(e) => handleCambiarItemVenta(item.id, 'precio_unitario', e.target.value)}
+                            />
+                          </td>
+                          <td className="px-3 py-2 text-right font-black text-slate-900">
+                            $ {Number(item.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-3 py-2 text-center">
+                            <button type="button" onClick={() => handleQuitarItemVenta(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Importes y Totales */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Importe Neto Gravado ($) *</label>
-                  <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500" value={formDataVenta.neto_gravado} onChange={(e) => {
-                    const neto = Number(e.target.value) || 0;
-                    const iva21 = neto * 0.21;
-                    const total = neto + iva21 + Number(formDataVenta.otros_tributos);
-                    setFormDataVenta({...formDataVenta, neto_gravado: neto, iva_21: iva21, total: total});
-                  }} />
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Neto Gravado ($)</label>
+                  <input type="number" step="0.01" className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none" value={formDataVenta.neto_gravado} readOnly />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 21% ($)</label>
-                  <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500" value={formDataVenta.iva_21} onChange={(e) => setFormDataVenta({...formDataVenta, iva_21: e.target.value})} />
+                  <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500" value={formDataVenta.iva_21} onChange={(e) => {
+                    const iva = Number(e.target.value) || 0;
+                    const total = Number(formDataVenta.neto_gravado) + iva + Number(formDataVenta.otros_tributos);
+                    setFormDataVenta({...formDataVenta, iva_21: iva, total: total});
+                  }} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Total ($)</label>
+                  <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
                 </div>
               </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Importe Total ($) *</label>
-                <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
+
+              {/* 3. Escanear o subir archivo */}
+              <div className="pt-2">
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Archivo / Comprobante (URL o PDF)</label>
+                <div className="flex items-center gap-2">
+                  <div className="relative flex-1">
+                    <Upload className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input 
+                      type="text" 
+                      placeholder="Enlace o ruta del archivo escaneado..." 
+                      className="w-full pl-9 pr-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold outline-none focus:border-sky-500"
+                      value={formDataVenta.archivo_url}
+                      onChange={(e) => setFormDataVenta({...formDataVenta, archivo_url: e.target.value})}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t">
