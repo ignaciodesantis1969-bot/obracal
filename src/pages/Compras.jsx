@@ -303,9 +303,16 @@ export default function Compras({
       const action = editingId ? 'update' : 'create';
       const codigoFinal = editingId ? formData.codigo : generarSiguienteCodigoFactura();
       
+      // Sanitizar archivo_url si es un Base64 gigante para evitar Failed to fetch
+      let urlLimpia = formData.archivo_url;
+      if (urlLimpia && urlLimpia.startsWith('data:')) {
+        urlLimpia = "Comprobante_Adjunto"; 
+      }
+
       const payloadData = {
         ...formData,
         codigo: codigoFinal,
+        archivo_url: urlLimpia,
         insumos_comprados: JSON.stringify(formData.insumos_comprados)
       };
 
@@ -325,8 +332,8 @@ export default function Compras({
       try {
         data = JSON.parse(textoRespuesta);
       } catch (parseErr) {
-        console.error("Respuesta no JSON del servidor:", textoRespuesta);
-        alert("Error del servidor (Respuesta no válida): " + textoRespuesta.substring(0, 150));
+        console.error("Respuesta no JSON:", textoRespuesta);
+        alert("Error del servidor: " + textoRespuesta.substring(0, 150));
         return;
       }
 
