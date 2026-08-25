@@ -168,12 +168,15 @@ export default function PresupuestoDetalle() {
     }
   }, [presupuestoId]);
 
-  const estadoActual = String(presupuesto?.estado || 'borrador').toLowerCase();
+  const estadoActual = String(presupuesto?.estado_presupuesto || presupuesto?.estado || 'borrador').toLowerCase();
+  const esBorrador = estadoActual === 'borrador';
   const esEntregado = estadoActual === 'entregado';
+  const esAprobado = estadoActual === 'aprobado';
+  const esRechazado = estadoActual === 'rechazado';
 
   const guardarEstructuraPresupuesto = async (nuevosItems, nuevoCoef = null) => {
-    if (esEntregado) {
-      alert("⚠️ Este presupuesto se encuentra en estado 'Entregado' y no puede ser modificado.");
+    if (!esBorrador) {
+      alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede ser modificado.`);
       return;
     }
 
@@ -237,7 +240,10 @@ export default function PresupuestoDetalle() {
 
   const handleCrearRubro = async (e) => {
     e.preventDefault();
-    if (esEntregado) return;
+    if (!esBorrador) {
+      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
+      return;
+    }
     if (!nombreNuevoRubro.trim()) return;
     const nombreRubroUpper = nombreNuevoRubro.trim().toUpperCase();
     
@@ -281,8 +287,8 @@ export default function PresupuestoDetalle() {
   };
 
   const handleEliminarRubro = (nombreRubro) => {
-    if (esEntregado) {
-      alert("⚠️ Presupuesto bloqueado (Entregado).");
+    if (!esBorrador) {
+      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
     if (window.confirm(`¿Estás seguro de eliminar el rubro "${nombreRubro}" y todas sus tareas asociadas?`)) {
@@ -294,7 +300,10 @@ export default function PresupuestoDetalle() {
 
   const handleGuardarTarea = (e) => {
     e.preventDefault();
-    if (esEntregado) return;
+    if (!esBorrador) {
+      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
+      return;
+    }
     if (!nuevaTarea.rubro || !nuevaTarea.tarea) {
       alert("Complete el rubro y el nombre de la tarea.");
       return;
@@ -344,8 +353,8 @@ export default function PresupuestoDetalle() {
   };
 
   const handleEditarTareaClick = (rubroName, tarea) => {
-    if (esEntregado) {
-      alert("⚠️ Presupuesto bloqueado (Entregado).");
+    if (!esBorrador) {
+      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
     setNuevaTarea({
@@ -361,8 +370,8 @@ export default function PresupuestoDetalle() {
   };
 
   const handleEliminarTarea = (nombreRubro, tareaId) => {
-    if (esEntregado) {
-      alert("⚠️ Presupuesto bloqueado (Entregado).");
+    if (!esBorrador) {
+      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
     if (window.confirm("¿Eliminar esta tarea?")) {
@@ -382,7 +391,7 @@ export default function PresupuestoDetalle() {
 
   const handleCrearGastoGeneral = async (e) => {
     e.preventDefault();
-    if (esEntregado) return;
+    if (!esBorrador) return;
     if (!nuevoGastoGeneral.concepto) return;
     setIsSavingGG(true);
     
@@ -520,13 +529,19 @@ export default function PresupuestoDetalle() {
         </Link>
       </div>
 
-      {/* Alerta si está Entregado */}
-      {esEntregado && (
-        <div className="bg-purple-50 border border-purple-200 text-purple-900 px-5 py-4 rounded-2xl flex items-center gap-3 shadow-sm">
-          <Lock className="w-5 h-5 text-purple-600 shrink-0" />
+      {/* Alerta si está Bloqueado */}
+      {!esBorrador && (
+        <div className={`border px-5 py-4 rounded-2xl flex items-center gap-3 shadow-sm ${
+          esAprobado ? 'bg-emerald-50 border-emerald-200 text-emerald-900' :
+          esRechazado ? 'bg-red-50 border-red-200 text-red-900' :
+          'bg-purple-50 border-purple-200 text-purple-900'
+        }`}>
+          <Lock className={`w-5 h-5 shrink-0 ${esAprobado ? 'text-emerald-600' : esRechazado ? 'text-red-600' : 'text-purple-600'}`} />
           <div className="text-xs">
-            <span className="font-extrabold uppercase tracking-wide block">Presupuesto Bloqueado (Entregado)</span>
-            Este presupuesto se encuentra en estado Entregado, por lo que no se permite modificar tareas, insumos ni eliminar registros.
+            <span className="font-extrabold uppercase tracking-wide block">Presupuesto Bloqueado ({estadoActual})</span>
+            {esEntregado && "Este presupuesto se encuentra en estado Entregado. Para modificarlo, debe generar una nueva versión desde la lista principal."}
+            {esAprobado && "Este presupuesto ha sido Aprobado y no puede ser modificado."}
+            {esRechazado && "Este presupuesto fue Rechazado y no puede ser modificado."}
           </div>
         </div>
       )}
@@ -538,7 +553,9 @@ export default function PresupuestoDetalle() {
             <span className="px-3 py-1 bg-amber-100 text-amber-800 rounded-lg font-bold text-xs">{presupuesto?.codigo || '---'}</span>
             <span className="px-2.5 py-1 bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-extrabold text-[11px] uppercase">{presupuesto?.version || 'v1'}</span>
             <h1 className="text-xl font-extrabold text-slate-900">{presupuesto?.nombre || 'Detalle de Presupuesto'}</h1>
-            <span className={`px-2.5 py-1 rounded-full font-bold text-xs uppercase ${esEntregado ? 'bg-purple-100 text-purple-800' : 'bg-slate-100 text-slate-700'}`}>{presupuesto?.estado || 'borrador'}</span>
+            <span className={`px-2.5 py-1 rounded-full font-bold text-xs uppercase ${esBorrador ? 'bg-slate-100 text-slate-700' : esAprobado ? 'bg-emerald-100 text-emerald-800' : esRechazado ? 'bg-red-100 text-red-800' : 'bg-purple-100 text-purple-800'}`}>
+              {estadoActual}
+            </span>
           </div>
           <p className="text-slate-500 text-sm mt-1.5 flex items-center gap-4">
             <span><strong>Obra:</strong> {obra?.nombre || obra?.nombre_obra || 'Sin obra asignada'}</span>
@@ -549,36 +566,36 @@ export default function PresupuestoDetalle() {
 
         <div className="flex gap-2">
           <button 
-            disabled={esEntregado}
+            disabled={!esBorrador}
             onClick={() => setIsRubroModalOpen(true)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-colors shadow-sm ${esEntregado ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-900 text-white'}`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-colors shadow-sm ${!esBorrador ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-900 text-white'}`}
           >
             <FolderPlus className="w-4 h-4" /> Nuevo Rubro
           </button>
           <button 
-            disabled={esEntregado}
+            disabled={!esBorrador}
             onClick={() => {
               if (itemsDetalle.length === 0) { alert("Cree un rubro primero."); return; }
               setEditingTarea(null);
               setNuevaTarea({ rubro: itemsDetalle[0].rubro, tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
               setIsTareaModalOpen(true);
             }}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-colors shadow-sm ${esEntregado ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-amber-500 hover:bg-amber-600 text-white'}`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-colors shadow-sm ${!esBorrador ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none' : 'bg-amber-500 hover:bg-amber-600 text-white'}`}
           >
             <Plus className="w-4 h-4" /> Nueva Tarea
           </button>
         </div>
       </div>
 
-      {/* TARJETAS DE MÉTRICAS */}
+      {/* TARJETAS DE MÉTRICAS (SIN DECIMALES) */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
           <span className="text-xs font-bold text-slate-400 uppercase">Costo Directo</span>
-          <h3 className="text-2xl font-black text-slate-900 mt-1">$ {costoTotalGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+          <h3 className="text-2xl font-black text-slate-900 mt-1">$ {Math.round(costoTotalGeneral).toLocaleString('es-AR')}</h3>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
           <span className="text-xs font-bold text-slate-400 uppercase">Precio de Venta</span>
-          <h3 className="text-2xl font-black text-amber-600 mt-1">$ {precioVentaGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+          <h3 className="text-2xl font-black text-amber-600 mt-1">$ {Math.round(precioVentaGeneral).toLocaleString('es-AR')}</h3>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
           <span className="text-xs font-bold text-slate-400 uppercase">Coeficiente de Pase</span>
@@ -626,9 +643,9 @@ export default function PresupuestoDetalle() {
                 <div className="bg-slate-800 text-white px-6 py-3.5 flex justify-between items-center">
                   <span className="font-extrabold text-sm tracking-wide uppercase">{rubroObj.rubro}</span>
                   <div className="flex items-center gap-6">
-                    <span className="text-xs text-slate-300">Costo: <strong className="text-amber-400">$ {costoRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong></span>
-                    <span className="text-xs text-slate-300">Venta: <strong className="text-emerald-400">$ {precioVentaRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong></span>
-                    {!esEntregado && (
+                    <span className="text-xs text-slate-300">Costo: <strong className="text-amber-400">$ {Math.round(costoRubro).toLocaleString('es-AR')}</strong></span>
+                    <span className="text-xs text-slate-300">Venta: <strong className="text-emerald-400">$ {Math.round(precioVentaRubro).toLocaleString('es-AR')}</strong></span>
+                    {esBorrador && (
                       <button 
                         onClick={() => handleEliminarRubro(rubroObj.rubro)} 
                         className="text-red-400 hover:text-red-200 p-1 rounded transition-colors flex items-center gap-1 text-xs font-semibold bg-slate-900/40 px-2 py-1 border border-red-500/30"
@@ -675,11 +692,11 @@ export default function PresupuestoDetalle() {
                               </td>
                               <td className="w-[8%] px-2 py-3 uppercase text-slate-600 text-center">{t.unidad}</td>
                               <td className="w-[9%] px-2 py-3 text-center font-bold text-slate-800">{cant}</td>
-                              <td className="w-[13%] px-3 py-3 text-right text-slate-600">$ {cUnit.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                              <td className="w-[13%] px-3 py-3 text-right font-black text-slate-900">$ {cTot.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                              <td className="w-[13%] px-3 py-3 text-right font-black text-amber-600">$ {pVentaItem.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="w-[13%] px-3 py-3 text-right text-slate-600">$ {Math.round(cUnit).toLocaleString('es-AR')}</td>
+                              <td className="w-[13%] px-3 py-3 text-right font-black text-slate-900">$ {Math.round(cTot).toLocaleString('es-AR')}</td>
+                              <td className="w-[13%] px-3 py-3 text-right font-black text-amber-600">$ {Math.round(pVentaItem).toLocaleString('es-AR')}</td>
                               <td className="w-[14%] px-4 py-3 text-right">
-                                {!esEntregado && (
+                                {esBorrador && (
                                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                                     <button onClick={() => handleEditarTareaClick(rubroObj.rubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea (Cómputo)">
                                       <Edit2 className="w-3.5 h-3.5"/>
@@ -708,16 +725,16 @@ export default function PresupuestoDetalle() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div className="bg-white p-5 rounded-2xl border border-blue-200 shadow-sm">
               <span className="text-xs font-bold text-slate-400 uppercase">Total Presupuestado</span>
-              <h3 className="text-2xl font-black text-slate-900 mt-1">$ {totalPresupuestadoVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+              <h3 className="text-2xl font-black text-slate-900 mt-1">$ {Math.round(totalPresupuestadoVenta).toLocaleString('es-AR')}</h3>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-sm">
               <span className="text-xs font-bold text-slate-400 uppercase">Total Facturado</span>
-              <h3 className="text-2xl font-black text-amber-600 mt-1">$ {totalFacturadoGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+              <h3 className="text-2xl font-black text-amber-600 mt-1">$ {Math.round(totalFacturadoGeneral).toLocaleString('es-AR')}</h3>
               <p className="text-[11px] font-semibold text-amber-600 mt-1">{porcentajeEjecucionGeneral.toFixed(1)}% ejecutado</p>
             </div>
             <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-sm">
               <span className="text-xs font-bold text-slate-400 uppercase">Saldo Disponible</span>
-              <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {saldoDisponibleGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+              <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {Math.round(saldoDisponibleGeneral).toLocaleString('es-AR')}</h3>
             </div>
           </div>
 
@@ -736,10 +753,10 @@ export default function PresupuestoDetalle() {
                 {rubrosResumen.map((r, idx) => (
                   <tr key={idx} className="hover:bg-slate-50 transition-colors">
                     <td className="px-6 py-4 font-extrabold text-slate-900 uppercase">{r.rubro}</td>
-                    <td className="px-4 py-4 text-right font-semibold text-slate-800">$ {r.presupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-4 text-right font-bold text-amber-600">$ {r.facturado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-4 text-right font-semibold text-slate-800">$ {Math.round(r.presupuestado).toLocaleString('es-AR')}</td>
+                    <td className="px-4 py-4 text-right font-bold text-amber-600">$ {Math.round(r.facturado).toLocaleString('es-AR')}</td>
                     <td className="px-4 py-4 text-right font-medium text-emerald-600 flex items-center justify-end gap-1">
-                      <TrendingUp className="w-3 h-3" /> $ {r.diferencia.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      <TrendingUp className="w-3 h-3" /> $ {Math.round(r.diferencia).toLocaleString('es-AR')}
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center justify-center gap-3">
@@ -756,9 +773,9 @@ export default function PresupuestoDetalle() {
                 ))}
                 <tr className="bg-slate-50 font-black text-slate-900 border-t-2 border-slate-200">
                   <td className="px-6 py-4 uppercase">Total</td>
-                  <td className="px-4 py-4 text-right">$ {totalPresupuestadoVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-4 py-4 text-right text-amber-600">$ {totalFacturadoGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                  <td className="px-4 py-4 text-right text-emerald-600">$ {saldoDisponibleGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                  <td className="px-4 py-4 text-right">$ {Math.round(totalPresupuestadoVenta).toLocaleString('es-AR')}</td>
+                  <td className="px-4 py-4 text-right text-amber-600">$ {Math.round(totalFacturadoGeneral).toLocaleString('es-AR')}</td>
+                  <td className="px-4 py-4 text-right text-emerald-600">$ {Math.round(saldoDisponibleGeneral).toLocaleString('es-AR')}</td>
                   <td className="px-6 py-4 text-center">
                     <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full text-[11px]">
                       {porcentajeEjecucionGeneral.toFixed(1)}%
@@ -779,7 +796,7 @@ export default function PresupuestoDetalle() {
               <h3 className="text-lg font-bold text-slate-800">Multiplicador — Cálculo del Coeficiente de Pase</h3>
             </div>
             <div className="text-sm font-semibold text-slate-500">
-              Costo Directo base: <strong className="text-slate-900">$ {costoDirectoBase.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</strong>
+              Costo Directo base: <strong className="text-slate-900">$ {Math.round(costoDirectoBase).toLocaleString('es-AR')}</strong>
             </div>
           </div>
 
@@ -788,7 +805,7 @@ export default function PresupuestoDetalle() {
               <h4 className="font-extrabold text-sm text-slate-800 uppercase">Gastos Generales (Insumos y Valores Fijos)</h4>
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <select 
-                  disabled={esEntregado}
+                  disabled={!esBorrador}
                   className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 flex-1 sm:flex-none disabled:bg-slate-100 disabled:cursor-not-allowed"
                   onChange={(e) => {
                     const insId = e.target.value;
@@ -811,13 +828,13 @@ export default function PresupuestoDetalle() {
                   <option value="">+ Seleccionar Insumo (Gastos Generales)...</option>
                   {insumosDisponiblesGG.map(ins => (
                     <option key={ins.id} value={ins.id}>
-                      {ins.nombre || ins.insumo || ins.descripcion} ($ {Number(ins.costo || ins.precio || ins.costo_unitario || 0).toLocaleString('es-AR')})
+                      {ins.nombre || ins.insumo || ins.descripcion} ($ {Math.round(Number(ins.costo || ins.precio || ins.costo_unitario || 0)).toLocaleString('es-AR')})
                     </option>
                   ))}
                 </select>
 
                 <button 
-                  disabled={esEntregado}
+                  disabled={!esBorrador}
                   onClick={() => setIsNuevoGGModalOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-colors shrink-0 disabled:bg-slate-300 disabled:cursor-not-allowed"
                 >
@@ -850,7 +867,7 @@ export default function PresupuestoDetalle() {
                           <td className="px-4 py-2.5">
                             <input 
                               type="text" 
-                              disabled={esEntregado}
+                              disabled={!esBorrador}
                               className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
                               value={item.concepto}
                               onChange={(e) => {
@@ -863,7 +880,7 @@ export default function PresupuestoDetalle() {
                           <td className="px-4 py-2.5 text-center">
                             <input 
                               type="number" 
-                              disabled={esEntregado}
+                              disabled={!esBorrador}
                               step="0.01"
                               className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
                               value={item.cantidad}
@@ -877,7 +894,7 @@ export default function PresupuestoDetalle() {
                           <td className="px-4 py-2.5 text-right">
                             <input 
                               type="number" 
-                              disabled={esEntregado}
+                              disabled={!esBorrador}
                               step="0.01"
                               className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
                               value={item.unitario}
@@ -889,10 +906,10 @@ export default function PresupuestoDetalle() {
                             />
                           </td>
                           <td className="px-4 py-2.5 text-right font-black text-slate-900">
-                            $ {subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            $ {Math.round(subtotal).toLocaleString('es-AR')}
                           </td>
                           <td className="px-4 py-2.5 text-center">
-                            {!esEntregado && (
+                            {esBorrador && (
                               <button 
                                 onClick={() => {
                                   setGastosGeneralesInsumos(gastosGeneralesInsumos.filter(i => i.id !== item.id));
@@ -916,7 +933,7 @@ export default function PresupuestoDetalle() {
                       <div className="flex items-center justify-end gap-1">
                         <input 
                           type="number" 
-                          disabled={esEntregado}
+                          disabled={!esBorrador}
                           step="0.01"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-amber-600 outline-none focus:border-amber-500 disabled:bg-slate-50"
                           value={porcentajeComisionVenta}
@@ -926,7 +943,7 @@ export default function PresupuestoDetalle() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right font-black text-amber-600">
-                      $ {montoComisionVenta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      $ {Math.round(montoComisionVenta).toLocaleString('es-AR')}
                     </td>
                     <td className="px-4 py-3 text-center text-slate-300">-</td>
                   </tr>
@@ -938,7 +955,7 @@ export default function PresupuestoDetalle() {
                       <div className="flex items-center justify-end gap-1">
                         <input 
                           type="number" 
-                          disabled={esEntregado}
+                          disabled={!esBorrador}
                           step="0.01"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-amber-600 outline-none focus:border-amber-500 disabled:bg-slate-50"
                           value={porcentajeImprevistos}
@@ -948,7 +965,7 @@ export default function PresupuestoDetalle() {
                       </div>
                     </td>
                     <td className="px-4 py-3 text-right font-black text-amber-600">
-                      $ {montoImprevistos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      $ {Math.round(montoImprevistos).toLocaleString('es-AR')}
                     </td>
                     <td className="px-4 py-3 text-center text-slate-300">-</td>
                   </tr>
@@ -956,7 +973,7 @@ export default function PresupuestoDetalle() {
               </table>
               <div className="bg-slate-100 px-6 py-3 flex justify-between items-center border-t border-slate-200 font-black text-slate-900 text-xs">
                 <span>TOTAL Gastos Generales</span>
-                <span className="text-amber-600">$ {totalGastosGenerales.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                <span className="text-amber-600">$ {Math.round(totalGastosGenerales).toLocaleString('es-AR')}</span>
               </div>
             </div>
           </div>
@@ -980,7 +997,7 @@ export default function PresupuestoDetalle() {
                       <div className="flex items-center justify-center gap-1">
                         <input 
                           type="number" 
-                          disabled={esEntregado}
+                          disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
                           value={impuestosPorcentajes.iibb}
@@ -990,7 +1007,7 @@ export default function PresupuestoDetalle() {
                       </div>
                     </td>
                     <td className="px-6 py-3 text-right font-bold text-slate-900">
-                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.iibb) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      $ {Math.round(precioVentaCalculado * (Number(impuestosPorcentajes.iibb) / 100)).toLocaleString('es-AR')}
                     </td>
                   </tr>
                   <tr className="hover:bg-slate-50">
@@ -999,7 +1016,7 @@ export default function PresupuestoDetalle() {
                       <div className="flex items-center justify-center gap-1">
                         <input 
                           type="number" 
-                          disabled={esEntregado}
+                          disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
                           value={impuestosPorcentajes.gastosFinancieros}
@@ -1009,7 +1026,7 @@ export default function PresupuestoDetalle() {
                       </div>
                     </td>
                     <td className="px-6 py-3 text-right font-bold text-slate-900">
-                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.gastosFinancieros) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      $ {Math.round(precioVentaCalculado * (Number(impuestosPorcentajes.gastosFinancieros) / 100)).toLocaleString('es-AR')}
                     </td>
                   </tr>
                   <tr className="hover:bg-slate-50">
@@ -1018,7 +1035,7 @@ export default function PresupuestoDetalle() {
                       <div className="flex items-center justify-center gap-1">
                         <input 
                           type="number" 
-                          disabled={esEntregado}
+                          disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
                           value={impuestosPorcentajes.ganancias}
@@ -1028,7 +1045,7 @@ export default function PresupuestoDetalle() {
                       </div>
                     </td>
                     <td className="px-6 py-3 text-right font-bold text-slate-900">
-                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.ganancias) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      $ {Math.round(precioVentaCalculado * (Number(impuestosPorcentajes.ganancias) / 100)).toLocaleString('es-AR')}
                     </td>
                   </tr>
                   <tr className="hover:bg-slate-50">
@@ -1037,7 +1054,7 @@ export default function PresupuestoDetalle() {
                       <div className="flex items-center justify-center gap-1">
                         <input 
                           type="number" 
-                          disabled={esEntregado}
+                          disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
                           value={impuestosPorcentajes.sellados}
@@ -1047,7 +1064,7 @@ export default function PresupuestoDetalle() {
                       </div>
                     </td>
                     <td className="px-6 py-3 text-right font-bold text-slate-900">
-                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.sellados) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      $ {Math.round(precioVentaCalculado * (Number(impuestosPorcentajes.sellados) / 100)).toLocaleString('es-AR')}
                     </td>
                   </tr>
                   <tr className="hover:bg-slate-50">
@@ -1056,7 +1073,7 @@ export default function PresupuestoDetalle() {
                       <div className="flex items-center justify-center gap-1">
                         <input 
                           type="number" 
-                          disabled={esEntregado}
+                          disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
                           value={impuestosPorcentajes.debitosCreditos}
@@ -1066,7 +1083,7 @@ export default function PresupuestoDetalle() {
                       </div>
                     </td>
                     <td className="px-6 py-3 text-right font-bold text-slate-900">
-                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.debitosCreditos) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      $ {Math.round(precioVentaCalculado * (Number(impuestosPorcentajes.debitosCreditos) / 100)).toLocaleString('es-AR')}
                     </td>
                   </tr>
                   <tr className="bg-emerald-50/50 hover:bg-emerald-50">
@@ -1075,7 +1092,7 @@ export default function PresupuestoDetalle() {
                       <div className="flex items-center justify-center gap-1">
                         <input 
                           type="number" 
-                          disabled={esEntregado}
+                          disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-emerald-300 rounded-lg px-2 py-1.5 text-center font-bold text-emerald-700 outline-none focus:border-emerald-500 disabled:bg-slate-50"
                           value={impuestosPorcentajes.beneficio}
@@ -1085,7 +1102,7 @@ export default function PresupuestoDetalle() {
                       </div>
                     </td>
                     <td className="px-6 py-3 text-right font-black text-emerald-700">
-                      $ {(precioVentaCalculado * (Number(impuestosPorcentajes.beneficio) / 100)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      $ {Math.round(precioVentaCalculado * (Number(impuestosPorcentajes.beneficio) / 100)).toLocaleString('es-AR')}
                     </td>
                   </tr>
                 </tbody>
@@ -1110,7 +1127,7 @@ export default function PresupuestoDetalle() {
             </div>
             <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200">
               <span className="text-[11px] font-bold text-emerald-600 uppercase">Precio de Venta</span>
-              <h4 className="text-lg font-black text-emerald-700 mt-0.5">$ {precioVentaCalculado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h4>
+              <h4 className="text-lg font-black text-emerald-700 mt-0.5">$ {Math.round(precioVentaCalculado).toLocaleString('es-AR')}</h4>
             </div>
           </div>
 
@@ -1121,7 +1138,7 @@ export default function PresupuestoDetalle() {
               <p className="text-xs text-amber-900 font-medium mt-0.5">Precio de Venta = Costo Directo × {coeficientePaseCalculado.toFixed(4)}</p>
             </div>
             <button
-              disabled={esEntregado}
+              disabled={!esBorrador}
               onClick={() => {
                 guardarEstructuraPresupuesto(itemsDetalle, coeficientePaseCalculado);
                 alert("¡Coeficiente de Pase y datos comerciales aplicados y guardados con éxito!");
@@ -1221,7 +1238,7 @@ export default function PresupuestoDetalle() {
                   >
                     <option value="">Elegir plantilla del Maestro de Tareas...</option>
                     {maestroTareasFiltradas.map(m => (
-                      <option key={m.id} value={m.id}>{m.tarea} ($ {Number(m.costo_estimado || 0).toLocaleString('es-AR')})</option>
+                      <option key={m.id} value={m.id}>{m.tarea} ($ {Math.round(Number(m.costo_estimado || 0)).toLocaleString('es-AR')})</option>
                     ))}
                   </select>
                 </div>
@@ -1256,7 +1273,7 @@ export default function PresupuestoDetalle() {
                   <select 
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none"
                     value={nuevaTarea.unidad}
-                    onChange={(e) => setNuevaTarea({...nuevaTagre, unidad: e.target.value})}
+                    onChange={(e) => setNuevaTarea({...nuevaTarea, unidad: e.target.value})}
                   >
                     <option value="m2">m²</option>
                     <option value="m3">m³</option>

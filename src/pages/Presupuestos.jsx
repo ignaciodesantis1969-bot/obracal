@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
-import { Plus, Trash2, Search, Loader2, Eye, X, RefreshCw } from 'lucide-react';
+import { Plus, Trash2, Search, Loader2, Eye, X, RefreshCw, FileText, CheckCircle2, Archive, Clock } from 'lucide-react';
 
 export default function Presupuestos() {
   const [presupuestos, setPresupuestos] = useState([]);
@@ -11,12 +11,15 @@ export default function Presupuestos() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // Vistas de Pestañas: 'workspace' (Borrador + Entregado) | 'aprobados' (Aprobado) | 'archivados' (Rechazado + Versiones viejas)
+  const [activeTab, setActiveTab] = useState('workspace');
+
   const [nuevoPresupuesto, setNuevoPresupuesto] = useState({
     codigo: '',
     nombre: '',
     obra_id: '',
     coeficiente_pase: 1.30,
-    estado: 'borrador',
+    estado_presupuesto: 'borrador',
     version: 'v1'
   });
 
@@ -103,6 +106,7 @@ export default function Presupuestos() {
           data: {
             ...nuevoPresupuesto,
             version: 'v1',
+            estado_presupuesto: 'borrador',
             items_detalle: JSON.stringify([{ rubro: 'RUBRO GENERAL / PRINCIPAL', tareas: [] }])
           }
         })
@@ -110,7 +114,7 @@ export default function Presupuestos() {
       const data = await res.json();
       if (data.success) {
         setIsModalOpen(false);
-        setNuevoPresupuesto({ codigo: '', nombre: '', obra_id: '', coeficiente_pase: 1.30, estado: 'borrador', version: 'v1' });
+        setNuevoPresupuesto({ codigo: '', nombre: '', obra_id: '', coeficiente_pase: 1.30, estado_presupuesto: 'borrador', version: 'v1' });
         fetchData();
       } else {
         alert("Error al crear presupuesto: " + (data.error || ''));
@@ -123,8 +127,10 @@ export default function Presupuestos() {
 
   const handleCambiarEstado = async (id, nuevoEstado) => {
     const p = presupuestos.find(presu => String(presu.id) === String(id));
-    if (String(p?.estado || '').toLowerCase() === 'entregado') {
-      alert("⚠️ Este presupuesto ya fue entregado y no puede cambiar su estado.");
+    const estadoActual = String(p?.estado_presupuesto || p?.estado || 'borrador').toLowerCase();
+
+    if (estadoActual === 'entregado' || estadoActual === 'aprobado' || estadoActual === 'rechazado') {
+      alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede cambiar su estado directamente.`);
       return;
     }
 
@@ -136,7 +142,7 @@ export default function Presupuestos() {
           tabla: 'Presupuestos',
           action: 'update',
           id: id,
-          data: { estado: nuevoEstado }
+          data: { estado_presupuesto: nuevoEstado }
         })
       });
       const data = await res.json();
@@ -231,7 +237,7 @@ export default function Presupuestos() {
         nombre: nombreNuevaVersion,
         obra_id: presupuestoActual.obra_id,
         coeficiente_pase: coeficientePase,
-        estado: 'borrador', 
+        estado_presupuesto: 'borrador', 
         version: nuevaVersionStr,
         costo_directo: nuevoCostoDirecto,
         precio_venta: nuevoPrecioVenta,
@@ -262,8 +268,9 @@ export default function Presupuestos() {
   };
 
   const handleEliminar = async (id, estadoActual) => {
-    if (String(estadoActual || '').toLowerCase() === 'entregado') {
-      alert("⚠️ Este presupuesto se encuentra en estado 'Entregado' y no puede ser modificado ni eliminado directamente.");
+    const est = String(estadoActual || '').toLowerCase();
+    if (est === 'aprobado' || est === 'entregado') {
+      alert(`⚠️ Este presupuesto se encuentra en estado '${est}' y no puede ser modificado ni eliminado.`);
       return;
     }
 
@@ -280,7 +287,27 @@ export default function Presupuestos() {
     }
   };
 
-  const presupuestosFiltrados = presupuestos.filter(p => 
+  // Conteo para los Cuadros Superiores (KPIs)
+  const totalBorrador = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'borrador').length;
+  const totalEntregado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'entregado').length;
+  const totalAprobado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'aprobado').length;
+  const totalRechazado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'rechazado').length;
+
+  // Filtrado de acuerdo a las 3 pestañas solicitadas
+  const presupuestosFiltradosPorTab = presupuestos.filter(p => {
+    const est = String(p.estado_presupuesto || p.estado || 'borrador').toLowerCase();
+    
+    if (activeTab === 'workspace') {
+      return est === 'borrador' || est === 'entregado' || est === 'en revision';
+    } else if (activeTab === 'aprobados') {
+      return est === 'aprobado';
+    } else if (activeTab === 'archivados') {
+      return est === 'rechazado';
+    }
+    return true;
+  });
+
+  const presupuestosFinales = presupuestosFiltradosPorTab.filter(p => 
     String(p.nombre || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     String(p.codigo || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -305,20 +332,77 @@ export default function Presupuestos() {
         </button>
       </div>
 
-      <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border border-slate-300 shadow-sm">
-        <Search className="w-5 h-5 text-slate-400" />
-        <input 
-          type="text"
-          placeholder="Buscar presupuesto por código o nombre..."
-          className="w-full bg-transparent outline-none text-sm text-slate-800 placeholder:text-slate-400"
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
+      {/* Cuadros Superiores - Estilo Insumos */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase">Borrador</p>
+          <h3 className="text-2xl font-black text-slate-800 mt-1">{totalBorrador}</h3>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase">Entregado</p>
+          <h3 className="text-2xl font-black text-purple-600 mt-1">{totalEntregado}</h3>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase">Aprobados</p>
+          <h3 className="text-2xl font-black text-emerald-600 mt-1">{totalAprobado}</h3>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase">Rechazados</p>
+          <h3 className="text-2xl font-black text-red-600 mt-1">{totalRechazado}</h3>
+        </div>
+      </div>
+
+      {/* Barra de Búsqueda y Pestañas / Botones Inferiores */}
+      <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+        {/* Botones de Navegación solicitados */}
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setActiveTab('workspace')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'workspace' 
+                ? 'bg-amber-500 text-white shadow-sm' 
+                : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Espacio de Trabajo (Borrador / Entregado)
+          </button>
+          <button
+            onClick={() => setActiveTab('aprobados')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'aprobados' 
+                ? 'bg-amber-500 text-white shadow-sm' 
+                : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Aprobados
+          </button>
+          <button
+            onClick={() => setActiveTab('archivados')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'archivados' 
+                ? 'bg-amber-500 text-white shadow-sm' 
+                : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Archivados / Rechazados
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 w-full md:w-72">
+          <Search className="w-4 h-4 text-slate-400" />
+          <input 
+            type="text"
+            placeholder="Buscar presupuesto..."
+            className="w-full bg-transparent outline-none text-xs text-slate-800 placeholder:text-slate-400"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
       </div>
 
       <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-        {presupuestosFiltrados.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 text-sm">No se encontraron presupuestos cargados.</div>
+        {presupuestosFinales.length === 0 ? (
+          <div className="p-12 text-center text-slate-400 text-sm">No se encontraron presupuestos en esta sección.</div>
         ) : (
           <table className="w-full text-left text-xs table-fixed">
             <thead>
@@ -334,10 +418,10 @@ export default function Presupuestos() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {presupuestosFiltrados.map(p => {
+              {presupuestosFinales.map(p => {
                 const obraAsociada = obras.find(o => String(o.id) === String(p.obra_id));
-                const costoDir = Number(p.costo_directo) || 0;
-                const precioVta = Number(p.precio_venta) || 0;
+                const costoDir = Math.round(Number(p.costo_directo) || 0);
+                const precioVta = Math.round(Number(p.precio_venta) || 0);
                 
                 let versionVisual = p.version;
                 if (!versionVisual || versionVisual === 'undefined') {
@@ -345,7 +429,7 @@ export default function Presupuestos() {
                   versionVisual = match ? `v${match[1]}` : 'v1';
                 }
 
-                const estadoActual = String(p.estado || 'borrador').toLowerCase();
+                const estadoActual = String(p.estado_presupuesto || p.estado || 'borrador').toLowerCase();
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
@@ -359,26 +443,25 @@ export default function Presupuestos() {
                     <td className="w-[20%] px-4 py-4 text-slate-600 truncate" title={obraAsociada?.nombre || obraAsociada?.nombre_obra || 'Sin obra asignada'}>
                       {obraAsociada?.nombre || obraAsociada?.nombre_obra || 'Sin obra asignada'}
                     </td>
-                    <td className="w-[14%] px-4 py-4 text-right font-medium text-slate-700 whitespace-nowrap">$ {costoDir.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="w-[14%] px-4 py-4 text-right font-black text-amber-600 whitespace-nowrap">$ {precioVta.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="w-[14%] px-4 py-4 text-right font-medium text-slate-700 whitespace-nowrap">$ {costoDir.toLocaleString('es-AR')}</td>
+                    <td className="w-[14%] px-4 py-4 text-right font-black text-amber-600 whitespace-nowrap">$ {precioVta.toLocaleString('es-AR')}</td>
                     <td className="w-[10%] px-2 py-4 text-center">
                       <select
                         value={estadoActual}
-                        disabled={estadoActual === 'entregado'}
+                        disabled={estadoActual === 'entregado' || estadoActual === 'aprobado' || estadoActual === 'rechazado'}
                         onChange={(e) => handleCambiarEstado(p.id, e.target.value)}
                         className={`w-full px-2 py-1 rounded-full font-bold text-[10px] uppercase border outline-none transition-colors ${
                           estadoActual === 'entregado' 
                             ? 'bg-purple-100 text-purple-800 border-purple-300 cursor-not-allowed opacity-75' 
                             : estadoActual === 'aprobado' 
-                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300 cursor-pointer'
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300 cursor-not-allowed opacity-75'
                             : estadoActual === 'rechazado'
-                            ? 'bg-red-100 text-red-800 border-red-300 cursor-pointer'
+                            ? 'bg-red-100 text-red-800 border-red-300 cursor-not-allowed opacity-75'
                             : 'bg-slate-100 text-slate-700 border-slate-300 cursor-pointer'
                         }`}
-                        title={estadoActual === 'entregado' ? "Presupuesto entregado: el estado está bloqueado" : "Cambiar estado"}
+                        title={estadoActual !== 'borrador' ? "Estado bloqueado por regla de negocio" : "Cambiar estado"}
                       >
                         <option value="borrador">Borrador</option>
-                        <option value="en revision">En Revisión</option>
                         <option value="entregado">Entregado</option>
                         <option value="aprobado">Aprobado</option>
                         <option value="rechazado">Rechazado</option>
@@ -401,13 +484,13 @@ export default function Presupuestos() {
                           <Eye className="w-3.5 h-3.5" />
                         </Link>
                         <button 
-                          onClick={() => handleEliminar(p.id, p.estado)}
+                          onClick={() => handleEliminar(p.id, p.estado_presupuesto || p.estado)}
                           className={`p-1.5 bg-white border rounded-lg shadow-sm transition-all ${
-                            estadoActual === 'entregado' 
+                            estadoActual === 'aprobado' || estadoActual === 'entregado'
                               ? 'text-slate-300 border-slate-100 cursor-not-allowed' 
                               : 'text-slate-400 hover:text-red-600 border-slate-200 hover:border-red-300'
                           }`}
-                          title={estadoActual === 'entregado' ? "Presupuesto entregado (Bloqueado)" : "Eliminar Presupuesto"}
+                          title={estadoActual === 'aprobado' || estadoActual === 'entregado' ? "Bloqueado" : "Eliminar Presupuesto"}
                         >
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
