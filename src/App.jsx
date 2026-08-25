@@ -45,7 +45,8 @@ const AuthenticatedApp = () => {
     presupuestos: [],
     insumos: [],
     clientes: [],
-    movimientos: []
+    movimientos: [],
+    personal: []
   });
 
   useEffect(() => {
@@ -119,7 +120,8 @@ const AuthenticatedApp = () => {
           presupuestos: data.presupuestos || [],
           insumos: data.insumos || [],
           clientes: data.clientes || [],
-          movimientos: data.movimientos || []
+          movimientos: data.movimientos || [],
+          personal: data.personal || []
         });
       }
     } catch (error) {
@@ -189,7 +191,19 @@ const AuthenticatedApp = () => {
         <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
         <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
         <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
-        <Route path="/rrhh" element={<RequirePermiso modulo="rrhh"><Rrhh /></RequirePermiso>} />
+        
+        <Route 
+          path="/rrhh" 
+          element={
+            <RequirePermiso modulo="rrhh">
+              <Rrhh 
+                GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
+                personalInicial={globalData.personal}
+                cargarDatos={cargarDatos}
+              />
+            </RequirePermiso>
+          } 
+        />
         
         <Route 
           path="/compras" 
