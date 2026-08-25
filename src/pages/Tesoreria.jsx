@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles } from 'lucide-react';
+import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check } from 'lucide-react';
 
 export default function Tesoreria({ 
   GOOGLE_SCRIPT_URL, 
@@ -62,6 +62,42 @@ export default function Tesoreria({
       return `${partes[2]}/${partes[1]}/${partes[0]}`;
     }
     return fechaStr;
+  };
+
+  const handleCobrarFacturaVenta = (f) => {
+    const facturaIdReal = f.id || f.ID;
+    const clienteObj = clientes.find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
+    setEditingId(null);
+    setFormData({
+      tipo: 'Ingreso',
+      fecha: new Date().toISOString().split('T')[0],
+      concepto: `Cobro ${f.tipo_comprobante || 'Factura'} N° ${f.numero_comp || ''} - ${clienteObj?.razon_social || clienteObj?.nombre || ''}`,
+      monto: Number(f.total || f.Total || 0),
+      medio_pago: 'transferencia',
+      referencia: '',
+      facturas_aplicadas: [
+        { id: Date.now(), factura_id: facturaIdReal, monto: Number(f.total || f.Total || 0) }
+      ]
+    });
+    setIsModalOpen(true);
+  };
+
+  const handlePagarFacturaCompra = (f) => {
+    const facturaIdReal = f.id || f.ID;
+    const provObj = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
+    setEditingId(null);
+    setFormData({
+      tipo: 'Egreso',
+      fecha: new Date().toISOString().split('T')[0],
+      concepto: `Pago Factura ${f.codigo || f.n_factura || ''} - ${provObj?.razon_social || provObj?.nombre || ''}`,
+      monto: Number(f.total || f.Total || 0),
+      medio_pago: 'transferencia',
+      referencia: '',
+      facturas_aplicadas: [
+        { id: Date.now(), factura_id: facturaIdReal, monto: Number(f.total || f.Total || 0) }
+      ]
+    });
+    setIsModalOpen(true);
   };
 
   const handleAgregarFacturaFila = () => {
@@ -163,7 +199,6 @@ export default function Tesoreria({
     }));
   };
 
-  // Simulación de Lectura / Escaneo de Factura de Venta (OCR automático)
   const procesarArchivoFacturaVenta = (archivo) => {
     setLeyendoFactura(true);
     setTimeout(() => {
@@ -553,6 +588,7 @@ export default function Tesoreria({
                   <th className="px-4 py-4">Vencimiento</th>
                   <th className="px-4 py-4 text-right">Total a Pagar</th>
                   <th className="px-4 py-4 text-center">Estado</th>
+                  <th className="px-6 py-4 text-right">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -575,6 +611,14 @@ export default function Tesoreria({
                         <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado parcial' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'}`}>
                           {estadoPago}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button 
+                          onClick={() => handlePagarFacturaCompra(f)}
+                          className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
+                        >
+                          Registrar Pago
+                        </button>
                       </td>
                     </tr>
                   );
@@ -602,6 +646,7 @@ export default function Tesoreria({
                   <th className="px-4 py-4">Vencimiento</th>
                   <th className="px-4 py-4 text-right">Total a Cobrar</th>
                   <th className="px-4 py-4 text-center">Estado</th>
+                  <th className="px-6 py-4 text-right">Acción</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -624,6 +669,14 @@ export default function Tesoreria({
                         <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado parcial' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'}`}>
                           {estadoPago}
                         </span>
+                      </td>
+                      <td className="px-6 py-4 text-right">
+                        <button 
+                          onClick={() => handleCobrarFacturaVenta(f)}
+                          className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
+                        >
+                          Registrar Cobro
+                        </button>
                       </td>
                     </tr>
                   );
