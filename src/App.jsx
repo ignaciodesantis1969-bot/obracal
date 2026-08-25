@@ -37,6 +37,7 @@ const AuthenticatedApp = () => {
   
   const [globalData, setGlobalData] = useState({
     facturas: [],
+    facturasVenta: [],
     ordenesCompra: [],
     proveedores: [],
     obras: [],
@@ -60,7 +61,6 @@ const AuthenticatedApp = () => {
           if (Array.isArray(data)) {
             const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
             
-            // Búsqueda flexible ignorando espacios y mayúsculas
             const userInfo = data.find(u => 
               String(u.email || '').trim().toLowerCase() === emailFirebase
             );
@@ -111,6 +111,7 @@ const AuthenticatedApp = () => {
       if (data.success) {
         setGlobalData({
           facturas: data.facturas || [],
+          facturasVenta: data.facturas_venta || data.facturasVenta || [],
           ordenesCompra: data.ordenes_compra || [],
           proveedores: data.proveedores || [],
           obras: data.obras || [],
@@ -214,6 +215,8 @@ const AuthenticatedApp = () => {
                 GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
                 movimientos={globalData.movimientos}
                 facturas={globalData.facturas}
+                facturasVenta={globalData.facturasVenta}
+                proveedores={globalData.proveedores}
                 obras={globalData.obras}
                 presupuestos={globalData.presupuestos}
                 clientes={globalData.clientes}
