@@ -79,7 +79,6 @@ export default function Tesoreria({
       if (item.id === id) {
         let actualizado = { ...item, [campo]: valor };
         if (campo === 'factura_id') {
-          // Buscamos en facturasVenta si es Ingreso, o en facturas (compras) si es Egreso
           const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
           const listaBusqueda = esIngreso ? facturasVenta : facturas;
           const facEncontrada = listaBusqueda.find(f => String(f.id || f.ID) === String(valor));
@@ -816,21 +815,21 @@ export default function Tesoreria({
                             >
                               <option value="">Seleccionar factura...</option>
                               {String(formData.tipo).toLowerCase() === 'ingreso' ? (
-                                // Mostrar Facturas de Venta y Clientes
                                 facturasVenta.map(f => {
                                   const cli = clientes.find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
+                                  const facturaIdReal = f.id || f.ID;
                                   return (
-                                    <option key={f.id || f.ID} value={f.id || f.ID}>
+                                    <option key={facturaIdReal} value={facturaIdReal}>
                                       {f.tipo_comprobante || 'FAC'} ({f.numero_comp || ''}) - {cli?.razon_social || cli?.nombre || 'Cliente'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
                                     </option>
                                   );
                                 })
                               ) : (
-                                // Mostrar Facturas de Compra y Proveedores
                                 facturas.map(f => {
                                   const prov = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
+                                  const facturaCompraIdReal = f.id || f.ID;
                                   return (
-                                    <option key={f.id || f.ID} value={f.id || f.ID}>
+                                    <option key={facturaCompraIdReal} value={facturaCompraIdReal}>
                                       {f.codigo || 'FAC'} - {prov?.razon_social || prov?.nombre || 'Proveedor'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
                                     </option>
                                   );
