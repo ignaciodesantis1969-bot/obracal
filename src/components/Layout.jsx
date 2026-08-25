@@ -4,7 +4,8 @@ import {
   LayoutDashboard, Users, Truck, Building2,
   Calculator, CalendarDays, ShoppingCart, Wallet, 
   BarChart3, ChevronLeft, ChevronRight, Menu,
-  ClipboardList, UserCog, LogOut, BookOpen, Loader2
+  ClipboardList, UserCog, LogOut, BookOpen, Loader2,
+  UserCheck, FileText, DollarSign, Calendar
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -26,6 +27,14 @@ const allNavItems = [
   { icon: BookOpen,        label: 'Maestro de Tareas',path: '/tareas-template', key: 'presupuestos' },
   { icon: Calculator,      label: 'Presupuestos',     path: '/presupuestos',   key: 'presupuestos' },
   { icon: CalendarDays,    label: 'Planificación',    path: '/planificacion',  key: 'planificacion' },
+  // SECCIÓN RECURSOS HUMANOS Y SUBSECCIONES
+  { icon: Users,           label: 'Recursos Humanos', isGroup: true, key: 'rrhh', children: [
+      { label: 'Lista de Personal', path: '/rrhh/personal', key: 'rrhh' },
+      { label: 'Legajos',           path: '/rrhh/legajos',  key: 'rrhh' },
+      { label: 'Salarios',          path: '/rrhh/salarios', key: 'rrhh' },
+      { label: 'Carga Semanal',     path: '/rrhh/carga',    key: 'rrhh' },
+    ]
+  },
   { icon: ShoppingCart,    label: 'Compras',          path: '/compras',        key: 'compras' },
   { icon: Wallet,          label: 'Tesorería',        path: '/tesoreria',      key: 'tesoreria' },
   { icon: BarChart3,       label: 'Control y Reportes', path: '/reportes',   key: 'reportes' },
@@ -34,6 +43,7 @@ const allNavItems = [
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [rrhhOpen, setRrhhOpen] = useState(true);
   
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -170,13 +180,54 @@ export default function Layout() {
         )}
       </div>
 
-      <nav className="flex-1 py-4 overflow-y-auto">
-        {navItems.map(({ icon: Icon, label, path }) => {
-          const active = location.pathname === path || (path !== '/' && location.pathname.startsWith(path));
+      <nav className="flex-1 py-4 overflow-y-auto space-y-1">
+        {navItems.map((item) => {
+          if (item.isGroup) {
+            const isGroupActive = item.children.some(child => location.pathname.startsWith(child.path));
+            return (
+              <div key={item.label} className="mx-2">
+                <button
+                  onClick={() => setRrhhOpen(!rrhhOpen)}
+                  className={cn(
+                    'w-full flex items-center justify-between px-4 py-2.5 rounded-lg transition-all duration-150',
+                    isGroupActive ? 'text-white font-bold bg-slate-700/50' : 'text-slate-400 hover:bg-slate-700 hover:text-white'
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <item.icon className="w-5 h-5 flex-shrink-0" />
+                    {!collapsed && <span className="text-sm font-medium">{item.label}</span>}
+                  </div>
+                </button>
+
+                {!collapsed && rrhhOpen && (
+                  <div className="pl-9 pr-2 py-1 space-y-1">
+                    {item.children.map(child => {
+                      const childActive = location.pathname === child.path;
+                      return (
+                        <Link
+                          key={child.path}
+                          to={child.path}
+                          onClick={() => setMobileOpen(false)}
+                          className={cn(
+                            'block px-3 py-2 rounded-md text-xs font-medium transition-colors',
+                            childActive ? 'bg-amber-500 text-white font-bold' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
+                          )}
+                        >
+                          {child.label}
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          }
+
+          const active = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
           return (
             <Link
-              key={path}
-              to={path}
+              key={item.path}
+              to={item.path}
               onClick={() => setMobileOpen(false)}
               className={cn(
                 'flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-all duration-150 group',
@@ -185,8 +236,8 @@ export default function Layout() {
                   : 'text-slate-400 hover:bg-slate-700 hover:text-white'
               )}
             >
-              <Icon className="w-5 h-5 flex-shrink-0" />
-              {!collapsed && <span className="text-sm font-medium">{label}</span>}
+              <item.icon className="w-5 h-5 flex-shrink-0" />
+              {!collapsed && <span className="text-sm font-medium">{item.label}</span>}
             </Link>
           );
         })}
