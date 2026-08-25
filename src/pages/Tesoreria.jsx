@@ -5,7 +5,7 @@ export default function Tesoreria({
   GOOGLE_SCRIPT_URL, 
   movimientos = [], 
   facturas = [], 
-  facturasVenta = [], // <--- Añadido para recibir las facturas de venta
+  facturasVenta = [], 
   proveedores = [], 
   clientes = [], 
   obras = [], 
@@ -79,7 +79,10 @@ export default function Tesoreria({
       if (item.id === id) {
         let actualizado = { ...item, [campo]: valor };
         if (campo === 'factura_id') {
-          const facEncontrada = facturas.find(f => String(f.id || f.ID) === String(valor));
+          // Buscamos en facturasVenta si es Ingreso, o en facturas (compras) si es Egreso
+          const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
+          const listaBusqueda = esIngreso ? facturasVenta : facturas;
+          const facEncontrada = listaBusqueda.find(f => String(f.id || f.ID) === String(valor));
           if (facEncontrada) {
             actualizado.monto = Number(facEncontrada.total || facEncontrada.Total || facEncontrada.TOTAL || 0);
           }
@@ -218,7 +221,12 @@ export default function Tesoreria({
         if (Array.isArray(formData.facturas_aplicadas)) {
           for (const item of formData.facturas_aplicadas) {
             if (!item.factura_id) continue;
-            const facturaObj = facturas.find(f => String(f.id || f.ID) === String(item.factura_id));
+            
+            const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
+            const listaObjetivo = esIngreso ? facturasVenta : facturas;
+            const tablaObjetivo = esIngreso ? 'FacturasVenta' : 'Facturas';
+            
+            const facturaObj = listaObjetivo.find(f => String(f.id || f.ID) === String(item.factura_id));
             if (facturaObj) {
               const totalFactura = Number(facturaObj.total || facturaObj.Total || 0);
               const montoAplicado = Number(item.monto || 0);
@@ -234,7 +242,7 @@ export default function Tesoreria({
                 method: 'POST',
                 headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                 body: JSON.stringify({
-                  tabla: 'Facturas',
+                  tabla: tablaObjetivo,
                   action: 'update',
                   id: facturaObj.id || facturaObj.ID,
                   data: {
@@ -269,7 +277,7 @@ export default function Tesoreria({
           action: 'create',
           data: {
             ...formDataVenta,
-            estado_pago: 'pendiente', // Por defecto nace pendiente de cobro
+            estado_pago: 'pendiente',
             items: JSON.stringify(formDataVenta.items)
           }
         })
@@ -340,7 +348,6 @@ export default function Tesoreria({
     return estado === 'pendiente' || estado === 'pagado parcial';
   });
 
-  // Facturas a Cobrar (Pendientes o Pagadas Parcialmente de la tabla FacturasVenta)
   const facturasACobrar = facturasVenta.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
     return estado === 'pendiente' || estado === 'pagado parcial';
@@ -375,7 +382,6 @@ export default function Tesoreria({
     return acc + iva21 + iva105;
   }, 0);
 
-  // Cálculo dinámico del IVA Ventas usando facturasVenta
   const totalIvaVentas = facturasVenta.reduce((acc, f) => {
     const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
     const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
@@ -456,7 +462,6 @@ export default function Tesoreria({
         </div>
       </div>
 
-      {/* Navegación por pestañas */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => setActiveTab('movimientos')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'movimientos' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Movimientos</button>
@@ -532,7 +537,6 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* TAB: FACTURAS A PAGAR */}
       {activeTab === 'facturas_pagar' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
           {facturasAPagar.length === 0 ? (
@@ -582,7 +586,6 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* TAB: FACTURAS A COBRAR (NUEVO) */}
       {activeTab === 'facturas_cobrar' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
           {facturasACobrar.length === 0 ? (
@@ -783,7 +786,9 @@ export default function Tesoreria({
               <div className="space-y-3 pt-4 border-t">
                 <div className="flex justify-between items-center">
                   <div>
-                    <h4 className="font-extrabold text-xs uppercase text-slate-800">Aplicar a Facturas</h4>
+                    <h4 className="font-extrabold text-xs uppercase text-slate-800">
+                      {formData.tipo.toLowerCase() === 'ingreso' ? 'Aplicar a Facturas de Venta (Cobro)' : 'Aplicar a Facturas de Compra (Pago)'}
+                    </h4>
                     <p className="text-[11px] text-slate-500">Asocia este movimiento a una o varias facturas (montos totales o parciales).</p>
                   </div>
                   <button type="button" onClick={handleAgregarFacturaFila} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors">
@@ -810,14 +815,27 @@ export default function Tesoreria({
                               onChange={(e) => handleCambiarFacturaFila(item.id, 'factura_id', e.target.value)}
                             >
                               <option value="">Seleccionar factura...</option>
-                              {facturas.map(f => {
-                                const prov = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
-                                return (
-                                  <option key={f.id || f.ID} value={f.id || f.ID}>
-                                    {f.codigo || 'FAC'} - {prov?.razon_social || prov?.nombre || 'Proveedor'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
-                                  </option>
-                                );
-                              })}
+                              {String(formData.tipo).toLowerCase() === 'ingreso' ? (
+                                // Mostrar Facturas de Venta y Clientes
+                                facturasVenta.map(f => {
+                                  const cli = clientes.find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
+                                  return (
+                                    <option key={f.id || f.ID} value={f.id || f.ID}>
+                                      {f.tipo_comprobante || 'FAC'} ({f.numero_comp || ''}) - {cli?.razon_social || cli?.nombre || 'Cliente'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
+                                    </option>
+                                  );
+                                })
+                              ) : (
+                                // Mostrar Facturas de Compra y Proveedores
+                                facturas.map(f => {
+                                  const prov = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
+                                  return (
+                                    <option key={f.id || f.ID} value={f.id || f.ID}>
+                                      {f.codigo || 'FAC'} - {prov?.razon_social || prov?.nombre || 'Proveedor'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
+                                    </option>
+                                  );
+                                })
+                              )}
                             </select>
                           </td>
                           <td className="px-3 py-2 text-right">
