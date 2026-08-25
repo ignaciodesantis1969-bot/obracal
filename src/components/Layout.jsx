@@ -4,14 +4,12 @@ import {
   LayoutDashboard, Users, Truck, Building2,
   Calculator, CalendarDays, ShoppingCart, Wallet, 
   BarChart3, ChevronLeft, ChevronRight, Menu,
-  ClipboardList, UserCog, LogOut, BookOpen, Loader2,
-  UserCheck, FileText, DollarSign, Calendar
+  ClipboardList, UserCog, LogOut, BookOpen, Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { tienePermiso } from '@/lib/permissions';
 
-// Importamos ambos logos por separado
 import logoSidebar from '@/assets/LogoSolo.png';
 import logoLogin from '@/assets/LogoSICESA.jpg';
 
@@ -19,22 +17,15 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
 
 const allNavItems = [
-  { icon: LayoutDashboard, label: 'Dashboard',        path: '/',                     key: null },
-  { icon: Users,           label: 'Clientes',         path: '/clientes',     key: 'clientes' },
+  { icon: LayoutDashboard, label: 'Dashboard',         path: '/',                     key: null },
+  { icon: Users,           label: 'Clientes',          path: '/clientes',     key: 'clientes' },
   { icon: Truck,           label: 'Proveedores',     path: '/proveedores',    key: 'proveedores' },
   { icon: Building2,       label: 'Obras',            path: '/obras',          key: 'obras' },
   { icon: ClipboardList,   label: 'Insumos',          path: '/insumos',        key: 'insumos' },
   { icon: BookOpen,        label: 'Maestro de Tareas',path: '/tareas-template', key: 'presupuestos' },
   { icon: Calculator,      label: 'Presupuestos',     path: '/presupuestos',   key: 'presupuestos' },
   { icon: CalendarDays,    label: 'Planificación',    path: '/planificacion',  key: 'planificacion' },
-  // SECCIÓN RECURSOS HUMANOS Y SUBSECCIONES
-  { icon: Users,           label: 'Recursos Humanos', isGroup: true, key: 'rrhh', children: [
-      { label: 'Lista de Personal', path: '/rrhh/personal', key: 'rrhh' },
-      { label: 'Legajos',           path: '/rrhh/legajos',  key: 'rrhh' },
-      { label: 'Salarios',          path: '/rrhh/salarios', key: 'rrhh' },
-      { label: 'Carga Semanal',     path: '/rrhh/carga',    key: 'rrhh' },
-    ]
-  },
+  { icon: Users,           label: 'Recursos Humanos', path: '/rrhh',           key: 'rrhh' },
   { icon: ShoppingCart,    label: 'Compras',          path: '/compras',        key: 'compras' },
   { icon: Wallet,          label: 'Tesorería',        path: '/tesoreria',      key: 'tesoreria' },
   { icon: BarChart3,       label: 'Control y Reportes', path: '/reportes',   key: 'reportes' },
@@ -43,7 +34,6 @@ const allNavItems = [
 export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [rrhhOpen, setRrhhOpen] = useState(true);
   
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -55,7 +45,6 @@ export default function Layout() {
 
   const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyXN_38YE0WIX1QHT915n9rJOnQPYeH3npgJ49E7T_OJFyP70eyB0NaD3mXr9yeYMlfzQ/exec";
 
-  // --- PANTALLA DE LOGIN (Usa LogoSICESA.jpg) ---
   if (!user) {
     const handleLogin = async (e) => {
       e.preventDefault();
@@ -167,7 +156,6 @@ export default function Layout() {
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
-      {/* --- SIDEBAR HEADER (Usa LogoSolo.jpg) --- */}
       <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-700">
         <div className="w-9 h-9 bg-white p-1 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
           <img src={logoSidebar} alt="Logo Solo" className="w-full h-full object-contain" />
@@ -180,54 +168,13 @@ export default function Layout() {
         )}
       </div>
 
-      <nav className="flex-1 py-4 overflow-y-auto space-y-1">
-        {navItems.map((item) => {
-          if (item.isGroup) {
-            const isGroupActive = item.children.some(child => location.pathname.startsWith(child.path));
-            return (
-              <div key={item.label} className="mx-2">
-                <button
-                  onClick={() => setRrhhOpen(!rrhhOpen)}
-                  className={cn(
-                    'w-full flex items-center justify-between px-4 py-2.5 rounded-lg transition-all duration-150',
-                    isGroupActive ? 'text-white font-bold bg-slate-700/50' : 'text-slate-400 hover:bg-slate-700 hover:text-white'
-                  )}
-                >
-                  <div className="flex items-center gap-3">
-                    <item.icon className="w-5 h-5 flex-shrink-0" />
-                    {!collapsed && <span className="text-sm font-medium">{item.label}</span>}
-                  </div>
-                </button>
-
-                {!collapsed && rrhhOpen && (
-                  <div className="pl-9 pr-2 py-1 space-y-1">
-                    {item.children.map(child => {
-                      const childActive = location.pathname === child.path;
-                      return (
-                        <Link
-                          key={child.path}
-                          to={child.path}
-                          onClick={() => setMobileOpen(false)}
-                          className={cn(
-                            'block px-3 py-2 rounded-md text-xs font-medium transition-colors',
-                            childActive ? 'bg-amber-500 text-white font-bold' : 'text-slate-400 hover:text-white hover:bg-slate-700/50'
-                          )}
-                        >
-                          {child.label}
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          }
-
-          const active = location.pathname === item.path || (item.path !== '/' && location.pathname.startsWith(item.path));
+      <nav className="flex-1 py-4 overflow-y-auto">
+        {navItems.map(({ icon: Icon, label, path }) => {
+          const active = location.pathname === path || (path !== '/' && location.pathname.startsWith(path));
           return (
             <Link
-              key={item.path}
-              to={item.path}
+              key={path}
+              to={path}
               onClick={() => setMobileOpen(false)}
               className={cn(
                 'flex items-center gap-3 px-4 py-2.5 mx-2 rounded-lg transition-all duration-150 group',
@@ -236,8 +183,8 @@ export default function Layout() {
                   : 'text-slate-400 hover:bg-slate-700 hover:text-white'
               )}
             >
-              <item.icon className="w-5 h-5 flex-shrink-0" />
-              {!collapsed && <span className="text-sm font-medium">{item.label}</span>}
+              <Icon className="w-5 h-5 flex-shrink-0" />
+              {!collapsed && <span className="text-sm font-medium">{label}</span>}
             </Link>
           );
         })}
@@ -261,7 +208,6 @@ export default function Layout() {
         </div>
       )}
 
-      {/* --- PIE DEL SIDEBAR (Muestra el usuario y botón de cerrar sesión) --- */}
       <div className="p-3 border-t border-slate-700 space-y-2">
         {!collapsed && (
           <div className="px-2 py-2 bg-slate-900/50 rounded-lg">
@@ -309,7 +255,6 @@ export default function Layout() {
       )}
 
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* --- MOBILE HEADER (Usa LogoSolo.jpg) --- */}
         <header className="lg:hidden flex items-center gap-3 px-4 py-3 bg-white border-b border-slate-200">
           <button onClick={() => setMobileOpen(true)} className="text-slate-600 cursor-pointer">
             <Menu className="w-6 h-6" />

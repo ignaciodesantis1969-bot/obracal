@@ -25,6 +25,7 @@ import Insumos from '@/pages/Insumos';
 import Presupuestos from '@/pages/Presupuestos';
 import PresupuestoDetalle from '@/pages/PresupuestoDetalle';
 import Planificacion from '@/pages/Planificacion';
+import Rrhh from '@/pages/Rrhh';
 import Compras from '@/pages/Compras';
 import Tesoreria from '@/pages/Tesoreria';
 import Reportes from '@/pages/Reportes';
@@ -188,6 +189,7 @@ const AuthenticatedApp = () => {
         <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
         <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
         <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
+        <Route path="/rrhh" element={<RequirePermiso modulo="rrhh"><Rrhh /></RequirePermiso>} />
         
         <Route 
           path="/compras" 
