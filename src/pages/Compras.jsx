@@ -76,14 +76,11 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // Filtro flexible y robusto para capturar los rubros del presupuesto seleccionado (busca cualquier variante de clave)
+  // FILTRADO ESTRICTO DE RUBROS POR EL PRESUPUESTO SELECCIONADO
   const rubrosDelPresupuesto = rubros.filter(r => {
     const pId = r.presupuesto_id || r.Presupuesto_id || r.PRESUPUESTO_ID || r.id_presupuesto || r.Id_presupuesto || r.presupuestoId || r.presupuesto;
     return String(pId).trim() === String(formData.presupuesto_id).trim();
   });
-
-  // Si por alguna razón la estructura de claves de Google Sheets varía, mostramos todos los rubros como respaldo para que el desplegable nunca quede vacío
-  const listaRubrosFinal = rubrosDelPresupuesto.length > 0 ? rubrosDelPresupuesto : rubros;
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
@@ -231,8 +228,10 @@ export default function Compras({
     if (archivoUrl.startsWith('data:')) {
       const win = window.open();
       win.document.write(`<iframe src="${archivoUrl}" frameborder="0" style="border:0; top:0; left:0; bottom:0; right:0; width:100%; height:100%;" allowfullscreen></iframe>`);
+    } else if (archivoUrl.startsWith('http')) {
+      window.open(archivoUrl, '_blank');
     } else {
-      alert("Archivo adjunto: " + archivoUrl);
+      alert("ℹ️ Comprobante registrado correctamente en el sistema.");
     }
   };
 
@@ -246,6 +245,7 @@ export default function Compras({
     setFormData({ 
       ...f, 
       tipo_gasto: f.tipo_gasto || f.Tipo_gasto || 'Presupuesto',
+      presupuesto_id: f.presupuesto_id || f.Presupuesto_id || '',
       rubro_presupuesto: f.rubro_presupuesto || f.Rubro_presupuesto || '',
       tipo_insumo: f.tipo_insumo || f.Tipo_insumo || 'Material',
       detalle_gasto: f.detalle_gasto || f.Detalle_gasto || '',
@@ -880,17 +880,21 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* RUBRO REAL DEL PRESUPUESTO */}
+                {/* RUBRO FILTRADO ESTRICTAMENTE POR EL PRESUPUESTO SELECCIONADO */}
                 {formData.tipo_gasto === 'Presupuesto' && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro del Presupuesto *</label>
                     <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.rubro_presupuesto} onChange={(e) => setFormData({...formData, rubro_presupuesto: e.target.value})}>
                       <option value="">Seleccionar rubro...</option>
                       <option value="Gastos Generales">-- GASTOS GENERALES --</option>
-                      {listaRubrosFinal.map((r, idx) => {
-                        const nombreRubro = r.nombre || r.Rubro || r.RUBRO || r.titulo || r.Titulo || r.descripcion || `Rubro ${idx + 1}`;
-                        return <option key={r.id || idx} value={nombreRubro}>{nombreRubro}</option>;
-                      })}
+                      {rubrosDelPresupuesto.length === 0 ? (
+                        <option disabled value="">⚠️ Este presupuesto no tiene rubros cargados</option>
+                      ) : (
+                        rubrosDelPresupuesto.map((r, idx) => {
+                          const nombreRubro = r.nombre || r.Rubro || r.RUBRO || r.titulo || r.Titulo || r.descripcion || `Rubro ${idx + 1}`;
+                          return <option key={r.id || idx} value={nombreRubro}>{nombreRubro}</option>;
+                        })
+                      )}
                     </select>
                   </div>
                 )}
