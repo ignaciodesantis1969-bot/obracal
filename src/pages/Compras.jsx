@@ -76,11 +76,34 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // FILTRADO ESTRICTO DE RUBROS POR EL PRESUPUESTO SELECCIONADO
-  const rubrosDelPresupuesto = rubros.filter(r => {
-    const pId = r.presupuesto_id || r.Presupuesto_id || r.PRESUPUESTO_ID || r.id_presupuesto || r.Id_presupuesto || r.presupuestoId || r.presupuesto;
+  // EXTRACCIÓN DINÁMICA DE RUBROS DESDE EL JSON DEL PRESUPUESTO SELECCIONADO
+  const presupuestoSeleccionadoObj = presupuestos.find(pr => {
+    const pId = pr.id || pr.ID || pr.Id;
     return String(pId).trim() === String(formData.presupuesto_id).trim();
   });
+
+  let rubrosDelPresupuesto = [];
+  if (presupuestoSeleccionadoObj) {
+    const rawItemsDetalle = presupuestoSeleccionadoObj.items_detalle || presupuestoSeleccionadoObj.Items_detalle || presupuestoSeleccionadoObj.items || presupuestoSeleccionadoObj.detalle;
+    
+    try {
+      let parsedData = rawItemsDetalle;
+      if (typeof rawItemsDetalle === 'string') {
+        parsedData = JSON.parse(rawItemsDetalle);
+      }
+      
+      // Si el JSON tiene una estructura de tipo { rubros: [...] }
+      if (parsedData && Array.isArray(parsedData.rubros)) {
+        rubrosDelPresupuesto = parsedData.rubros.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
+      } 
+      // Si es directamente un array de rubros
+      else if (Array.isArray(parsedData)) {
+        rubrosDelPresupuesto = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
+      }
+    } catch (e) {
+      console.error("Error al parsear los rubros del presupuesto:", e);
+    }
+  }
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
@@ -875,7 +898,7 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* RUBRO FILTRADO ESTRICTAMENTE POR EL PRESUPUESTO SELECCIONADO */}
+                {/* RUBRO FILTRADO ESTRICTAMENTE POR EL JSON DEL PRESUPUESTO SELECCIONADO */}
                 {formData.tipo_gasto === 'Presupuesto' && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro del Presupuesto *</label>
@@ -883,12 +906,11 @@ export default function Compras({
                       <option value="">Seleccionar rubro...</option>
                       <option value="Gastos Generales">-- GASTOS GENERALES --</option>
                       {rubrosDelPresupuesto.length === 0 ? (
-                        <option disabled value="">⚠️ Este presupuesto no tiene rubros cargados</option>
+                        <option disabled value="">⚠️ Este presupuesto no tiene rubros en su detalle</option>
                       ) : (
-                        rubrosDelPresupuesto.map((r, idx) => {
-                          const nombreRubro = r.nombre || r.Rubro || r.RUBRO || r.titulo || r.Titulo || r.descripcion || `Rubro ${idx + 1}`;
-                          return <option key={r.id || idx} value={nombreRubro}>{nombreRubro}</option>;
-                        })
+                        rubrosDelPresupuesto.map((nombreRubro, idx) => (
+                          <option key={idx} value={nombreRubro}>{nombreRubro}</option>
+                        ))
                       )}
                     </select>
                   </div>
