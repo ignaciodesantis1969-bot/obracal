@@ -226,72 +226,135 @@ export default function Tesoreria({
     }));
   };
 
-  const procesarArchivoFacturaVenta = (archivo) => {
+ const procesarArchivoFacturaVenta = async (archivo) => {
     setLeyendoFactura(true);
-    setTimeout(() => {
-      const nombreArchivo = archivo.name || '';
-      const nombreArchivoUpper = nombreArchivo.toUpperCase();
+    try {
+      let textoExtraido = "";
       
-      // 1. Extraer número de comprobante (ej: 00000168) del nombre del archivo
-      let nCompDetectado = '';
-      const matchNum = nombreArchivo.match(/_(\d{8})[\s_]/) || nombreArchivo.match(/(\d{8})/);
-      if (matchNum) {
-        nCompDetectado = matchNum[1] || matchNum[0];
+      if (archivo.type === "application/pdf" || archivo.name.toLowerCase().endsWith('.pdf')) {
+        // Cargar PDF.js dinámicamente si no está cargado
+        if (!window.pdfjsLib) {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+            script.onload = () => {
+              window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+              resolve();
+            };
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+        }
+
+        const arrayBuffer = await archivo.arrayBuffer();
+        const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
+        const pdfDoc = await loadingTask.promise;
+        
+        for (let i = 1; i <= pdfDoc.numPages; i++) {
+          const page = await pdfDoc.getPage(i);
+          const textContent = await page.getTextContent();
+          const pageText = textContent.items.map(item => item.str).join(' ');
+          textoExtraido += " " + pageText;
+        }
+      } else {
+        textoExtraido = archivo.name;
       }
 
-      // 2. Detectar cliente por coincidencia en el nombre (ej: BASF)
+      const textoUpper = textoExtraido.toUpperCase();
+      const nombreArchivoUpper = archivo.name.toUpperCase();
+
+      // 1. Extraer número de comprobante de 8 dígitos (ej: 00000168)
+      let nCompDetectado = '';
+      const matchComp = textoExtraido.match(/(?:0*(\d{8}))/);
+      if (matchComp) {
+        nCompDetectado = matchComp[1] || matchComp[0];
+      } else {
+        const matchName = archivo.name.match(/_(\d{8})[\s_]/) || archivo.name.match(/(\d{8})/);
+        if (matchName) nCompDetectado = matchName[1] || matchName[0];
+      }
+
+      // 2. Extraer Fechas (Emisión y Vencimiento del PDF)
+      const matchesFechas = textoExtraido.match(/\b(0[1-9]|[12]\d|3[01])[\/\\-](0[1-9]|1[0-2])[\/\\-](\d{4})\b/g);
+      let fechaEmision = new Date().toISOString().split('T')[0];
+      let fechaVencimiento = '';
+
+      if (matchesFechas && matchesFechas.length > 0) {
+        const p1 = matchesFechas[0].split(/[\/\\-]/);
+        fechaEmision = `${p1[2]}-${p1[1]}-${p1[0]}`;
+        if (matchesFechas.length > 1) {
+          const p2 = matchesFechas[1].split(/[\/\\-]/);
+          fechaVencimiento = `${p2[2]}-${p2[1]}-${p2[0]}`;
+        }
+      }
+
+      // 3. Detectar cliente (ej: BASF)
       let clienteDetectadoId = '';
       let nombreClienteDetectado = 'Cliente';
-      
+
       const clienteEncontrado = clientes.find(c => {
         const razonSocial = String(c.razon_social || c.nombre || '').toUpperCase();
-        return razonSocial && (nombreArchivoUpper.includes(razonSocial) || nombreArchivoUpper.includes(razonSocial.split(' ')[0]));
+        return razonSocial && (textoUpper.includes(razonSocial) || nombreArchivoUpper.includes(razonSocial));
       });
 
       if (clienteEncontrado) {
         clienteDetectadoId = clienteEncontrado.id || clienteEncontrado.ID;
         nombreClienteDetectado = clienteEncontrado.razon_social || clienteEncontrado.nombre;
-      } else if (nombreArchivoUpper.includes('BASF')) {
+      } else if (textoUpper.includes('BASF') || nombreArchivoUpper.includes('BASF')) {
         nombreClienteDetectado = 'BASF ARGENTINA S.A.';
         const basfCli = clientes.find(c => String(c.razon_social || c.nombre || '').toUpperCase().includes('BASF'));
         if (basfCli) clienteDetectadoId = basfCli.id || basfCli.ID;
       }
 
-      // 3. Detectar tipo de comprobante (FCE / Factura A)
-      const esFCE = nombreArchivoUpper.includes('FCE');
-      const tipoCompDetectado = esFCE ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A' : 'FACTURA A';
+      // 4. Extraer montos reales del texto del PDF
+      const numeros = textoExtraido.match(/\b\d{1,3}(?:\.\d{3})*,\d{2}\b/g) || [];
+      const montosLimpios = numeros.map(n => parseFloat(n.replace(/\./g, '').replace(',', '.'))).filter(n => !isNaN(n) && n > 0);
 
-      // 4. Asignar concepto profesional y montos estimados (editables en el formulario)
-      const descripcionItem = `Certificación de trabajos / Servicios - ${nombreClienteDetectado} (Comp. N° ${nCompDetectado || '0000168'})`;
-      
-      // Monto base de referencia para obras/servicios (puedes modificarlo al instante en la pantalla)
-      const netoGravadoSimulado = 250000; 
-      const iva21Simulado = netoGravadoSimulado * 0.21;
-      const totalSimulado = netoGravadoSimulado + iva21Simulado;
+      let neto = 0;
+      let iva = 0;
+      let total = 0;
+
+      if (montosLimpios.length >= 3) {
+        montosLimpios.sort((a, b) => a - b);
+        neto = montosLimpios[0];
+        iva = montosLimpios[1];
+        total = montosLimpios[montosLimpios.length - 1];
+      } else if (montosLimpios.length === 1) {
+        total = montosLimpios[0];
+        neto = Math.round(total / 1.21 * 100) / 100;
+        iva = Math.round((total - neto) * 100) / 100;
+      }
+
+      const descripcionItem = `Factura N° ${nCompDetectado || '00000168'} - ${nombreClienteDetectado}`;
 
       setFormDataVenta(prev => ({
         ...prev,
         archivo_url: archivo.name,
-        tipo_comprobante: tipoCompDetectado,
+        tipo_comprobante: textoUpper.includes('FCE') ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A' : 'FACTURA A',
         numero_comp: nCompDetectado || prev.numero_comp,
         cliente_id: clienteDetectadoId || prev.cliente_id,
-        neto_gravado: netoGravadoSimulado,
-        iva_21: iva21Simulado,
-        total: totalSimulado,
+        fecha_emision: fechaEmision || prev.fecha_emision,
+        fecha_vencimiento: fechaVencimiento || prev.fecha_vencimiento,
+        neto_gravado: neto > 0 ? neto : prev.neto_gravado,
+        iva_21: iva > 0 ? iva : prev.iva_21,
+        total: total > 0 ? total : (neto + iva) || prev.total,
         items: [
-          { 
-            id: Date.now(), 
-            descripcion: descripcionItem, 
-            cantidad: 1, 
-            precio_unitario: netoGravadoSimulado, 
-            subtotal: netoGravadoSimulado 
+          {
+            id: Date.now(),
+            descripcion: descripcionItem,
+            cantidad: 1,
+            precio_unitario: neto > 0 ? neto : prev.neto_gravado,
+            subtotal: neto > 0 ? neto : prev.neto_gravado
           }
         ]
       }));
 
+    } catch (err) {
+      console.error("Error al leer PDF de factura:", err);
+      alert("No se pudo extraer el texto automáticamente del PDF. Por favor complete los campos manualmente.");
+    } finally {
       setLeyendoFactura(false);
       setPasoFacturaVenta('formulario');
-    }, 1200);
+    }
   };
 
   const handleGuardarMovimiento = async (e) => {
