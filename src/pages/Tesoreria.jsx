@@ -30,6 +30,11 @@ export default function Tesoreria({
     monto: 0,
     medio_pago: 'transferencia',
     referencia: '',
+    retencion_suss: 0,
+    retencion_iva: 0,
+    retencion_ganancias: 0,
+    retencion_iibb_pba: 0,
+    retencion_iibb_caba: 0,
     facturas_aplicadas: [
       { id: Date.now(), factura_id: '', monto: 0 }
     ]
@@ -67,16 +72,22 @@ export default function Tesoreria({
   const handleCobrarFacturaVenta = (f) => {
     const facturaIdReal = f.id || f.ID;
     const clienteObj = clientes.find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
+    const montoTotalFac = Number(f.total || f.Total || 0);
     setEditingId(null);
     setFormData({
       tipo: 'Ingreso',
       fecha: new Date().toISOString().split('T')[0],
       concepto: `Cobro ${f.tipo_comprobante || 'Factura'} N° ${f.numero_comp || ''} - ${clienteObj?.razon_social || clienteObj?.nombre || ''}`,
-      monto: Number(f.total || f.Total || 0),
+      monto: montoTotalFac,
       medio_pago: 'transferencia',
       referencia: '',
+      retencion_suss: 0,
+      retencion_iva: 0,
+      retencion_ganancias: 0,
+      retencion_iibb_pba: 0,
+      retencion_iibb_caba: 0,
       facturas_aplicadas: [
-        { id: Date.now(), factura_id: facturaIdReal, monto: Number(f.total || f.Total || 0) }
+        { id: Date.now(), factura_id: facturaIdReal, monto: montoTotalFac }
       ]
     });
     setIsModalOpen(true);
@@ -85,16 +96,22 @@ export default function Tesoreria({
   const handlePagarFacturaCompra = (f) => {
     const facturaIdReal = f.id || f.ID;
     const provObj = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
+    const montoTotalFac = Number(f.total || f.Total || 0);
     setEditingId(null);
     setFormData({
       tipo: 'Egreso',
       fecha: new Date().toISOString().split('T')[0],
       concepto: `Pago Factura ${f.codigo || f.n_factura || ''} - ${provObj?.razon_social || provObj?.nombre || ''}`,
-      monto: Number(f.total || f.Total || 0),
+      monto: montoTotalFac,
       medio_pago: 'transferencia',
       referencia: '',
+      retencion_suss: 0,
+      retencion_iva: 0,
+      retencion_ganancias: 0,
+      retencion_iibb_pba: 0,
+      retencion_iibb_caba: 0,
       facturas_aplicadas: [
-        { id: Date.now(), factura_id: facturaIdReal, monto: Number(f.total || f.Total || 0) }
+        { id: Date.now(), factura_id: facturaIdReal, monto: montoTotalFac }
       ]
     });
     setIsModalOpen(true);
@@ -145,6 +162,16 @@ export default function Tesoreria({
       monto: sumaTotal
     }));
   };
+
+  // Cálculo del monto neto cobrado / pagado descontando retenciones
+  const totalRetenciones = Number(formData.retencion_suss || 0) + 
+                            Number(formData.retencion_iva || 0) + 
+                            Number(formData.retencion_ganancias || 0) + 
+                            Number(formData.retencion_iibb_pba || 0) + 
+                            Number(formData.retencion_iibb_caba || 0);
+
+  const montoBrutoFacturas = Number(formData.monto || 0);
+  const montoNetoEfectivo = Math.max(0, montoBrutoFacturas - totalRetenciones);
 
   // Manejo de ítems de la Factura de Venta
   const handleAgregarItemVenta = () => {
@@ -228,6 +255,7 @@ export default function Tesoreria({
       const action = editingId ? 'update' : 'create';
       const payloadData = {
         ...formData,
+        monto: montoNetoEfectivo, // Se guarda el neto real que afecta caja/banco
         facturas_aplicadas: JSON.stringify(formData.facturas_aplicadas)
       };
 
@@ -422,7 +450,12 @@ export default function Tesoreria({
     return acc + iva21 + iva105;
   }, 0);
 
-  const posicionIva = totalIvaVentas - totalIvaCompras;
+  // Total de retenciones de IVA sufridas en los movimientos para restar al IVA técnico
+  const totalRetencionesIvaMovimientos = movimientos.reduce((acc, m) => {
+    return acc + Number(m.retencion_iva || m.Retencion_iva || 0);
+  }, 0);
+
+  const posicionIva = totalIvaVentas - totalIvaCompras - totalRetencionesIvaMovimientos;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -463,6 +496,11 @@ export default function Tesoreria({
               monto: 0,
               medio_pago: 'transferencia',
               referencia: '',
+              retencion_suss: 0,
+              retencion_iva: 0,
+              retencion_ganancias: 0,
+              retencion_iibb_pba: 0,
+              retencion_iibb_caba: 0,
               facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }]
             });
             setIsModalOpen(true);
@@ -536,8 +574,8 @@ export default function Tesoreria({
                   <th className="px-4 py-4">Tipo</th>
                   <th className="px-6 py-4">Concepto</th>
                   <th className="px-4 py-4">Medio de Pago</th>
-                  <th className="px-4 py-4">Referencia</th>
-                  <th className="px-4 py-4 text-right">Monto</th>
+                  <th className="px-4 py-4 text-center">Retenciones</th>
+                  <th className="px-4 py-4 text-right">Monto Neto</th>
                   <th className="px-6 py-4 text-right">Acciones</th>
                 </tr>
               </thead>
@@ -545,6 +583,13 @@ export default function Tesoreria({
                 {movimientosFiltrados.map((m, index) => {
                   const tipo = String(m.tipo || m.Tipo || 'Egreso').toLowerCase();
                   const monto = Number(m.monto || m.Monto) || 0;
+                  const suss = Number(m.retencion_suss || m.Retencion_suss || 0);
+                  const iva = Number(m.retencion_iva || m.Retencion_iva || 0);
+                  const gan = Number(m.retencion_ganancias || m.Retencion_ganancias || 0);
+                  const iibbPba = Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0);
+                  const iibbCaba = Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0);
+                  const sumRet = suss + iva + gan + iibbPba + iibbCaba;
+
                   return (
                     <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 text-slate-600">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
@@ -555,7 +600,15 @@ export default function Tesoreria({
                       </td>
                       <td className="px-6 py-4 font-bold text-slate-900">{m.concepto || m.Concepto || '---'}</td>
                       <td className="px-4 py-4 uppercase text-slate-600">{m.medio_pago || m.Medio_pago || 'transferencia'}</td>
-                      <td className="px-4 py-4 text-slate-600">{m.referencia || m.Referencia || '---'}</td>
+                      <td className="px-4 py-4 text-center">
+                        {sumRet > 0 ? (
+                          <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-md font-semibold text-[10px]" title={`SUSS: $${suss} | IVA: $${iva} | Ganancias: $${gan} | IIBB PBA: $${iibbPba} | IIBB CABA: $${iibbCaba}`}>
+                            $ {sumRet.toLocaleString('es-AR')}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">---</span>
+                        )}
+                      </td>
                       <td className={`px-4 py-4 text-right font-black ${tipo === 'ingreso' ? 'text-emerald-600' : 'text-slate-900'}`}>
                         $ {monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                       </td>
@@ -763,7 +816,7 @@ export default function Tesoreria({
 
       {activeTab === 'iva' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <div className="bg-rose-50/40 border border-rose-200 p-6 rounded-2xl shadow-sm">
               <p className="text-xs font-bold text-rose-700 uppercase">IVA Compras (CF)</p>
               <h3 className="text-2xl font-black text-rose-900 mt-2">$ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
@@ -774,17 +827,22 @@ export default function Tesoreria({
               <h3 className="text-2xl font-black text-blue-900 mt-2">$ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
               <span className="text-[11px] text-slate-500 mt-1 block">Débito Fiscal</span>
             </div>
+            <div className="bg-amber-50/40 border border-amber-200 p-6 rounded-2xl shadow-sm">
+              <p className="text-xs font-bold text-amber-700 uppercase">Retenciones IVA</p>
+              <h3 className="text-2xl font-black text-amber-900 mt-2">$ {totalRetencionesIvaMovimientos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+              <span className="text-[11px] text-slate-500 mt-1 block">Pagos a cuenta sufridos</span>
+            </div>
             <div className="bg-emerald-50/40 border border-emerald-200 p-6 rounded-2xl shadow-sm">
               <p className="text-xs font-bold text-emerald-700 uppercase">Posición IVA</p>
               <h3 className="text-2xl font-black text-emerald-700 mt-2">$ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-              <span className="text-[11px] text-slate-500 mt-1 block">{posicionIva <= 0 ? 'A favor (CF > DB)' : 'A pagar'}</span>
+              <span className="text-[11px] text-slate-500 mt-1 block">{posicionIva <= 0 ? 'A favor' : 'A pagar'}</span>
             </div>
           </div>
 
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-2">
-            <h4 className="text-xs font-extrabold text-slate-800 uppercase">Cálculo: Posición IVA = IVA Ventas – IVA Compras</h4>
+            <h4 className="text-xs font-extrabold text-slate-800 uppercase">Cálculo: Posición IVA = IVA Ventas – IVA Compras – Retenciones IVA</h4>
             <p className="text-xs text-slate-600 font-mono">
-              $ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })} = <span className="font-bold text-emerald-600">$ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })} ({posicionIva <= 0 ? 'A favor' : 'A pagar'})</span>
+              $ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalRetencionesIvaMovimientos.toLocaleString('es-AR', { minimumFractionDigits: 2 })} = <span className="font-bold text-emerald-600">$ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })} ({posicionIva <= 0 ? 'A favor' : 'A pagar'})</span>
             </p>
           </div>
         </div>
@@ -795,7 +853,7 @@ export default function Tesoreria({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
-              <h3 className="font-bold text-slate-900">Nuevo Movimiento</h3>
+              <h3 className="font-bold text-slate-900">Nuevo Movimiento con Retenciones</h3>
               <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
             </div>
             
@@ -817,8 +875,8 @@ export default function Tesoreria({
                   <input type="text" required placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto ($) *</label>
-                  <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-amber-600 outline-none focus:border-amber-500" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto Bruto / Factura ($) *</label>
+                  <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Medio de Pago</label>
@@ -832,6 +890,37 @@ export default function Tesoreria({
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Referencia</label>
                   <input type="text" placeholder="N° cheque, transferencia..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.referencia} onChange={(e) => setFormData({...formData, referencia: e.target.value})} />
+                </div>
+              </div>
+
+              {/* SECCIÓN DE RETENCIONES */}
+              <div className="space-y-3 pt-4 border-t">
+                <h4 className="font-extrabold text-xs uppercase text-slate-800">Retenciones Sufridas (Descuentos)</h4>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">SUSS ($)</label>
+                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_suss} onChange={(e) => setFormData({...formData, retencion_suss: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">IVA ($)</label>
+                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_iva} onChange={(e) => setFormData({...formData, retencion_iva: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Ganancias ($)</label>
+                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_ganancias} onChange={(e) => setFormData({...formData, retencion_ganancias: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">IIBB PBA ($)</label>
+                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_iibb_pba} onChange={(e) => setFormData({...formData, retencion_iibb_pba: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">IIBB CABA ($)</label>
+                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_iibb_caba} onChange={(e) => setFormData({...formData, retencion_iibb_caba: e.target.value})} />
+                  </div>
+                  <div className="bg-amber-50 p-2 rounded-xl border border-amber-200 flex flex-col justify-center">
+                    <span className="text-[10px] font-bold text-amber-800 uppercase">Neto Cash Flow:</span>
+                    <span className="text-xs font-black text-amber-900">$ {montoNetoEfectivo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                  </div>
                 </div>
               </div>
 
