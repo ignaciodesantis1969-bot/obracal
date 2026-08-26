@@ -225,7 +225,7 @@ export default function Tesoreria({
     }));
   };
 
-  // Lector PDF Parser AFIP optimizado
+  // Lector PDF Parser AFIP con sistema de respaldo en cascada
   const procesarArchivoFacturaVenta = async (archivo) => {
     setLeyendoFactura(true);
     try {
@@ -259,6 +259,7 @@ export default function Tesoreria({
 
       const textoClean = textoExtraido.replace(/\s+/g, ' ');
       const textoUpper = textoClean.toUpperCase();
+      const nombreArchivo = archivo.name || '';
 
       let tipoComp = 'FACTURA A';
       if (textoUpper.includes('FCE') || textoUpper.includes('CREDITO ELECTRONICA') || textoUpper.includes('MiPyMEs')) {
@@ -269,35 +270,50 @@ export default function Tesoreria({
         tipoComp = 'NOTA DE CREDITO A';
       }
 
-      // 1. Extracción directa y robusta de Punto de Venta y Comp. Nro
       let puntoVenta = '00001';
-      const matchPtoVta = textoClean.match(/Pto\.?\s*Vta\.?[:\s]*(\d{4,5})/i);
+      const matchPtoVta = textoClean.match(/(?:Pto\.?\s*Vta\.?|Punto\s*de\s*Venta)[:\s]*(\d{4,5})/i);
       if (matchPtoVta && matchPtoVta[1]) {
         puntoVenta = matchPtoVta[1].padStart(5, '0');
       }
 
+      // 1. Número de Comprobante (Casi en cascada: Nombre -> Etiquetas -> Dígitos válidos)
       let nComp = '';
-      const matchCompNro = textoClean.match(/Comp\.?\s*Nro\.?[:\s]*(\d+)/i) || 
-                           textoClean.match(/Nro\.?\s*[:\s]*(\d{6,8})/i) ||
-                           textoClean.match(/N[°º]\s*[:\s]*(\d{6,8})/i);
-      if (matchCompNro && matchCompNro[1]) {
-        nComp = matchCompNro[1].trim();
+      const matchNameNum = nombreArchivo.match(/_(\d{7,8})[\s_]/) || nombreArchivo.match(/(\d{8})/);
+      if (matchNameNum) {
+        nComp = matchNameNum[1] || matchNameNum[0];
       }
 
-      // 2. Fechas con precisión de etiquetas
+      if (!nComp) {
+        const matchCompNro = textoClean.match(/(?:Comp\.?\s*Nro\.?|Nro\.?\s*Comprobante|Factura\s*N[°º])[:\s]*(\d{6,8})/i);
+        if (matchCompNro && matchCompNro[1]) {
+          nComp = matchCompNro[1].trim();
+        } else {
+          const matches8 = textoClean.match(/\b\d{8}\b/g) || [];
+          const validos = matches8.filter(n => !n.startsWith('30') && !n.startsWith('33'));
+          if (validos.length > 0) {
+            nComp = validos[0];
+          }
+        }
+      }
+
+      // 2. Fecha de Emisión
       let fechaEmision = new Date().toISOString().split('T')[0];
-      const matchFechaEmision = textoClean.match(/Fecha\s*de\s*Emisi[oó]n[:\s]*(\d{2})[\/](\d{2})[\/](\d{4})/i);
+      const matchFechaEmision = textoClean.match(/(?:Fecha\s*de\s*Emisi[oó]n|Emisi[oó]n)[:\s]*(\d{2})[\/](\d{2})[\/](\d{4})/i);
       if (matchFechaEmision) {
         fechaEmision = `${matchFechaEmision[3]}-${matchFechaEmision[2]}-${matchFechaEmision[1]}`;
+      } else {
+        const anyFecha = textoClean.match(/\b(0[1-9]|[12]\d|3[01])[\/](0[1-9]|1[0-2])[\/](\d{4})\b/);
+        if (anyFecha) fechaEmision = `${anyFecha[3]}-${anyFecha[2]}-${anyFecha[1]}`;
       }
 
+      // 3. Fecha de Vencimiento
       let fechaVencimiento = '';
-      const matchFechaVto = textoClean.match(/Vto\.?\s*(?:para\s*el\s*)?pago[:\s]*(\d{2})[\/](\d{2})[\/](\d{4})/i);
+      const matchFechaVto = textoClean.match(/(?:Vto\.?\s*(?:para\s*el\s*)?pago|Vencimiento)[:\s]*(\d{2})[\/](\d{2})[\/](\d{4})/i);
       if (matchFechaVto) {
         fechaVencimiento = `${matchFechaVto[3]}-${matchFechaVto[2]}-${matchFechaVto[1]}`;
       }
 
-      // 3. Cliente (Receptor): Excluye emisor y detecta BASF correctamente
+      // 4. Cliente (Receptor)
       let clienteDetectadoId = '';
       const clienteEncontrado = clientes.find(c => {
         const razonSocial = String(c.razon_social || c.nombre || '').toUpperCase();
@@ -312,14 +328,19 @@ export default function Tesoreria({
         if (basfCli) clienteDetectadoId = basfCli.id || basfCli.ID;
       }
 
-      // 4. Ítem / Concepto (O.C. / H.S.)
+      // 5. Concepto / Ítem con respaldo dinámico
       let descripcionItem = `Factura N° ${nComp || '---'}`;
-      const matchItem = textoClean.match(/(O\.C\.[\d:]+\s*H\.S\.?[\d:]+)/i);
-      if (matchItem) {
-        descripcionItem = matchItem[1];
+      const matchItemOC = textoClean.match(/(O\.C\.[\d:]+\s*H\.S\.?[\d:]+|Orden\s*de\s*Compra[^\b]+)/i);
+      if (matchItemOC) {
+        descripcionItem = matchItemOC[1];
+      } else {
+        const matchServicio = textoClean.match(/(Servicios?|Honorarios?|Certificaci[oó]n|Obras?|Trabajos?)[^,;\.\d]{3,40}/i);
+        if (matchServicio) {
+          descripcionItem = matchServicio[0].trim();
+        }
       }
 
-      // 5. Importes
+      // 6. Importes
       const extraerMontoEtiqueta = (keywords) => {
         for (let kw of keywords) {
           const regex = new RegExp(kw + `[^\\d]*([\\d\\.]+[,\\d{2}]*)`, 'i');
