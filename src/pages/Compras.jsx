@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart, Search } from 'lucide-react';
+import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart } from 'lucide-react';
 
 export default function Compras({ 
   GOOGLE_SCRIPT_URL, 
@@ -27,10 +27,7 @@ export default function Compras({
 
   const [localLoading, setLocalLoading] = useState(false);
 
-  // Estado para buscador rápido de insumos dentro de la factura
-  const [busquedaInsumoTerm, setBusquedaInsumoTerm] = useState('');
-
-  // Formulario Factura
+  // Formulario Factura Actualizado (con Tipos de Gasto y Rubros)
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
     tipo: 'Compra',
@@ -39,20 +36,20 @@ export default function Compras({
     proveedor_id: '',
     obra_id: '',
     presupuesto_id: '',
+    tipo_gasto: 'Presupuesto', // 'Presupuesto', 'Gasto Corriente', 'Gasto Extra'
+    rubro: 'Materiales', // 'Materiales', 'Subcontrato', 'Equipo/Maquinaria', 'Gastos Generales', etc.
+    detalle_gasto: '',
     fecha: new Date().toISOString().split('T')[0],
     vencimiento: '',
     estado_pago: 'pendiente',
     subtotal: 0,
     iva_21: 0,
-    iva_105: 0,
-    persp_iibb_bsas: 0,
+    iva_10_5: 0,
+    persp_iibb_bs_as: 0,
     persp_iibb_caba: 0,
     otros_impuestos: 0,
     total: 0,
-    archivo_url: '',
-    insumos_comprados: [
-      { id: Date.now(), insumo_id: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }
-    ]
+    archivo_url: ''
   });
 
   // Formulario Orden de Compra (OC)
@@ -80,27 +77,16 @@ export default function Compras({
     return fechaStr;
   };
 
-  // Función robusta adaptada al formato DD/MM/YYYY de Google Sheets para inputs HTML (YYYY-MM-DD)
   const formatearFechaParaInput = (fechaStr) => {
     if (!fechaStr) return '';
     const str = String(fechaStr).trim().split('T')[0];
-    
-    // Si viene en formato DD/MM/YYYY (ej: 24/07/2026)
     if (str.includes('/')) {
       const partes = str.split('/');
       if (partes.length === 3) {
-        const dia = partes[0].padStart(2, '0');
-        const mes = partes[1].padStart(2, '0');
-        const anio = partes[2];
-        return `${anio}-${mes}-${dia}`;
+        return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
       }
     }
-    
-    // Si ya viene en formato YYYY-MM-DD
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-      return str;
-    }
-
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
     return str;
   };
 
@@ -182,15 +168,15 @@ export default function Compras({
 
             setFormData(prev => ({
               ...prev,
-              n_factura: data.n_factura || data.numero_factura || data.nro_factura || prev.n_factura,
+              n_factura: data.n_factura || prev.n_factura,
               proveedor_id: proveedorEncontradoId || prev.proveedor_id,
-              fecha: formatearFechaParaInput(data.fecha || data.Fecha || data.FECHA) || prev.fecha,
-              vencimiento: formatearFechaParaInput(data.vencimiento || data.Vencimiento || data.VENCIMIENTO) || prev.vencimiento,
+              fecha: formatearFechaParaInput(data.fecha) || prev.fecha,
+              vencimiento: formatearFechaParaInput(data.vencimiento) || prev.vencimiento,
               subtotal: Number(data.subtotal) || prev.subtotal,
               iva_21: Number(data.iva_21) || prev.iva_21,
-              iva_105: Number(data.iva_105) || prev.iva_105,
-              persp_iibb_bsas: Number(data.persp_iibb_bsas) || prev.persp_iibb_bsas,
-              persp_iibb_caba: Number(data.persp_iibb_caba) || prev.persp_iibb_caba,
+              iva_10_5: Number(data.iva_10_5) || prev.iva_10_5,
+              persp_iibb_bs_as: Number(data.persp_iibb_bs_as || data.percepcion_iibb || 0),
+              persp_iibb_caba: Number(data.persp_iibb_caba || 0),
               otros_impuestos: Number(data.otros_impuestos) || prev.otros_impuestos,
               total: Number(data.total) || prev.total,
               archivo_url: base64Data
@@ -236,99 +222,26 @@ export default function Compras({
   const handleEditarFacturaClick = (f) => {
     const realId = f.id || f.ID || f.Id;
     setEditingId(realId);
-    
-    let insumosParseados = [];
-    const rawInsumos = f.insumos_comprados || f.Insumos_comprados || f.INSUMOS_COMPRADOS;
-    try {
-      if (typeof rawInsumos === 'string') {
-        insumosParseados = JSON.parse(rawInsumos);
-      } else if (Array.isArray(rawInsumos)) {
-        insumosParseados = rawInsumos;
-      }
-    } catch (err) {
-      insumosParseados = [];
-    }
-
-    if (!Array.isArray(insumosParseados) || insumosParseados.length === 0) {
-      insumosParseados = [{ id: Date.now(), insumo_id: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
-    }
 
     const fechaCruda = f.fecha || f.Fecha || f.FECHA;
     const vencCrudo = f.vencimiento || f.Vencimiento || f.VENCIMIENTO;
 
     setFormData({ 
       ...f, 
+      tipo_gasto: f.tipo_gasto || f.Tipo_gasto || 'Presupuesto',
+      rubro: f.rubro || f.Rubro || 'Materiales',
+      detalle_gasto: f.detalle_gasto || f.Detalle_gasto || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
-      insumos_comprados: insumosParseados 
+      subtotal: Number(f.subtotal || f.Subtotal || 0),
+      iva_21: Number(f.iva_21 || f.Iva_21 || 0),
+      iva_10_5: Number(f.iva_10_5 || f.Iva_10_5 || 0),
+      persp_iibb_bs_as: Number(f.persp_iibb_bs_as || f.Persp_iibb_bs_as || 0),
+      persp_iibb_caba: Number(f.persp_iibb_caba || f.Persp_iibb_caba || 0),
+      otros_impuestos: Number(f.otros_impuestos || f.Otros_impuestos || 0),
+      total: Number(f.total || f.Total || 0)
     });
     setIsFacturaModalOpen(true);
-  };
-
-  const handleAgregarInsumoComprado = (insumoPreseleccionado = null) => {
-    setFormData(prev => ({
-      ...prev,
-      insumos_comprados: [
-        ...prev.insumos_comprados,
-        { 
-          id: Date.now(), 
-          insumo_id: insumoPreseleccionado ? (insumoPreseleccionado.id || insumoPreseleccionado.ID || insumoPreseleccionado.Id) : '', 
-          cantidad: 1, 
-          unidad: insumoPreseleccionado ? (insumoPreseleccionado.unidad || 'unidad') : 'unidad', 
-          p_unitario: insumoPreseleccionado ? Number(insumoPreseleccionado.costo_unitario || insumoPreseleccionado.precio || 0) : 0, 
-          total: insumoPreseleccionado ? Number(insumoPreseleccionado.costo_unitario || insumoPreseleccionado.precio || 0) : 0 
-        }
-      ]
-    }));
-  };
-
-  const handleCambiarInsumoComprado = (id, campo, valor) => {
-    const nuevos = formData.insumos_comprados.map(item => {
-      if (item.id === id) {
-        let actualizado = { ...item, [campo]: valor };
-        
-        if (campo === 'insumo_id') {
-          const insEncontrado = insumosList.find(i => String(i.id || i.ID || i.Id) === String(valor));
-          if (insEncontrado) {
-            actualizado.p_unitario = Number(insEncontrado.costo_unitario || insEncontrado.precio || 0);
-            actualizado.unidad = insEncontrado.unidad || 'unidad';
-            actualizado.total = (Number(actualizado.cantidad) || 0) * Number(actualizado.p_unitario);
-          }
-        }
-
-        if (campo === 'cantidad' || campo === 'p_unitario') {
-          actualizado.total = (Number(actualizado.cantidad) || 0) * (Number(actualizado.p_unitario) || 0);
-        }
-        return actualizado;
-      }
-      return item;
-    });
-
-    const nuevoSubtotal = nuevos.reduce((acc, curr) => acc + (Number(curr.total) || 0), 0);
-    const nuevoIva = nuevoSubtotal * 0.21;
-    const nuevoTotal = nuevoSubtotal + nuevoIva + Number(formData.iva_105 || 0) + Number(formData.persp_iibb_bsas || 0) + Number(formData.persp_iibb_caba || 0) + Number(formData.otros_impuestos || 0);
-
-    setFormData(prev => ({
-      ...prev,
-      insumos_comprados: nuevos,
-      subtotal: nuevoSubtotal,
-      iva_21: nuevoIva,
-      total: nuevoTotal
-    }));
-  };
-
-  const handleQuitarInsumoComprado = (id) => {
-    const nuevos = formData.insumos_comprados.filter(i => i.id !== id);
-    const nuevoSubtotal = nuevos.reduce((acc, curr) => acc + (Number(curr.total) || 0), 0);
-    const nuevoIva = nuevoSubtotal * 0.21;
-    const nuevoTotal = nuevoSubtotal + nuevoIva + Number(formData.iva_105 || 0) + Number(formData.persp_iibb_bsas || 0) + Number(formData.persp_iibb_caba || 0) + Number(formData.otros_impuestos || 0);
-    setFormData(prev => ({
-      ...prev,
-      insumos_comprados: nuevos,
-      subtotal: nuevoSubtotal,
-      iva_21: nuevoIva,
-      total: nuevoTotal
-    }));
   };
 
   const handleGuardarFactura = async (e) => {
@@ -345,8 +258,7 @@ export default function Compras({
       const payloadData = {
         ...formData,
         codigo: codigoFinal,
-        archivo_url: urlLimpia,
-        insumos_comprados: JSON.stringify(formData.insumos_comprados)
+        archivo_url: urlLimpia
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -365,7 +277,6 @@ export default function Compras({
       try {
         data = JSON.parse(textoRespuesta);
       } catch (parseErr) {
-        console.error("Respuesta no JSON:", textoRespuesta);
         alert("Error del servidor: " + textoRespuesta.substring(0, 150));
         return;
       }
@@ -403,11 +314,10 @@ export default function Compras({
       if (data.success !== false) {
         cargarDatos();
       } else {
-        alert("No se pudo eliminar la factura: " + (data.error || 'Desconocido'));
+        alert("No se pudo eliminar la factura.");
       }
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al intentar eliminar la factura.");
     }
   };
 
@@ -530,7 +440,6 @@ export default function Compras({
       }
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al guardar OC.");
     }
   };
 
@@ -578,11 +487,6 @@ export default function Compras({
     return matchProveedor && matchFecha;
   });
 
-  const insumosFiltradosModal = insumosList.filter(ins => 
-    String(ins.nombre || ins.Nombre || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase()) ||
-    String(ins.codigo || ins.Codigo || '').toLowerCase().includes(busquedaInsumoTerm.toLowerCase())
-  );
-
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -619,18 +523,20 @@ export default function Compras({
               proveedor_id: '',
               obra_id: '',
               presupuesto_id: '',
+              tipo_gasto: 'Presupuesto',
+              rubro: 'Materiales',
+              detalle_gasto: '',
               fecha: new Date().toISOString().split('T')[0],
               vencimiento: '',
               estado_pago: 'pendiente',
               subtotal: 0,
               iva_21: 0,
-              iva_105: 0,
-              persp_iibb_bsas: 0,
+              iva_10_5: 0,
+              persp_iibb_bs_as: 0,
               persp_iibb_caba: 0,
               otros_impuestos: 0,
               total: 0,
-              archivo_url: '',
-              insumos_comprados: [{ id: Date.now(), insumo_id: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }]
+              archivo_url: ''
             });
             setIsUploadModalOpen(true);
           }} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
@@ -681,9 +587,9 @@ export default function Compras({
                 <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                   <th className="px-6 py-4">Código</th>
                   <th className="px-4 py-4">N° Factura</th>
-                  <th className="px-4 py-4">Tipo</th>
+                  <th className="px-4 py-4">Tipo Gasto</th>
                   <th className="px-6 py-4">Proveedor</th>
-                  <th className="px-4 py-4">Presupuesto</th>
+                  <th className="px-4 py-4">Rubro / Destino</th>
                   <th className="px-4 py-4">Fecha</th>
                   <th className="px-4 py-4 text-right">Total</th>
                   <th className="px-4 py-4 text-center">Pago</th>
@@ -694,38 +600,28 @@ export default function Compras({
               <tbody className="divide-y divide-slate-100">
                 {facturasFiltradas.map((f, index) => {
                   const provId = f.proveedor_id || f.Proveedor_id || f.PROVEEDOR_ID;
-                  const presId = f.presupuesto_id || f.Presupuesto_id || f.PRESUPUESTO_ID;
                   const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
-                  const pres = presupuestos.find(pr => String(pr.id || pr.ID) === String(presId));
                   const totalVal = Number(f.total || f.Total || f.TOTAL) || 0;
                   const estadoPago = String(f.estado_pago || f.Estado_pago || f.ESTADO_PAGO || 'pendiente').toLowerCase();
-                  
-                  const numeroFacturaDisplay = f.n_factura || f.N_factura || f.N_FACTURA || f.numero_factura || f.nro_factura || '---';
-                  const presupuestoDisplay = pres?.codigo || pres?.nombre || presId || '---';
+                  const numeroFacturaDisplay = f.n_factura || f.N_factura || f.N_FACTURA || '---';
                   const codigoDisplay = f.codigo || f.Codigo || f.CODIGO || `FAC-${String(index + 1).padStart(4, '0')}`;
-                  const archivoLink = f.archivo_url || f.Archivo_url || f.ARCHIVOURI || f.archivo || '';
-                  const fechaDisplay = f.fecha || f.Fecha || f.FECHA;
+                  const archivoLink = f.archivo_url || f.Archivo_url || f.archivo || '';
+                  const tipoGastoDisplay = f.tipo_gasto || f.Tipo_gasto || 'Presupuesto';
+                  const rubroDisplay = f.rubro || f.Rubro || 'Materiales';
 
                   return (
                     <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-4 py-4 font-semibold text-slate-800">{numeroFacturaDisplay}</td>
-                      <td className="px-4 py-4"><span className="px-2 py-0.5 bg-slate-100 text-slate-700 font-bold rounded text-[10px]">{f.comprobante_tipo || f.Comprobante_tipo || f.COMPROBANTE_TIPO || 'Factura A'}</span></td>
+                      <td className="px-4 py-4"><span className="px-2 py-0.5 bg-amber-50 text-amber-800 font-bold rounded text-[10px]">{tipoGastoDisplay}</span></td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || f.proveedor || 'Proveedor'}</td>
-                      <td className="px-4 py-4 text-slate-600">{presupuestoDisplay}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaDisplay)}</td>
+                      <td className="px-4 py-4 text-slate-600 font-medium">{rubroDisplay}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{estadoPago}</span></td>
                       <td className="px-4 py-4 text-center">
                         {archivoLink ? (
-                          <button 
-                            type="button"
-                            onClick={() => handleVerArchivo(archivoLink)} 
-                            className="text-blue-600 hover:text-blue-800 inline-flex items-center justify-center p-1.5 bg-blue-50 hover:bg-blue-100 rounded-lg transition-colors shadow-sm" 
-                            title="Ver comprobante adjunto"
-                          >
-                            <Paperclip className="w-4 h-4" />
-                          </button>
+                          <button type="button" onClick={() => handleVerArchivo(archivoLink)} className="text-blue-600 hover:text-blue-800 p-1.5 bg-blue-50 rounded-lg shadow-sm" title="Ver comprobante"><Paperclip className="w-4 h-4" /></button>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
@@ -773,18 +669,16 @@ export default function Compras({
                   const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
                   const obra = obras.find(o => String(o.id || o.ID) === String(obraId));
                   const totalVal = Number(oc.total || oc.Total || oc.TOTAL) || 0;
-                  const estadoOc = String(oc.estado || oc.Estado || oc.ESTADO || 'pendiente').toLowerCase();
-                  const codigoDisplay = oc.codigo || oc.Codigo || oc.CODIGO || `OC-${String(index + 1).padStart(4, '0')}`;
-                  const fechaDisplay = oc.fecha || oc.Fecha || oc.FECHA;
-                  const entregaDisplay = oc.fecha_entrega || oc.Fecha_entrega || oc.FECHA_ENTREGA;
+                  const estadoOc = String(oc.estado || oc.Estado || 'pendiente').toLowerCase();
+                  const codigoDisplay = oc.codigo || oc.Codigo || `OC-${String(index + 1).padStart(4, '0')}`;
 
                   return (
                     <tr key={oc.id || oc.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : (obra?.nombre || '---')}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaDisplay)}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(entregaDisplay)}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(oc.fecha)}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(oc.fecha_entrega)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-center">
                         <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoOc === 'aprobada' ? 'bg-emerald-100 text-emerald-800' : estadoOc === 'recibida' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
@@ -838,14 +732,6 @@ export default function Compras({
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha de Entrega</label>
                   <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formDataOc.fecha_entrega} onChange={(e) => setFormDataOc({...formDataOc, fecha_entrega: e.target.value})} />
                 </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado</label>
-                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase" value={formDataOc.estado} onChange={(e) => setFormDataOc({...formDataOc, estado: e.target.value})}>
-                    <option value="pendiente">Pendiente</option>
-                    <option value="aprobada">Aprobada</option>
-                    <option value="recibida">Recibida</option>
-                  </select>
-                </div>
               </div>
 
               <div className="space-y-3 pt-4 border-t">
@@ -855,7 +741,6 @@ export default function Compras({
                     <Plus className="w-3.5 h-3.5" /> Agregar
                   </button>
                 </div>
-
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
                     <thead>
@@ -871,32 +756,16 @@ export default function Compras({
                     <tbody className="divide-y divide-slate-100">
                       {Array.isArray(formDataOc.insumos_oc) && formDataOc.insumos_oc.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2">
-                            <input type="text" placeholder="Descripción del item..." className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={item.descripcion || ''} onChange={(e) => handleCambiarInsumoOc(item.id, 'descripcion', e.target.value)} />
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <input type="number" step="0.01" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-amber-500" value={item.cantidad} onChange={(e) => handleCambiarInsumoOc(item.id, 'cantidad', e.target.value)} />
-                          </td>
-                          <td className="px-3 py-2">
-                            <input type="text" placeholder="unidad" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs uppercase font-semibold outline-none focus:border-amber-500" value={item.unidad} onChange={(e) => handleCambiarInsumoOc(item.id, 'unidad', e.target.value)} />
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <input type="number" step="0.01" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500" value={item.p_unitario} onChange={(e) => handleCambiarInsumoOc(item.id, 'p_unitario', e.target.value)} />
-                          </td>
+                          <td className="px-3 py-2"><input type="text" placeholder="Descripción..." className="w-full bg-white border rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={item.descripcion || ''} onChange={(e) => handleCambiarInsumoOc(item.id, 'descripcion', e.target.value)} /></td>
+                          <td className="px-3 py-2 text-center"><input type="number" step="0.01" className="w-full bg-white border rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-amber-500" value={item.cantidad} onChange={(e) => handleCambiarInsumoOc(item.id, 'cantidad', e.target.value)} /></td>
+                          <td className="px-3 py-2"><input type="text" className="w-full bg-white border rounded-lg px-2 py-1.5 text-xs uppercase font-semibold outline-none focus:border-amber-500" value={item.unidad} onChange={(e) => handleCambiarInsumoOc(item.id, 'unidad', e.target.value)} /></td>
+                          <td className="px-3 py-2 text-right"><input type="number" step="0.01" className="w-full bg-white border rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500" value={item.p_unitario} onChange={(e) => handleCambiarInsumoOc(item.id, 'p_unitario', e.target.value)} /></td>
                           <td className="px-3 py-2 text-right font-black text-slate-900">$ {Number(item.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2 text-center">
-                            <button type="button" onClick={() => handleQuitarInsumoOc(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button>
-                          </td>
+                          <td className="px-3 py-2 text-center"><button type="button" onClick={() => handleQuitarInsumoOc(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button></td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
-                </div>
-
-                <div className="flex justify-end gap-6 pt-2 text-xs font-bold text-slate-700">
-                  <span>Subtotal: <span className="font-black text-slate-900">$ {Number(formDataOc.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span></span>
-                  <span>IVA 21%: <span className="font-black text-slate-900">$ {Number(formDataOc.iva_21 || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span></span>
-                  <span>Total: <span className="font-black text-amber-600">$ {Number(formDataOc.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span></span>
                 </div>
               </div>
 
@@ -934,10 +803,10 @@ export default function Compras({
         </div>
       )}
 
-      {/* MODAL CREAR / EDITAR FACTURA */}
+      {/* MODAL CREAR / EDITAR FACTURA (CON TIPO DE GASTO Y RUBROS) */}
       {isFacturaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-4xl overflow-hidden my-8">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">Nueva Factura (Confirmación y Corrección de Datos)</h3>
               <button onClick={() => setIsFacturaModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
@@ -947,16 +816,10 @@ export default function Compras({
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación.</span>
               </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo</label>
-                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.tipo} onChange={(e) => setFormData({...formData, tipo: e.target.value})}>
-                    <option value="Compra">Compra</option>
-                    <option value="Gasto">Gasto</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Comprobante</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo Comprobante</label>
                   <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.comprobante_tipo} onChange={(e) => setFormData({...formData, comprobante_tipo: e.target.value})}>
                     <option value="Factura A">Factura A</option>
                     <option value="Factura B">Factura B</option>
@@ -975,20 +838,49 @@ export default function Compras({
                     {proveedores.map(p => <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>)}
                   </select>
                 </div>
+
+                {/* IMUPTACIÓN: TIPO DE GASTO */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
-                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
-                    <option value="">Seleccione obra...</option>
-                    {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.codigo} - {o.nombre || o.nombre_obra}</option>)}
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto / Imputación *</label>
+                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500" value={formData.tipo_gasto} onChange={(e) => setFormData({...formData, tipo_gasto: e.target.value})}>
+                    <option value="Presupuesto">Presupuesto (Obra)</option>
+                    <option value="Gasto Corriente">Gasto Corriente</option>
+                    <option value="Gasto Extra">Gasto Extra</option>
                   </select>
                 </div>
+
+                {/* SI ES PRESUPUESTO, MOSTRAR SELECTOR DE PRESUPUESTO Y OBRA */}
+                {formData.tipo_gasto === 'Presupuesto' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado *</label>
+                      <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
+                        <option value="">Seleccione presupuesto...</option>
+                        {presupuestos.map(pr => <option key={pr.id || pr.ID} value={pr.id || pr.ID}>{pr.codigo} - {pr.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
+                      <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
+                        <option value="">Seleccione obra...</option>
+                        {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.codigo} - {o.nombre || o.nombre_obra}</option>)}
+                      </select>
+                    </div>
+                  </>
+                )}
+
+                {/* RUBRO PARTICULAR */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto</label>
-                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
-                    <option value="">Seleccione presupuesto...</option>
-                    {presupuestos.map(pr => <option key={pr.id || pr.ID} value={pr.id || pr.ID}>{pr.codigo} - {pr.nombre}</option>)}
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
+                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.rubro} onChange={(e) => setFormData({...formData, rubro: e.target.value})}>
+                    <option value="Materiales">Materiales</option>
+                    <option value="Subcontrato">Subcontrato</option>
+                    <option value="Equipo/Maquinaria">Equipo / Maquinaria</option>
+                    <option value="Gastos Generales">Gastos Generales</option>
+                    <option value="Otros">Otros</option>
                   </select>
                 </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha</label>
                   <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.fecha} onChange={(e) => setFormData({...formData, fecha: e.target.value})} />
@@ -1014,11 +906,11 @@ export default function Compras({
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 10.5% ($)</label>
-                  <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500" value={formData.iva_105} onChange={(e) => setFormData({...formData, iva_105: e.target.value})} />
+                  <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500" value={formData.iva_10_5} onChange={(e) => setFormData({...formData, iva_10_5: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Persp. IIBB Bs.As. ($)</label>
-                  <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500" value={formData.persp_iibb_bsas} onChange={(e) => setFormData({...formData, persp_iibb_bsas: e.target.value})} />
+                  <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500" value={formData.persp_iibb_bs_as} onChange={(e) => setFormData({...formData, persp_iibb_bs_as: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Persp. IIBB CABA ($)</label>
@@ -1039,106 +931,6 @@ export default function Compras({
                   <span className="font-bold flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600"/> Comprobante adjunto cargado correctamente</span>
                 </div>
               )}
-
-              {/* SECCIÓN DE IMPUTACIÓN RÁPIDA DE INSUMOS */}
-              <div className="space-y-4 pt-4 border-t">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                  <div>
-                    <h4 className="font-extrabold text-xs uppercase text-slate-800">Insumos comprados (Imputación)</h4>
-                    <p className="text-[11px] text-slate-500">Busca y selecciona los insumos rápidamente para asignarlos.</p>
-                  </div>
-                  
-                  {/* Buscador Rápido de Insumos para Agregar */}
-                  <div className="flex items-center gap-2 w-full sm:w-auto">
-                    <div className="relative flex-1 sm:w-64">
-                      <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                      <input 
-                        type="text"
-                        placeholder="Buscar insumo para agregar..."
-                        value={busquedaInsumoTerm}
-                        onChange={(e) => setBusquedaInsumoTerm(e.target.value)}
-                        className="w-full pl-9 pr-3 py-1.5 bg-slate-50 border border-slate-300 rounded-lg text-xs outline-none focus:border-amber-500"
-                      />
-                    </div>
-                    {busquedaInsumoTerm && (
-                      <button 
-                        type="button" 
-                        onClick={() => setBusquedaInsumoTerm('')} 
-                        className="text-xs text-slate-500 hover:text-slate-800 font-bold"
-                      >
-                        Limpiar
-                      </button>
-                    )}
-                  </div>
-                </div>
-
-                {busquedaInsumoTerm && (
-                  <div className="bg-slate-50 border border-amber-300 rounded-xl p-3 max-h-40 overflow-y-auto space-y-1.5 shadow-sm">
-                    <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wide block mb-1">Resultados de búsqueda ({insumosFiltradosModal.length}):</span>
-                    {insumosFiltradosModal.length === 0 ? (
-                      <div className="text-xs text-slate-400 italic py-1">No se encontraron insumos con ese nombre o código.</div>
-                    ) : (
-                      insumosFiltradosModal.map(ins => (
-                        <div 
-                          key={ins.id || ins.ID} 
-                          onClick={() => {
-                            handleAgregarInsumoComprado(ins);
-                            setBusquedaInsumoTerm('');
-                          }}
-                          className="flex justify-between items-center bg-white hover:bg-amber-100/60 border border-slate-200 px-3 py-2 rounded-lg cursor-pointer transition-colors text-xs"
-                        >
-                          <div>
-                            <span className="font-bold text-slate-800">{ins.nombre || ins.Nombre}</span>
-                            <span className="text-slate-400 ml-2 font-mono text-[10px]">({ins.codigo || ins.Codigo || 'S/C'})</span>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className="text-amber-600 font-black">$ {Number(ins.costo_unitario || ins.Costo_unitario || ins.precio || ins.Precio || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                            <span className="px-2 py-0.5 bg-amber-500 text-white rounded font-bold text-[10px]">Agregar +</span>
-                          </div>
-                        </div>
-                      ))
-                    )}
-                  </div>
-                )}
-
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
-                        <th className="px-3 py-2.5">Insumo</th>
-                        <th className="px-3 py-2.5 w-24 text-center">Cant.</th>
-                        <th className="px-3 py-2.5 w-28">Unidad</th>
-                        <th className="px-3 py-2.5 w-32 text-right">P. Unit.</th>
-                        <th className="px-3 py-2.5 w-32 text-right">Total</th>
-                        <th className="px-3 py-2.5 w-12 text-center">Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {Array.isArray(formData.insumos_comprados) && formData.insumos_comprados.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2">
-                            <select className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={item.insumo_id} onChange={(e) => handleCambiarInsumoComprado(item.id, 'insumo_id', e.target.value)}>
-                              <option value="">Seleccionar insumo...</option>
-                              {insumosList.map(ins => <option key={ins.id || ins.ID} value={ins.id || ins.ID}>{ins.nombre || ins.Nombre} {ins.codigo ? `(${ins.codigo})` : ''}</option>)}
-                            </select>
-                          </td>
-                          <td className="px-3 py-2 text-center"><input type="number" step="0.01" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-amber-500" value={item.cantidad} onChange={(e) => handleCambiarInsumoComprado(item.id, 'cantidad', e.target.value)} /></td>
-                          <td className="px-3 py-2 uppercase text-slate-600 font-semibold">{item.unidad}</td>
-                          <td className="px-3 py-2 text-right"><input type="number" step="0.01" className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500" value={item.p_unitario} onChange={(e) => handleCambiarInsumoComprado(item.id, 'p_unitario', e.target.value)} /></td>
-                          <td className="px-3 py-2 text-right font-black text-slate-900">$ {Number(item.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2 text-center"><button type="button" onClick={() => handleQuitarInsumoComprado(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="flex justify-start">
-                  <button type="button" onClick={() => handleAgregarInsumoComprado(null)} className="flex items-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-colors">
-                    <Plus className="w-3.5 h-3.5" /> Agregar línea vacía
-                  </button>
-                </div>
-              </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t">
                 <button type="button" onClick={() => setIsFacturaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
