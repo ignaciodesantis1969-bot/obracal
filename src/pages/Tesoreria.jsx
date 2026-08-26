@@ -272,14 +272,14 @@ export default function Tesoreria({
       let puntoVenta = '00001';
       let nComp = '';
 
-      const matchPtoNro = textoClean.match(/(?:Pto\.?\s*Vta\.?[:\s]*(\d{4,5}))?.*?Comp\.?\s*Nro\.?[:\s]*(\d{8})/i) || textoClean.match(/(\d{4,5})\s*[-–]\s*(\d{8})/);
+      const matchPtoNro = textoClean.match(/(?:Pto\.?\s*Vta\.?[:\s]*(\d{4,5}))?.*?Comp\.?\s*Nro\.?[:\s]*(\d{6,8})/i) || textoClean.match(/(\d{4,5})\s*[-–]\s*(\d{6,8})/);
       if (matchPtoNro) {
         if (matchPtoNro[1] && matchPtoNro[1].length <= 5) puntoVenta = matchPtoNro[1].padStart(5, '0');
         nComp = matchPtoNro[2] || matchPtoNro[0];
       }
       
       if (!nComp) {
-        const matchNroAlt = textoClean.match(/(?:NRO|COMPROBANTE|NUMERO|N°)\D*(\d{8})/i);
+        const matchNroAlt = textoClean.match(/(?:NRO|COMPROBANTE|NUMERO|N°)\D*(\d{6,8})/i);
         if (matchNroAlt) nComp = matchNroAlt[1];
       }
 
@@ -295,25 +295,21 @@ export default function Tesoreria({
         fechaVencimiento = `${matchFechaVto[3]}-${matchFechaVto[2]}-${matchFechaVto[1]}`;
       }
 
-      // Cliente (Receptor ubicado en la mitad inferior de la factura)
+      // Cliente (Receptor): Busca en el texto excluyendo la razón social del emisor ("SOLVENCIAS")
       let clienteDetectadoId = '';
-      const posCbu = textoUpper.indexOf('CBU');
-      const textoReceptor = posCbu !== -1 ? textoUpper.substring(posCbu) : textoUpper;
-
       const clienteEncontrado = clientes.find(c => {
         const razonSocial = String(c.razon_social || c.nombre || '').toUpperCase();
         const razonSimple = razonSocial.replace(/ S\.A\.| S\.R\.L\.| SA| SRL/g, '').trim();
-        return razonSimple && (textoReceptor.includes(razonSimple) || textoReceptor.includes(razonSocial));
+        return razonSimple && !razonSimple.includes('SOLVENCIAS') && (textoUpper.includes(razonSimple) || textoUpper.includes(razonSocial));
       });
 
       if (clienteEncontrado) {
         clienteDetectadoId = clienteEncontrado.id || clienteEncontrado.ID;
-      } else if (textoReceptor.includes('BASF')) {
+      } else if (textoUpper.includes('BASF')) {
         const basfCli = clientes.find(c => String(c.razon_social || c.nombre || '').toUpperCase().includes('BASF'));
         if (basfCli) clienteDetectadoId = basfCli.id || basfCli.ID;
       }
 
-      // Concepto / Ítem de la tabla (O.C. / H.S.)
       let descripcionItem = `Factura N° ${nComp || '---'}`;
       const matchItem = textoClean.match(/(O\.C\.[\d:]+\s*H\.S\.?[\d:]+)/i);
       if (matchItem) {
