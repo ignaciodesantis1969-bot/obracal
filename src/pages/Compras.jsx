@@ -92,12 +92,9 @@ export default function Compras({
         parsedData = JSON.parse(rawItemsDetalle);
       }
       
-      // Si el JSON tiene una estructura de tipo { rubros: [...] }
       if (parsedData && Array.isArray(parsedData.rubros)) {
         rubrosDelPresupuesto = parsedData.rubros.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
-      } 
-      // Si es directamente un array de rubros
-      else if (Array.isArray(parsedData)) {
+      } else if (Array.isArray(parsedData)) {
         rubrosDelPresupuesto = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
       }
     } catch (e) {
@@ -190,7 +187,7 @@ export default function Compras({
           try {
             data = JSON.parse(textoRespuesta);
           } catch (parseErr) {
-            throw new Error("El servidor devolvió HTML o un formato no válido (verifique permisos de Apps Script).");
+            throw new Error("El servidor devolvió HTML o un formato no válido.");
           }
           
           if (data.success && !data.error) {
@@ -249,13 +246,17 @@ export default function Compras({
       alert("No hay un enlace de archivo válido o el comprobante es antiguo.");
       return;
     }
-    if (archivoUrl.startsWith('http')) {
+    if (archivoUrl.startsWith('http') || archivoUrl.startsWith('https') || archivoUrl.includes('drive.google.com')) {
       window.open(archivoUrl, '_blank');
     } else if (archivoUrl.startsWith('data:')) {
       const win = window.open();
-      win.document.write(`<iframe src="${archivoUrl}" frameborder="0" style="border:0; top:0; left:0; bottom:0; right:0; width:100%; height:100%;" allowfullscreen></iframe>`);
+      if (win) {
+        win.document.write(`<iframe src="${archivoUrl}" frameborder="0" style="border:0; top:0; left:0; bottom:0; right:0; width:100%; height:100%;" allowfullscreen></iframe>`);
+      } else {
+        alert("El navegador bloqueó la ventana emergente para mostrar el archivo.");
+      }
     } else {
-      alert("Enlace no válido: " + archivoUrl);
+      window.open(archivoUrl, '_blank');
     }
   };
 
@@ -281,7 +282,8 @@ export default function Compras({
       persp_iibb_bs_as: Number(f.persp_iibb_bs_as || f.Persp_iibb_bs_as || 0),
       persp_iibb_caba: Number(f.persp_iibb_caba || f.Persp_iibb_caba || 0),
       otros_impuestos: Number(f.otros_impuestos || f.Otros_impuestos || 0),
-      total: Number(f.total || f.Total || 0)
+      total: Number(f.total || f.Total || 0),
+      archivo_url: f.archivo_url || f.Archivo_url || f.archivo || ''
     });
     setIsFacturaModalOpen(true);
   };
@@ -294,7 +296,8 @@ export default function Compras({
 
       const payloadData = {
         ...formData,
-        codigo: codigoFinal
+        codigo: codigoFinal,
+        archivo_url: formData.archivo_url || ''
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -313,7 +316,7 @@ export default function Compras({
       try {
         data = JSON.parse(textoRespuesta);
       } catch (parseErr) {
-        alert("Error del servidor (Apps Script devolvió HTML en lugar de JSON). Verifique los permisos de acceso del Apps Script.");
+        alert("Error del servidor (Apps Script devolvió HTML en lugar de JSON).");
         return;
       }
 
@@ -898,7 +901,7 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* RUBRO FILTRADO ESTRICTAMENTE POR EL JSON DEL PRESUPUESTO SELECCIONADO */}
+                {/* RUBRO FILTRADO DESDE EL JSON DEL PRESUPUESTO */}
                 {formData.tipo_gasto === 'Presupuesto' && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro del Presupuesto *</label>
