@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check } from 'lucide-react';
+import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2 } from 'lucide-react';
 
 export default function Tesoreria({ 
   GOOGLE_SCRIPT_URL, 
@@ -67,6 +67,19 @@ export default function Tesoreria({
       return `${partes[2]}/${partes[1]}/${partes[0]}`;
     }
     return fechaStr;
+  };
+
+  const formatearFechaParaInput = (fechaStr) => {
+    if (!fechaStr) return '';
+    const str = String(fechaStr).trim().split('T')[0];
+    if (str.includes('/')) {
+      const partes = str.split('/');
+      if (partes.length === 3) {
+        return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
+      }
+    }
+    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+    return str;
   };
 
   const handleCobrarFacturaVenta = (f) => {
@@ -225,175 +238,123 @@ export default function Tesoreria({
     }));
   };
 
-  // Lector PDF Parser AFIP con sistema de respaldo en cascada
-  const procesarArchivoFacturaVenta = async (archivo) => {
+  // Lector Factura con IA del Backend (igual que en Compras)
+  const procesarArchivoFacturaVenta = async (e) => {
+    if (!GOOGLE_SCRIPT_URL) {
+      alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
+      return;
+    }
+
+    const archivo = e.target.files[0];
+    if (!archivo) return;
+
     setLeyendoFactura(true);
+    
     try {
-      let textoExtraido = "";
+      const reader = new FileReader();
+      reader.readAsDataURL(archivo);
       
-      if (archivo.type === "application/pdf" || archivo.name.toLowerCase().endsWith('.pdf')) {
-        if (!window.pdfjsLib) {
-          await new Promise((resolve, reject) => {
-            const script = document.createElement('script');
-            script.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-            script.onload = () => {
-              window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-              resolve();
-            };
-            script.onerror = reject;
-            document.head.appendChild(script);
-          });
-        }
-
-        const arrayBuffer = await archivo.arrayBuffer();
-        const loadingTask = window.pdfjsLib.getDocument({ data: arrayBuffer });
-        const pdfDoc = await loadingTask.promise;
+      reader.onload = async () => {
+        const base64Data = reader.result;
         
-        for (let i = 1; i <= pdfDoc.numPages; i++) {
-          const page = await pdfDoc.getPage(i);
-          const textContent = await page.getTextContent();
-          const pageText = textContent.items.map(item => item.str).join(' ');
-          textoExtraido += " " + pageText;
-        }
-      }
+        try {
+          const res = await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'procesarFacturaConAI',
+              base64: base64Data,
+              mimeType: archivo.type
+            })
+          });
 
-      const textoClean = textoExtraido.replace(/\s+/g, ' ');
-      const textoUpper = textoClean.toUpperCase();
-      const nombreArchivo = archivo.name || '';
-
-      let tipoComp = 'FACTURA A';
-      if (textoUpper.includes('FCE') || textoUpper.includes('CREDITO ELECTRONICA') || textoUpper.includes('MiPyMEs')) {
-        tipoComp = 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
-      } else if (textoUpper.includes('FACTURA B')) {
-        tipoComp = 'FACTURA B';
-      } else if (textoUpper.includes('NOTA DE CREDITO')) {
-        tipoComp = 'NOTA DE CREDITO A';
-      }
-
-      let puntoVenta = '00001';
-      const matchPtoVta = textoClean.match(/(?:Pto\.?\s*Vta\.?|Punto\s*de\s*Venta)[:\s]*(\d{4,5})/i);
-      if (matchPtoVta && matchPtoVta[1]) {
-        puntoVenta = matchPtoVta[1].padStart(5, '0');
-      }
-
-      // 1. Número de Comprobante (Casi en cascada: Nombre -> Etiquetas -> Dígitos válidos)
-      let nComp = '';
-      const matchNameNum = nombreArchivo.match(/_(\d{7,8})[\s_]/) || nombreArchivo.match(/(\d{8})/);
-      if (matchNameNum) {
-        nComp = matchNameNum[1] || matchNameNum[0];
-      }
-
-      if (!nComp) {
-        const matchCompNro = textoClean.match(/(?:Comp\.?\s*Nro\.?|Nro\.?\s*Comprobante|Factura\s*N[°º])[:\s]*(\d{6,8})/i);
-        if (matchCompNro && matchCompNro[1]) {
-          nComp = matchCompNro[1].trim();
-        } else {
-          const matches8 = textoClean.match(/\b\d{8}\b/g) || [];
-          const validos = matches8.filter(n => !n.startsWith('30') && !n.startsWith('33'));
-          if (validos.length > 0) {
-            nComp = validos[0];
+          const textoRespuesta = await res.text();
+          let data;
+          try {
+            data = JSON.parse(textoRespuesta);
+          } catch (parseErr) {
+            throw new Error("El servidor no devolvió un formato JSON válido.");
           }
-        }
-      }
+          
+          if (data.success && !data.error) {
+            let clienteEncontradoId = '';
+            const nombreClienteBusqueda = data.cliente || data.proveedor || '';
+            if (nombreClienteBusqueda && clientes.length > 0) {
+              const cliMatch = clientes.find(c => 
+                (c.razon_social && c.razon_social.toLowerCase().includes(nombreClienteBusqueda.toLowerCase())) ||
+                (c.nombre && c.nombre.toLowerCase().includes(nombreClienteBusqueda.toLowerCase()))
+              );
+              if (cliMatch) clienteEncontradoId = cliMatch.id || cliMatch.ID || cliMatch.Id;
+            }
 
-      // 2. Fecha de Emisión
-      let fechaEmision = new Date().toISOString().split('T')[0];
-      const matchFechaEmision = textoClean.match(/(?:Fecha\s*de\s*Emisi[oó]n|Emisi[oó]n)[:\s]*(\d{2})[\/](\d{2})[\/](\d{4})/i);
-      if (matchFechaEmision) {
-        fechaEmision = `${matchFechaEmision[3]}-${matchFechaEmision[2]}-${matchFechaEmision[1]}`;
-      } else {
-        const anyFecha = textoClean.match(/\b(0[1-9]|[12]\d|3[01])[\/](0[1-9]|1[0-2])[\/](\d{4})\b/);
-        if (anyFecha) fechaEmision = `${anyFecha[3]}-${anyFecha[2]}-${anyFecha[1]}`;
-      }
+            const nCompDetectado = data.n_factura || data.numero_factura || data.nro_factura || data.numero_comp || '';
+            let ptoVtaDetectado = '00001';
+            let nCompLimpio = nCompDetectado;
 
-      // 3. Fecha de Vencimiento
-      let fechaVencimiento = '';
-      const matchFechaVto = textoClean.match(/(?:Vto\.?\s*(?:para\s*el\s*)?pago|Vencimiento)[:\s]*(\d{2})[\/](\d{2})[\/](\d{4})/i);
-      if (matchFechaVto) {
-        fechaVencimiento = `${matchFechaVto[3]}-${matchFechaVto[2]}-${matchFechaVto[1]}`;
-      }
+            if (nCompDetectado.includes('-')) {
+              const partes = nCompDetectado.split('-');
+              if (partes.length >= 2) {
+                ptoVtaDetectado = partes[0].trim().padStart(5, '0');
+                nCompLimpio = partes[1].trim();
+              }
+            }
 
-      // 4. Cliente (Receptor)
-      let clienteDetectadoId = '';
-      const clienteEncontrado = clientes.find(c => {
-        const razonSocial = String(c.razon_social || c.nombre || '').toUpperCase();
-        const razonSimple = razonSocial.replace(/ S\.A\.| S\.R\.L\.| SA| SRL/g, '').trim();
-        return razonSimple && !razonSimple.includes('SOLVENCIAS') && (textoUpper.includes(razonSimple) || textoUpper.includes(razonSocial));
-      });
+            const netoVal = Number(data.subtotal || data.neto) || 0;
+            const ivaVal = Number(data.iva_21 || data.iva) || (netoVal * 0.21);
+            const totalVal = Number(data.total) || (netoVal + ivaVal);
+            const descItem = data.concepto || data.descripcion || `Factura N° ${nCompLimpio || '---'}`;
 
-      if (clienteEncontrado) {
-        clienteDetectadoId = clienteEncontrado.id || clienteEncontrado.ID;
-      } else if (textoUpper.includes('BASF')) {
-        const basfCli = clientes.find(c => String(c.razon_social || c.nombre || '').toUpperCase().includes('BASF'));
-        if (basfCli) clienteDetectadoId = basfCli.id || basfCli.ID;
-      }
+            setFormDataVenta(prev => ({
+              ...prev,
+              punto_venta: ptoVtaDetectado,
+              numero_comp: nCompLimpio || prev.numero_comp,
+              cliente_id: clienteEncontradoId || prev.cliente_id,
+              fecha_emision: formatearFechaParaInput(data.fecha || data.Fecha || data.FECHA) || prev.fecha_emision,
+              fecha_vencimiento: formatearFechaParaInput(data.vencimiento || data.Vencimiento || data.VENCIMIENTO) || prev.fecha_vencimiento,
+              neto_gravado: netoVal || prev.neto_gravado,
+              iva_21: ivaVal || prev.iva_21,
+              total: totalVal || prev.total,
+              archivo_url: archivo.name,
+              items: [
+                {
+                  id: Date.now(),
+                  descripcion: descItem,
+                  cantidad: 1,
+                  precio_unitario: netoVal || prev.neto_gravado,
+                  subtotal: netoVal || prev.neto_gravado
+                }
+              ]
+            }));
 
-      // 5. Concepto / Ítem con respaldo dinámico
-      let descripcionItem = `Factura N° ${nComp || '---'}`;
-      const matchItemOC = textoClean.match(/(O\.C\.[\d:]+\s*H\.S\.?[\d:]+|Orden\s*de\s*Compra[^\b]+)/i);
-      if (matchItemOC) {
-        descripcionItem = matchItemOC[1];
-      } else {
-        const matchServicio = textoClean.match(/(Servicios?|Honorarios?|Certificaci[oó]n|Obras?|Trabajos?)[^,;\.\d]{3,40}/i);
-        if (matchServicio) {
-          descripcionItem = matchServicio[0].trim();
-        }
-      }
+            setIsFacturaVentaModalOpen(false);
+            // Abrimos directamente el formulario de factura de venta con los datos ya cargados por la IA
+            const modalFormEl = document.getElementById('modal-factura-venta-form');
+            if (modalFormEl) modalFormEl.style.display = 'block';
+            
+            // Forzar apertura del modal en paso formulario
+            setPasoFacturaVenta('formulario');
+            setIsFacturaVentaModalOpen(true);
 
-      // 6. Importes
-      const extraerMontoEtiqueta = (keywords) => {
-        for (let kw of keywords) {
-          const regex = new RegExp(kw + `[^\\d]*([\\d\\.]+[,\\d{2}]*)`, 'i');
-          const match = textoClean.match(regex);
-          if (match && match[1]) {
-            const limpio = parseFloat(match[1].replace(/\./g, '').replace(',', '.'));
-            if (!isNaN(limpio) && limpio > 0) return limpio;
+          } else {
+            alert("Error de IA: " + (data.error || "No se pudieron extraer los datos."));
           }
+        } catch (fetchErr) {
+          console.error("Error en el fetch:", fetchErr);
+          alert("Error de conexión con el servidor.");
+        } finally {
+          setLeyendoFactura(false);
+          e.target.value = "";
         }
-        return 0;
       };
 
-      let neto = extraerMontoEtiqueta(['IMPORTE NETO GRAVADO', 'NETO GRAVADO', 'SUBTOTAL', 'NETO']);
-      let iva = extraerMontoEtiqueta(['IVA 21%', 'IVA 21', 'IVA', 'CREDITO FISCAL']);
-      let total = extraerMontoEtiqueta(['IMPORTE TOTAL', 'TOTAL A PAGAR', 'TOTAL']);
-
-      if (total === 0 && neto > 0) {
-        iva = iva > 0 ? iva : Math.round(neto * 0.21 * 100) / 100;
-        total = neto + iva;
-      } else if (total > 0 && neto === 0) {
-        neto = Math.round((total / 1.21) * 100) / 100;
-        iva = Math.round((total - neto) * 100) / 100;
-      }
-
-      setFormDataVenta(prev => ({
-        ...prev,
-        archivo_url: archivo.name,
-        tipo_comprobante: tipoComp,
-        punto_venta: puntoVenta,
-        numero_comp: nComp || prev.numero_comp,
-        cliente_id: clienteDetectadoId || prev.cliente_id,
-        fecha_emision: fechaEmision || prev.fecha_emision,
-        fecha_vencimiento: fechaVencimiento || prev.fecha_vencimiento,
-        neto_gravado: neto > 0 ? neto : prev.neto_gravado,
-        iva_21: iva > 0 ? iva : prev.iva_21,
-        total: total > 0 ? total : prev.total,
-        items: [
-          {
-            id: Date.now(),
-            descripcion: descripcionItem,
-            cantidad: 1,
-            precio_unitario: neto > 0 ? neto : prev.neto_gravado,
-            subtotal: neto > 0 ? neto : prev.neto_gravado
-          }
-        ]
-      }));
+      reader.onerror = () => {
+        setLeyendoFactura(false);
+        alert("Error al leer el archivo local.");
+      };
 
     } catch (err) {
-      console.error("Error al leer PDF con parser AFIP:", err);
-      alert("No se pudo leer el PDF automáticamente. Complete los datos manualmente.");
-    } finally {
       setLeyendoFactura(false);
-      setPasoFacturaVenta('formulario');
+      alert("Error inesperado: " + err.message);
     }
   };
 
@@ -1153,12 +1114,12 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* MODAL NUEVA FACTURA DE VENTA */}
+      {/* MODAL NUEVA FACTURA DE VENTA (CON SUBIDA E IA / FORMULARIO) */}
       {isFacturaVentaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-sky-50">
-              <h3 className="font-bold text-sky-900">+ Nueva Factura de Venta</h3>
+              <h3 className="font-bold text-sky-950">+ Nueva Factura de Venta</h3>
               <button onClick={() => setIsFacturaVentaModalOpen(false)} className="text-sky-400 hover:text-sky-700"><X className="w-5 h-5"/></button>
             </div>
             
@@ -1167,11 +1128,11 @@ export default function Tesoreria({
                 {leyendoFactura ? (
                   <div className="py-12 space-y-4">
                     <div className="w-16 h-16 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
-                      <Sparkles className="w-8 h-8 animate-spin" />
+                      <Loader2 className="w-8 h-8 animate-spin" />
                     </div>
                     <div>
-                      <h4 className="text-base font-extrabold text-slate-900">Leyendo y extrayendo datos de la factura...</h4>
-                      <p className="text-xs text-slate-500 mt-1">Detectando número, ítems, neto e IVA automáticamente.</p>
+                      <h4 className="text-base font-extrabold text-slate-900">Analizando factura con Inteligencia Artificial...</h4>
+                      <p className="text-xs text-slate-500 mt-1">Extrayendo número, cliente, fechas, ítems e importes automáticamente.</p>
                     </div>
                   </div>
                 ) : (
@@ -1180,30 +1141,23 @@ export default function Tesoreria({
                       <Upload className="w-8 h-8" />
                     </div>
                     <div>
-                      <h4 className="text-base font-extrabold text-slate-900">Escanear o subir factura de venta</h4>
-                      <p className="text-xs text-slate-500 mt-1">Selecciona el archivo (PDF o imagen) para leerlo y completar el formulario automáticamente.</p>
+                      <h4 className="text-base font-extrabold text-slate-900">Subir factura de venta (IA)</h4>
+                      <p className="text-xs text-slate-500 mt-1">Selecciona el archivo PDF o imagen para leerlo mediante IA y completar el formulario.</p>
                     </div>
 
                     <div className="max-w-md mx-auto space-y-4">
-                      <div className="border-2 border-dashed border-sky-300 rounded-2xl p-6 bg-sky-50/50 hover:bg-sky-50 transition-colors cursor-pointer relative">
+                      <label className="border-2 border-dashed border-sky-300 rounded-2xl p-8 bg-sky-50/50 hover:bg-sky-50 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 block">
+                        <Upload className="w-10 h-10 text-sky-500 mb-1" />
+                        <span className="text-xs font-bold text-sky-900">Haz clic para seleccionar el comprobante</span>
+                        <span className="text-[10px] text-slate-400">Soporta PDF, PNG, JPG (Procesamiento con IA del servidor)</span>
                         <input 
                           type="file" 
                           accept=".pdf,.png,.jpg,.jpeg"
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
-                          onChange={(e) => {
-                            if (e.target.files && e.target.files[0]) {
-                              procesarArchivoFacturaVenta(e.target.files[0]);
-                              e.target.value = '';
-                            }
-                          }}
+                          className="hidden"
+                          onChange={procesarArchivoFacturaVenta}
+                          disabled={leyendoFactura}
                         />
-                        <div className="flex flex-col items-center justify-center gap-1">
-                          <span className="text-xs font-bold text-sky-800">
-                            Haz clic aquí para seleccionar el archivo o arrástralo
-                          </span>
-                          <span className="text-[10px] text-slate-400">Soporta PDF, PNG, JPG (Lectura automática inteligente)</span>
-                        </div>
-                      </div>
+                      </label>
                     </div>
 
                     <div className="flex justify-between items-center pt-4 border-t">
@@ -1213,7 +1167,7 @@ export default function Tesoreria({
                         onClick={() => setPasoFacturaVenta('formulario')} 
                         className="text-xs text-sky-600 font-bold hover:underline"
                       >
-                        O saltar y completar manualmente &rarr;
+                        O completar manualmente &rarr;
                       </button>
                     </div>
                   </>
@@ -1224,8 +1178,8 @@ export default function Tesoreria({
                 <div className="flex items-center justify-between bg-sky-50 p-3 rounded-xl border border-sky-200">
                   <div className="flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-sky-600" />
-                    <span className="text-xs font-bold text-sky-900">
-                      {formDataVenta.archivo_url ? `Factura leída: ${formDataVenta.archivo_url}` : 'Formulario completado manualmente'}
+                    <span className="text-xs font-bold text-sky-950">
+                      {formDataVenta.archivo_url ? `Factura analizada: ${formDataVenta.archivo_url}` : 'Formulario completado manualmente'}
                     </span>
                   </div>
                   <button 
@@ -1250,11 +1204,7 @@ export default function Tesoreria({
                       <option value="NOTA DE CREDITO B">NOTA DE CREDITO B</option>
                       <option value="RECIBO B">RECIBO B</option>
                       <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A</option>
-                      <option value="NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A">NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A</option>
-                      <option value="NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A">NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A</option>
                       <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B</option>
-                      <option value="NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B">NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B</option>
-                      <option value="NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B">NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B</option>
                     </select>
                   </div>
                   <div>
