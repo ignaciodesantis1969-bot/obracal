@@ -27,17 +27,16 @@ export default function Compras({
 
   const [localLoading, setLocalLoading] = useState(false);
 
-  // Formulario Factura Actualizado (con Tipos de Gasto y Rubros)
+  // Formulario Factura Actualizado
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
     tipo: 'Compra',
     comprobante_tipo: 'Factura A',
     n_factura: '',
     proveedor_id: '',
-    obra_id: '',
     presupuesto_id: '',
     tipo_gasto: 'Presupuesto', // 'Presupuesto', 'Gasto Corriente', 'Gasto Extra'
-    rubro: 'Materiales', // 'Materiales', 'Subcontrato', 'Equipo/Maquinaria', 'Gastos Generales', etc.
+    rubro: 'Materiales', // 'Materiales', 'Subcontrato', 'Equipo / Herramienta', 'Gastos Generales', etc.
     detalle_gasto: '',
     fecha: new Date().toISOString().split('T')[0],
     vencimiento: '',
@@ -67,6 +66,13 @@ export default function Compras({
       { id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }
     ]
   });
+
+  // Filtrar solo presupuestos aprobados (con fallback de seguridad)
+  const presupuestosAprobados = presupuestos.filter(pr => {
+    const est = String(pr.estado || pr.Estado || pr.ESTADO || '').toLowerCase();
+    return !est || est.includes('aprobad') || est.includes('aprobado');
+  });
+  const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
@@ -521,7 +527,6 @@ export default function Compras({
               comprobante_tipo: 'Factura A',
               n_factura: '',
               proveedor_id: '',
-              obra_id: '',
               presupuesto_id: '',
               tipo_gasto: 'Presupuesto',
               rubro: 'Materiales',
@@ -587,7 +592,7 @@ export default function Compras({
                 <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                   <th className="px-6 py-4">Código</th>
                   <th className="px-4 py-4">N° Factura</th>
-                  <th className="px-4 py-4">Tipo Gasto</th>
+                  <th className="px-4 py-4">Imputación</th>
                   <th className="px-6 py-4">Proveedor</th>
                   <th className="px-4 py-4">Rubro / Destino</th>
                   <th className="px-4 py-4">Fecha</th>
@@ -803,7 +808,7 @@ export default function Compras({
         </div>
       )}
 
-      {/* MODAL CREAR / EDITAR FACTURA (CON TIPO DE GASTO Y RUBROS) */}
+      {/* MODAL CREAR / EDITAR FACTURA (IMPUTACIÓN EXACTA) */}
       {isFacturaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
@@ -839,44 +844,35 @@ export default function Compras({
                   </select>
                 </div>
 
-                {/* IMUPTACIÓN: TIPO DE GASTO */}
+                {/* TIPO DE GASTO / IMPUTACIÓN PRINCIPAL */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto / Imputación *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Imputación / Destino *</label>
                   <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500" value={formData.tipo_gasto} onChange={(e) => setFormData({...formData, tipo_gasto: e.target.value})}>
-                    <option value="Presupuesto">Presupuesto (Obra)</option>
+                    <option value="Presupuesto">Presupuesto Aprobado</option>
                     <option value="Gasto Corriente">Gasto Corriente</option>
                     <option value="Gasto Extra">Gasto Extra</option>
                   </select>
                 </div>
 
-                {/* SI ES PRESUPUESTO, MOSTRAR SELECTOR DE PRESUPUESTO Y OBRA */}
+                {/* SI ES PRESUPUESTO: SELECTOR DE PRESUPUESTO APROBADO */}
                 {formData.tipo_gasto === 'Presupuesto' && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado *</label>
-                      <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
-                        <option value="">Seleccione presupuesto...</option>
-                        {presupuestos.map(pr => <option key={pr.id || pr.ID} value={pr.id || pr.ID}>{pr.codigo} - {pr.nombre}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
-                      <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
-                        <option value="">Seleccione obra...</option>
-                        {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.codigo} - {o.nombre || o.nombre_obra}</option>)}
-                      </select>
-                    </div>
-                  </>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado *</label>
+                    <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
+                      <option value="">Seleccione presupuesto...</option>
+                      {listaPresupuestosFinal.map(pr => <option key={pr.id || pr.ID} value={pr.id || pr.ID}>{pr.codigo} - {pr.nombre}</option>)}
+                    </select>
+                  </div>
                 )}
 
-                {/* RUBRO PARTICULAR */}
+                {/* RUBRO DEL PRESUPUESTO O GASTOS GENERALES */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro / Destino *</label>
                   <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.rubro} onChange={(e) => setFormData({...formData, rubro: e.target.value})}>
                     <option value="Materiales">Materiales</option>
                     <option value="Subcontrato">Subcontrato</option>
-                    <option value="Equipo/Maquinaria">Equipo / Maquinaria</option>
-                    <option value="Gastos Generales">Gastos Generales</option>
+                    <option value="Equipo / Herramienta">Equipo / Herramienta</option>
+                    <option value="Gastos Generales">Gastos Generales (del Presupuesto)</option>
                     <option value="Otros">Otros</option>
                   </select>
                 </div>
