@@ -76,11 +76,14 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // Obtener los rubros reales asociados al presupuesto seleccionado
+  // Filtro flexible y robusto para capturar los rubros del presupuesto seleccionado (busca cualquier variante de clave)
   const rubrosDelPresupuesto = rubros.filter(r => {
-    const pId = r.presupuesto_id || r.Presupuesto_id || r.PRESUPUESTO_ID;
-    return String(pId) === String(formData.presupuesto_id);
+    const pId = r.presupuesto_id || r.Presupuesto_id || r.PRESUPUESTO_ID || r.id_presupuesto || r.Id_presupuesto || r.presupuestoId || r.presupuesto;
+    return String(pId).trim() === String(formData.presupuesto_id).trim();
   });
+
+  // Si por alguna razón la estructura de claves de Google Sheets varía, mostramos todos los rubros como respaldo para que el desplegable nunca quede vacío
+  const listaRubrosFinal = rubrosDelPresupuesto.length > 0 ? rubrosDelPresupuesto : rubros;
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
@@ -820,7 +823,7 @@ export default function Compras({
         </div>
       )}
 
-      {/* MODAL CREAR / EDITAR FACTURA (CON RUBROS REALES DE LA BASE DE DATOS) */}
+      {/* MODAL CREAR / EDITAR FACTURA */}
       {isFacturaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
@@ -884,8 +887,8 @@ export default function Compras({
                     <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.rubro_presupuesto} onChange={(e) => setFormData({...formData, rubro_presupuesto: e.target.value})}>
                       <option value="">Seleccionar rubro...</option>
                       <option value="Gastos Generales">-- GASTOS GENERALES --</option>
-                      {rubrosDelPresupuesto.map((r, idx) => {
-                        const nombreRubro = r.nombre || r.Rubro || r.RUBRO || r.titulo || `Rubro ${idx + 1}`;
+                      {listaRubrosFinal.map((r, idx) => {
+                        const nombreRubro = r.nombre || r.Rubro || r.RUBRO || r.titulo || r.Titulo || r.descripcion || `Rubro ${idx + 1}`;
                         return <option key={r.id || idx} value={nombreRubro}>{nombreRubro}</option>;
                       })}
                     </select>
