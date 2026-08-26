@@ -238,7 +238,7 @@ export default function Tesoreria({
     }));
   };
 
-  // Lector Factura con IA del Backend mejorado para capturar descripciones y montos limpios
+  // Lector Factura con IA del Backend con la tabla especificada
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -263,6 +263,7 @@ export default function Tesoreria({
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'procesarFacturaConAI',
+              tabla: 'FacturasVenta', // <--- Se añade explícitamente para evitar el error 'undefined'
               base64: base64Data,
               mimeType: archivo.type
             })
@@ -303,7 +304,6 @@ export default function Tesoreria({
             const ivaVal = Number(data.iva_21 || data.iva) || (netoVal * 0.21);
             const totalVal = Number(data.total) || (netoVal + ivaVal);
             
-            // Extracción robusta de descripción/concepto desde la IA o ítems
             let descItem = `Factura N° ${nCompLimpio || '---'}`;
             if (data.items && Array.isArray(data.items) && data.items.length > 0 && data.items[0].descripcion) {
               descItem = data.items[0].descripcion;
