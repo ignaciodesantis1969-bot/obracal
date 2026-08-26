@@ -22,7 +22,10 @@ export default function Tesoreria({
   const [isFacturaVentaModalOpen, setIsFacturaVentaModalOpen] = useState(false);
   const [pasoFacturaVenta, setPasoFacturaVenta] = useState('subir'); // 'subir' | 'formulario'
   const [leyendoFactura, setLeyendoFactura] = useState(false);
-  const [archivoBase64Venta, setArchivoBase64Venta] = useState(''); // Estado para almacenar el Base64 del archivo
+  
+  // Estados para manejar el archivo adjunto en Base64 para Google Drive
+  const [archivoBase64Venta, setArchivoBase64Venta] = useState('');
+  const [nombreArchivoVenta, setNombreArchivoVenta] = useState('');
 
   const [formData, setFormData] = useState({
     tipo: 'Egreso',
@@ -178,10 +181,10 @@ export default function Tesoreria({
   };
 
   const totalRetenciones = Number(formData.retencion_suss || 0) + 
-                            Number(formData.retencion_iva || 0) + 
-                            Number(formData.retencion_ganancias || 0) + 
-                            Number(formData.retencion_iibb_pba || 0) + 
-                            Number(formData.retencion_iibb_caba || 0);
+                           Number(formData.retencion_iva || 0) + 
+                           Number(formData.retencion_ganancias || 0) + 
+                           Number(formData.retencion_iibb_pba || 0) + 
+                           Number(formData.retencion_iibb_caba || 0);
 
   const montoBrutoFacturas = Number(formData.monto || 0);
   const montoNetoEfectivo = Math.max(0, montoBrutoFacturas - totalRetenciones);
@@ -250,6 +253,7 @@ export default function Tesoreria({
     if (!archivo) return;
 
     setLeyendoFactura(true);
+    setNombreArchivoVenta(archivo.name);
     
     try {
       const reader = new FileReader();
@@ -257,7 +261,7 @@ export default function Tesoreria({
       
       reader.onload = async () => {
         const base64Data = reader.result;
-        setArchivoBase64Venta(base64Data); // Guardamos el Base64 completo para enviarlo al backend
+        setArchivoBase64Venta(base64Data); // Guardamos el Base64 completo
         
         try {
           const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -323,7 +327,7 @@ export default function Tesoreria({
               neto_gravado: netoVal || prev.neto_gravado,
               iva_21: ivaVal || prev.iva_21,
               total: totalVal || prev.total,
-              archivo_url: base64Data, // Asignamos el Base64 para que el backend lo suba a Drive
+              archivo_url: base64Data, // Asignamos el base64 de inmediato
               items: [
                 {
                   id: Date.now(),
@@ -452,7 +456,8 @@ export default function Tesoreria({
           action: 'create',
           data: {
             ...formDataVenta,
-            archivo_url: archivoBase64Venta || formDataVenta.archivo_url, // Nos aseguramos de enviar el base64 para que suba a Drive
+            // Forzamos enviar el Base64 real tanto si vino de la IA como del estado almacenado
+            archivo_url: archivoBase64Venta ? archivoBase64Venta : formDataVenta.archivo_url,
             estado_pago: 'pendiente',
             items: JSON.stringify(formDataVenta.items)
           }
@@ -579,7 +584,8 @@ export default function Tesoreria({
         <div className="flex items-center gap-3">
           <button onClick={() => {
             setPasoFacturaVenta('subir');
-            setArchivoBase64Venta(''); // Reiniciamos el base64 al abrir
+            setArchivoBase64Venta('');
+            setNombreArchivoVenta('');
             setFormDataVenta({
               tipo_comprobante: 'FACTURA A',
               punto_venta: '00001',
@@ -1106,230 +1112,230 @@ export default function Tesoreria({
                           </td>
                         </tr>
                       ))}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-              <button type="submit" className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm">Registrar</button>
-            </div>
-          </form>
-        </div>
-      </div>
-    )}
-
-    {/* MODAL NUEVA FACTURA DE VENTA (CON SUBIDA E IA / FORMULARIO) */}
-    {isFacturaVentaModalOpen && (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-        <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
-          <div className="flex justify-between items-center px-6 py-4 border-b bg-sky-50">
-            <h3 className="font-bold text-sky-950">+ Nueva Factura de Venta</h3>
-            <button onClick={() => setIsFacturaVentaModalOpen(false)} className="text-sky-400 hover:text-sky-700"><X className="w-5 h-5"/></button>
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                <button type="submit" className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm">Registrar</button>
+              </div>
+            </form>
           </div>
-          
-          {pasoFacturaVenta === 'subir' ? (
-            <div className="p-8 space-y-6 text-center">
-              {leyendoFactura ? (
-                <div className="py-12 space-y-4">
-                  <div className="w-16 h-16 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
-                    <Loader2 className="w-8 h-8 animate-spin" />
-                  </div>
-                  <div>
-                    <h4 className="text-base font-extrabold text-slate-900">Analizando factura con Inteligencia Artificial...</h4>
-                    <p className="text-xs text-slate-500 mt-1">Extrayendo número, cliente, fechas, ítems e importes automáticamente.</p>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="w-16 h-16 bg-sky-50 text-sky-500 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-                    <Upload className="w-8 h-8" />
-                  </div>
-                  <div>
-                    <h4 className="text-base font-extrabold text-slate-900">Subir factura de venta (IA)</h4>
-                    <p className="text-xs text-slate-500 mt-1">Selecciona el archivo PDF o imagen para leerlo mediante IA y completar el formulario.</p>
-                  </div>
+        </div>
+      )}
 
-                  <div className="max-w-md mx-auto space-y-4">
-                    <label className="border-2 border-dashed border-sky-300 rounded-2xl p-8 bg-sky-50/50 hover:bg-sky-50 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 block">
-                      <Upload className="w-10 h-10 text-sky-500 mb-1" />
-                      <span className="text-xs font-bold text-sky-900">Haz clic para seleccionar el comprobante</span>
-                      <span className="text-[10px] text-slate-400">Soporta PDF, PNG, JPG (Procesamiento con IA del servidor)</span>
-                      <input 
-                        type="file" 
-                        accept=".pdf,.png,.jpg,.jpeg"
-                        className="hidden"
-                        onChange={procesarArchivoFacturaVenta}
-                        disabled={leyendoFactura}
-                      />
-                    </label>
-                  </div>
-
-                  <div className="flex justify-between items-center pt-4 border-t">
-                    <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-                    <button 
-                      type="button" 
-                      onClick={() => setPasoFacturaVenta('formulario')} 
-                      className="text-xs text-sky-600 font-bold hover:underline"
-                    >
-                      O completar manualmente &rarr;
-                    </button>
-                  </div>
-                </>
-              )}
+      {/* MODAL NUEVA FACTURA DE VENTA (CON SUBIDA E IA / FORMULARIO) */}
+      {isFacturaVentaModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-sky-50">
+              <h3 className="font-bold text-sky-950">+ Nueva Factura de Venta</h3>
+              <button onClick={() => setIsFacturaVentaModalOpen(false)} className="text-sky-400 hover:text-sky-700"><X className="w-5 h-5"/></button>
             </div>
-          ) : (
-            <form onSubmit={handleGuardarFacturaVenta} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-              <div className="flex items-center justify-between bg-sky-50 p-3 rounded-xl border border-sky-200">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="w-4 h-4 text-sky-600" />
-                  <span className="text-xs font-bold text-sky-950">
-                    {archivoBase64Venta ? 'Factura analizada y lista para adjuntar' : 'Formulario completado manualmente'}
-                  </span>
-                </div>
-                <button 
-                  type="button" 
-                  onClick={() => setPasoFacturaVenta('subir')} 
-                  className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-800"
-                >
-                  <ArrowLeft className="w-4 h-4" /> Cambiar archivo
-                </button>
-              </div>
+            
+            {pasoFacturaVenta === 'subir' ? (
+              <div className="p-8 space-y-6 text-center">
+                {leyendoFactura ? (
+                  <div className="py-12 space-y-4">
+                    <div className="w-16 h-16 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
+                      <Loader2 className="w-8 h-8 animate-spin" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-extrabold text-slate-900">Analizando factura con Inteligencia Artificial...</h4>
+                      <p className="text-xs text-slate-500 mt-1">Extrayendo número, cliente, fechas, ítems e importes automáticamente.</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="w-16 h-16 bg-sky-50 text-sky-500 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
+                      <Upload className="w-8 h-8" />
+                    </div>
+                    <div>
+                      <h4 className="text-base font-extrabold text-slate-900">Subir factura de venta (IA)</h4>
+                      <p className="text-xs text-slate-500 mt-1">Selecciona el archivo PDF o imagen para leerlo mediante IA y completar el formulario.</p>
+                    </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div className="sm:col-span-3">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Comprobante *</label>
-                  <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 uppercase" value={formDataVenta.tipo_comprobante} onChange={(e) => setFormDataVenta({...formDataVenta, tipo_comprobante: e.target.value})}>
-                    <option value="FACTURA A">FACTURA A</option>
-                    <option value="NOTA DE DEBITO A">NOTA DE DEBITO A</option>
-                    <option value="NOTA DE CREDITO A">NOTA DE CREDITO A</option>
-                    <option value="RECIBO A">RECIBO A</option>
-                    <option value="FACTURA B">FACTURA B</option>
-                    <option value="NOTA DE DEBITO B">NOTA DE DEBITO B</option>
-                    <option value="NOTA DE CREDITO B">NOTA DE CREDITO B</option>
-                    <option value="RECIBO B">RECIBO B</option>
-                    <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A</option>
-                    <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Punto de Venta</label>
-                  <input type="text" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.punto_venta} onChange={(e) => setFormDataVenta({...formDataVenta, punto_venta: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Comp. Nro *</label>
-                  <input type="text" required placeholder="Ej: 00000171" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.numero_comp} onChange={(e) => setFormDataVenta({...formDataVenta, numero_comp: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cliente *</label>
-                  <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({...formDataVenta, cliente_id: e.target.value})}>
-                    <option value="">Seleccione cliente...</option>
-                    {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
-                  </select>
-                </div>
-              </div>
+                    <div className="max-w-md mx-auto space-y-4">
+                      <label className="border-2 border-dashed border-sky-300 rounded-2xl p-8 bg-sky-50/50 hover:bg-sky-50 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 block">
+                        <Upload className="w-10 h-10 text-sky-500 mb-1" />
+                        <span className="text-xs font-bold text-sky-900">Haz clic para seleccionar el comprobante</span>
+                        <span className="text-[10px] text-slate-400">Soporta PDF, PNG, JPG (Procesamiento con IA del servidor)</span>
+                        <input 
+                          type="file" 
+                          accept=".pdf,.png,.jpg,.jpeg"
+                          className="hidden"
+                          onChange={procesarArchivoFacturaVenta}
+                          disabled={leyendoFactura}
+                        />
+                      </label>
+                    </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
-                  <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_emision} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_emision: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Vto. Pago</label>
-                  <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_vencimiento: e.target.value})} />
-                </div>
+                    <div className="flex justify-between items-center pt-4 border-t">
+                      <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                      <button 
+                        type="button" 
+                        onClick={() => setPasoFacturaVenta('formulario')} 
+                        className="text-xs text-sky-600 font-bold hover:underline"
+                      >
+                        O completar manualmente &rarr;
+                      </button>
+                    </div>
+                  </>
+                )}
               </div>
-
-              <div className="space-y-3 pt-4 border-t">
-                <div className="flex justify-between items-center">
-                  <h4 className="font-extrabold text-xs uppercase text-slate-800">Detalle de Conceptos / Ítems</h4>
-                  <button type="button" onClick={handleAgregarItemVenta} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-xs font-bold transition-colors">
-                    <Plus className="w-3.5 h-3.5" /> Agregar Ítem
+            ) : (
+              <form onSubmit={handleGuardarFacturaVenta} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+                <div className="flex items-center justify-between bg-sky-50 p-3 rounded-xl border border-sky-200">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-sky-600" />
+                    <span className="text-xs font-bold text-sky-950">
+                      {archivoBase64Venta ? `Factura analizada (${nombreArchivoVenta || 'Adjunta'})` : 'Formulario completado manualmente'}
+                    </span>
+                  </div>
+                  <button 
+                    type="button" 
+                    onClick={() => setPasoFacturaVenta('subir')} 
+                    className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-800"
+                  >
+                    <ArrowLeft className="w-4 h-4" /> Cambiar archivo
                   </button>
                 </div>
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
-                        <th className="px-3 py-2.5">Descripción / Producto / Servicio</th>
-                        <th className="px-3 py-2.5 w-20 text-center">Cant.</th>
-                        <th className="px-3 py-2.5 w-28 text-right">P. Unitario</th>
-                        <th className="px-3 py-2.5 w-36 text-right">Subtotal</th>
-                        <th className="px-3 py-2.5 w-12 text-center">Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {formDataVenta.items.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2">
-                            <input 
-                              type="text" 
-                              placeholder="Detalle del concepto..." 
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-sky-500"
-                              value={item.descripcion}
-                              onChange={(e) => handleCambiarItemVenta(item.id, 'descripcion', e.target.value)}
-                            />
-                          </td>
-                          <td className="px-3 py-2">
-                            <input 
-                              type="number" 
-                              step="0.01" 
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-sky-500"
-                              value={item.cantidad}
-                              onChange={(e) => handleCambiarItemVenta(item.id, 'cantidad', e.target.value)}
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <input 
-                              type="number" 
-                              step="0.01" 
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-sky-500"
-                              value={item.precio_unitario}
-                              onChange={(e) => handleCambiarItemVenta(item.id, 'precio_unitario', e.target.value)}
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-right font-black text-slate-900 whitespace-nowrap">
-                            $ {Number(item.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <button type="button" onClick={() => handleQuitarItemVenta(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button>
-                          </td>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="sm:col-span-3">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Comprobante *</label>
+                    <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 uppercase" value={formDataVenta.tipo_comprobante} onChange={(e) => setFormDataVenta({...formDataVenta, tipo_comprobante: e.target.value})}>
+                      <option value="FACTURA A">FACTURA A</option>
+                      <option value="NOTA DE DEBITO A">NOTA DE DEBITO A</option>
+                      <option value="NOTA DE CREDITO A">NOTA DE CREDITO A</option>
+                      <option value="RECIBO A">RECIBO A</option>
+                      <option value="FACTURA B">FACTURA B</option>
+                      <option value="NOTA DE DEBITO B">NOTA DE DEBITO B</option>
+                      <option value="NOTA DE CREDITO B">NOTA DE CREDITO B</option>
+                      <option value="RECIBO B">RECIBO B</option>
+                      <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A</option>
+                      <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Punto de Venta</label>
+                    <input type="text" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.punto_venta} onChange={(e) => setFormDataVenta({...formDataVenta, punto_venta: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Comp. Nro *</label>
+                    <input type="text" required placeholder="Ej: 00000171" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.numero_comp} onChange={(e) => setFormDataVenta({...formDataVenta, numero_comp: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cliente *</label>
+                    <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({...formDataVenta, cliente_id: e.target.value})}>
+                      <option value="">Seleccione cliente...</option>
+                      {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
+                    <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_emision} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_emision: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Vto. Pago</label>
+                    <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_vencimiento: e.target.value})} />
+                  </div>
+                </div>
+
+                <div className="space-y-3 pt-4 border-t">
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-extrabold text-xs uppercase text-slate-800">Detalle de Conceptos / Ítems</h4>
+                    <button type="button" onClick={handleAgregarItemVenta} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-xs font-bold transition-colors">
+                      <Plus className="w-3.5 h-3.5" /> Agregar Ítem
+                    </button>
+                  </div>
+                  <div className="border border-slate-200 rounded-xl overflow-hidden">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                          <th className="px-3 py-2.5">Descripción / Producto / Servicio</th>
+                          <th className="px-3 py-2.5 w-20 text-center">Cant.</th>
+                          <th className="px-3 py-2.5 w-28 text-right">P. Unitario</th>
+                          <th className="px-3 py-2.5 w-36 text-right">Subtotal</th>
+                          <th className="px-3 py-2.5 w-12 text-center">Acción</th>
                         </tr>
-                      ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {formDataVenta.items.map((item) => (
+                          <tr key={item.id} className="hover:bg-slate-50">
+                            <td className="px-3 py-2">
+                              <input 
+                                type="text" 
+                                placeholder="Detalle del concepto..." 
+                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-sky-500"
+                                value={item.descripcion}
+                                onChange={(e) => handleCambiarItemVenta(item.id, 'descripcion', e.target.value)}
+                              />
+                            </td>
+                            <td className="px-3 py-2">
+                              <input 
+                                type="number" 
+                                step="0.01" 
+                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-sky-500"
+                                value={item.cantidad}
+                                onChange={(e) => handleCambiarItemVenta(item.id, 'cantidad', e.target.value)}
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <input 
+                                type="number" 
+                                step="0.01" 
+                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-sky-500"
+                                value={item.precio_unitario}
+                                onChange={(e) => handleCambiarItemVenta(item.id, 'precio_unitario', e.target.value)}
+                              />
+                            </td>
+                            <td className="px-3 py-2 text-right font-black text-slate-900 whitespace-nowrap">
+                              $ {Number(item.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-3 py-2 text-center">
+                              <button type="button" onClick={() => handleQuitarItemVenta(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Neto Gravado ($)</label>
-                <input type="number" step="0.01" className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none" value={formDataVenta.neto_gravado} readOnly />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 21% ($)</label>
-                <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500" value={formDataVenta.iva_21} onChange={(e) => {
-                  const iva = Number(e.target.value) || 0;
-                  const total = Number(formDataVenta.neto_gravado) + iva + Number(formDataVenta.otros_tributos);
-                  setFormDataVenta({...formDataVenta, iva_21: iva, total: total});
-                }} />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Total ($)</label>
-                <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
-              </div>
-            </div>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Neto Gravado ($)</label>
+                    <input type="number" step="0.01" className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none" value={formDataVenta.neto_gravado} readOnly />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 21% ($)</label>
+                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500" value={formDataVenta.iva_21} onChange={(e) => {
+                      const iva = Number(e.target.value) || 0;
+                      const total = Number(formDataVenta.neto_gravado) + iva + Number(formDataVenta.otros_tributos);
+                      setFormDataVenta({...formDataVenta, iva_21: iva, total: total});
+                    }} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Total ($)</label>
+                    <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
+                  </div>
+                </div>
 
-            <div className="flex justify-end gap-2 pt-4 border-t">
-              <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-              <button type="submit" className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold shadow-sm">Guardar Factura Venta</button>
-            </div>
-          </form>
-          )}
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
+                  <button type="submit" className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold shadow-sm">Guardar Factura Venta</button>
+                </div>
+              </form>
+            )}
+          </div>
         </div>
-      </div>
-    )}
-  </div>
+      )}
+    </div>
   );
 }
