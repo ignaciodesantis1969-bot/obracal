@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, ExternalLink } from 'lucide-react';
+import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip } from 'lucide-react';
 
 export default function Tesoreria({ 
   GOOGLE_SCRIPT_URL, 
@@ -842,7 +842,7 @@ export default function Tesoreria({
                       <td className="px-4 py-4 font-semibold text-rose-600">{formatearFechaDisplay(f.fecha_vencimiento || f.Fecha_vencimiento || f.vencimiento || f.Vencimiento)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       
-                      {/* COLUMNA ARCHIVO CON EL ICONO EXTERNAL LINK */}
+                      {/* COLUMNA ARCHIVO CON EL ICONO DE CLIP (PAPERCLIP) */}
                       <td className="px-4 py-4 text-center">
                         {urlArchivo && String(urlArchivo).startsWith('http') ? (
                           <a 
@@ -852,7 +852,7 @@ export default function Tesoreria({
                             className="inline-flex items-center justify-center p-1.5 bg-sky-50 text-sky-600 hover:bg-sky-100 rounded-lg transition-colors border border-sky-200 shadow-sm"
                             title="Ver comprobante en Google Drive"
                           >
-                            <ExternalLink className="w-4 h-4" />
+                            <Paperclip className="w-4 h-4" />
                           </a>
                         ) : (
                           <span className="text-slate-300 text-[10px]">Sin archivo</span>
