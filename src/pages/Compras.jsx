@@ -27,16 +27,17 @@ export default function Compras({
 
   const [localLoading, setLocalLoading] = useState(false);
 
-  // Formulario Factura Actualizado
+  // Formulario Factura con Jerarquía de Presupuesto, Rubros e Insumos
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
     tipo: 'Compra',
     comprobante_tipo: 'Factura A',
     n_factura: '',
     proveedor_id: '',
-    presupuesto_id: '',
     tipo_gasto: 'Presupuesto', // 'Presupuesto', 'Gasto Corriente', 'Gasto Extra'
-    rubro: 'Materiales', // 'Materiales', 'Subcontrato', 'Equipo / Herramienta', 'Gastos Generales', etc.
+    presupuesto_id: '',
+    rubro_presupuesto: '', // Ej: 'Demoliciones', 'Escaneo con georadar', etc.
+    tipo_insumo: 'Material', // 'Material', 'Subcontrato', 'Equipo / Herramienta', 'Gastos Generales'
     detalle_gasto: '',
     fecha: new Date().toISOString().split('T')[0],
     vencimiento: '',
@@ -67,12 +68,24 @@ export default function Compras({
     ]
   });
 
-  // Filtrar solo presupuestos aprobados (con fallback de seguridad)
+  // Filtrar solo presupuestos aprobados
   const presupuestosAprobados = presupuestos.filter(pr => {
     const est = String(pr.estado || pr.Estado || pr.ESTADO || '').toLowerCase();
     return !est || est.includes('aprobad') || est.includes('aprobado');
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
+
+  // Obtener rubros del presupuesto seleccionado actualmente
+  const presupuestoSeleccionadoObj = listaPresupuestosFinal.find(pr => String(pr.id || pr.ID) === String(formData.presupuesto_id));
+  
+  // Extraer rubros dinámicamente si vienen en el objeto o usar lista estándar de respaldo
+  let rubrosDisponibles = ['Demoliciones', 'Escaneo con georadar', 'Retiro de aires acondicionados', 'Instalaciones', 'Albañilería', 'Pintura'];
+  if (presupuestoSeleccionadoObj) {
+    // Si el presupuesto tiene rubros estructurados, los extraemos, sino usamos los comunes
+    if (Array.isArray(presupuestoSeleccionadoObj.rubros)) {
+      rubrosDisponibles = presupuestoSeleccionadoObj.rubros.map(r => r.nombre || r.titulo);
+    }
+  }
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
@@ -235,7 +248,8 @@ export default function Compras({
     setFormData({ 
       ...f, 
       tipo_gasto: f.tipo_gasto || f.Tipo_gasto || 'Presupuesto',
-      rubro: f.rubro || f.Rubro || 'Materiales',
+      rubro_presupuesto: f.rubro_presupuesto || f.Rubro_presupuesto || '',
+      tipo_insumo: f.tipo_insumo || f.Tipo_insumo || 'Material',
       detalle_gasto: f.detalle_gasto || f.Detalle_gasto || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
@@ -527,9 +541,10 @@ export default function Compras({
               comprobante_tipo: 'Factura A',
               n_factura: '',
               proveedor_id: '',
-              presupuesto_id: '',
               tipo_gasto: 'Presupuesto',
-              rubro: 'Materiales',
+              presupuesto_id: '',
+              rubro_presupuesto: '',
+              tipo_insumo: 'Material',
               detalle_gasto: '',
               fecha: new Date().toISOString().split('T')[0],
               vencimiento: '',
@@ -594,7 +609,7 @@ export default function Compras({
                   <th className="px-4 py-4">N° Factura</th>
                   <th className="px-4 py-4">Imputación</th>
                   <th className="px-6 py-4">Proveedor</th>
-                  <th className="px-4 py-4">Rubro / Destino</th>
+                  <th className="px-4 py-4">Rubro / Detalle</th>
                   <th className="px-4 py-4">Fecha</th>
                   <th className="px-4 py-4 text-right">Total</th>
                   <th className="px-4 py-4 text-center">Pago</th>
@@ -612,7 +627,9 @@ export default function Compras({
                   const codigoDisplay = f.codigo || f.Codigo || f.CODIGO || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const archivoLink = f.archivo_url || f.Archivo_url || f.archivo || '';
                   const tipoGastoDisplay = f.tipo_gasto || f.Tipo_gasto || 'Presupuesto';
-                  const rubroDisplay = f.rubro || f.Rubro || 'Materiales';
+                  const rubroPresupuesto = f.rubro_presupuesto || f.Rubro_presupuesto || '';
+                  const tipoInsumo = f.tipo_insumo || f.Tipo_insumo || '';
+                  const detalleDisplay = rubroPresupuesto ? `${rubroPresupuesto} (${tipoInsumo})` : (f.rubro || '---');
 
                   return (
                     <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
@@ -620,7 +637,7 @@ export default function Compras({
                       <td className="px-4 py-4 font-semibold text-slate-800">{numeroFacturaDisplay}</td>
                       <td className="px-4 py-4"><span className="px-2 py-0.5 bg-amber-50 text-amber-800 font-bold rounded text-[10px]">{tipoGastoDisplay}</span></td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || f.proveedor || 'Proveedor'}</td>
-                      <td className="px-4 py-4 text-slate-600 font-medium">{rubroDisplay}</td>
+                      <td className="px-4 py-4 text-slate-600 font-medium">{detalleDisplay}</td>
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{estadoPago}</span></td>
@@ -808,7 +825,7 @@ export default function Compras({
         </div>
       )}
 
-      {/* MODAL CREAR / EDITAR FACTURA (IMPUTACIÓN EXACTA) */}
+      {/* MODAL CREAR / EDITAR FACTURA (JERARQUÍA COMPLETA) */}
       {isFacturaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
@@ -844,9 +861,9 @@ export default function Compras({
                   </select>
                 </div>
 
-                {/* TIPO DE GASTO / IMPUTACIÓN PRINCIPAL */}
+                {/* FILTRO 1: TIPO DE GASTO / DESTINO */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Imputación / Destino *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto *</label>
                   <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500" value={formData.tipo_gasto} onChange={(e) => setFormData({...formData, tipo_gasto: e.target.value})}>
                     <option value="Presupuesto">Presupuesto Aprobado</option>
                     <option value="Gasto Corriente">Gasto Corriente</option>
@@ -865,15 +882,25 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* RUBRO DEL PRESUPUESTO O GASTOS GENERALES */}
+                {/* FILTRO 2: RUBRO DEL PRESUPUESTO O GASTOS GENERALES */}
+                {formData.tipo_gasto === 'Presupuesto' && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro del Presupuesto *</label>
+                    <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.rubro_presupuesto} onChange={(e) => setFormData({...formData, rubro_presupuesto: e.target.value})}>
+                      <option value="">Seleccionar rubro...</option>
+                      <option value="Gastos Generales">-- GASTOS GENERALES --</option>
+                      {rubrosDisponibles.map((rub, idx) => <option key={idx} value={rub}>{rub}</option>)}
+                    </select>
+                  </div>
+                )}
+
+                {/* FILTRO 3: TIPO DE INSUMO (MATERIAL, SUBCONTRATO, EQUIPO/HERRAMIENTA) */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro / Destino *</label>
-                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.rubro} onChange={(e) => setFormData({...formData, rubro: e.target.value})}>
-                    <option value="Materiales">Materiales</option>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo *</label>
+                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.tipo_insumo} onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}>
+                    <option value="Material">Material</option>
                     <option value="Subcontrato">Subcontrato</option>
                     <option value="Equipo / Herramienta">Equipo / Herramienta</option>
-                    <option value="Gastos Generales">Gastos Generales (del Presupuesto)</option>
-                    <option value="Otros">Otros</option>
                   </select>
                 </div>
 
