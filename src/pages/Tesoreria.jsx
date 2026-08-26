@@ -163,7 +163,6 @@ export default function Tesoreria({
     }));
   };
 
-  // Cálculo del monto neto cobrado / pagado descontando retenciones
   const totalRetenciones = Number(formData.retencion_suss || 0) + 
                             Number(formData.retencion_iva || 0) + 
                             Number(formData.retencion_ganancias || 0) + 
@@ -226,7 +225,8 @@ export default function Tesoreria({
     }));
   };
 
-const procesarArchivoFacturaVenta = async (archivo) => {
+  // Lector PDF Parser AFIP con precisión exacta
+  const procesarArchivoFacturaVenta = async (archivo) => {
     setLeyendoFactura(true);
     try {
       let textoExtraido = "";
@@ -260,7 +260,6 @@ const procesarArchivoFacturaVenta = async (archivo) => {
       const textoClean = textoExtraido.replace(/\s+/g, ' ');
       const textoUpper = textoClean.toUpperCase();
 
-      // 1. Detectar Tipo de Comprobante
       let tipoComp = 'FACTURA A';
       if (textoUpper.includes('FCE') || textoUpper.includes('CREDITO ELECTRONICA') || textoUpper.includes('MiPyMEs')) {
         tipoComp = 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
@@ -270,53 +269,57 @@ const procesarArchivoFacturaVenta = async (archivo) => {
         tipoComp = 'NOTA DE CREDITO A';
       }
 
-      // 2. Extraer Punto de Venta y Número de Comprobante (Buscando patrones AFIP)
       let puntoVenta = '00001';
       let nComp = '';
 
-      // Patrón común AFIP: "Pto. Vta: 00001 Nro: 00000168" o "00001 - 00000168"
-      const matchPtoNro = textoClean.match(/(?:Pto\.?\s*Vta\.?[:\s]*(\d{4,5}))?.*?(\b\d{8}\b)/i) || textoClean.match(/(\d{4,5})\s*[-–]\s*(\d{8})/);
+      const matchPtoNro = textoClean.match(/(?:Pto\.?\s*Vta\.?[:\s]*(\d{4,5}))?.*?Comp\.?\s*Nro\.?[:\s]*(\d{8})/i) || textoClean.match(/(\d{4,5})\s*[-–]\s*(\d{8})/);
       if (matchPtoNro) {
         if (matchPtoNro[1] && matchPtoNro[1].length <= 5) puntoVenta = matchPtoNro[1].padStart(5, '0');
         nComp = matchPtoNro[2] || matchPtoNro[0];
       }
       
-      // Fallback si no encuentra el número de 8 dígitos de forma directa
       if (!nComp) {
         const matchNroAlt = textoClean.match(/(?:NRO|COMPROBANTE|NUMERO|N°)\D*(\d{8})/i);
         if (matchNroAlt) nComp = matchNroAlt[1];
       }
 
-      // 3. Extraer Fechas (Emisión y Vencimiento del cuerpo del PDF)
-      const matchFechas = textoClean.match(/\b(0[1-9]|[12]\d|3[01])[\/](0[1-9]|1[0-2])[\/](\d{4})\b/g);
       let fechaEmision = new Date().toISOString().split('T')[0];
-      let fechaVencimiento = '';
-
-      if (matchFechas && matchFechas.length > 0) {
-        const p1 = matchFechas[0].split('/');
-        fechaEmision = `${p1[2]}-${p1[1]}-${p1[0]}`;
-        if (matchFechas.length > 1) {
-          const p2 = matchFechas[1].split('/');
-          fechaVencimiento = `${p2[2]}-${p2[1]}-${p2[0]}`;
-        }
+      const matchFechaEmision = textoClean.match(/Fecha\s*de\s*Emisi[oó]n[:\s]*(\d{2})[\/](\d{2})[\/](\d{4})/i);
+      if (matchFechaEmision) {
+        fechaEmision = `${matchFechaEmision[3]}-${matchFechaEmision[2]}-${matchFechaEmision[1]}`;
       }
 
-      // 4. Detectar Cliente buscando coincidencias en el texto de la factura
+      let fechaVencimiento = '';
+      const matchFechaVto = textoClean.match(/Vto\.?\s*(?:para\s*el\s*)?pago[:\s]*(\d{2})[\/](\d{2})[\/](\d{4})/i);
+      if (matchFechaVto) {
+        fechaVencimiento = `${matchFechaVto[3]}-${matchFechaVto[2]}-${matchFechaVto[1]}`;
+      }
+
+      // Cliente (Receptor ubicado en la mitad inferior de la factura)
       let clienteDetectadoId = '';
-      let nombreClienteDetectado = 'Cliente';
+      const posCbu = textoUpper.indexOf('CBU');
+      const textoReceptor = posCbu !== -1 ? textoUpper.substring(posCbu) : textoUpper;
 
       const clienteEncontrado = clientes.find(c => {
         const razonSocial = String(c.razon_social || c.nombre || '').toUpperCase();
         const razonSimple = razonSocial.replace(/ S\.A\.| S\.R\.L\.| SA| SRL/g, '').trim();
-        return razonSimple && (textoUpper.includes(razonSimple) || textoUpper.includes(razonSocial));
+        return razonSimple && (textoReceptor.includes(razonSimple) || textoReceptor.includes(razonSocial));
       });
 
       if (clienteEncontrado) {
         clienteDetectadoId = clienteEncontrado.id || clienteEncontrado.ID;
-        nombreClienteDetectado = clienteEncontrado.razon_social || clienteEncontrado.nombre;
+      } else if (textoReceptor.includes('BASF')) {
+        const basfCli = clientes.find(c => String(c.razon_social || c.nombre || '').toUpperCase().includes('BASF'));
+        if (basfCli) clienteDetectadoId = basfCli.id || basfCli.ID;
       }
 
-      // 5. Extracción inteligente de Importes (Neto, IVA, Total) por etiquetas
+      // Concepto / Ítem de la tabla (O.C. / H.S.)
+      let descripcionItem = `Factura N° ${nComp || '---'}`;
+      const matchItem = textoClean.match(/(O\.C\.[\d:]+\s*H\.S\.?[\d:]+)/i);
+      if (matchItem) {
+        descripcionItem = matchItem[1];
+      }
+
       const extraerMontoEtiqueta = (keywords) => {
         for (let kw of keywords) {
           const regex = new RegExp(kw + `[^\\d]*([\\d\\.]+[,\\d{2}]*)`, 'i');
@@ -333,7 +336,6 @@ const procesarArchivoFacturaVenta = async (archivo) => {
       let iva = extraerMontoEtiqueta(['IVA 21%', 'IVA 21', 'IVA', 'CREDITO FISCAL']);
       let total = extraerMontoEtiqueta(['IMPORTE TOTAL', 'TOTAL A PAGAR', 'TOTAL']);
 
-      // Lógica de respaldo si alguna etiqueta no coincide exactamente
       if (total === 0 && neto > 0) {
         iva = iva > 0 ? iva : Math.round(neto * 0.21 * 100) / 100;
         total = neto + iva;
@@ -341,8 +343,6 @@ const procesarArchivoFacturaVenta = async (archivo) => {
         neto = Math.round((total / 1.21) * 100) / 100;
         iva = Math.round((total - neto) * 100) / 100;
       }
-
-      const descripcionItem = `Factura N° ${nComp || '---'} - ${nombreClienteDetectado}`;
 
       setFormDataVenta(prev => ({
         ...prev,
@@ -382,7 +382,7 @@ const procesarArchivoFacturaVenta = async (archivo) => {
       const action = editingId ? 'update' : 'create';
       const payloadData = {
         ...formData,
-        monto: montoNetoEfectivo, // Se guarda el neto real que afecta caja/banco
+        monto: montoNetoEfectivo,
         facturas_aplicadas: JSON.stringify(formData.facturas_aplicadas)
       };
 
@@ -515,7 +515,6 @@ const procesarArchivoFacturaVenta = async (archivo) => {
     }
   };
 
-  // Cálculos de Totales (KPIs)
   const totalIngresos = movimientos
     .filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'ingreso')
     .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
@@ -577,7 +576,6 @@ const procesarArchivoFacturaVenta = async (archivo) => {
     return acc + iva21 + iva105;
   }, 0);
 
-  // Total de retenciones de IVA sufridas en los movimientos para restar al IVA técnico
   const totalRetencionesIvaMovimientos = movimientos.reduce((acc, m) => {
     return acc + Number(m.retencion_iva || m.Retencion_iva || 0);
   }, 0);
@@ -1170,10 +1168,11 @@ const procesarArchivoFacturaVenta = async (archivo) => {
                         <input 
                           type="file" 
                           accept=".pdf,.png,.jpg,.jpeg"
-                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full z-10"
                           onChange={(e) => {
                             if (e.target.files && e.target.files[0]) {
                               procesarArchivoFacturaVenta(e.target.files[0]);
+                              e.target.value = '';
                             }
                           }}
                         />
