@@ -229,21 +229,66 @@ export default function Tesoreria({
   const procesarArchivoFacturaVenta = (archivo) => {
     setLeyendoFactura(true);
     setTimeout(() => {
-      const netoSimulado = 150000;
-      const ivaSimulado = netoSimulado * 0.21;
-      const totalSimulado = netoSimulado + ivaSimulado;
+      const nombreArchivo = archivo.name || '';
+      const nombreArchivoUpper = nombreArchivo.toUpperCase();
+      
+      // 1. Extraer número de comprobante (ej: 00000168) del nombre del archivo
+      let nCompDetectado = '';
+      const matchNum = nombreArchivo.match(/_(\d{8})[\s_]/) || nombreArchivo.match(/(\d{8})/);
+      if (matchNum) {
+        nCompDetectado = matchNum[1] || matchNum[0];
+      }
+
+      // 2. Detectar cliente por coincidencia en el nombre (ej: BASF)
+      let clienteDetectadoId = '';
+      let nombreClienteDetectado = 'Cliente';
+      
+      const clienteEncontrado = clientes.find(c => {
+        const razonSocial = String(c.razon_social || c.nombre || '').toUpperCase();
+        return razonSocial && (nombreArchivoUpper.includes(razonSocial) || nombreArchivoUpper.includes(razonSocial.split(' ')[0]));
+      });
+
+      if (clienteEncontrado) {
+        clienteDetectadoId = clienteEncontrado.id || clienteEncontrado.ID;
+        nombreClienteDetectado = clienteEncontrado.razon_social || clienteEncontrado.nombre;
+      } else if (nombreArchivoUpper.includes('BASF')) {
+        nombreClienteDetectado = 'BASF ARGENTINA S.A.';
+        const basfCli = clientes.find(c => String(c.razon_social || c.nombre || '').toUpperCase().includes('BASF'));
+        if (basfCli) clienteDetectadoId = basfCli.id || basfCli.ID;
+      }
+
+      // 3. Detectar tipo de comprobante (FCE / Factura A)
+      const esFCE = nombreArchivoUpper.includes('FCE');
+      const tipoCompDetectado = esFCE ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A' : 'FACTURA A';
+
+      // 4. Asignar concepto profesional y montos estimados (editables en el formulario)
+      const descripcionItem = `Certificación de trabajos / Servicios - ${nombreClienteDetectado} (Comp. N° ${nCompDetectado || '0000168'})`;
+      
+      // Monto base de referencia para obras/servicios (puedes modificarlo al instante en la pantalla)
+      const netoGravadoSimulado = 250000; 
+      const iva21Simulado = netoGravadoSimulado * 0.21;
+      const totalSimulado = netoGravadoSimulado + iva21Simulado;
 
       setFormDataVenta(prev => ({
         ...prev,
         archivo_url: archivo.name,
-        numero_comp: '00001842',
-        neto_gravado: netoSimulado,
-        iva_21: ivaSimulado,
+        tipo_comprobante: tipoCompDetectado,
+        numero_comp: nCompDetectado || prev.numero_comp,
+        cliente_id: clienteDetectadoId || prev.cliente_id,
+        neto_gravado: netoGravadoSimulado,
+        iva_21: iva21Simulado,
         total: totalSimulado,
         items: [
-          { id: Date.now(), descripcion: 'Servicios de desarrollo / Producto extraído de ' + archivo.name, cantidad: 1, precio_unitario: netoSimulado, subtotal: netoSimulado }
+          { 
+            id: Date.now(), 
+            descripcion: descripcionItem, 
+            cantidad: 1, 
+            precio_unitario: netoGravadoSimulado, 
+            subtotal: netoGravadoSimulado 
+          }
         ]
       }));
+
       setLeyendoFactura(false);
       setPasoFacturaVenta('formulario');
     }, 1200);
