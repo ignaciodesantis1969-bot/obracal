@@ -9,6 +9,7 @@ export default function Compras({
   obras = [], 
   presupuestos = [], 
   insumosList = [], 
+  rubros = [], 
   cargarDatos 
 }) {
   const [activeTab, setActiveTab] = useState('facturas');
@@ -27,7 +28,7 @@ export default function Compras({
 
   const [localLoading, setLocalLoading] = useState(false);
 
-  // Formulario Factura con Jerarquía de Presupuesto, Rubros e Insumos
+  // Formulario Factura
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
     tipo: 'Compra',
@@ -36,8 +37,8 @@ export default function Compras({
     proveedor_id: '',
     tipo_gasto: 'Presupuesto', // 'Presupuesto', 'Gasto Corriente', 'Gasto Extra'
     presupuesto_id: '',
-    rubro_presupuesto: '', // Ej: 'Demoliciones', 'Escaneo con georadar', etc.
-    tipo_insumo: 'Material', // 'Material', 'Subcontrato', 'Equipo / Herramienta', 'Gastos Generales'
+    rubro_presupuesto: '', 
+    tipo_insumo: 'Material', // 'Material', 'Subcontrato', 'Equipo / Herramienta'
     detalle_gasto: '',
     fecha: new Date().toISOString().split('T')[0],
     vencimiento: '',
@@ -75,17 +76,11 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // Obtener rubros del presupuesto seleccionado actualmente
-  const presupuestoSeleccionadoObj = listaPresupuestosFinal.find(pr => String(pr.id || pr.ID) === String(formData.presupuesto_id));
-  
-  // Extraer rubros dinámicamente si vienen en el objeto o usar lista estándar de respaldo
-  let rubrosDisponibles = ['Demoliciones', 'Escaneo con georadar', 'Retiro de aires acondicionados', 'Instalaciones', 'Albañilería', 'Pintura'];
-  if (presupuestoSeleccionadoObj) {
-    // Si el presupuesto tiene rubros estructurados, los extraemos, sino usamos los comunes
-    if (Array.isArray(presupuestoSeleccionadoObj.rubros)) {
-      rubrosDisponibles = presupuestoSeleccionadoObj.rubros.map(r => r.nombre || r.titulo);
-    }
-  }
+  // Obtener los rubros reales asociados al presupuesto seleccionado
+  const rubrosDelPresupuesto = rubros.filter(r => {
+    const pId = r.presupuesto_id || r.Presupuesto_id || r.PRESUPUESTO_ID;
+    return String(pId) === String(formData.presupuesto_id);
+  });
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
@@ -172,7 +167,7 @@ export default function Compras({
           try {
             data = JSON.parse(textoRespuesta);
           } catch (parseErr) {
-            throw new Error("El servidor no devolvió un formato JSON válido.");
+            throw new Error("El servidor devolvió HTML o un formato no válido (verifique permisos de Apps Script).");
           }
           
           if (data.success && !data.error) {
@@ -207,7 +202,7 @@ export default function Compras({
           }
         } catch (fetchErr) {
           console.error("Error en el fetch:", fetchErr);
-          alert("Error de conexión con el servidor.");
+          alert("Error de conexión con el servidor: " + fetchErr.message);
         } finally {
           setLocalLoading(false);
           e.target.value = "";
@@ -297,7 +292,7 @@ export default function Compras({
       try {
         data = JSON.parse(textoRespuesta);
       } catch (parseErr) {
-        alert("Error del servidor: " + textoRespuesta.substring(0, 150));
+        alert("Error del servidor (Apps Script devolvió HTML en lugar de JSON). Verifique los permisos de acceso del Apps Script.");
         return;
       }
 
@@ -825,7 +820,7 @@ export default function Compras({
         </div>
       )}
 
-      {/* MODAL CREAR / EDITAR FACTURA (JERARQUÍA COMPLETA) */}
+      {/* MODAL CREAR / EDITAR FACTURA (CON RUBROS REALES DE LA BASE DE DATOS) */}
       {isFacturaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
@@ -861,7 +856,7 @@ export default function Compras({
                   </select>
                 </div>
 
-                {/* FILTRO 1: TIPO DE GASTO / DESTINO */}
+                {/* TIPO DE GASTO / DESTINO */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto *</label>
                   <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500" value={formData.tipo_gasto} onChange={(e) => setFormData({...formData, tipo_gasto: e.target.value})}>
@@ -871,7 +866,7 @@ export default function Compras({
                   </select>
                 </div>
 
-                {/* SI ES PRESUPUESTO: SELECTOR DE PRESUPUESTO APROBADO */}
+                {/* SI ES PRESUPUESTO: SELECCIONAR PRESUPUESTO */}
                 {formData.tipo_gasto === 'Presupuesto' && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado *</label>
@@ -882,19 +877,22 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* FILTRO 2: RUBRO DEL PRESUPUESTO O GASTOS GENERALES */}
+                {/* RUBRO REAL DEL PRESUPUESTO */}
                 {formData.tipo_gasto === 'Presupuesto' && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro del Presupuesto *</label>
                     <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.rubro_presupuesto} onChange={(e) => setFormData({...formData, rubro_presupuesto: e.target.value})}>
                       <option value="">Seleccionar rubro...</option>
                       <option value="Gastos Generales">-- GASTOS GENERALES --</option>
-                      {rubrosDisponibles.map((rub, idx) => <option key={idx} value={rub}>{rub}</option>)}
+                      {rubrosDelPresupuesto.map((r, idx) => {
+                        const nombreRubro = r.nombre || r.Rubro || r.RUBRO || r.titulo || `Rubro ${idx + 1}`;
+                        return <option key={r.id || idx} value={nombreRubro}>{nombreRubro}</option>;
+                      })}
                     </select>
                   </div>
                 )}
 
-                {/* FILTRO 3: TIPO DE INSUMO (MATERIAL, SUBCONTRATO, EQUIPO/HERRAMIENTA) */}
+                {/* TIPO DE INSUMO */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo *</label>
                   <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.tipo_insumo} onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}>
