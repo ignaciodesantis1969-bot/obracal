@@ -238,7 +238,7 @@ export default function Tesoreria({
     }));
   };
 
-  // Lector Factura con IA del Backend (igual que en Compras)
+  // Lector Factura con IA del Backend mejorado para capturar descripciones y montos limpios
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -302,7 +302,14 @@ export default function Tesoreria({
             const netoVal = Number(data.subtotal || data.neto) || 0;
             const ivaVal = Number(data.iva_21 || data.iva) || (netoVal * 0.21);
             const totalVal = Number(data.total) || (netoVal + ivaVal);
-            const descItem = data.concepto || data.descripcion || `Factura N° ${nCompLimpio || '---'}`;
+            
+            // Extracción robusta de descripción/concepto desde la IA o ítems
+            let descItem = `Factura N° ${nCompLimpio || '---'}`;
+            if (data.items && Array.isArray(data.items) && data.items.length > 0 && data.items[0].descripcion) {
+              descItem = data.items[0].descripcion;
+            } else if (data.concepto || data.descripcion) {
+              descItem = data.concepto || data.descripcion;
+            }
 
             setFormDataVenta(prev => ({
               ...prev,
@@ -327,11 +334,6 @@ export default function Tesoreria({
             }));
 
             setIsFacturaVentaModalOpen(false);
-            // Abrimos directamente el formulario de factura de venta con los datos ya cargados por la IA
-            const modalFormEl = document.getElementById('modal-factura-venta-form');
-            if (modalFormEl) modalFormEl.style.display = 'block';
-            
-            // Forzar apertura del modal en paso formulario
             setPasoFacturaVenta('formulario');
             setIsFacturaVentaModalOpen(true);
 
@@ -1249,7 +1251,7 @@ export default function Tesoreria({
                           <th className="px-3 py-2.5">Descripción / Producto / Servicio</th>
                           <th className="px-3 py-2.5 w-20 text-center">Cant.</th>
                           <th className="px-3 py-2.5 w-28 text-right">P. Unitario</th>
-                          <th className="px-3 py-2.5 w-28 text-right">Subtotal</th>
+                          <th className="px-3 py-2.5 w-36 text-right">Subtotal</th>
                           <th className="px-3 py-2.5 w-12 text-center">Acción</th>
                         </tr>
                       </thead>
@@ -1283,7 +1285,7 @@ export default function Tesoreria({
                                 onChange={(e) => handleCambiarItemVenta(item.id, 'precio_unitario', e.target.value)}
                               />
                             </td>
-                            <td className="px-3 py-2 text-right font-black text-slate-900">
+                            <td className="px-3 py-2 text-right font-black text-slate-900 whitespace-nowrap">
                               $ {Number(item.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                             </td>
                             <td className="px-3 py-2 text-center">
