@@ -12,9 +12,12 @@ import { toast } from 'sonner';
 
 const COLORES_TIPO = ['bg-blue-400', 'bg-emerald-400', 'bg-amber-400', 'bg-purple-400', 'bg-rose-400', 'bg-teal-400'];
 
-export default function Planificacion() {
-  const [obras, setObras] = useState([]);
-  const [presupuestos, setPresupuestos] = useState([]);
+export default function Planificacion({ 
+  obras: obrasProp = [], 
+  presupuestos: presupuestosProp = [] 
+}) {
+  const [obras, setObras] = useState(obrasProp);
+  const [presupuestos, setPresupuestos] = useState(presupuestosProp);
   const [tareas, setTareas] = useState([]);
   const [rubros, setRubros] = useState([]);
   const [obraSeleccionada, setObraSeleccionada] = useState('todas');
@@ -24,58 +27,80 @@ export default function Planificacion() {
   const [editForm, setEditForm] = useState({ fecha_inicio_gantt: '', duracion_dias: 1 });
   const [viewStart, setViewStart] = useState(new Date());
 
+  // Cargar obras y presupuestos de forma segura con control de montaje
   useEffect(() => {
-    Promise.all([base44.entities.Obra.list(), base44.entities.Presupuesto.list()])
-      .then(([o, p]) => { 
-        setObras(o || []); 
-        setPresupuestos(p || []); 
+    if (obrasProp.length > 0 && presupuestosProp.length > 0) {
+      setObras(obrasProp);
+      setPresupuestos(presupuestosProp);
+      return;
+    }
+    let isMounted = true;
+    Promise.all([
+      base44?.entities?.Obra?.list ? base44.entities.Obra.list() : Promise.resolve([]),
+      base44?.entities?.Presupuesto?.list ? base44.entities.Presupuesto.list() : Promise.resolve([])
+    ])
+      .then(([o, p]) => {
+        if (!isMounted) return;
+        setObras(o || []);
+        setPresupuestos(p || []);
       })
       .catch(err => console.error("Error cargando obras/presupuestos:", err));
-  }, []);
 
+    return () => { isMounted = false; };
+  }, [obrasProp, presupuestosProp]);
+
+  // Cargar tareas y rubros al seleccionar presupuesto de forma segura
   useEffect(() => {
-    if (!presupuestoSel) { 
-      setTareas([]); 
-      setRubros([]); 
-      return; 
+    if (!presupuestoSel) {
+      setTareas([]);
+      setRubros([]);
+      return;
     }
+    let isMounted = true;
     setLoading(true);
     Promise.all([
-      base44.entities.Tarea.filter({ presupuesto_id: presupuestoSel }),
-      base44.entities.Rubro.filter({ presupuesto_id: presupuestoSel })
+      base44?.entities?.Tarea?.filter ? base44.entities.Tarea.filter({ presupuesto_id: presupuestoSel }) : Promise.resolve([]),
+      base44?.entities?.Rubro?.filter ? base44.entities.Rubro.filter({ presupuesto_id: presupuestoSel }) : Promise.resolve([])
     ])
-      .then(([t, r]) => { 
-        setTareas(t || []); 
-        setRubros(r || []); 
-        setLoading(false); 
+      .then(([t, r]) => {
+        if (!isMounted) return;
+        setTareas(t || []);
+        setRubros(r || []);
+        setLoading(false);
       })
       .catch(err => {
+        if (!isMounted) return;
         console.error("Error cargando tareas/rubros:", err);
         setLoading(false);
       });
+
+    return () => { isMounted = false; };
   }, [presupuestoSel]);
 
-  const presupuestosFiltrados = presupuestos.filter(p => 
-    obraSeleccionada === 'todas' || !obraSeleccionada || String(p.obra_id) === String(obraSeleccionada)
-  );
+  const presupuestosFiltrados = presupuestos.filter(p => {
+    const obraId = p.obra_id || p.Obra_id;
+    return obraSeleccionada === 'todas' || !obraSeleccionada || String(obraId) === String(obraSeleccionada);
+  });
 
-  // Generar días para el encabezado del Gantt (60 días)
   const totalDias = 60;
   const dias = Array.from({ length: totalDias }, (_, i) => addDays(viewStart, i));
 
   const openEditTarea = (t) => {
     setEditTarea(t);
     setEditForm({
-      fecha_inicio_gantt: t.fecha_inicio_gantt ? t.fecha_inicio_gantt.split('T')[0] : format(new Date(), 'yyyy-MM-dd'),
-      duracion_dias: t.duracion_dias || 1
+      fecha_inicio_gantt: t.fecha_inicio_gantt ? String(t.fecha_inicio_gantt).split('T')[0] : format(new Date(), 'yyyy-MM-dd'),
+      duracion_dias: Number(t.duracion_dias) || 1
     });
   };
 
   const handleSaveTarea = async () => {
     if (!editTarea) return;
     try {
-      await base44.entities.Tarea.update(editTarea.id, editForm);
-      setTareas(prev => prev.map(t => t.id === editTarea.id ? { ...t, ...editForm } : t));
+      const tareaId = editTarea.id || editTarea.ID;
+      if (base44?.entities?.Tarea?.update) {
+        await base44.entities.Tarea.update(tareaId, editForm);
+      }
+      setTareas(prev => prev.map(t => (String(t.id || t.ID) === String(tareaId) ? { ...t, ...editForm } : t)));
       toast.success('Tarea actualizada con éxito');
       setEditTarea(null);
     } catch (err) {
@@ -91,13 +116,13 @@ export default function Planificacion() {
       const startOffset = differenceInDays(inicio, viewStart);
       const duracion = Number(tarea.duracion_dias) || 1;
       if (startOffset + duracion < 0 || startOffset > totalDias) return null;
-      return { left: Math.max(0, startOffset), width: duracion, overflowLeft: startOffset < 0 };
+      return { left: Math.max(0, startOffset), width: duracion };
     } catch (e) {
       return null;
     }
   };
 
-  const colWidth = 28; // px por día
+  const colWidth = 28;
 
   return (
     <div className="space-y-5 max-w-7xl mx-auto pb-12">
@@ -117,7 +142,11 @@ export default function Planificacion() {
           <SelectTrigger className="w-56"><SelectValue placeholder="Filtrar por obra..." /></SelectTrigger>
           <SelectContent>
             <SelectItem value="todas">Todas las obras</SelectItem>
-            {obras.map(o => <SelectItem key={o.id} value={o.id}>{o.codigo || 'OBRA'} - {o.nombre}</SelectItem>)}
+            {obras.map(o => (
+              <SelectItem key={o.id || o.ID} value={String(o.id || o.ID)}>
+                {o.codigo || o.Codigo || 'OBRA'} - {o.nombre || o.Nombre}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
 
@@ -127,7 +156,11 @@ export default function Planificacion() {
             {presupuestosFiltrados.length === 0 ? (
               <div className="p-2 text-xs text-slate-400 text-center">No hay presupuestos disponibles</div>
             ) : (
-              presupuestosFiltrados.map(p => <SelectItem key={p.id} value={p.id}>{p.codigo || 'PRES'} - {p.nombre}</SelectItem>)
+              presupuestosFiltrados.map(p => (
+                <SelectItem key={p.id || p.ID} value={String(p.id || p.ID)}>
+                  {p.codigo || p.Codigo || 'PRES'} - {p.nombre || p.Nombre}
+                </SelectItem>
+              ))
             )}
           </SelectContent>
         </Select>
@@ -152,7 +185,7 @@ export default function Planificacion() {
         <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" /></div>
       ) : tareas.length === 0 ? (
         <div className="bg-white rounded-2xl border border-slate-200 py-16 text-center text-slate-400 shadow-sm">
-          <p className="text-sm">No hay tareas registradas en este presupuesto</p>
+          <p className="text-sm text-slate-500">No hay tareas registradas en este presupuesto</p>
         </div>
       ) : (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
@@ -185,25 +218,25 @@ export default function Planificacion() {
 
             {/* Filas */}
             {rubros.map((rub, rubIdx) => {
-              const rubTareas = tareas.filter(t => String(t.rubro_id) === String(rub.id));
+              const rubId = rub.id || rub.ID;
+              const rubTareas = tareas.filter(t => String(t.rubro_id || t.Rubro_id) === String(rubId));
               if (rubTareas.length === 0) return null;
               return (
-                <div key={rub.id}>
-                  {/* Rubro header */}
+                <div key={rubId}>
                   <div className="flex border-b border-slate-200 bg-slate-100/80" style={{ minWidth: `${240 + totalDias * colWidth}px` }}>
                     <div className="w-60 flex-shrink-0 px-4 py-2 font-extrabold text-xs text-slate-800 uppercase tracking-wide border-r border-slate-200">
-                      {rub.nombre}
+                      {rub.nombre || rub.Nombre}
                     </div>
                     <div style={{ width: totalDias * colWidth }} />
                   </div>
-                  {/* Tareas del rubro */}
                   {rubTareas.map((tarea, idx) => {
+                    const tareaId = tarea.id || tarea.ID;
                     const bar = getTareaBar(tarea);
                     const colorIdx = (rubIdx * 3 + idx) % COLORES_TIPO.length;
                     return (
-                      <div key={tarea.id} className="flex border-b border-slate-100 hover:bg-slate-50 group" style={{ minWidth: `${240 + totalDias * colWidth}px` }}>
+                      <div key={tareaId} className="flex border-b border-slate-100 hover:bg-slate-50 group" style={{ minWidth: `${240 + totalDias * colWidth}px` }}>
                         <div className="w-60 flex-shrink-0 px-4 py-2 text-xs text-slate-700 border-r border-slate-100 flex items-center justify-between">
-                          <span className="truncate flex-1 font-medium">{tarea.nombre}</span>
+                          <span className="truncate flex-1 font-medium">{tarea.nombre || tarea.Nombre}</span>
                           <button className="opacity-0 group-hover:opacity-100 text-slate-400 hover:text-amber-600 ml-1 transition-opacity" onClick={() => openEditTarea(tarea)}>
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
@@ -214,7 +247,7 @@ export default function Planificacion() {
                               className={`absolute h-6 rounded-lg ${COLORES_TIPO[colorIdx]} shadow-sm opacity-90 flex items-center px-2 text-white text-[11px] font-bold overflow-hidden cursor-pointer hover:opacity-100 transition-opacity`}
                               style={{ left: bar.left * colWidth, width: Math.max(bar.width * colWidth - 2, colWidth) }}
                               onClick={() => openEditTarea(tarea)}
-                              title={`${tarea.nombre} — ${bar.width} días`}
+                              title={`${tarea.nombre || tarea.Nombre} — ${bar.width} días`}
                             >
                               {bar.width > 1 && <span className="truncate">{bar.width}d</span>}
                             </div>
@@ -223,7 +256,6 @@ export default function Planificacion() {
                               + Programar
                             </button>
                           )}
-                          {/* Línea de hoy */}
                           <div className="absolute top-0 bottom-0 border-l-2 border-amber-500 opacity-50 z-0 pointer-events-none" style={{ left: differenceInDays(new Date(), viewStart) * colWidth }} />
                         </div>
                       </div>
@@ -236,7 +268,6 @@ export default function Planificacion() {
         </div>
       )}
 
-      {/* Leyenda */}
       {presupuestoSel && tareas.length > 0 && (
         <div className="flex gap-6 text-xs text-slate-500 bg-white p-3 rounded-xl border border-slate-200 shadow-sm w-fit">
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-amber-500 inline-block" /> Hoy</span>
@@ -245,13 +276,12 @@ export default function Planificacion() {
         </div>
       )}
 
-      {/* Modal editar tarea (fecha y duración) */}
       <Dialog open={!!editTarea} onOpenChange={() => setEditTarea(null)}>
         <DialogContent className="max-w-sm rounded-2xl">
           <DialogHeader><DialogTitle>Programar Tarea</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div className="bg-slate-50 p-3 rounded-xl border border-slate-200">
-              <p className="font-bold text-slate-800 text-sm">{editTarea?.nombre}</p>
+              <p className="font-bold text-slate-800 text-sm">{editTarea?.nombre || editTarea?.Nombre}</p>
               {editTarea?.horas_mano_obra > 0 && (
                 <p className="text-xs text-slate-500 mt-1">Horas MO estimadas: {editTarea.horas_mano_obra} hs</p>
               )}
