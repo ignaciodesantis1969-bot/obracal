@@ -226,13 +226,12 @@ export default function Tesoreria({
     }));
   };
 
- const procesarArchivoFacturaVenta = async (archivo) => {
+const procesarArchivoFacturaVenta = async (archivo) => {
     setLeyendoFactura(true);
     try {
       let textoExtraido = "";
       
       if (archivo.type === "application/pdf" || archivo.name.toLowerCase().endsWith('.pdf')) {
-        // Cargar PDF.js dinámicamente si no está cargado
         if (!window.pdfjsLib) {
           await new Promise((resolve, reject) => {
             const script = document.createElement('script');
@@ -256,87 +255,107 @@ export default function Tesoreria({
           const pageText = textContent.items.map(item => item.str).join(' ');
           textoExtraido += " " + pageText;
         }
-      } else {
-        textoExtraido = archivo.name;
       }
 
-      const textoUpper = textoExtraido.toUpperCase();
-      const nombreArchivoUpper = archivo.name.toUpperCase();
+      const textoClean = textoExtraido.replace(/\s+/g, ' ');
+      const textoUpper = textoClean.toUpperCase();
 
-      // 1. Extraer número de comprobante de 8 dígitos (ej: 00000168)
-      let nCompDetectado = '';
-      const matchComp = textoExtraido.match(/(?:0*(\d{8}))/);
-      if (matchComp) {
-        nCompDetectado = matchComp[1] || matchComp[0];
-      } else {
-        const matchName = archivo.name.match(/_(\d{8})[\s_]/) || archivo.name.match(/(\d{8})/);
-        if (matchName) nCompDetectado = matchName[1] || matchName[0];
+      // 1. Detectar Tipo de Comprobante
+      let tipoComp = 'FACTURA A';
+      if (textoUpper.includes('FCE') || textoUpper.includes('CREDITO ELECTRONICA') || textoUpper.includes('MiPyMEs')) {
+        tipoComp = 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
+      } else if (textoUpper.includes('FACTURA B')) {
+        tipoComp = 'FACTURA B';
+      } else if (textoUpper.includes('NOTA DE CREDITO')) {
+        tipoComp = 'NOTA DE CREDITO A';
       }
 
-      // 2. Extraer Fechas (Emisión y Vencimiento del PDF)
-      const matchesFechas = textoExtraido.match(/\b(0[1-9]|[12]\d|3[01])[\/\\-](0[1-9]|1[0-2])[\/\\-](\d{4})\b/g);
+      // 2. Extraer Punto de Venta y Número de Comprobante (Buscando patrones AFIP)
+      let puntoVenta = '00001';
+      let nComp = '';
+
+      // Patrón común AFIP: "Pto. Vta: 00001 Nro: 00000168" o "00001 - 00000168"
+      const matchPtoNro = textoClean.match(/(?:Pto\.?\s*Vta\.?[:\s]*(\d{4,5}))?.*?(\b\d{8}\b)/i) || textoClean.match(/(\d{4,5})\s*[-–]\s*(\d{8})/);
+      if (matchPtoNro) {
+        if (matchPtoNro[1] && matchPtoNro[1].length <= 5) puntoVenta = matchPtoNro[1].padStart(5, '0');
+        nComp = matchPtoNro[2] || matchPtoNro[0];
+      }
+      
+      // Fallback si no encuentra el número de 8 dígitos de forma directa
+      if (!nComp) {
+        const matchNroAlt = textoClean.match(/(?:NRO|COMPROBANTE|NUMERO|N°)\D*(\d{8})/i);
+        if (matchNroAlt) nComp = matchNroAlt[1];
+      }
+
+      // 3. Extraer Fechas (Emisión y Vencimiento del cuerpo del PDF)
+      const matchFechas = textoClean.match(/\b(0[1-9]|[12]\d|3[01])[\/](0[1-9]|1[0-2])[\/](\d{4})\b/g);
       let fechaEmision = new Date().toISOString().split('T')[0];
       let fechaVencimiento = '';
 
-      if (matchesFechas && matchesFechas.length > 0) {
-        const p1 = matchesFechas[0].split(/[\/\\-]/);
+      if (matchFechas && matchFechas.length > 0) {
+        const p1 = matchFechas[0].split('/');
         fechaEmision = `${p1[2]}-${p1[1]}-${p1[0]}`;
-        if (matchesFechas.length > 1) {
-          const p2 = matchesFechas[1].split(/[\/\\-]/);
+        if (matchFechas.length > 1) {
+          const p2 = matchFechas[1].split('/');
           fechaVencimiento = `${p2[2]}-${p2[1]}-${p2[0]}`;
         }
       }
 
-      // 3. Detectar cliente (ej: BASF)
+      // 4. Detectar Cliente buscando coincidencias en el texto de la factura
       let clienteDetectadoId = '';
       let nombreClienteDetectado = 'Cliente';
 
       const clienteEncontrado = clientes.find(c => {
         const razonSocial = String(c.razon_social || c.nombre || '').toUpperCase();
-        return razonSocial && (textoUpper.includes(razonSocial) || nombreArchivoUpper.includes(razonSocial));
+        const razonSimple = razonSocial.replace(/ S\.A\.| S\.R\.L\.| SA| SRL/g, '').trim();
+        return razonSimple && (textoUpper.includes(razonSimple) || textoUpper.includes(razonSocial));
       });
 
       if (clienteEncontrado) {
         clienteDetectadoId = clienteEncontrado.id || clienteEncontrado.ID;
         nombreClienteDetectado = clienteEncontrado.razon_social || clienteEncontrado.nombre;
-      } else if (textoUpper.includes('BASF') || nombreArchivoUpper.includes('BASF')) {
-        nombreClienteDetectado = 'BASF ARGENTINA S.A.';
-        const basfCli = clientes.find(c => String(c.razon_social || c.nombre || '').toUpperCase().includes('BASF'));
-        if (basfCli) clienteDetectadoId = basfCli.id || basfCli.ID;
       }
 
-      // 4. Extraer montos reales del texto del PDF
-      const numeros = textoExtraido.match(/\b\d{1,3}(?:\.\d{3})*,\d{2}\b/g) || [];
-      const montosLimpios = numeros.map(n => parseFloat(n.replace(/\./g, '').replace(',', '.'))).filter(n => !isNaN(n) && n > 0);
+      // 5. Extracción inteligente de Importes (Neto, IVA, Total) por etiquetas
+      const extraerMontoEtiqueta = (keywords) => {
+        for (let kw of keywords) {
+          const regex = new RegExp(kw + `[^\\d]*([\\d\\.]+[,\\d{2}]*)`, 'i');
+          const match = textoClean.match(regex);
+          if (match && match[1]) {
+            const limpio = parseFloat(match[1].replace(/\./g, '').replace(',', '.'));
+            if (!isNaN(limpio) && limpio > 0) return limpio;
+          }
+        }
+        return 0;
+      };
 
-      let neto = 0;
-      let iva = 0;
-      let total = 0;
+      let neto = extraerMontoEtiqueta(['IMPORTE NETO GRAVADO', 'NETO GRAVADO', 'SUBTOTAL', 'NETO']);
+      let iva = extraerMontoEtiqueta(['IVA 21%', 'IVA 21', 'IVA', 'CREDITO FISCAL']);
+      let total = extraerMontoEtiqueta(['IMPORTE TOTAL', 'TOTAL A PAGAR', 'TOTAL']);
 
-      if (montosLimpios.length >= 3) {
-        montosLimpios.sort((a, b) => a - b);
-        neto = montosLimpios[0];
-        iva = montosLimpios[1];
-        total = montosLimpios[montosLimpios.length - 1];
-      } else if (montosLimpios.length === 1) {
-        total = montosLimpios[0];
-        neto = Math.round(total / 1.21 * 100) / 100;
+      // Lógica de respaldo si alguna etiqueta no coincide exactamente
+      if (total === 0 && neto > 0) {
+        iva = iva > 0 ? iva : Math.round(neto * 0.21 * 100) / 100;
+        total = neto + iva;
+      } else if (total > 0 && neto === 0) {
+        neto = Math.round((total / 1.21) * 100) / 100;
         iva = Math.round((total - neto) * 100) / 100;
       }
 
-      const descripcionItem = `Factura N° ${nCompDetectado || '00000168'} - ${nombreClienteDetectado}`;
+      const descripcionItem = `Factura N° ${nComp || '---'} - ${nombreClienteDetectado}`;
 
       setFormDataVenta(prev => ({
         ...prev,
         archivo_url: archivo.name,
-        tipo_comprobante: textoUpper.includes('FCE') ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A' : 'FACTURA A',
-        numero_comp: nCompDetectado || prev.numero_comp,
+        tipo_comprobante: tipoComp,
+        punto_venta: puntoVenta,
+        numero_comp: nComp || prev.numero_comp,
         cliente_id: clienteDetectadoId || prev.cliente_id,
         fecha_emision: fechaEmision || prev.fecha_emision,
         fecha_vencimiento: fechaVencimiento || prev.fecha_vencimiento,
         neto_gravado: neto > 0 ? neto : prev.neto_gravado,
         iva_21: iva > 0 ? iva : prev.iva_21,
-        total: total > 0 ? total : (neto + iva) || prev.total,
+        total: total > 0 ? total : prev.total,
         items: [
           {
             id: Date.now(),
@@ -349,8 +368,8 @@ export default function Tesoreria({
       }));
 
     } catch (err) {
-      console.error("Error al leer PDF de factura:", err);
-      alert("No se pudo extraer el texto automáticamente del PDF. Por favor complete los campos manualmente.");
+      console.error("Error al leer PDF con parser AFIP:", err);
+      alert("No se pudo leer el PDF automáticamente. Complete los datos manualmente.");
     } finally {
       setLeyendoFactura(false);
       setPasoFacturaVenta('formulario');
