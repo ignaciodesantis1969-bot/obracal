@@ -225,7 +225,7 @@ export default function Tesoreria({
     }));
   };
 
-  // Lector PDF Parser AFIP con precisión exacta
+  // Lector PDF Parser AFIP optimizado
   const procesarArchivoFacturaVenta = async (archivo) => {
     setLeyendoFactura(true);
     try {
@@ -269,20 +269,22 @@ export default function Tesoreria({
         tipoComp = 'NOTA DE CREDITO A';
       }
 
+      // 1. Extracción directa y robusta de Punto de Venta y Comp. Nro
       let puntoVenta = '00001';
+      const matchPtoVta = textoClean.match(/Pto\.?\s*Vta\.?[:\s]*(\d{4,5})/i);
+      if (matchPtoVta && matchPtoVta[1]) {
+        puntoVenta = matchPtoVta[1].padStart(5, '0');
+      }
+
       let nComp = '';
-
-      const matchPtoNro = textoClean.match(/(?:Pto\.?\s*Vta\.?[:\s]*(\d{4,5}))?.*?Comp\.?\s*Nro\.?[:\s]*(\d{6,8})/i) || textoClean.match(/(\d{4,5})\s*[-–]\s*(\d{6,8})/);
-      if (matchPtoNro) {
-        if (matchPtoNro[1] && matchPtoNro[1].length <= 5) puntoVenta = matchPtoNro[1].padStart(5, '0');
-        nComp = matchPtoNro[2] || matchPtoNro[0];
-      }
-      
-      if (!nComp) {
-        const matchNroAlt = textoClean.match(/(?:NRO|COMPROBANTE|NUMERO|N°)\D*(\d{6,8})/i);
-        if (matchNroAlt) nComp = matchNroAlt[1];
+      const matchCompNro = textoClean.match(/Comp\.?\s*Nro\.?[:\s]*(\d+)/i) || 
+                           textoClean.match(/Nro\.?\s*[:\s]*(\d{6,8})/i) ||
+                           textoClean.match(/N[°º]\s*[:\s]*(\d{6,8})/i);
+      if (matchCompNro && matchCompNro[1]) {
+        nComp = matchCompNro[1].trim();
       }
 
+      // 2. Fechas con precisión de etiquetas
       let fechaEmision = new Date().toISOString().split('T')[0];
       const matchFechaEmision = textoClean.match(/Fecha\s*de\s*Emisi[oó]n[:\s]*(\d{2})[\/](\d{2})[\/](\d{4})/i);
       if (matchFechaEmision) {
@@ -295,7 +297,7 @@ export default function Tesoreria({
         fechaVencimiento = `${matchFechaVto[3]}-${matchFechaVto[2]}-${matchFechaVto[1]}`;
       }
 
-      // Cliente (Receptor): Busca en el texto excluyendo la razón social del emisor ("SOLVENCIAS")
+      // 3. Cliente (Receptor): Excluye emisor y detecta BASF correctamente
       let clienteDetectadoId = '';
       const clienteEncontrado = clientes.find(c => {
         const razonSocial = String(c.razon_social || c.nombre || '').toUpperCase();
@@ -310,12 +312,14 @@ export default function Tesoreria({
         if (basfCli) clienteDetectadoId = basfCli.id || basfCli.ID;
       }
 
+      // 4. Ítem / Concepto (O.C. / H.S.)
       let descripcionItem = `Factura N° ${nComp || '---'}`;
       const matchItem = textoClean.match(/(O\.C\.[\d:]+\s*H\.S\.?[\d:]+)/i);
       if (matchItem) {
         descripcionItem = matchItem[1];
       }
 
+      // 5. Importes
       const extraerMontoEtiqueta = (keywords) => {
         for (let kw of keywords) {
           const regex = new RegExp(kw + `[^\\d]*([\\d\\.]+[,\\d{2}]*)`, 'i');
