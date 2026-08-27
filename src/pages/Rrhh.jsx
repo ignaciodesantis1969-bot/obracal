@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, Building, CheckCircle2 } from 'lucide-react';
 
-export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], cargarDatos }) {
+export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], obras = [], cargarDatos }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -41,10 +41,35 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const [cuadrillaItems, setCuadrillaItems] = useState([]);
   const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 0 });
 
+  // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS
+  const [obraSeleccionadaCarga, setObraSeleccionadaCarga] = useState('');
+  const [fechaCarga, setFechaCarga] = useState(new Date().toISOString().split('T')[0]);
+  const [detalleCargaPersonal, setDetalleCargaPersonal] = useState(
+    personalInicial.map(p => ({
+      id: p.id || p.ID || Math.random(),
+      nombre: p.nombre || p.Nombre || 'Personal',
+      especialidad: p.especialidad || p.Especialidad || 'Operario',
+      dias: 5, // 5 días laborables por defecto en la semana
+      costoDiario: Number(p.costo_en_mano || p.Costo_en_mano || 0),
+      viaticosCant: 5,
+      viaticosCosto: 0
+    }))
+  );
+
   // Sincronizar cambios si props.personalInicial cambia
   React.useEffect(() => {
     if (Array.isArray(personalInicial)) {
-      setPersonalSalarios(procesarPersonalInicial(personalInicial));
+      const procesados = procesarPersonalInicial(personalInicial);
+      setPersonalSalarios(procesados);
+      setDetalleCargaPersonal(procesados.map(p => ({
+        id: p.id || p.ID || Math.random(),
+        nombre: p.nombre || p.Nombre || 'Personal',
+        especialidad: p.especialidad || p.Especialidad || 'Operario',
+        dias: 5,
+        costoDiario: Number(p.costo_en_mano || 0),
+        viaticosCant: 5,
+        viaticosCosto: 0
+      })));
     }
   }, [personalInicial]);
 
@@ -136,7 +161,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       return p;
     }));
 
-    // Encontrar el objeto modificado para enviarlo al backend
     const personaActual = personalSalarios.find(p => String(p.id || p.ID) === String(id));
     if (personaActual) {
       const datosActualizados = { ...personaActual, [campo]: valor };
@@ -168,7 +192,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
 
     setPersonalSalarios(nuevosSalarios);
 
-    // Guardar cada registro actualizado en el Google Sheet
     try {
       for (let p of nuevosSalarios) {
         const pId = p.id || p.ID;
@@ -306,6 +329,62 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
+  // CÁLCULOS Y ACCIONES PARA LA CARGA SEMANAL DE SUELDOS / VIÁTICOS
+  const detalleCargaCalculado = detalleCargaPersonal.map(item => {
+    const subtotalJornales = (Number(item.dias) || 0) * (Number(item.costoDiario) || 0);
+    const subtotalViaticos = (Number(item.viaticosCant) || 0) * (Number(item.viaticosCosto) || 0);
+    const totalOperario = subtotalJornales + subtotalViaticos;
+    return { ...item, subtotalJornales, subtotalViaticos, totalOperario };
+  });
+
+  const totalGeneralCarga = detalleCargaCalculado.reduce((acc, curr) => acc + curr.totalOperario, 0);
+
+  const handleGuardarCargaSalarial = async () => {
+    if (!obraSeleccionadaCarga) {
+      alert("Por favor selecciona una Obra para imputar la carga de sueldos.");
+      return;
+    }
+
+    if (totalGeneralCarga <= 0) {
+      alert("El total de la carga es $0. Verifica los días o jornales ingresados.");
+      return;
+    }
+
+    try {
+      // Registrar el movimiento de egreso en Tesorería vinculado a la obra seleccionada
+      const payloadTesoreria = {
+        fecha: fechaCarga,
+        tipo: 'Egreso',
+        categoria: 'Mano de Obra / Sueldos',
+        obra: obraSeleccionadaCarga,
+        descripcion: `Liquidación Semanal / Jornales - Obra: ${obraSeleccionadaCarga} (${detalleCargaCalculado.filter(i => i.dias > 0).length} operarios)`,
+        monto: totalGeneralCarga,
+        metodo_pago: 'Transferencia / Caja'
+      };
+
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'Tesoreria',
+          action: 'create',
+          data: payloadTesoreria
+        })
+      });
+
+      const data = await res.json().catch(() => ({ success: true }));
+      if (data.success !== false) {
+        alert("¡Carga de sueldos registrada con éxito y asentada en la Tesorería de la Obra!");
+        cargarDatos();
+      } else {
+        alert("Error al registrar en Tesorería.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error de conexión al guardar la carga salarial.");
+    }
+  };
+
   const personalFiltrado = personalSalarios.filter(p => {
     const nombre = String(p.nombre || p.Nombre || '').toLowerCase();
     const cuil = String(p.cuil || p.Cuil || p.CUIL || '').toLowerCase();
@@ -367,7 +446,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         </button>
       </div>
 
-      {/* Contenido: Lista de Personal (Sin salarios, con Teléfono y Dirección) */}
+      {/* Contenido: Lista de Personal */}
       {activeTab === 'personal' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
@@ -434,7 +513,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         <div className="space-y-6">
           {vistaCuadrilla === 'lista' ? (
             <div className="space-y-6">
-              {/* PANEL SUPERIOR: MAESTRO DE SALARIOS Y PARITARIAS (Con edición manual y multiplicador global) */}
+              {/* PANEL SUPERIOR: MAESTRO DE SALARIOS Y PARITARIAS */}
               <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
                   <div>
@@ -442,7 +521,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                     <p className="text-xs text-slate-500 mt-0.5">Modifica manualmente cada salario/mes o aplica un multiplicador general por paritaria.</p>
                   </div>
                   
-                  {/* MULTIPLICADOR DE PARITARIA Y MES */}
                   <div className="flex flex-wrap items-center gap-2 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200">
                     <span className="text-xs font-bold text-amber-900">Mes Paritaria:</span>
                     <input 
@@ -712,7 +790,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                       </tr>
                     ))}
 
-                    {/* Fila de Viáticos */}
                     <tr className="bg-amber-50/40 font-semibold">
                       <td className="px-4 py-3 text-amber-900 uppercase font-extrabold" colSpan={2}>
                         VIÁTICOS (Cantidad y Costo Diario)
@@ -741,7 +818,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 </table>
               </div>
 
-              {/* Total final de la cuadrilla */}
               <div className="bg-slate-900 text-white p-5 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
                 <div>
                   <p className="text-xs text-slate-400 font-bold uppercase">Costo resultante para insumo compuesto</p>
@@ -765,12 +841,132 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         </div>
       )}
       
+      {/* MÓDULO ACTIVO: CARGA SEMANAL DE HORAS / VIÁTICOS */}
       {activeTab === 'carga' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-8 text-slate-700 space-y-4">
-          <h3 className="text-sm font-extrabold uppercase">Carga Semanal de Horas / Días y Viáticos</h3>
-          <p className="text-xs text-slate-500">Aquí podrás registrar las asistencias y viáticos reales por trabajador para contrastar con el presupuesto.</p>
-          <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-            Próximamente: Registro de parte diario / semanal por obra e imputación de viáticos individuales.
+        <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos por Obra</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Registra la asistencia real y viáticos del personal para imputarlo directamente a la obra y tesorería.</p>
+            </div>
+            
+            <button 
+              onClick={handleGuardarCargaSalarial}
+              className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
+            >
+              <CheckCircle2 className="w-4 h-4" /> Registrar Carga de Sueldos ($ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
+            </button>
+          </div>
+
+          {/* Selector de Obra y Fecha */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                <Building className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Obra de Destino *
+              </label>
+              <select 
+                value={obraSeleccionadaCarga}
+                onChange={(e) => setObraSeleccionadaCarga(e.target.value)}
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+              >
+                <option value="">-- Seleccione una Obra --</option>
+                {Array.isArray(obras) && obras.map((o, oIdx) => {
+                  const nombreObra = o.nombre || o.Nombre || o.nombre_de_la_obra || `Obra #${oId}`;
+                  const oId = o.id || o.ID || oIdx;
+                  return <option key={oId} value={nombreObra}>{nombreObra}</option>;
+                })}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                <Calendar className="w-3.5 h-3.5 text-amber-600" /> Fecha de Liquidación / Parte *
+              </label>
+              <input 
+                type="date"
+                value={fechaCarga}
+                onChange={(e) => setFechaCarga(e.target.value)}
+                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+              />
+            </div>
+          </div>
+
+          {/* Tabla de Carga de Personal */}
+          <div className="overflow-x-auto border border-slate-200 rounded-xl">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
+                <tr>
+                  <th className="px-4 py-3">Trabajador</th>
+                  <th className="px-4 py-3">Especialidad</th>
+                  <th className="px-4 py-3 text-center">Días Trabajados</th>
+                  <th className="px-4 py-3 text-right">Costo Diario ($)</th>
+                  <th className="px-4 py-3 text-center">Días Viáticos</th>
+                  <th className="px-4 py-3 text-right">Costo Viático Diario ($)</th>
+                  <th className="px-4 py-3 text-right">Total Operario ($)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {detalleCargaCalculado.map((item, idx) => (
+                  <tr key={item.id || idx} className="hover:bg-slate-50">
+                    <td className="px-4 py-3 font-bold text-slate-900">{item.nombre}</td>
+                    <td className="px-4 py-3 text-slate-600">{item.especialidad}</td>
+                    <td className="px-4 py-3 text-center">
+                      <input 
+                        type="number" min="0" max="7" step="0.5"
+                        value={item.dias}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, dias: val } : i));
+                        }}
+                        className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right font-semibold text-blue-600">
+                      $ {Number(item.costoDiario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="px-4 py-3 text-center">
+                      <input 
+                        type="number" min="0" max="7"
+                        value={item.viaticosCant}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCant: val } : i));
+                        }}
+                        className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <input 
+                        type="number" step="0.01" min="0"
+                        value={item.viaticosCosto}
+                        onChange={(e) => {
+                          const val = Number(e.target.value);
+                          setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCosto: val } : i));
+                        }}
+                        className="w-28 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right font-black text-slate-900">
+                      $ {item.totalOperario.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Tarjeta de Resumen Final */}
+          <div className="bg-slate-900 text-white p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+            <div>
+              <p className="text-xs text-slate-400 font-bold uppercase">Resumen de Liquidación</p>
+              <h4 className="text-lg font-black">{obraSeleccionadaCarga ? `Obra: ${obraSeleccionadaCarga}` : 'Seleccione una obra para liquidar'}</h4>
+            </div>
+            <div className="text-right">
+              <span className="text-xs text-slate-400 uppercase font-bold block">TOTAL GENERAL A PAGAR / IMPUTAR</span>
+              <span className="text-2xl font-black text-amber-400">
+                $ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
           </div>
         </div>
       )}

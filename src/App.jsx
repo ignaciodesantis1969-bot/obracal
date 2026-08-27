@@ -203,6 +203,8 @@ const AuthenticatedApp = () => {
               <Rrhh 
                 GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
                 personalInicial={globalData.personal}
+                insumos={globalData.insumos}
+                obras={globalData.obras}
                 cargarDatos={cargarDatos}
               />
             </RequirePermiso>
