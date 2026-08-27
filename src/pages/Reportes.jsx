@@ -44,54 +44,51 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // 1. Diccionario global de Insumos (Fuente de Verdad ultra robusta)
-  const insumosGlobalMap = {};
+  // 1. Diccionario de Insumos basado estrictamente en el ID de la pestaña "Insumos"
+  const insumosPorIdMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
       const gId = String(insGlobal.id || insGlobal.ID || insGlobal.insumo_id || '').trim();
-      const gCod = String(insGlobal.codigo || insGlobal.Codigo || '').trim().toLowerCase();
-      const gNom = String(insGlobal.nombre || insGlobal.Nombre || insGlobal.nombre_del_articulo || '').trim().toLowerCase();
-      
-      const tipoOficial = String(insGlobal.tipo || insGlobal.Tipo || 'Material').trim().toLowerCase();
-      let tipoNorm = 'Material';
-      if (tipoOficial.includes('mano')) tipoNorm = 'Mano de Obra';
-      else if (tipoOficial.includes('subcontrato')) tipoNorm = 'Subcontrato';
-      else if (tipoOficial.includes('equipo') || tipoOficial.includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
-      else if (tipoOficial.includes('gasto')) tipoNorm = 'Gastos Generales';
-      else tipoNorm = 'Material';
+      if (gId) {
+        const tipoOriginal = String(insGlobal.tipo || insGlobal.Tipo || 'Material').trim();
+        let tipoNorm = 'Material';
+        const tLower = tipoOriginal.toLowerCase();
+        if (tLower.includes('mano')) tipoNorm = 'Mano de Obra';
+        else if (tLower.includes('subcontrato')) tipoNorm = 'Subcontrato';
+        else if (tLower.includes('equipo') || tLower.includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
+        else tipoNorm = 'Material';
 
-      if (gId) insumosGlobalMap[gId] = tipoNorm;
-      if (gCod) insumosGlobalMap[gCod] = tipoNorm;
-      if (gNom) insumosGlobalMap[gNom] = tipoNorm;
+        insumosPorIdMap[gId] = tipoNorm;
+      }
     });
   }
 
-  // 2. Diccionario maestro de tareas (MaestroTareasRubros)
-  const diccionarioMaestroTareas = {};
+  // 2. Diccionario Maestro de Tareas basado en ID de tarea y nombre (MaestroTareasRubros)
+  const maestroTareasPorId = {};
+  const maestroTareasPorNombre = {};
   if (Array.isArray(maestroTareasRubros)) {
     maestroTareasRubros.forEach(itemMaestro => {
-      const nombreTareaKey = String(itemMaestro.tarea || itemMaestro.nombre || '').trim().toLowerCase();
-      let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle;
+      const mId = String(itemMaestro.id || itemMaestro.ID || '').trim();
+      const mNombre = String(itemMaestro.tarea || itemMaestro.nombre || '').trim().toLowerCase();
       
+      let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle;
       if (typeof insumosDetalleParsed === 'string' && insumosDetalleParsed.trim()) {
         try { insumosDetalleParsed = JSON.parse(insumosDetalleParsed); } catch { insumosDetalleParsed = []; }
       }
       
-      if (nombreTareaKey && Array.isArray(insumosDetalleParsed)) {
-        diccionarioMaestroTareas[nombreTareaKey] = insumosDetalleParsed;
-      }
+      const arrayInsumos = Array.isArray(insumosDetalleParsed) ? insumosDetalleParsed : [];
+      if (mId) maestroTareasPorId[mId] = arrayInsumos;
+      if (mNombre) maestroTareasPorNombre[mNombre] = arrayInsumos;
     });
   }
 
-  const obtenerTipoNormalizado = (insumoItem) => {
-    const idKey = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || insumoItem.id_insumo || '').trim();
-    const codKey = String(insumoItem.codigo || insumoItem.Codigo || '').trim().toLowerCase();
-    const nomKey = String(insumoItem.nombre || insumoItem.Nombre || insumoItem.nombre_del_articulo || '').trim().toLowerCase();
-
-    if (idKey && insumosGlobalMap[idKey]) return insumosGlobalMap[idKey];
-    if (codKey && insumosGlobalMap[codKey]) return insumosGlobalMap[codKey];
-    if (nomKey && insumosGlobalMap[nomKey]) return insumosGlobalMap[nomKey];
-
+  // Función para resolver el tipo de un insumo analizando su ID contra la pestaña Insumos
+  const resolverTipoInsumo = (insumoItem) => {
+    const insId = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || '').trim();
+    if (insId && insumosPorIdMap[insId]) {
+      return insumosPorIdMap[insId];
+    }
+    // Fallback si el objeto ya trae el tipo especificado
     const t = String(insumoItem.tipo || insumoItem.Tipo || '').toLowerCase();
     if (t.includes('mano')) return 'Mano de Obra';
     if (t.includes('subcontrato')) return 'Subcontrato';
@@ -111,13 +108,11 @@ export default function Reportes({
         ? JSON.parse(presupuestoSeleccionado.items_detalle) 
         : presupuestoSeleccionado.items_detalle;
       
-      // Rubros y Tareas
       if (parsedDetalle && parsedDetalle.rubros) {
         rubrosPresupuestoDetalle = parsedDetalle.rubros.map((rubroItem, rIdx) => {
           const tareasList = rubroItem.tareas || [];
           let totalRubro = 0;
           
-          // Inicializar los 4 ítems obligatorios
           let acumuladorComponentes = {
             'Material': 0,
             'Mano de Obra': 0,
@@ -129,21 +124,33 @@ export default function Reportes({
             const costoTareaTotal = (Number(tareaItem.cantidad) || 1) * (Number(tareaItem.costo_unitario) || 0);
             totalRubro += costoTareaTotal;
 
-            const nombreTareaKey = String(tareaItem.tarea || '').trim().toLowerCase();
-            let insumosAsociados = tareaItem.insumos || diccionarioMaestroTareas[nombreTareaKey] || [];
+            // Camino inverso por ID o Nombre hacia MaestroTareasRubros
+            const tareaId = String(tareaItem.id || tareaItem.tarea_id || '').trim();
+            const tareaNombreKey = String(tareaItem.tarea || '').trim().toLowerCase();
 
-            if (typeof insumosAsociados === 'string' && insumosAsociados.trim()) {
-              try { insumosAsociados = JSON.parse(insumosAsociados); } catch { insumosAsociados = []; }
+            let insumosDeLaTarea = tareaItem.insumos;
+            if (typeof insumosDeLaTarea === 'string' && insumosDeLaTarea.trim()) {
+              try { insumosDeLaTarea = JSON.parse(insumosDeLaTarea); } catch { insumosDeLaTarea = []; }
             }
 
-            if (Array.isArray(insumosAsociados) && insumosAsociados.length > 0) {
+            if (!Array.isArray(insumosDeLaTarea) || insumosDeLaTarea.length === 0) {
+              if (tareaId && maestroTareasPorId[tareaId]) {
+                insumosDeLaTarea = maestroTareasPorId[tareaId];
+              } else if (tareaNombreKey && maestroTareasPorNombre[tareaNombreKey]) {
+                insumosDeLaTarea = maestroTareasPorNombre[tareaNombreKey];
+              } else {
+                insumosDeLaTarea = [];
+              }
+            }
+
+            if (Array.isArray(insumosDeLaTarea) && insumosDeLaTarea.length > 0) {
               let subtotalesIns = [];
               let sumaInsCosto = 0;
 
-              insumosAsociados.forEach(insumo => {
-                const tipoNorm = obtenerTipoNormalizado(insumo);
+              insumosDeLaTarea.forEach(insumo => {
+                const tipoNormalizado = resolverTipoInsumo(insumo);
                 const costoIns = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || 0);
-                subtotalesIns.push({ tipo: tipoNorm, costo: costoIns });
+                subtotalesIns.push({ tipo: tipoNormalizado, costo: costoIns });
                 sumaInsCosto += costoIns;
               });
 
@@ -156,20 +163,13 @@ export default function Reportes({
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              // Si no tiene insumos en el maestro, deducir por nombre de tarea / rubro
-              const textoBusq = `${String(rubroItem.rubro || '')} ${String(tareaItem.tarea || '')}`.toLowerCase();
-              let tipoDef = 'Material';
-              if (textoBusq.includes('mano de obra') || textoBusq.includes('salarios')) tipoDef = 'Mano de Obra';
-              else if (textoBusq.includes('subcontrato') || textoBusq.includes('volquete') || textoBusq.includes('georadar')) tipoDef = 'Subcontrato';
-              else if (textoBusq.includes('equipo') || textoBusq.includes('andamios') || textoBusq.includes('maquinaria')) tipoDef = 'Equipo/Maquinaria';
-
-              acumuladorComponentes[tipoDef] = (acumuladorComponentes[tipoDef] || 0) + costoTareaTotal;
+              // Si la tarea no tiene insumos en absoluto, se asigna a Material por defecto
+              acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
             }
           });
 
           totalPresupuestoRubros += totalRubro;
 
-          // Filtrar para mostrar únicamente los componentes que tengan un monto mayor a 0
           const componentesActivos = Object.fromEntries(
             Object.entries(acumuladorComponentes).filter(([_, val]) => val > 0.01)
           );
