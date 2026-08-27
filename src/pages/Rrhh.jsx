@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, Building, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, Building, CheckCircle2, ShieldCheck, PieChart } from 'lucide-react';
 
 export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], obras = [], cargarDatos }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
@@ -47,6 +47,11 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const [porcentajeCargasSociales, setPorcentajeCargasSociales] = useState(76.00);
   const [detalleCargaPersonal, setDetalleCargaPersonal] = useState([]);
 
+  // Estado para la distribución por Rubros del Presupuesto
+  const [distribucionRubros, setDistribucionRubros] = useState([
+    { id: 1, rubro: 'Mano de Obra Estructura / Albañilería', porcentaje: 100 }
+  ]);
+
   // Sincronizar salarios y asegurar que la carga no se sobrescriba si el usuario ya está tipeando
   React.useEffect(() => {
     if (Array.isArray(personalInicial) && personalInicial.length > 0) {
@@ -68,7 +73,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
           costoDiario: Number(p.costo_en_mano || 0),
           viaticosCant: 5,
           viaticosCosto: 0,
-          incluirCargas: true // Tildado por defecto para calcular cargas sociales
+          incluirCargas: true
         }));
       });
     }
@@ -353,11 +358,45 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     return acc + cargasEmpleado;
   }, 0);
 
-  const handleGuardarCargaSalarial = async () => {
-    if (!obraSeleccionadaCarga) {
-      alert("Por favor selecciona una Obra para imputar la carga de sueldos.");
+  // Funciones para manejar la distribución por rubros
+  const handleAgregarRubroDistribucion = () => {
+    setDistribucionRubros(prev => [...prev, { id: Date.now(), rubro: '', porcentaje: 0 }]);
+  };
+
+  const handleActualizarRubro = (id, campo, valor) => {
+    setDistribucionRubros(prev => prev.map(r => r.id === id ? { ...r, [campo]: valor } : r));
+  };
+
+  const handleEliminarRubro = (id) => {
+    if (distribucionRubros.length <= 1) {
+      alert("Debe haber al menos un rubro de distribución.");
       return;
     }
+    setDistribucionRubros(prev => prev.filter(r => r.id !== id));
+  };
+
+  const sumaPorcentajesRubros = distribucionRubros.reduce((acc, r) => acc + (Number(r.porcentaje) || 0), 0);
+
+  const validarDistribucionRubros = () => {
+    if (!obraSeleccionadaCarga) {
+      alert("Por favor selecciona una Obra.");
+      return false;
+    }
+    if (Math.abs(sumaPorcentajesRubros - 100) > 0.01) {
+      alert(`La suma de los porcentajes de los rubros debe ser 100%. Actualmente suma ${sumaPorcentajesRubros}%.`);
+      return false;
+    }
+    for (let r of distribucionRubros) {
+      if (!r.rubro.trim()) {
+        alert("Todos los rubros deben tener un nombre o descripción.");
+        return false;
+      }
+    }
+    return true;
+  };
+
+  const handleGuardarCargaSalarial = async () => {
+    if (!validarDistribucionRubros()) return;
 
     if (totalGeneralCarga <= 0) {
       alert("El total de la carga es $0. Verifica los días o jornales ingresados.");
@@ -365,32 +404,34 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
 
     try {
-      const payloadTesoreria = {
-        tipo: 'Egreso',
-        fecha: fechaCarga,
-        concepto: `Liquidación de Sueldos y Viáticos - Obra: ${obraSeleccionadaCarga}`,
-        monto: totalGeneralCarga,
-        medio_pago: 'transferencia',
-        referencia: 'RRHH'
-      };
+      // Registrar un movimiento en Tesorería por cada rubro según su porcentaje
+      for (let r of distribucionRubros) {
+        const pct = Number(r.porcentaje) || 0;
+        if (pct <= 0) continue;
+        const montoRubro = Math.round((totalGeneralCarga * (pct / 100)) * 100) / 100;
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Tesoreria',
-          action: 'create',
-          data: payloadTesoreria
-        })
-      });
+        const payloadTesoreria = {
+          tipo: 'Egreso',
+          fecha: fechaCarga,
+          concepto: `Sueldos y Viáticos - Obra: ${obraSeleccionadaCarga} [Rubro: ${r.rubro} - ${pct}%]`,
+          monto: montoRubro,
+          medio_pago: 'transferencia',
+          referencia: 'RRHH'
+        };
 
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
-        alert("¡Carga de sueldos registrada con éxito y asentada en la Tesorería!");
-        cargarDatos();
-      } else {
-        alert("Error al registrar en Tesorería.");
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            tabla: 'Tesoreria',
+            action: 'create',
+            data: payloadTesoreria
+          })
+        });
       }
+
+      alert("¡Carga de sueldos registrada e imputada por rubros en Tesorería con éxito!");
+      cargarDatos();
     } catch (err) {
       console.error(err);
       alert("Error de conexión al guardar la carga salarial.");
@@ -398,10 +439,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   };
 
   const handleRegistrarCargasSociales = async () => {
-    if (!obraSeleccionadaCarga) {
-      alert("Por favor selecciona una Obra para imputar las Cargas Sociales.");
-      return;
-    }
+    if (!validarDistribucionRubros()) return;
 
     if (totalCargasSociales <= 0) {
       alert("El total de cargas sociales es $0. Tilda al menos un operario.");
@@ -409,32 +447,34 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
 
     try {
-      const payloadTesoreria = {
-        tipo: 'Egreso',
-        fecha: fechaCarga,
-        concepto: `Cargas Sociales (${porcentajeCargasSociales}%) - Obra: ${obraSeleccionadaCarga}`,
-        monto: totalCargasSociales,
-        medio_pago: 'transferencia',
-        referencia: 'RRHH - Cargas Sociales'
-      };
+      // Registrar un movimiento en Tesorería por cada rubro según su porcentaje
+      for (let r of distribucionRubros) {
+        const pct = Number(r.porcentaje) || 0;
+        if (pct <= 0) continue;
+        const montoRubro = Math.round((totalCargasSociales * (pct / 100)) * 100) / 100;
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Tesoreria',
-          action: 'create',
-          data: payloadTesoreria
-        })
-      });
+        const payloadTesoreria = {
+          tipo: 'Egreso',
+          fecha: fechaCarga,
+          concepto: `Cargas Sociales (${porcentajeCargasSociales}%) - Obra: ${obraSeleccionadaCarga} [Rubro: ${r.rubro} - ${pct}%]`,
+          monto: montoRubro,
+          medio_pago: 'transferencia',
+          referencia: 'RRHH - Cargas Sociales'
+        };
 
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
-        alert("¡Cargas sociales registradas con éxito e imputadas en Tesorería!");
-        cargarDatos();
-      } else {
-        alert("Error al registrar cargas sociales en Tesorería.");
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            tabla: 'Tesoreria',
+            action: 'create',
+            data: payloadTesoreria
+          })
+        });
       }
+
+      alert("¡Cargas sociales registradas e imputadas por rubros en Tesorería con éxito!");
+      cargarDatos();
     } catch (err) {
       console.error(err);
       alert("Error de conexión al guardar las cargas sociales.");
@@ -900,23 +940,15 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       {/* MÓDULO ACTIVO: CARGA SEMANAL DE HORAS / VIÁTICOS Y CARGAS SOCIALES */}
       {activeTab === 'carga' && (
         <div className="space-y-6">
-          {/* Card Principal: Carga de Sueldos y Viáticos */}
+          {/* Card: Selección de Obra, Fecha y Distribución por Rubros del Presupuesto */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
-                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos por Obra</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Registra la asistencia real y viáticos del personal para imputarlo directamente a la obra y tesorería.</p>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Configuración de Imputación</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Selecciona la obra, la fecha y define qué porcentaje del gasto se imputará a cada rubro del presupuesto.</p>
               </div>
-              
-              <button 
-                onClick={handleGuardarCargaSalarial}
-                className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
-              >
-                <CheckCircle2 className="w-4 h-4" /> Registrar Carga de Sueldos ($ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
-              </button>
             </div>
 
-            {/* Selector de Obra y Fecha */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
@@ -947,6 +979,77 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                 />
               </div>
+            </div>
+
+            {/* Distribución por Rubros */}
+            <div className="space-y-3 bg-amber-50/40 p-4 rounded-xl border border-amber-200">
+              <div className="flex justify-between items-center">
+                <h4 className="text-xs font-extrabold text-amber-900 uppercase flex items-center gap-1.5">
+                  <PieChart className="w-4 h-4 text-amber-600" /> Distribución por Rubros del Presupuesto (Suma total debe ser 100%)
+                </h4>
+                <button
+                  type="button"
+                  onClick={handleAgregarRubroDistribucion}
+                  className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer flex items-center gap-1"
+                >
+                  <Plus className="w-3 h-3" /> Agregar Rubro
+                </button>
+              </div>
+
+              <div className="space-y-2">
+                {distribucionRubros.map((r, idx) => (
+                  <div key={r.id || idx} className="flex items-center gap-2">
+                    <input 
+                      type="text"
+                      placeholder="Nombre del rubro (ej: Estructura, Albañilería, Terminaciones...)"
+                      value={r.rubro}
+                      onChange={(e) => handleActualizarRubro(r.id, 'rubro', e.target.value)}
+                      className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500"
+                    />
+                    <div className="flex items-center gap-1 w-32">
+                      <input 
+                        type="number" min="0" max="100" step="0.1"
+                        value={r.porcentaje}
+                        onChange={(e) => handleActualizarRubro(r.id, 'porcentaje', Number(e.target.value))}
+                        className="w-20 bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-black text-center outline-none focus:border-amber-500"
+                      />
+                      <span className="text-xs font-bold text-slate-600">%</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleEliminarRubro(r.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 cursor-pointer bg-white border border-slate-200 rounded-lg shadow-sm"
+                      title="Quitar rubro"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              <div className="flex justify-between items-center text-xs pt-1">
+                <span className="font-bold text-slate-600">Total asignado:</span>
+                <span className={`font-black ${Math.abs(sumaPorcentajesRubros - 100) < 0.01 ? 'text-green-600' : 'text-red-600'}`}>
+                  {sumaPorcentajesRubros}% {Math.abs(sumaPorcentajesRubros - 100) > 0.01 && '(Debe sumar 100%)'}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Card Principal: Carga de Sueldos y Viáticos */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos por Obra</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Registra la asistencia real y viáticos del personal para imputarlo a los rubros y tesorería.</p>
+              </div>
+              
+              <button 
+                onClick={handleGuardarCargaSalarial}
+                className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" /> Registrar Carga de Sueldos ($ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
+              </button>
             </div>
 
             {/* Tabla de Carga de Personal (Con Checkbox de Cargas Sociales) */}
@@ -1040,7 +1143,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
             </div>
           </div>
 
-          {/* Card Secundaria: Cargas Sociales por Empleado (Calculado por 5 días para los tildados) */}
+          {/* Card Secundaria: Cargas Sociales por Empleado */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
