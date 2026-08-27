@@ -5,7 +5,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estado local para los salarios del personal (permite modificar en pantalla y aplicar multiplicador de paritaria)
+  // Estado local para los salarios y datos del personal
   const [personalSalarios, setPersonalSalarios] = useState(
     personalInicial.map(p => ({
       ...p,
@@ -15,6 +15,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   );
 
   const [multiplicadorParitaria, setMultiplicadorParitaria] = useState('');
+  const [mesAcuerdoGlobal, setMesAcuerdoGlobal] = useState('Agosto 2026');
 
   // Estados para la gestión y edición de Cuadrillas
   const [vistaCuadrilla, setVistaCuadrilla] = useState('lista'); // 'lista' | 'editor'
@@ -113,7 +114,18 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  // Aplicar multiplicador de paritaria a todo el personal
+  // Modificación manual individual de costo o mes en la tabla de salarios
+  const handleActualizarPersonalFila = (id, campo, valor) => {
+    setPersonalSalarios(prev => prev.map(p => {
+      const pId = p.id || p.ID;
+      if (String(pId) === String(id)) {
+        return { ...p, [campo]: valor };
+      }
+      return p;
+    }));
+  };
+
+  // Aplicar multiplicador de paritaria y mes a todo el personal
   const handleAplicarParitariaMasiva = () => {
     const mult = Number(multiplicadorParitaria);
     if (!mult || mult <= 0) {
@@ -123,9 +135,10 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
 
     setPersonalSalarios(prev => prev.map(p => ({
       ...p,
-      costo_en_mano: Math.round((Number(p.costo_en_mano) || 0) * mult * 100) / 100
+      costo_en_mano: Math.round((Number(p.costo_en_mano) || 0) * mult * 100) / 100,
+      mes_acuerdo: mesAcuerdoGlobal
     })));
-    alert("¡Multiplicador de paritaria aplicado correctamente en pantalla!");
+    alert("¡Paritaria y salarios actualizados correctamente para todo el personal!");
   };
 
   // Agregar trabajador de la lista superior a la cuadrilla activa
@@ -309,7 +322,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         </button>
       </div>
 
-      {/* Contenido: Lista de Personal */}
+      {/* Contenido: Lista de Personal (Sin salarios, con Teléfono y Dirección) */}
       {activeTab === 'personal' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
@@ -338,8 +351,8 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                     <th className="px-6 py-4">Nombre</th>
                     <th className="px-4 py-4">CUIL</th>
                     <th className="px-4 py-4">Especialidad</th>
-                    <th className="px-4 py-4">Costo en Mano ($)</th>
-                    <th className="px-4 py-4">Mes de Acuerdo</th>
+                    <th className="px-4 py-4">Teléfono</th>
+                    <th className="px-4 py-4">Dirección</th>
                     <th className="px-6 py-4 text-right">Acciones</th>
                   </tr>
                 </thead>
@@ -355,13 +368,11 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                             {p.especialidad || p.Especialidad || 'General'}
                           </span>
                         </td>
-                        <td className="px-4 py-4 font-black text-blue-600">
-                          $ {Number(p.costo_en_mano || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-4 py-4 font-semibold text-slate-700">{p.mes_acuerdo || 'Agosto 2026'}</td>
+                        <td className="px-4 py-4 text-slate-600">{p.telefono || p.Telefono || '---'}</td>
+                        <td className="px-4 py-4 text-slate-600">{p.direccion || p.Direccion || '---'}</td>
                         <td className="px-6 py-4 text-right space-x-2">
-                          <button onClick={() => handleOpenModal(p)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarPersonal(pId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleOpenModal(p)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEliminarPersonal(pId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                         </td>
                       </tr>
                     );
@@ -378,17 +389,24 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         <div className="space-y-6">
           {vistaCuadrilla === 'lista' ? (
             <div className="space-y-6">
-              {/* PANEL SUPERIOR: MAESTRO DE SALARIOS Y PARITARIAS */}
+              {/* PANEL SUPERIOR: MAESTRO DE SALARIOS Y PARITARIAS (Con edición manual y multiplicador global) */}
               <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-900 uppercase">Salarios Acordados por Personal (Base Vigente)</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Actualiza individualmente o aplica un multiplicador general por paritaria mensual.</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Modifica manualmente cada salario/mes o aplica un multiplicador general por paritaria.</p>
                   </div>
                   
-                  {/* MULTIPLICADOR DE PARITARIA */}
-                  <div className="flex items-center gap-2 bg-amber-50 px-4 py-2 rounded-xl border border-amber-200">
-                    <span className="text-xs font-bold text-amber-900">Multiplicador Paritaria:</span>
+                  {/* MULTIPLICADOR DE PARITARIA Y MES */}
+                  <div className="flex flex-wrap items-center gap-2 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200">
+                    <span className="text-xs font-bold text-amber-900">Mes Paritaria:</span>
+                    <input 
+                      type="text" placeholder="Ej: Septiembre 2026"
+                      value={mesAcuerdoGlobal}
+                      onChange={(e) => setMesAcuerdoGlobal(e.target.value)}
+                      className="w-32 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-bold text-amber-900 outline-none focus:border-amber-500 shadow-sm"
+                    />
+                    <span className="text-xs font-bold text-amber-900 ml-2">Multiplicador:</span>
                     <input 
                       type="number" step="0.001" placeholder="Ej: 1.05"
                       value={multiplicadorParitaria}
@@ -397,7 +415,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                     />
                     <button 
                       onClick={handleAplicarParitariaMasiva}
-                      className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer flex items-center gap-1"
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer flex items-center gap-1"
                     >
                       <RefreshCw className="w-3 h-3" /> Aplicar a Todos
                     </button>
@@ -415,16 +433,31 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                      {personalSalarios.map((p, idx) => (
-                        <tr key={p.id || p.ID || idx} className="hover:bg-slate-50">
-                          <td className="px-4 py-2.5 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
-                          <td className="px-4 py-2.5 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
-                          <td className="px-4 py-2.5 text-right font-black text-blue-600">
-                            $ {Number(p.costo_en_mano || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-2.5 font-semibold text-slate-700">{p.mes_acuerdo || 'Agosto 2026'}</td>
-                        </tr>
-                      ))}
+                      {personalSalarios.map((p, idx) => {
+                        const pId = p.id || p.ID || idx;
+                        return (
+                          <tr key={pId} className="hover:bg-slate-50">
+                            <td className="px-4 py-2.5 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
+                            <td className="px-4 py-2.5 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
+                            <td className="px-4 py-2.5 text-right">
+                              <input 
+                                type="number" step="0.01"
+                                value={p.costo_en_mano}
+                                onChange={(e) => handleActualizarPersonalFila(pId, 'costo_en_mano', Number(e.target.value))}
+                                className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-black text-blue-600 text-right outline-none focus:border-amber-500"
+                              />
+                            </td>
+                            <td className="px-4 py-2.5">
+                              <input 
+                                type="text"
+                                value={p.mes_acuerdo}
+                                onChange={(e) => handleActualizarPersonalFila(pId, 'mes_acuerdo', e.target.value)}
+                                className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 outline-none focus:border-amber-500"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
