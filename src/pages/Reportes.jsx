@@ -1,79 +1,22 @@
-import React, { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import React, { useState } from 'react';
 import { Building2 } from 'lucide-react';
 
 export default function Reportes({ 
-  obras: obrasProp = [], 
-  presupuestos: presupuestosProp = [], 
-  certificados: certificadosProp = [], 
-  movimientos: movimientosProp = [], 
-  insumos: insumosProp = [], 
-  rubros: rubrosProp = []
+  obras = [], 
+  presupuestos = [], 
+  certificados = [], 
+  movimientos = [], 
+  insumos = [], 
+  rubros = [] 
 }) {
-  const [obras, setObras] = useState(obrasProp);
-  const [presupuestos, setPresupuestos] = useState(presupuestosProp);
-  const [certificados, setCertificados] = useState(certificadosProp);
-  const [movimientos, setMovimientos] = useState(movimientosProp);
-  const [insumos, setInsumos] = useState(insumosProp);
-  const [rubros, setRubros] = useState(rubrosProp);
-
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Dashboard');
 
   // Estados para el comparativo detallado
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
-  const [rubrosPresupuesto, setRubrosPresupuesto] = useState([]);
-  const [loadingComp, setLoadingComp] = useState(false);
 
-  // Carga robusta de datos desde base44 si las props vienen vacías
-  useEffect(() => {
-    let isMounted = true;
-    Promise.all([
-      base44?.entities?.Obra?.list ? base44.entities.Obra.list() : Promise.resolve([]),
-      base44?.entities?.Presupuesto?.list ? base44.entities.Presupuesto.list() : Promise.resolve([]),
-      base44?.entities?.Certificado?.list ? base44.entities.Certificado.list() : Promise.resolve([]),
-      base44?.entities?.Tesoreria?.list ? base44.entities.Tesoreria.list() : Promise.resolve([]),
-      base44?.entities?.Insumo?.list ? base44.entities.Insumo.list() : Promise.resolve([]),
-      base44?.entities?.Rubro?.list ? base44.entities.Rubro.list() : Promise.resolve([])
-    ]).then(([o, p, c, m, i, r]) => {
-      if (!isMounted) return;
-      if (o && o.length > 0) setObras(o);
-      if (p && p.length > 0) setPresupuestos(p);
-      if (c && c.length > 0) setCertificados(c);
-      if (m && m.length > 0) setMovimientos(m);
-      if (i && i.length > 0) setInsumos(i);
-      if (r && r.length > 0) setRubros(r);
-    }).catch(err => console.error("Error cargando datos:", err));
-
-    return () => { isMounted = false; };
-  }, []);
-
-  // Cargar rubros al seleccionar presupuesto
-  useEffect(() => {
-    if (!compPresupuestoId) {
-      setRubrosPresupuesto([]);
-      return;
-    }
-    setLoadingComp(true);
-    const filtradosLocal = rubros.filter(r => String(r.presupuesto_id || r.Presupuesto_id) === String(compPresupuestoId));
-    
-    if (filtradosLocal.length > 0) {
-      setRubrosPresupuesto(filtradosLocal);
-      setLoadingComp(false);
-    } else if (base44?.entities?.Rubro?.filter) {
-      base44.entities.Rubro.filter({ presupuesto_id: compPresupuestoId })
-        .then(res => {
-          setRubrosPresupuesto(res || []);
-          setLoadingComp(false);
-        })
-        .catch(() => setLoadingComp(false));
-    } else {
-      setLoadingComp(false);
-    }
-  }, [compPresupuestoId, rubros]);
-
-  // Cálculos generales
+  // Filtrado general
   const presupuestosFiltrados = obraFiltro === 'todas' 
     ? presupuestos 
     : presupuestos.filter(p => String(p.obra_id || p.Obra_id) === String(obraFiltro));
@@ -95,6 +38,8 @@ export default function Reportes({
   const presupuestosCompFiltrados = compObraId === 'todas' 
     ? presupuestos 
     : presupuestos.filter(p => String(p.obra_id || p.Obra_id) === String(compObraId));
+
+  const rubrosPresupuestoSeleccionado = rubros.filter(r => String(r.presupuesto_id || r.Presupuesto_id) === String(compPresupuestoId));
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -292,7 +237,7 @@ export default function Reportes({
               <p className="text-xs text-slate-500 mt-0.5">Desglose por rubros y componentes (Materiales, Mano de Obra, Subcontrato, Equipos)</p>
             </div>
             
-            {/* SELECTORES NATIVOS GARANTIZADOS */}
+            {/* SELECTORES NATIVOS */}
             <div className="flex gap-3 w-full md:w-auto">
               <select 
                 className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
@@ -322,9 +267,7 @@ export default function Reportes({
             <div className="py-16 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
               Selecciona una obra y un presupuesto para visualizar el comparativo desglosado por componentes.
             </div>
-          ) : loadingComp ? (
-            <div className="flex justify-center py-16"><div className="w-8 h-8 border-4 border-amber-500 border-t-transparent rounded-full animate-spin" /></div>
-          ) : rubrosPresupuesto.length === 0 ? (
+          ) : rubrosPresupuestoSeleccionado.length === 0 ? (
             <div className="py-16 text-center text-slate-400 text-xs">No hay rubros definidos en este presupuesto.</div>
           ) : (
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
@@ -339,7 +282,7 @@ export default function Reportes({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rubrosPresupuesto.map((rubro) => {
+                  {rubrosPresupuestoSeleccionado.map((rubro) => {
                     const rubId = rubro.id || rubro.ID;
                     const componentes = [
                       { nombre: 'Materiales' },

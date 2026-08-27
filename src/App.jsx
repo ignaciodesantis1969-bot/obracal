@@ -245,7 +245,22 @@ const AuthenticatedApp = () => {
           } 
         />
 
-        <Route path="/reportes" element={<RequirePermiso modulo="reportes"><Reportes /></RequirePermiso>} />
+        <Route 
+          path="/reportes" 
+          element={
+            <RequirePermiso modulo="reportes">
+              <Reportes 
+                obras={globalData.obras}
+                presupuestos={globalData.presupuestos}
+                movimientos={globalData.movimientos}
+                insumos={globalData.insumos}
+                rubros={globalData.rubros}
+                facturas={globalData.facturas}
+              />
+            </RequirePermiso>
+          } 
+        />
+
         <Route path="/usuarios" element={<Usuarios />} />
         <Route path="/tareas-template" element={<RequirePermiso modulo="presupuestos"><TareasTemplate /></RequirePermiso>} />
       </Route>
