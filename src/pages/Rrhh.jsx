@@ -5,14 +5,30 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Función auxiliar para limpiar y formatear correctamente los números y textos de Google Sheets
+  const procesarPersonalInicial = (lista) => {
+    if (!Array.isArray(lista)) return [];
+    return lista.map(p => {
+      let costoCrudo = p.costo_en_mano || p.Costo_en_mano || p.salario || 0;
+      if (typeof costoCrudo === 'string') {
+        costoCrudo = costoCrudo.replace(/[$ARS\s.]/g, '').replace(',', '.');
+      }
+
+      let mesCrudo = p.mes_acuerdo || p.Mes_acuerdo || 'Agosto 2026';
+      if (typeof mesCrudo === 'string' && (mesCrudo.includes('T') || mesCrudo.includes('-01T'))) {
+        mesCrudo = 'Agosto 2026';
+      }
+
+      return {
+        ...p,
+        costo_en_mano: Number(costoCrudo) || 0,
+        mes_acuerdo: mesCrudo
+      };
+    });
+  };
+
   // Estado local para los salarios y datos del personal
-  const [personalSalarios, setPersonalSalarios] = useState(
-    personalInicial.map(p => ({
-      ...p,
-      costo_en_mano: Number(p.costo_en_mano || p.Costo_en_mano || p.salario || 0),
-      mes_acuerdo: p.mes_acuerdo || p.Mes_acuerdo || 'Agosto 2026'
-    }))
-  );
+  const [personalSalarios, setPersonalSalarios] = useState(procesarPersonalInicial(personalInicial));
 
   const [multiplicadorParitaria, setMultiplicadorParitaria] = useState('');
   const [mesAcuerdoGlobal, setMesAcuerdoGlobal] = useState('Agosto 2026');
@@ -28,11 +44,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   // Sincronizar cambios si props.personalInicial cambia
   React.useEffect(() => {
     if (Array.isArray(personalInicial)) {
-      setPersonalSalarios(personalInicial.map(p => ({
-        ...p,
-        costo_en_mano: Number(p.costo_en_mano || p.Costo_en_mano || p.salario || 0),
-        mes_acuerdo: p.mes_acuerdo || p.Mes_acuerdo || 'Agosto 2026'
-      })));
+      setPersonalSalarios(procesarPersonalInicial(personalInicial));
     }
   }, [personalInicial]);
 
@@ -114,8 +126,8 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  // Modificación manual individual de costo o mes en la tabla de salarios
-  const handleActualizarPersonalFila = (id, campo, valor) => {
+  // Modificación manual individual de costo o mes en la tabla de salarios y persistencia en Google Sheets
+  const handleActualizarPersonalFila = async (id, campo, valor) => {
     setPersonalSalarios(prev => prev.map(p => {
       const pId = p.id || p.ID;
       if (String(pId) === String(id)) {
@@ -123,22 +135,55 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       }
       return p;
     }));
+
+    // Encontrar el objeto modificado para enviarlo al backend
+    const personaActual = personalSalarios.find(p => String(p.id || p.ID) === String(id));
+    if (personaActual) {
+      const datosActualizados = { ...personaActual, [campo]: valor };
+      try {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ tabla: 'Personal', action: 'update', id: id, data: datosActualizados })
+        });
+      } catch (err) {
+        console.error("Error al actualizar en servidor:", err);
+      }
+    }
   };
 
-  // Aplicar multiplicador de paritaria y mes a todo el personal
-  const handleAplicarParitariaMasiva = () => {
+  // Aplicar multiplicador de paritaria y mes a todo el personal y guardarlo
+  const handleAplicarParitariaMasiva = async () => {
     const mult = Number(multiplicadorParitaria);
     if (!mult || mult <= 0) {
       alert("Ingresa un multiplicador válido (ej: 1.05 para un 5% de aumento).");
       return;
     }
 
-    setPersonalSalarios(prev => prev.map(p => ({
+    const nuevosSalarios = personalSalarios.map(p => ({
       ...p,
       costo_en_mano: Math.round((Number(p.costo_en_mano) || 0) * mult * 100) / 100,
       mes_acuerdo: mesAcuerdoGlobal
-    })));
-    alert("¡Paritaria y salarios actualizados correctamente para todo el personal!");
+    }));
+
+    setPersonalSalarios(nuevosSalarios);
+
+    // Guardar cada registro actualizado en el Google Sheet
+    try {
+      for (let p of nuevosSalarios) {
+        const pId = p.id || p.ID;
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ tabla: 'Personal', action: 'update', id: pId, data: p })
+        });
+      }
+      alert("¡Paritaria y salarios actualizados y guardados correctamente para todo el personal!");
+      cargarDatos();
+    } catch (err) {
+      console.error("Error al guardar paritaria masiva:", err);
+      alert("Hubo un error al sincronizar con la base de datos.");
+    }
   };
 
   // Agregar trabajador de la lista superior a la cuadrilla activa
