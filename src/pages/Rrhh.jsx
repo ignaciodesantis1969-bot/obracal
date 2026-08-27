@@ -331,8 +331,12 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
 
   // CÁLCULOS Y ACCIONES PARA LA CARGA SEMANAL DE SUELDOS / VIÁTICOS
   const detalleCargaCalculado = detalleCargaPersonal.map(item => {
-    const subtotalJornales = (Number(item.dias) || 0) * (Number(item.costoDiario) || 0);
-    const subtotalViaticos = (Number(item.viaticosCant) || 0) * (Number(item.viaticosCosto) || 0);
+    const diasVal = item.dias === '' ? 0 : Number(item.dias);
+    const viatCantVal = item.viaticosCant === '' ? 0 : Number(item.viaticosCant);
+    const viatCostVal = item.viaticosCosto === '' ? 0 : Number(item.viaticosCosto);
+
+    const subtotalJornales = diasVal * (Number(item.costoDiario) || 0);
+    const subtotalViaticos = viatCantVal * viatCostVal;
     const totalOperario = subtotalJornales + subtotalViaticos;
     return { ...item, subtotalJornales, subtotalViaticos, totalOperario };
   });
@@ -351,7 +355,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
 
     try {
-      // Mapeado exactamente a los campos de la tabla Tesoreria: tipo, fecha, concepto, monto, medio_pago, referencia
       const payloadTesoreria = {
         tipo: 'Egreso',
         fecha: fechaCarga,
@@ -914,7 +917,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                         type="number" min="0" max="7" step="0.5"
                         value={item.dias}
                         onChange={(e) => {
-                          const val = Number(e.target.value);
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
                           setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, dias: val } : i));
                         }}
                         className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
@@ -928,7 +931,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                         type="number" min="0" max="7"
                         value={item.viaticosCant}
                         onChange={(e) => {
-                          const val = Number(e.target.value);
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
                           setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCant: val } : i));
                         }}
                         className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
@@ -939,7 +942,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                         type="number" step="0.01" min="0"
                         value={item.viaticosCosto}
                         onChange={(e) => {
-                          const val = Number(e.target.value);
+                          const val = e.target.value === '' ? '' : Number(e.target.value);
                           setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCosto: val } : i));
                         }}
                         className="w-28 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
