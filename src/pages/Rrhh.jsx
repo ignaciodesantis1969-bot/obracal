@@ -342,7 +342,9 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     return { ...item, subtotalJornales, subtotalViaticos, totalOperario };
   });
 
-  const totalGeneralCarga = detalleCargaCalculado.reduce((acc, curr) => acc + curr.totalOperario, 0);
+  const totalJornalesMano = detalleCargaCalculado.reduce((acc, curr) => acc + curr.subtotalJornales, 0);
+  const totalViaticosGeneral = detalleCargaCalculado.reduce((acc, curr) => acc + curr.subtotalViaticos, 0);
+  const totalGeneralCarga = totalJornalesMano + totalViaticosGeneral;
 
   const handleGuardarCargaSalarial = async () => {
     if (!obraSeleccionadaCarga) {
@@ -956,6 +958,25 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 ))}
               </tbody>
             </table>
+          </div>
+
+          {/* Renglón con fondo gris (Desglose: Sueldos en Mano + Viáticos) */}
+          <div className="bg-slate-100 border border-slate-300 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-bold text-slate-700">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8">
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase block font-bold">Total Jornales en Mano</span>
+                <span className="text-sm font-black text-slate-900">$ {totalJornalesMano.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+              <span className="text-base font-bold text-slate-400 hidden sm:inline">+</span>
+              <div>
+                <span className="text-[10px] text-slate-400 uppercase block font-bold">Total Viáticos</span>
+                <span className="text-sm font-black text-slate-900">$ {totalViaticosGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              </div>
+            </div>
+            <div className="text-left sm:text-right w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200">
+              <span className="text-[10px] text-slate-400 uppercase block font-bold">Suma de Ambos Conceptos</span>
+              <span className="text-base font-black text-blue-600">$ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+            </div>
           </div>
 
           {/* Tarjeta de Resumen Final */}
