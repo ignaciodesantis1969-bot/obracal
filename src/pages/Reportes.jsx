@@ -38,9 +38,15 @@ export default function Reportes(props) {
   const totalGastado = movimientosFiltrados.filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso').reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
   const resultadoNeto = totalCobrado - totalGastado;
 
-  const presupuestosCompFiltrados = compObraId === 'todas' 
+  // FILTRADO ESTRICTO DE PRESUPUESTOS APROBADOS (Columna J: estado_presupuesto)
+  const presupuestosCompFiltrados = (compObraId === 'todas' 
     ? presupuestos 
-    : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(compObraId));
+    : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(compObraId))
+  ).filter(p => {
+    const estadoBruto = p.estado_presupuesto || p.Estado_presupuesto || p.estado || p.Estado || '';
+    const estadoLimpio = String(estadoBruto).toLowerCase().trim();
+    return estadoLimpio === 'aprobado' || estadoLimpio === 'aprobada';
+  });
 
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
@@ -155,27 +161,39 @@ export default function Reportes(props) {
             totalRubro += costoTareaTotal;
 
             let insumosDeLaTarea = tareaItem.insumos;
+            let listaInsumosParsed = [];
+            let esEstructuradoValido = false;
 
-            // RETROCOMPATIBILIDAD: Manejar insumos antiguos en texto plano
-            if (typeof insumosDeLaTarea === 'string') {
+            // Manejo limpio de insumos (JSON estructurado vs texto plano antiguo)
+            if (typeof insumosDeLaTarea === 'string' && insumosDeLaTarea.trim()) {
               if (insumosDeLaTarea.trim().startsWith('[')) {
-                try { insumosDeLaTarea = JSON.parse(insumosDeLaTarea); } catch { insumosDeLaTarea = []; }
-              } else if (insumosDeLaTarea.trim() !== '') {
-                insumosDeLaTarea = [{ nombre: insumosDeLaTarea, tipo: 'Material', cantidad: 1, costo_unitario: costoTareaTotal }];
+                try {
+                  listaInsumosParsed = JSON.parse(insumosDeLaTarea);
+                  if (Array.isArray(listaInsumosParsed) && listaInsumosParsed.length > 0) {
+                    esEstructuradoValido = true;
+                  }
+                } catch { listaInsumosParsed = []; }
               } else {
-                insumosDeLaTarea = [];
+                listaInsumosParsed = []; // Texto plano se deja vacío para activar la red semántica
+              }
+            } else if (Array.isArray(insumosDeLaTarea) && insumosDeLaTarea.length > 0) {
+              listaInsumosParsed = insumosDeLaTarea;
+              esEstructuradoValido = true;
+            }
+
+            // Si no hay insumos estructurados, buscamos en el Maestro de Tareas
+            if (!esEstructuradoValido) {
+              listaInsumosParsed = buscarInsumosMaestro(tareaItem.tarea);
+              if (Array.isArray(listaInsumosParsed) && listaInsumosParsed.length > 0) {
+                esEstructuradoValido = true;
               }
             }
 
-            if (!Array.isArray(insumosDeLaTarea) || insumosDeLaTarea.length === 0) {
-              insumosDeLaTarea = buscarInsumosMaestro(tareaItem.tarea);
-            }
-
-            if (Array.isArray(insumosDeLaTarea) && insumosDeLaTarea.length > 0) {
+            if (esEstructuradoValido) {
               let subtotalesIns = [];
               let sumaInsCosto = 0;
 
-              insumosDeLaTarea.forEach(insumo => {
+              listaInsumosParsed.forEach(insumo => {
                 const tipoNorm = obtenerTipoInsumoInfalible(insumo);
                 const costoIns = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || Number(insumo.costo) || 0);
                 subtotalesIns.push({ tipo: tipoNorm, costo: costoIns });
@@ -191,14 +209,16 @@ export default function Reportes(props) {
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              // RED DE SEGURIDAD SEMÁNTICA PARA PRESUPUESTOS VIEJOS SIN INSUMOS
-              const textoEvaluacion = (String(tareaItem.tarea) + " " + String(tareaItem.insumos || '')).toLowerCase();
+              // RED DE SEGURIDAD SEMÁNTICA INTELIGENTE PARA TAREAS VIEJAS SIN INSUMOS
+              const textoPlano = typeof tareaItem.insumos === 'string' ? tareaItem.insumos : '';
+              const textoEvaluacion = (String(tareaItem.tarea || '') + " " + textoPlano).toLowerCase();
               let tipoDef = 'Material';
-              if (textoEvaluacion.includes('mano') || textoEvaluacion.includes('oficial') || textoEvaluacion.includes('ayudante') || textoEvaluacion.includes('demolicion') || textoEvaluacion.includes('salarios')) {
+              
+              if (textoEvaluacion.includes('mano') || textoEvaluacion.includes('oficial') || textoEvaluacion.includes('ayudante') || textoEvaluacion.includes('demolicion') || textoEvaluacion.includes('salarios') || textoEvaluacion.includes('colocacion') || textoEvaluacion.includes('armado') || textoEvaluacion.includes('techista') || textoEvaluacion.includes('jornal')) {
                 tipoDef = 'Mano de Obra';
-              } else if (textoEvaluacion.includes('subcontrato') || textoEvaluacion.includes('volquete') || textoEvaluacion.includes('georadar') || textoEvaluacion.includes('flete') || textoEvaluacion.includes('alquiler')) {
+              } else if (textoEvaluacion.includes('subcontrato') || textoEvaluacion.includes('volquete') || textoEvaluacion.includes('georadar') || textoEvaluacion.includes('flete') || textoEvaluacion.includes('alquiler') || textoEvaluacion.includes('servicio') || textoEvaluacion.includes('transporte')) {
                 tipoDef = 'Subcontrato';
-              } else if (textoEvaluacion.includes('equipo') || textoEvaluacion.includes('maquinaria') || textoEvaluacion.includes('andamio')) {
+              } else if (textoEvaluacion.includes('equipo') || textoEvaluacion.includes('maquinaria') || textoEvaluacion.includes('andamio') || textoEvaluacion.includes('hormigonera') || textoEvaluacion.includes('herramienta')) {
                 tipoDef = 'Equipo/Maquinaria';
               }
 
@@ -524,7 +544,7 @@ export default function Reportes(props) {
                 value={compPresupuestoId}
                 onChange={e => setCompPresupuestoId(e.target.value)}
               >
-                <option value="">Seleccionar Presupuesto...</option>
+                <option value="">Seleccionar Presupuesto (Aprobados)...</option>
                 {presupuestosCompFiltrados.map(p => (
                   <option key={p.id || p.ID} value={String(p.id || p.ID)}>{p.codigo || 'PRES'} - {p.nombre || p.Nombre || 'Presupuesto'}</option>
                 ))}
@@ -534,7 +554,7 @@ export default function Reportes(props) {
 
           {!compPresupuestoId ? (
             <div className="py-16 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-              Selecciona una obra y un presupuesto para visualizar el comparativo desglosado.
+              Selecciona una obra y un presupuesto aprobado para visualizar el comparativo desglosado.
             </div>
           ) : (
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
