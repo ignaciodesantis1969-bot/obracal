@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2, Layers, ShieldCheck, DollarSign } from 'lucide-react';
+import { Building2, Layers, ShieldCheck } from 'lucide-react';
 
 export default function Reportes({ 
   obras = [], 
@@ -109,20 +109,40 @@ export default function Reportes({
       }
 
       // 2. Gastos Generales (desde coeficiente_pase / comercial)
-      if (parsedDetalle && parsedDetalle.comercial && parsedDetalle.comercial.gastos_generales_insumos) {
-        gastosGeneralesDetalle = parsedDetalle.comercial.gastos_generales_insumos.map((gg, ggIdx) => {
-          const cant = Number(gg.cantidad) || 1;
-          const unit = Number(gg.unitario) || 0;
-          const subtotalGG = cant * unit;
-          totalPresupuestoGG += subtotalGG;
-          return {
-            id: ggIdx,
-            concepto: gg.concepto || `Gasto General #${ggIdx + 1}`,
-            cantidad: cant,
-            unitario: unit,
-            total: subtotalGG
-          };
-        });
+      if (parsedDetalle && parsedDetalle.comercial) {
+        if (parsedDetalle.comercial.gastos_generales_insumos) {
+          parsedDetalle.comercial.gastos_generales_insumos.forEach((gg, ggIdx) => {
+            const cant = Number(gg.cantidad) || 1;
+            const unit = Number(gg.unitario) || 0;
+            const subtotalGG = cant * unit;
+            totalPresupuestoGG += subtotalGG;
+            gastosGeneralesDetalle.push({
+              id: `gg-${ggIdx}`,
+              concepto: gg.concepto || `Gasto General #${ggIdx + 1}`,
+              cantidad: cant,
+              unitario: unit,
+              total: subtotalGG,
+              esImprevistos: false
+            });
+          });
+        }
+
+        // Agregar ítem de Imprevistos en Gastos Generales
+        const porcentajeImprevistos = Number(parsedDetalle.comercial.porcentaje_imprevistos) || 0;
+        const costoDirectoBase = Number(presupuestoSeleccionado.costo_directo) || totalPresupuestoRubros;
+        const montoImprevistos = costoDirectoBase * (porcentajeImprevistos / 100);
+        
+        if (montoImprevistos > 0) {
+          totalPresupuestoGG += montoImprevistos;
+          gastosGeneralesDetalle.push({
+            id: 'gg-imprevistos',
+            concepto: `Imprevistos (${porcentajeImprevistos}% s/ CD)`,
+            cantidad: 1,
+            unitario: montoImprevistos,
+            total: montoImprevistos,
+            esImprevistos: true
+          });
+        }
       }
     } catch (e) {
       console.error("Error al parsear items_detalle:", e);
@@ -132,17 +152,20 @@ export default function Reportes({
   // Filtrar facturas asociadas a este presupuesto
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
-  // Facturas reales de Gastos Generales (ej. Proveedor ID 1 - Salud Ocupacional Sur / Seguridad e Higiene)
+  // Imputaciones reales de Gastos Generales (ej. Proveedor ID 1 - Seguridad e Higiene)
   const totalRealGG = facturasPresupuesto
     .filter(f => String(f.proveedor_id || f.Proveedor_id) === '1')
     .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
 
-  const totalRealRubros = facturasPresupuesto
+  // Imputaciones reales que no coinciden con los títulos específicos van a Imprevistos
+  const totalRealImprevistos = facturasPresupuesto
     .filter(f => String(f.proveedor_id || f.Proveedor_id) !== '1')
     .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
 
+  const totalRealRubros = 0;
+
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
-  const granTotalReal = totalRealRubros + totalRealGG;
+  const granTotalReal = totalRealRubros + totalRealGG + totalRealImprevistos;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -386,7 +409,7 @@ export default function Reportes({
                   {/* SECCIÓN 1: RUBROS */}
                   {rubrosPresupuestoDetalle.map((rubro) => {
                     const componentesNombres = ['Materiales', 'Mano de Obra', 'Subcontrato', 'Equipo / Herramienta'];
-                    const realFacturasRubro = 0; // Sin facturas directas asociadas a rubros en este dataset
+                    const realFacturasRubro = 0;
 
                     return (
                       <React.Fragment key={`rub-${rubro.id}`}>
@@ -434,36 +457,35 @@ export default function Reportes({
                     );
                   })}
 
-                  {/* SECCIÓN 2: GASTOS GENERALES */}
+                  {/* SECCIÓN 2: GASTOS GENERALES E IMPREVISTOS */}
                   {gastosGeneralesDetalle.length > 0 && (
                     <React.Fragment>
                       <tr className="bg-amber-50 font-extrabold text-slate-900 border-t-2 border-amber-200">
                         <td className="px-4 py-3 uppercase text-amber-800 flex items-center gap-2" colSpan={1}>
                           <ShieldCheck className="w-4 h-4 text-amber-600" />
-                          GASTOS GENERALES (SEGURIDAD E HIGIENE / EPP / ROPA)
+                          GASTOS GENERALES (SEGURIDAD E HIGIENE / EPP / ROPA / IMPREVISTOS)
                         </td>
                         <td className="px-4 py-3 text-right font-black text-amber-900">
                           $ {totalPresupuestoGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-3 text-right font-black text-slate-700">
-                          $ {totalRealGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          $ {(totalRealGG + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-amber-600">$ 0,00</td>
-                        <td className={`px-4 py-3 text-right font-black ${totalPresupuestoGG - totalRealGG >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          $ {(totalPresupuestoGG - totalRealGG).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        <td className={`px-4 py-3 text-right font-black ${totalPresupuestoGG - (totalRealGG + totalRealImprevistos) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          $ {(totalPresupuestoGG - (totalRealGG + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
 
                       {gastosGeneralesDetalle.map((ggItem) => {
-                        // Asignar facturas reales proporcionalmente o al primer item si corresponde
-                        const realItemGG = ggItem.id === 0 ? totalRealGG : 0;
+                        const realItemGG = ggItem.esImprevistos ? totalRealImprevistos : (ggItem.id === 'gg-0' ? totalRealGG : 0);
                         const desvioGG = ggItem.total - realItemGG;
 
                         return (
-                          <tr key={`gg-${ggItem.id}`} className="hover:bg-amber-50/50">
+                          <tr key={ggItem.id} className="hover:bg-amber-50/50">
                             <td className="px-4 py-2.5 pl-8 text-slate-700 font-medium flex items-center gap-2">
                               <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                              {ggItem.concepto} (Cant: {ggItem.cantidad})
+                              {ggItem.concepto} {!ggItem.esImprevistos && `(Cant: ${ggItem.cantidad})`}
                             </td>
                             <td className="px-4 py-2.5 text-right font-bold text-blue-600">
                               $ {ggItem.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
@@ -485,17 +507,17 @@ export default function Reportes({
                   <tr className="bg-slate-200 text-slate-900 font-extrabold border-t-2 border-slate-400">
                     <td className="px-4 py-3 uppercase">SUBTOTAL RUBROS</td>
                     <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-right">$ {totalRealRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                     <td className="px-4 py-3 text-right">$ 0,00</td>
-                    <td className="px-4 py-3 text-right">$ {(totalPresupuestoRubros - totalRealRubros).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-right">$ 0,00</td>
+                    <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                   </tr>
 
                   <tr className="bg-amber-200 text-amber-950 font-extrabold">
-                    <td className="px-4 py-3 uppercase">TOTAL GASTOS GENERALES</td>
+                    <td className="px-4 py-3 uppercase">TOTAL GASTOS GENERALES E IMPREVISTOS</td>
                     <td className="px-4 py-3 text-right">$ {totalPresupuestoGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-right">$ {totalRealGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-right">$ {(totalRealGG + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                     <td className="px-4 py-3 text-right">$ 0,00</td>
-                    <td className="px-4 py-3 text-right">$ {(totalPresupuestoGG - totalRealGG).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-right">$ {(totalPresupuestoGG - (totalRealGG + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                   </tr>
 
                   <tr className="bg-slate-900 text-white font-black text-sm">
