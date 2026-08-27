@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus } from 'lucide-react';
 
 export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], cargarDatos }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
@@ -96,6 +96,21 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
+  // Agregar trabajador de la lista general a la cuadrilla
+  const handleAgregarPersonalDeLista = (persona) => {
+    const nombrePersona = persona.nombre || persona.Nombre || 'Personal';
+    const especialidadPersona = persona.especialidad || persona.Especialidad || 'Operario';
+    const categoriaTexto = `${especialidadPersona} - ${nombrePersona}`.toUpperCase();
+
+    const nuevoItem = {
+      id: Date.now(),
+      categoria: categoriaTexto,
+      cantidad: 1,
+      costoEnMano: 0
+    };
+    setCuadrillaItems(prev => [...prev, nuevoItem]);
+  };
+
   // Cálculos dinámicos de la cuadrilla actual en el editor
   const factorCargas = porcentajeCargas / 100;
   const itemsCalculados = cuadrillaItems.map(item => {
@@ -170,7 +185,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       if (Array.isArray(descParsed.items)) setCuadrillaItems(descParsed.items);
       if (descParsed.viaticos) setViaticosCuadrilla(descParsed.viaticos);
     } catch {
-      // Si la descripción es texto plano, mantenemos valores por defecto
+      // Si la descripción es texto plano
     }
 
     setVistaCuadrilla('editor');
@@ -180,11 +195,8 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     setCuadrillaIdEditando(null);
     setNombreCuadrilla('NUEVA CUADRILLA');
     setPorcentajeCargas(76.00);
-    setCuadrillaItems([
-      { id: 1, categoria: 'OFICIAL', cantidad: 1, costoEnMano: 60000 },
-      { id: 2, categoria: 'AYUDANTE', cantidad: 1, costoEnMano: 45000 }
-    ]);
-    setViaticosCuadrilla({ cantidad: 1, costo: 50000 });
+    setCuadrillaItems([]);
+    setViaticosCuadrilla({ cantidad: 1, costo: 0 });
     setVistaCuadrilla('editor');
   };
 
@@ -427,6 +439,30 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 </div>
               </div>
 
+              {/* Selector para añadir personal desde la lista general */}
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3">
+                <span className="text-xs font-bold text-slate-700">Añadir integrante desde la Lista de Personal:</span>
+                <select 
+                  onChange={(e) => {
+                    const pId = e.target.value;
+                    if (!pId) return;
+                    const personaEncontrada = personalInicial.find(p => String(p.id || p.ID) === String(pId));
+                    if (personaEncontrada) {
+                      handleAgregarPersonalDeLista(personaEncontrada);
+                    }
+                    e.target.value = "";
+                  }}
+                  className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
+                >
+                  <option value="">Seleccionar trabajador...</option>
+                  {personalInicial.map(p => (
+                    <option key={p.id || p.ID} value={String(p.id || p.ID)}>
+                      {(p.nombre || p.Nombre)} — {(p.especialidad || p.Especialidad || 'General')}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div className="overflow-x-auto border border-slate-200 rounded-xl">
                 <table className="w-full text-left text-xs">
                   <thead>
@@ -436,6 +472,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                       <th className="px-4 py-3 text-right">Costo En Mano ($)</th>
                       <th className="px-4 py-3 text-right">Cargas Sociales ($)</th>
                       <th className="px-4 py-3 text-right">Sub-Total / Día ($)</th>
+                      <th className="px-4 py-3 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -480,12 +517,22 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                         <td className="px-4 py-3 text-right font-black text-slate-900">
                           $ {item.subtotalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
+                        <td className="px-4 py-3 text-center">
+                          <button 
+                            onClick={() => setCuadrillaItems(prev => prev.filter(i => i.id !== item.id))}
+                            className="p-1 text-slate-400 hover:text-red-600 cursor-pointer" title="Quitar trabajador"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </td>
                       </tr>
                     ))}
 
                     {/* Fila de Viáticos */}
                     <tr className="bg-amber-50/40 font-semibold">
-                      <td className="px-4 py-3 text-amber-900 uppercase font-extrabold">VIÁTICOS</td>
+                      <td className="px-4 py-3 text-amber-900 uppercase font-extrabold" colSpan={2}>
+                        VIÁTICOS (Cantidad y Costo Diario)
+                      </td>
                       <td className="px-4 py-3 text-center">
                         <input 
                           type="number" min="0" 
@@ -494,7 +541,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                           className="w-16 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
                         />
                       </td>
-                      <td className="px-4 py-3 text-right" colSpan={2}>
+                      <td className="px-4 py-3 text-right">
                         <input 
                           type="number" step="0.01"
                           value={viaticosCuadrilla.costo}
@@ -502,7 +549,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                           className="w-40 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
                         />
                       </td>
-                      <td className="px-4 py-3 text-right font-black text-amber-900">
+                      <td className="px-4 py-3 text-right font-black text-amber-900" colSpan={2}>
                         $ {totalViaticos.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
