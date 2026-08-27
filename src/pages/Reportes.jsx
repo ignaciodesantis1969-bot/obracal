@@ -44,7 +44,7 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // 1. Crear diccionario global de Insumos basado en la pestaña "Insumos" (Fuente de Verdad)
+  // 1. Diccionario global de Insumos basado en la pestaña "Insumos" (Fuente de Verdad)
   const insumosGlobalMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
@@ -52,13 +52,11 @@ export default function Reportes({
       const gCod = String(insGlobal.codigo || insGlobal.Codigo || '').trim().toLowerCase();
       const gNom = String(insGlobal.nombre || insGlobal.Nombre || '').trim().toLowerCase();
       
-      const infoInsumo = {
-        tipo: insGlobal.tipo || 'Material'
-      };
+      const tipoOficial = insGlobal.tipo || 'Material';
 
-      if (gId) insumosGlobalMap[gId] = infoInsumo;
-      if (gCod) insumosGlobalMap[gCod] = infoInsumo;
-      if (gNom) insumosGlobalMap[gNom] = infoInsumo;
+      if (gId) insumosGlobalMap[gId] = tipoOficial;
+      if (gCod) insumosGlobalMap[gCod] = tipoOficial;
+      if (gNom) insumosGlobalMap[gNom] = tipoOficial;
     });
   }
 
@@ -79,17 +77,16 @@ export default function Reportes({
     });
   }
 
-  // Función para obtener el tipo oficial directamente de la pestaña Insumos
+  // Función para obtener el tipo oficial estrictamente desde la pestaña Insumos
   const obtenerTipoOficial = (insumoItem) => {
     const idKey = String(insumoItem.id || insumoItem.ID || '').trim();
     const codKey = String(insumoItem.codigo || insumoItem.Codigo || '').trim().toLowerCase();
     const nomKey = String(insumoItem.nombre || insumoItem.Nombre || '').trim().toLowerCase();
 
-    if (idKey && insumosGlobalMap[idKey]) return insumosGlobalMap[idKey].tipo;
-    if (codKey && insumosGlobalMap[codKey]) return insumosGlobalMap[codKey].tipo;
-    if (nomKey && insumosGlobalMap[nomKey]) return insumosGlobalMap[nomKey].tipo;
+    if (idKey && insumosGlobalMap[idKey]) return insumosGlobalMap[idKey];
+    if (codKey && insumosGlobalMap[codKey]) return insumosGlobalMap[codKey];
+    if (nomKey && insumosGlobalMap[nomKey]) return insumosGlobalMap[nomKey];
 
-    // Si no está en el catálogo global, usar el tipo que trae o por defecto Material
     return insumoItem.tipo || 'Material';
   };
 
@@ -110,13 +107,7 @@ export default function Reportes({
         rubrosPresupuestoDetalle = parsedDetalle.rubros.map((rubroItem, rIdx) => {
           const tareasList = rubroItem.tareas || [];
           let totalRubro = 0;
-          let acumuladorComponentes = {
-            'Material': 0,
-            'Subcontrato': 0,
-            'Mano de Obra': 0,
-            'Equipo/Maquinaria': 0,
-            'Gastos Generales': 0
-          };
+          let acumuladorComponentes = {};
 
           tareasList.forEach(tareaItem => {
             const costoTareaTotal = (Number(tareaItem.cantidad) || 1) * (Number(tareaItem.costo_unitario) || 0);
@@ -131,18 +122,14 @@ export default function Reportes({
 
             if (Array.isArray(insumosAsociados) && insumosAsociados.length > 0) {
               insumosAsociados.forEach(insumo => {
-                // Tomar el tipo estrictamente desde la pestaña Insumos global
-                let tipoOficial = obtenerTipoOficial(insumo);
-                
-                if (!acumuladorComponentes[tipoOficial]) {
-                  acumuladorComponentes[tipoOficial] = 0;
-                }
-
+                const tipoOficial = obtenerTipoOficial(insumo);
                 const subtotalInsumo = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || 0);
-                acumuladorComponentes[tipoOficial] += subtotalInsumo;
+
+                acumuladorComponentes[tipoOficial] = (acumuladorComponentes[tipoOficial] || 0) + subtotalInsumo;
               });
             } else {
-              acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
+              const tipoDefault = tareaItem.tipo || 'Material';
+              acumuladorComponentes[tipoDefault] = (acumuladorComponentes[tipoDefault] || 0) + costoTareaTotal;
             }
           });
 
