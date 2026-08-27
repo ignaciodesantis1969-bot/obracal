@@ -44,7 +44,7 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // Crear diccionario de búsqueda para el maestro de tareas (Mano de obra, materiales, etc.)
+  // Crear diccionario de búsqueda para el maestro de tareas
   const maestroMap = {};
   if (Array.isArray(maestroTareasRubros)) {
     maestroTareasRubros.forEach(m => {
@@ -61,7 +61,7 @@ export default function Reportes({
 
   // Procesar rubros del presupuesto desde items_detalle
   let rubrosPresupuestoDetalle = [];
-  let gastosGeneralesDetalle = [];
+  let gastosGeneralesBase = [];
   let totalPresupuestoRubros = 0;
   let totalPresupuestoGG = 0;
 
@@ -71,18 +71,21 @@ export default function Reportes({
         ? JSON.parse(presupuestoSeleccionado.items_detalle) 
         : presupuestoSeleccionado.items_detalle;
       
-      // 1. Rubros y Tareas
+      // 1. Rubros y Tareas con discriminación estricta
       if (parsedDetalle && parsedDetalle.rubros) {
         rubrosPresupuestoDetalle = parsedDetalle.rubros.map((r, rIdx) => {
           const tareas = r.tareas || [];
           let totalRubro = 0;
-          let componentes = {};
+          let componentes = {
+            'Mano de Obra': 0,
+            'Materiales': 0,
+            'Subcontrato': 0
+          };
 
           tareas.forEach(t => {
             const tCosto = (Number(t.cantidad) || 1) * (Number(t.costo_unitario) || 0);
             totalRubro += tCosto;
 
-            // Intentar leer insumos propios de la tarea o buscar en el maestro de tareas
             let insumosList = t.insumos || [];
             if (typeof insumosList === 'string' && insumosList.trim()) {
               try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
@@ -101,13 +104,13 @@ export default function Reportes({
                 const nombreIns = String(ins.nombre || '').trim().toLowerCase();
                 const costoIns = (Number(ins.cantidad) || 1) * (Number(ins.costo_unitario) || 0);
 
-                let tipoNormalizado = 'Materiales'; // Por defecto
+                let tipoNormalizado = 'Materiales';
 
-                if (tipoRaw.includes('mano') || nombreIns.includes('mano de obra') || nombreIns.includes('cuadrilla')) {
+                if (tipoRaw === 'mano de obra' || tipoRaw.includes('mano') || nombreIns.includes('mano de obra') || nombreIns.includes('cuadrilla')) {
                   tipoNormalizado = 'Mano de Obra';
-                } else if (tipoRaw.includes('subcontrato') || tipoRaw.includes('servicio') || nombreIns.includes('subcontrato') || nombreIns.includes('alquiler') || nombreIns.includes('poda')) {
+                } else if (tipoRaw === 'subcontrato' || tipoRaw.includes('subcontrato') || tipoRaw.includes('servicio de volquete') || nombreIns.includes('subcontrato') || nombreIns.includes('alquiler') || nombreIns.includes('poda') || nombreIns.includes('carteleria')) {
                   tipoNormalizado = 'Subcontrato';
-                } else if (tipoRaw.includes('material') || tipoRaw.includes('provisión') || tipoRaw.includes('provision')) {
+                } else if (tipoRaw === 'material' || tipoRaw.includes('material') || tipoRaw.includes('provisión') || tipoRaw.includes('provision')) {
                   tipoNormalizado = 'Materiales';
                 }
 
@@ -124,17 +127,23 @@ export default function Reportes({
           });
 
           totalPresupuestoRubros += totalRubro;
+          
+          // Filtrar componentes que tengan valor mayor a 0 para no mostrar en cero innecesarios
+          const componentesFiltrados = Object.fromEntries(
+            Object.entries(componentes).filter(([_, val]) => val > 0)
+          );
+
           return {
             id: rIdx,
             nombre: r.rubro || `Rubro #${rIdx + 1}`,
             total: totalRubro,
-            componentes: componentes,
+            componentes: componentesFiltrados,
             tareas: tareas
           };
         });
       }
 
-      // 2. Gastos Generales
+      // 2. Gastos Generales base
       if (parsedDetalle && parsedDetalle.comercial) {
         if (parsedDetalle.comercial.gastos_generales_insumos) {
           parsedDetalle.comercial.gastos_generales_insumos.forEach((gg, ggIdx) => {
@@ -142,7 +151,7 @@ export default function Reportes({
             const unit = Number(gg.unitario) || 0;
             const subtotalGG = cant * unit;
             totalPresupuestoGG += subtotalGG;
-            gastosGeneralesDetalle.push({
+            gastosGeneralesBase.push({
               id: `gg-${ggIdx}`,
               concepto: gg.concepto || `Gasto General #${ggIdx + 1}`,
               cantidad: cant,
@@ -159,7 +168,7 @@ export default function Reportes({
         
         if (montoImprevistos > 0) {
           totalPresupuestoGG += montoImprevistos;
-          gastosGeneralesDetalle.push({
+          gastosGeneralesBase.push({
             id: 'gg-imprevistos',
             concepto: `Imprevistos (${porcentajeImprevistos}% s/ CD)`,
             cantidad: 1,
@@ -174,54 +183,52 @@ export default function Reportes({
     }
   }
 
-  // Filtrar facturas del presupuesto y distribuir por concepto de Gasto General
+  // Filtrar facturas del presupuesto y distribuir de forma única y limpia
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
   let totalRealGGEspecifico = 0;
   let totalRealImprevistos = 0;
 
-  if (gastosGeneralesDetalle.length > 0) {
-    gastosGeneralesDetalle = gastosGeneralesDetalle.map(ggItem => {
-      let realAsignado = 0;
-      const conceptoLower = ggItem.concepto.toLowerCase();
-      
-      facturasPresupuesto.forEach(fac => {
-        const provId = String(fac.proveedor_id || fac.Proveedor_id || '');
-        const detalleFac = String(fac.detalle_gasto || fac.rubro || '').toLowerCase();
-        const montoFac = Number(fac.total || 0);
+  const gastosGeneralesDetalle = gastosGeneralesBase.map(ggItem => {
+    let realAsignado = 0;
+    const conceptoLower = ggItem.concepto.toLowerCase();
+    
+    facturasPresupuesto.forEach(fac => {
+      const provId = String(fac.proveedor_id || fac.Proveedor_id || '');
+      const detalleFac = String(fac.detalle_gasto || fac.rubro || '').toLowerCase();
+      const montoFac = Number(fac.total || 0);
 
-        if (conceptoLower.includes('seguridad e higiene')) {
-          if (['1', '2', '6'].includes(provId) || detalleFac.includes('seguridad')) {
-            realAsignado += montoFac;
-          }
-        } else if (conceptoLower.includes('ropa')) {
-          if (provId === '11' || detalleFac.includes('ropa') || detalleFac.includes('botines')) {
-            realAsignado += montoFac;
-          }
-        } else if (conceptoLower.includes('epp') || conceptoLower.includes('casco')) {
-          if (provId === '14' || detalleFac.includes('epp') || detalleFac.includes('casco') || detalleFac.includes('guantes')) {
-            realAsignado += montoFac;
-          }
-        } else if (ggItem.esImprevistos) {
-          if (!['1', '2', '6', '11', '14'].includes(provId)) {
-            realAsignado += montoFac;
-          }
+      if (conceptoLower.includes('seguridad e higiene')) {
+        if (['1', '2', '6'].includes(provId) || detalleFac.includes('seguridad')) {
+          realAsignado += montoFac;
         }
-      });
-
-      if (ggItem.esImprevistos) {
-        totalRealImprevistos += realAsignado;
-      } else {
-        totalRealGGEspecifico += realAsignado;
+      } else if (conceptoLower.includes('ropa')) {
+        if (provId === '11' || detalleFac.includes('ropa') || detalleFac.includes('botines')) {
+          realAsignado += montoFac;
+        }
+      } else if (conceptoLower.includes('epp') || conceptoLower.includes('casco')) {
+        if (provId === '14' || detalleFac.includes('epp') || detalleFac.includes('casco') || detalleFac.includes('guantes')) {
+          realAsignado += montoFac;
+        }
+      } else if (ggItem.esImprevistos) {
+        if (!['1', '2', '6', '11', '14'].includes(provId)) {
+          realAsignado += montoFac;
+        }
       }
-
-      return {
-        ...ggItem,
-        real: realAsignado,
-        desvio: ggItem.total - realAsignado
-      };
     });
-  }
+
+    if (ggItem.esImprevistos) {
+      totalRealImprevistos += realAsignado;
+    } else {
+      totalRealGGEspecifico += realAsignado;
+    }
+
+    return {
+      ...ggItem,
+      real: realAsignado,
+      desvio: ggItem.total - realAsignado
+    };
+  });
 
   const totalRealRubros = 0;
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
