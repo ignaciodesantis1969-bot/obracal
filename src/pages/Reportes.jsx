@@ -44,7 +44,7 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // 1. Diccionario global de Insumos (Fuente de Verdad para los tipos)
+  // 1. Diccionario global de Insumos (Fuente de Verdad: Pestaña Insumos)
   const insumosGlobalMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
@@ -52,12 +52,11 @@ export default function Reportes({
       const gCod = String(insGlobal.codigo || insGlobal.Codigo || '').trim().toLowerCase();
       const gNom = String(insGlobal.nombre || insGlobal.Nombre || '').trim().toLowerCase();
       
-      const tipoOficial = String(insGlobal.tipo || 'Material').trim();
-      // Normalizar nombres de tipos si es necesario
+      const tipoOficial = String(insGlobal.tipo || 'Material').trim().toLowerCase();
       let tipoNorm = 'Material';
-      if (tipoOficial.toLowerCase().includes('mano')) tipoNorm = 'Mano de Obra';
-      else if (tipoOficial.toLowerCase().includes('subcontrato')) tipoNorm = 'Subcontrato';
-      else if (tipoOficial.toLowerCase().includes('equipo') || tipoOficial.toLowerCase().includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
+      if (tipoOficial.includes('mano')) tipoNorm = 'Mano de Obra';
+      else if (tipoOficial.includes('subcontrato')) tipoNorm = 'Subcontrato';
+      else if (tipoOficial.includes('equipo') || tipoOficial.includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
       else tipoNorm = 'Material';
 
       if (gId) insumosGlobalMap[gId] = tipoNorm;
@@ -116,6 +115,8 @@ export default function Reportes({
         rubrosPresupuestoDetalle = parsedDetalle.rubros.map((rubroItem, rIdx) => {
           const tareasList = rubroItem.tareas || [];
           let totalRubro = 0;
+          
+          // Inicializar los 4 ítems obligatorios
           let acumuladorComponentes = {
             'Material': 0,
             'Mano de Obra': 0,
@@ -154,12 +155,12 @@ export default function Reportes({
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              // Si no tiene insumos, deducir por nombre de tarea / rubro
+              // Si no tiene insumos en el maestro, deducir por nombre de tarea / rubro
               const textoBusq = `${String(rubroItem.rubro || '')} ${String(tareaItem.tarea || '')}`.toLowerCase();
               let tipoDef = 'Material';
               if (textoBusq.includes('mano de obra') || textoBusq.includes('salarios')) tipoDef = 'Mano de Obra';
               else if (textoBusq.includes('subcontrato') || textoBusq.includes('volquete') || textoBusq.includes('georadar')) tipoDef = 'Subcontrato';
-              else if (textoBusq.includes('equipo') || textoBusq.includes('andamios')) tipoDef = 'Equipo/Maquinaria';
+              else if (textoBusq.includes('equipo') || textoBusq.includes('andamios') || textoBusq.includes('maquinaria')) tipoDef = 'Equipo/Maquinaria';
 
               acumuladorComponentes[tipoDef] = (acumuladorComponentes[tipoDef] || 0) + costoTareaTotal;
             }
@@ -167,8 +168,9 @@ export default function Reportes({
 
           totalPresupuestoRubros += totalRubro;
 
+          // Filtrar para mostrar únicamente los componentes que tengan un monto mayor a 0
           const componentesActivos = Object.fromEntries(
-            Object.entries(acumuladorComponentes).filter(([_, val]) => val > 0)
+            Object.entries(acumuladorComponentes).filter(([_, val]) => val > 0.01)
           );
 
           return {
