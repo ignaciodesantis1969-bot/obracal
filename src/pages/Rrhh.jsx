@@ -1,26 +1,39 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw } from 'lucide-react';
 
 export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], cargarDatos }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Estado local para los salarios del personal (permite modificar en pantalla y aplicar multiplicador de paritaria)
+  const [personalSalarios, setPersonalSalarios] = useState(
+    personalInicial.map(p => ({
+      ...p,
+      costo_en_mano: Number(p.costo_en_mano || p.Costo_en_mano || p.salario || 0),
+      mes_acuerdo: p.mes_acuerdo || p.Mes_acuerdo || 'Agosto 2026'
+    }))
+  );
+
+  const [multiplicadorParitaria, setMultiplicadorParitaria] = useState('');
 
   // Estados para la gestión y edición de Cuadrillas
   const [vistaCuadrilla, setVistaCuadrilla] = useState('lista'); // 'lista' | 'editor'
   const [cuadrillaIdEditando, setCuadrillaIdEditando] = useState(null);
   const [nombreCuadrilla, setNombreCuadrilla] = useState('CUADRILLA LDC ZARATE - PROMEDIO ESTABLE');
   const [porcentajeCargas, setPorcentajeCargas] = useState(76.00);
-  
-  const [cuadrillaItems, setCuadrillaItems] = useState([
-    { id: 1, categoria: 'OFICIAL ESPECIALIZADO', cantidad: 1, costoEnMano: 92550.50 },
-    { id: 2, categoria: 'OFICIAL CABALLERO', cantidad: 1, costoEnMano: 58941.78 },
-    { id: 3, categoria: 'OFICIAL OYOLA', cantidad: 0, costoEnMano: 61504.47 },
-    { id: 4, categoria: 'OFICIAL TORRES', cantidad: 1, costoEnMano: 53175.74 },
-    { id: 5, categoria: 'OFICIAL PALACIO', cantidad: 1, costoEnMano: 61215.00 },
-    { id: 6, categoria: '1/2 OFICIAL OYOLA', cantidad: 0, costoEnMano: 55650.00 }
-  ]);
+  const [cuadrillaItems, setCuadrillaItems] = useState([]);
+  const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 0 });
 
-  const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 152436.57 });
+  // Sincronizar cambios si props.personalInicial cambia
+  React.useEffect(() => {
+    if (Array.isArray(personalInicial)) {
+      setPersonalSalarios(personalInicial.map(p => ({
+        ...p,
+        costo_en_mano: Number(p.costo_en_mano || p.Costo_en_mano || p.salario || 0),
+        mes_acuerdo: p.mes_acuerdo || p.Mes_acuerdo || 'Agosto 2026'
+      })));
+    }
+  }, [personalInicial]);
 
   // Filtrar insumos que actúan como cuadrillas / mano de obra compuesta
   const cuadrillasGuardadas = Array.isArray(insumos) 
@@ -40,7 +53,9 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     especialidad: '',
     telefono: '',
     email: '',
-    direccion: ''
+    direccion: '',
+    costo_en_mano: 0,
+    mes_acuerdo: 'Agosto 2026'
   });
 
   const handleOpenModal = (persona = null) => {
@@ -52,11 +67,13 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         especialidad: persona.especialidad || persona.Especialidad || '',
         telefono: persona.telefono || persona.Telefono || '',
         email: persona.email || persona.Email || '',
-        direccion: persona.direccion || persona.Direccion || ''
+        direccion: persona.direccion || persona.Direccion || '',
+        costo_en_mano: Number(persona.costo_en_mano || persona.Costo_en_mano || persona.salario || 0),
+        mes_acuerdo: persona.mes_acuerdo || persona.Mes_acuerdo || 'Agosto 2026'
       });
     } else {
       setEditingId(null);
-      setFormData({ nombre: '', cuil: '', especialidad: '', telefono: '', email: '', direccion: '' });
+      setFormData({ nombre: '', cuil: '', especialidad: '', telefono: '', email: '', direccion: '', costo_en_mano: 0, mes_acuerdo: 'Agosto 2026' });
     }
     setIsModalOpen(true);
   };
@@ -96,12 +113,27 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  // Función para agregar un trabajador directamente desde la lista superior al cuadro de la cuadrilla
+  // Aplicar multiplicador de paritaria a todo el personal
+  const handleAplicarParitariaMasiva = () => {
+    const mult = Number(multiplicadorParitaria);
+    if (!mult || mult <= 0) {
+      alert("Ingresa un multiplicador válido (ej: 1.05 para un 5% de aumento).");
+      return;
+    }
+
+    setPersonalSalarios(prev => prev.map(p => ({
+      ...p,
+      costo_en_mano: Math.round((Number(p.costo_en_mano) || 0) * mult * 100) / 100
+    })));
+    alert("¡Multiplicador de paritaria aplicado correctamente en pantalla!");
+  };
+
+  // Agregar trabajador de la lista superior a la cuadrilla activa
   const handleAgregarPersonalAQuadrilla = (persona) => {
     const nombre = persona.nombre || persona.Nombre || 'Personal';
     const especialidad = persona.especialidad || persona.Especialidad || 'Operario';
     const categoriaTexto = `${especialidad.toUpperCase()} - ${nombre.toUpperCase()}`;
-    const costoBase = Number(persona.costo_en_mano || persona.Costo_en_mano || persona.salario || 0);
+    const costoBase = Number(persona.costo_en_mano || 0);
 
     const nuevoItem = {
       id: Date.now() + Math.random(),
@@ -216,7 +248,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  const personalFiltrado = personalInicial.filter(p => {
+  const personalFiltrado = personalSalarios.filter(p => {
     const nombre = String(p.nombre || p.Nombre || '').toLowerCase();
     const cuil = String(p.cuil || p.Cuil || p.CUIL || '').toLowerCase();
     const especialidad = String(p.especialidad || p.Especialidad || '').toLowerCase();
@@ -229,7 +261,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Recursos Humanos</h1>
-          <p className="text-slate-500 text-sm mt-1">Gestión de personal, legajos y armado de cuadrillas de mano de obra</p>
+          <p className="text-slate-500 text-sm mt-1">Gestión de personal, salarios por paritarias y armado de cuadrillas</p>
         </div>
         {activeTab === 'personal' && (
           <button 
@@ -306,8 +338,8 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                     <th className="px-6 py-4">Nombre</th>
                     <th className="px-4 py-4">CUIL</th>
                     <th className="px-4 py-4">Especialidad</th>
-                    <th className="px-4 py-4">Teléfono</th>
-                    <th className="px-4 py-4">Mail</th>
+                    <th className="px-4 py-4">Costo en Mano ($)</th>
+                    <th className="px-4 py-4">Mes de Acuerdo</th>
                     <th className="px-6 py-4 text-right">Acciones</th>
                   </tr>
                 </thead>
@@ -323,8 +355,10 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                             {p.especialidad || p.Especialidad || 'General'}
                           </span>
                         </td>
-                        <td className="px-4 py-4 text-slate-600">{p.telefono || p.Telefono || '---'}</td>
-                        <td className="px-4 py-4 text-slate-600">{p.email || p.Email || '---'}</td>
+                        <td className="px-4 py-4 font-black text-blue-600">
+                          $ {Number(p.costo_en_mano || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-4 font-semibold text-slate-700">{p.mes_acuerdo || 'Agosto 2026'}</td>
                         <td className="px-6 py-4 text-right space-x-2">
                           <button onClick={() => handleOpenModal(p)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer"><Edit2 className="w-3.5 h-3.5" /></button>
                           <button onClick={() => handleEliminarPersonal(pId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
@@ -343,11 +377,64 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       {activeTab === 'salarios' && (
         <div className="space-y-6">
           {vistaCuadrilla === 'lista' ? (
-            <div className="space-y-4">
+            <div className="space-y-6">
+              {/* PANEL SUPERIOR: MAESTRO DE SALARIOS Y PARITARIAS */}
+              <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
+                  <div>
+                    <h3 className="text-sm font-extrabold text-slate-900 uppercase">Salarios Acordados por Personal (Base Vigente)</h3>
+                    <p className="text-xs text-slate-500 mt-0.5">Actualiza individualmente o aplica un multiplicador general por paritaria mensual.</p>
+                  </div>
+                  
+                  {/* MULTIPLICADOR DE PARITARIA */}
+                  <div className="flex items-center gap-2 bg-amber-50 px-4 py-2 rounded-xl border border-amber-200">
+                    <span className="text-xs font-bold text-amber-900">Multiplicador Paritaria:</span>
+                    <input 
+                      type="number" step="0.001" placeholder="Ej: 1.05"
+                      value={multiplicadorParitaria}
+                      onChange={(e) => setMultiplicadorParitaria(e.target.value)}
+                      className="w-20 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-black text-amber-900 text-center outline-none focus:border-amber-500 shadow-sm"
+                    />
+                    <button 
+                      onClick={handleAplicarParitariaMasiva}
+                      className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer flex items-center gap-1"
+                    >
+                      <RefreshCw className="w-3 h-3" /> Aplicar a Todos
+                    </button>
+                  </div>
+                </div>
+
+                <div className="max-h-60 overflow-y-auto border border-slate-200 rounded-xl">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 text-slate-700 font-bold uppercase sticky top-0">
+                      <tr>
+                        <th className="px-4 py-3">Trabajador</th>
+                        <th className="px-4 py-3">Especialidad</th>
+                        <th className="px-4 py-3 text-right">Costo en Mano Diario ($)</th>
+                        <th className="px-4 py-3">Mes de Acuerdo</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 bg-white">
+                      {personalSalarios.map((p, idx) => (
+                        <tr key={p.id || p.ID || idx} className="hover:bg-slate-50">
+                          <td className="px-4 py-2.5 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
+                          <td className="px-4 py-2.5 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
+                          <td className="px-4 py-2.5 text-right font-black text-blue-600">
+                            $ {Number(p.costo_en_mano || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-2.5 font-semibold text-slate-700">{p.mes_acuerdo || 'Agosto 2026'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* LISTADO DE CUADRILLAS */}
               <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex justify-between items-center">
                 <div>
                   <h3 className="text-sm font-extrabold text-slate-900 uppercase">Listado de Cuadrillas (Insumos de Mano de Obra)</h3>
-                  <p className="text-xs text-slate-500 mt-1">Cada cuadrilla creada se sincroniza automáticamente como insumo de tipo Mano de Obra para los presupuestos.</p>
+                  <p className="text-xs text-slate-500 mt-1">Las cuadrillas creadas conservan el costo acordado en su momento de creación.</p>
                 </div>
                 <button 
                   onClick={handleNuevaCuadrilla}
@@ -432,8 +519,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 <div className="flex items-center gap-3 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200">
                   <span className="text-xs font-bold text-amber-900">Cargas Sociales (%):</span>
                   <input 
-                    type="number" 
-                    step="0.01"
+                    type="number" step="0.01"
                     value={porcentajeCargas}
                     onChange={(e) => setPorcentajeCargas(Number(e.target.value) || 0)}
                     className="w-20 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-black text-amber-900 text-center outline-none focus:border-amber-500 shadow-sm"
@@ -441,45 +527,45 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 </div>
               </div>
 
-              {/* SECCIÓN NUEVA: Listado de Personal Disponible para Incorporar */}
+              {/* SECCIÓN: Listado de Personal para Agregar con un Clic */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
                 <div className="flex justify-between items-center">
-                  <h4 className="text-xs font-extrabold text-slate-900 uppercase">Personal Disponible (Hacer clic en "Agregar" para sumar a la cuadrilla)</h4>
-                  <span className="text-[11px] text-slate-500">{personalInicial.length} trabajadores registrados</span>
+                  <h4 className="text-xs font-extrabold text-slate-900 uppercase">Personal Disponible (Hacer clic en "Agregar" para sumar con el salario vigente)</h4>
+                  <span className="text-[11px] text-slate-500">{personalSalarios.length} trabajadores registrados</span>
                 </div>
 
-                {personalInicial.length === 0 ? (
-                  <p className="text-xs text-slate-400 py-4 text-center">No hay personal cargado en el sistema. Ve a la pestaña "Lista de Personal" para agregarlos.</p>
-                ) : (
-                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-100 text-slate-600 uppercase font-bold sticky top-0">
-                        <tr>
-                          <th className="px-4 py-2.5">Nombre</th>
-                          <th className="px-4 py-2.5">Especialidad</th>
-                          <th className="px-4 py-2.5 text-right">Acción</th>
+                <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-100 text-slate-600 uppercase font-bold sticky top-0">
+                      <tr>
+                        <th className="px-4 py-2.5">Nombre</th>
+                        <th className="px-4 py-2.5">Especialidad</th>
+                        <th className="px-4 py-2.5 text-right">Sueldo Vigente ($)</th>
+                        <th className="px-4 py-2.5 text-right">Acción</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {personalSalarios.map((p, pIdx) => (
+                        <tr key={p.id || p.ID || pIdx} className="hover:bg-slate-50">
+                          <td className="px-4 py-2 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
+                          <td className="px-4 py-2 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
+                          <td className="px-4 py-2 text-right font-black text-blue-600">
+                            $ {Number(p.costo_en_mano || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-2 text-right">
+                            <button
+                              type="button"
+                              onClick={() => handleAgregarPersonalAQuadrilla(p)}
+                              className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer flex items-center gap-1 ml-auto"
+                            >
+                              <UserPlus className="w-3 h-3" /> Agregar
+                            </button>
+                          </td>
                         </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {personalInicial.map((p, pIdx) => (
-                          <tr key={p.id || p.ID || pIdx} className="hover:bg-slate-50">
-                            <td className="px-4 py-2 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
-                            <td className="px-4 py-2 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
-                            <td className="px-4 py-2 text-right">
-                              <button
-                                type="button"
-                                onClick={() => handleAgregarPersonalAQuadrilla(p)}
-                                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer flex items-center gap-1 ml-auto"
-                              >
-                                <UserPlus className="w-3 h-3" /> Agregar
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               {/* TABLA DE LA CUADRILLA */}
@@ -645,6 +731,25 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                     type="text" required placeholder="Ej: Oficial Especializado"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
                     value={formData.especialidad} onChange={(e) => setFormData({...formData, especialidad: e.target.value})} 
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Costo en Mano Diario ($) *</label>
+                  <input 
+                    type="number" step="0.01" required placeholder="Ej: 92550.50"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
+                    value={formData.costo_en_mano} onChange={(e) => setFormData({...formData, costo_en_mano: Number(e.target.value)})} 
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mes de Acuerdo (Paritaria)</label>
+                  <input 
+                    type="text" placeholder="Ej: Agosto 2026"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
+                    value={formData.mes_acuerdo} onChange={(e) => setFormData({...formData, mes_acuerdo: e.target.value})} 
                   />
                 </div>
               </div>
