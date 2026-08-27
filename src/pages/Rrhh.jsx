@@ -49,7 +49,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       id: p.id || p.ID || Math.random(),
       nombre: p.nombre || p.Nombre || 'Personal',
       especialidad: p.especialidad || p.Especialidad || 'Operario',
-      dias: 5, // 5 días laborables por defecto en la semana
+      dias: 5,
       costoDiario: Number(p.costo_en_mano || p.Costo_en_mano || 0),
       viaticosCant: 5,
       viaticosCosto: 0
@@ -351,15 +351,14 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
 
     try {
-      // Registrar el movimiento de egreso en Tesorería vinculado a la obra seleccionada
+      // Mapeado exactamente a los campos de la tabla Tesoreria: tipo, fecha, concepto, monto, medio_pago, referencia
       const payloadTesoreria = {
-        fecha: fechaCarga,
         tipo: 'Egreso',
-        categoria: 'Mano de Obra / Sueldos',
-        obra: obraSeleccionadaCarga,
-        descripcion: `Liquidación Semanal / Jornales - Obra: ${obraSeleccionadaCarga} (${detalleCargaCalculado.filter(i => i.dias > 0).length} operarios)`,
+        fecha: fechaCarga,
+        concepto: `Liquidación de Sueldos y Viáticos - Obra: ${obraSeleccionadaCarga}`,
         monto: totalGeneralCarga,
-        metodo_pago: 'Transferencia / Caja'
+        medio_pago: 'transferencia',
+        referencia: 'RRHH'
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -374,7 +373,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
 
       const data = await res.json().catch(() => ({ success: true }));
       if (data.success !== false) {
-        alert("¡Carga de sueldos registrada con éxito y asentada en la Tesorería de la Obra!");
+        alert("¡Carga de sueldos registrada con éxito y asentada en la Tesorería!");
         cargarDatos();
       } else {
         alert("Error al registrar en Tesorería.");
