@@ -55,17 +55,12 @@ export default function Reportes({
         ? JSON.parse(presupuestoSeleccionado.items_detalle) 
         : presupuestoSeleccionado.items_detalle;
       
-      // 1. Rubros y Tareas
+      // 1. Rubros y Tareas (Sin desglose forzado si la tarea tiene un único tipo)
       if (parsedDetalle && parsedDetalle.rubros) {
         rubrosPresupuestoDetalle = parsedDetalle.rubros.map((r, rIdx) => {
           const tareas = r.tareas || [];
           let totalRubro = 0;
-          let componentes = {
-            'Materiales': 0,
-            'Mano de Obra': 0,
-            'Subcontrato': 0,
-            'Equipo / Herramienta': 0
-          };
+          let componentes = {};
 
           tareas.forEach(t => {
             const tCosto = (Number(t.cantidad) || 1) * (Number(t.costo_unitario) || 0);
@@ -78,22 +73,18 @@ export default function Reportes({
 
             if (Array.isArray(insumosList) && insumosList.length > 0) {
               insumosList.forEach(ins => {
-                const tipoIns = String(ins.tipo || 'Material').toLowerCase();
+                const tipoIns = String(ins.tipo || 'Material').trim();
                 const costoIns = (Number(ins.cantidad) || 1) * (Number(ins.costo_unitario) || 0);
-                if (tipoIns.includes('mano') || tipoIns.includes('obra')) {
-                  componentes['Mano de Obra'] += costoIns;
-                } else if (tipoIns.includes('sub')) {
-                  componentes['Subcontrato'] += costoIns;
-                } else if (tipoIns.includes('equipo') || tipoIns.includes('maquin') || tipoIns.includes('herramienta')) {
-                  componentes['Equipo / Herramienta'] += costoIns;
-                } else {
-                  componentes['Materiales'] += costoIns;
-                }
+                componentes[tipoIns] = (componentes[tipoIns] || 0) + costoIns;
               });
             } else {
-              componentes['Materiales'] += tCosto * 0.60;
-              componentes['Mano de Obra'] += tCosto * 0.30;
-              componentes['Subcontrato'] += tCosto * 0.10;
+              // Si no tiene insumos desglosados, se clasifica según la naturaleza de la tarea o por defecto como Subcontrato/Material directo
+              const nombreTarea = String(t.tarea || '').toLowerCase();
+              let tipoDef = 'Subcontrato';
+              if (nombreTarea.includes('material') || nombreTarea.includes('provision')) tipoDef = 'Materiales';
+              else if (nombreTarea.includes('mano de obra')) tipoDef = 'Mano de Obra';
+              
+              componentes[tipoDef] = (componentes[tipoDef] || 0) + tCosto;
             }
           });
 
@@ -152,12 +143,12 @@ export default function Reportes({
   // Filtrar facturas asociadas a este presupuesto
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
-  // Imputaciones reales de Gastos Generales (ej. Proveedor ID 1 - Seguridad e Higiene)
-  const totalRealGG = facturasPresupuesto
+  // Imputaciones reales de Gastos Generales específicos (ej. Proveedor ID 1 - Salud Ocupacional / Seguridad e Higiene)
+  const totalRealGGEspecifico = facturasPresupuesto
     .filter(f => String(f.proveedor_id || f.Proveedor_id) === '1')
     .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
 
-  // Imputaciones reales que no coinciden con los títulos específicos van a Imprevistos
+  // Imputaciones reales que NO coinciden con los ítems específicos de Gastos Generales van 100% a Imprevistos
   const totalRealImprevistos = facturasPresupuesto
     .filter(f => String(f.proveedor_id || f.Proveedor_id) !== '1')
     .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
@@ -165,7 +156,7 @@ export default function Reportes({
   const totalRealRubros = 0;
 
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
-  const granTotalReal = totalRealRubros + totalRealGG + totalRealImprevistos;
+  const granTotalReal = totalRealRubros + totalRealGGEspecifico + totalRealImprevistos;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -354,13 +345,13 @@ export default function Reportes({
         </div>
       )}
 
-      {/* CONTENIDO: COMPARATIVO DETALLADO (RUBROS, GASTOS GENERALES Y COMPONENTES) */}
+      {/* CONTENIDO: COMPARATIVO DETALLADO */}
       {activeTab === 'Comparativo' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Análisis Comparativo Detallado (Presupuesto vs Real)</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Desglose por rubros, gastos generales y componentes</p>
+              <p className="text-xs text-slate-500 mt-0.5">Desglose por rubros, gastos generales y componentes reales</p>
             </div>
             
             {/* SELECTORES DE OBRA Y PRESUPUESTO */}
@@ -406,9 +397,9 @@ export default function Reportes({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {/* SECCIÓN 1: RUBROS */}
+                  {/* SECCIÓN 1: RUBROS CON SUS COMPONENTES REALES */}
                   {rubrosPresupuestoDetalle.map((rubro) => {
-                    const componentesNombres = ['Materiales', 'Mano de Obra', 'Subcontrato', 'Equipo / Herramienta'];
+                    const componentesEntradas = Object.entries(rubro.componentes);
                     const realFacturasRubro = 0;
 
                     return (
@@ -432,9 +423,8 @@ export default function Reportes({
                           </td>
                         </tr>
 
-                        {componentesNombres.map((compNombre, cIdx) => {
-                          const montoPresupuestadoComp = rubro.componentes[compNombre] || 0;
-                          const desvioComp = montoPresupuestadoComp;
+                        {componentesEntradas.map(([compNombre, montoComp], cIdx) => {
+                          const desvioComp = montoComp;
 
                           return (
                             <tr key={cIdx} className="hover:bg-slate-50/80">
@@ -443,7 +433,7 @@ export default function Reportes({
                                 {compNombre}
                               </td>
                               <td className="px-4 py-2.5 text-right font-bold text-blue-600">
-                                $ {montoPresupuestadoComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                $ {montoComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
                               <td className="px-4 py-2.5 text-right font-semibold text-slate-700">$ 0,00</td>
                               <td className="px-4 py-2.5 text-right font-semibold text-amber-600">$ 0,00</td>
@@ -469,16 +459,16 @@ export default function Reportes({
                           $ {totalPresupuestoGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-3 text-right font-black text-slate-700">
-                          $ {(totalRealGG + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          $ {(totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-3 text-right font-semibold text-amber-600">$ 0,00</td>
-                        <td className={`px-4 py-3 text-right font-black ${totalPresupuestoGG - (totalRealGG + totalRealImprevistos) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          $ {(totalPresupuestoGG - (totalRealGG + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        <td className={`px-4 py-3 text-right font-black ${totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                          $ {(totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
                       </tr>
 
                       {gastosGeneralesDetalle.map((ggItem) => {
-                        const realItemGG = ggItem.esImprevistos ? totalRealImprevistos : (ggItem.id === 'gg-0' ? totalRealGG : 0);
+                        const realItemGG = ggItem.esImprevistos ? totalRealImprevistos : (ggItem.id === 'gg-0' ? totalRealGGEspecifico : 0);
                         const desvioGG = ggItem.total - realItemGG;
 
                         return (
@@ -515,9 +505,9 @@ export default function Reportes({
                   <tr className="bg-amber-200 text-amber-950 font-extrabold">
                     <td className="px-4 py-3 uppercase">TOTAL GASTOS GENERALES E IMPREVISTOS</td>
                     <td className="px-4 py-3 text-right">$ {totalPresupuestoGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-right">$ {(totalRealGG + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-right">$ {(totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                     <td className="px-4 py-3 text-right">$ 0,00</td>
-                    <td className="px-4 py-3 text-right">$ {(totalPresupuestoGG - (totalRealGG + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-4 py-3 text-right">$ {(totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                   </tr>
 
                   <tr className="bg-slate-900 text-white font-black text-sm">
