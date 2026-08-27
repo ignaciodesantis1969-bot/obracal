@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, Building, CheckCircle2 } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, Building, CheckCircle2, ShieldCheck } from 'lucide-react';
 
 export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], obras = [], cargarDatos }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
@@ -41,9 +41,10 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const [cuadrillaItems, setCuadrillaItems] = useState([]);
   const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 0 });
 
-  // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS
+  // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS Y CARGAS SOCIALES
   const [obraSeleccionadaCarga, setObraSeleccionadaCarga] = useState('');
   const [fechaCarga, setFechaCarga] = useState(new Date().toISOString().split('T')[0]);
+  const [porcentajeCargasSociales, setPorcentajeCargasSociales] = useState(76.00);
   const [detalleCargaPersonal, setDetalleCargaPersonal] = useState([]);
 
   // Sincronizar salarios y asegurar que la carga no se sobrescriba si el usuario ya está tipeando
@@ -54,13 +55,11 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       
       setDetalleCargaPersonal(prev => {
         if (prev.length > 0) {
-          // Si ya existen datos cargados, solo actualizamos el costo diario si cambió la paritaria
           return prev.map(item => {
             const match = procesados.find(p => String(p.id || p.ID) === String(item.id));
             return match ? { ...item, costoDiario: Number(match.costo_en_mano || 0) } : item;
           });
         }
-        // Inicialización por primera vez
         return procesados.map(p => ({
           id: p.id || p.ID || Math.random(),
           nombre: p.nombre || p.Nombre || 'Personal',
@@ -68,7 +67,8 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
           dias: 5,
           costoDiario: Number(p.costo_en_mano || 0),
           viaticosCant: 5,
-          viaticosCosto: 0
+          viaticosCosto: 0,
+          incluirCargas: true // Tildado por defecto para calcular cargas sociales
         }));
       });
     }
@@ -330,7 +330,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  // CÁLCULOS Y ACCIONES PARA LA CARGA SEMANAL DE SUELDOS / VIÁTICOS
+  // CÁLCULOS Y ACCIONES PARA LA CARGA SEMANAL DE SUELDOS / VIÁTICOS Y CARGAS SOCIALES
   const detalleCargaCalculado = detalleCargaPersonal.map(item => {
     const diasVal = item.dias === '' || isNaN(item.dias) ? 0 : Number(item.dias);
     const viatCantVal = item.viaticosCant === '' || isNaN(item.viaticosCant) ? 0 : Number(item.viaticosCant);
@@ -342,9 +342,16 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     return { ...item, subtotalJornales, subtotalViaticos, totalOperario };
   });
 
-  const totalJornalesMano = detalleCargaCalculado.reduce((acc, curr) => acc + curr.subtotalJornales, 0);
-  const totalViaticosGeneral = detalleCargaCalculado.reduce((acc, curr) => acc + curr.subtotalViaticos, 0);
-  const totalGeneralCarga = totalJornalesMano + totalViaticosGeneral;
+  const totalGeneralCarga = detalleCargaCalculado.reduce((acc, curr) => acc + curr.totalOperario, 0);
+
+  // Cálculo de Cargas Sociales (siempre calculado por 5 días para los empleados tildados)
+  const factorCargasSociales = (Number(porcentajeCargasSociales) || 0) / 100;
+  const totalCargasSociales = detalleCargaCalculado.reduce((acc, item) => {
+    if (!item.incluirCargas) return acc;
+    const costoDiario = Number(item.costoDiario) || 0;
+    const cargasEmpleado = (costoDiario * 5) * factorCargasSociales;
+    return acc + cargasEmpleado;
+  }, 0);
 
   const handleGuardarCargaSalarial = async () => {
     if (!obraSeleccionadaCarga) {
@@ -387,6 +394,50 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     } catch (err) {
       console.error(err);
       alert("Error de conexión al guardar la carga salarial.");
+    }
+  };
+
+  const handleRegistrarCargasSociales = async () => {
+    if (!obraSeleccionadaCarga) {
+      alert("Por favor selecciona una Obra para imputar las Cargas Sociales.");
+      return;
+    }
+
+    if (totalCargasSociales <= 0) {
+      alert("El total de cargas sociales es $0. Tilda al menos un operario.");
+      return;
+    }
+
+    try {
+      const payloadTesoreria = {
+        tipo: 'Egreso',
+        fecha: fechaCarga,
+        concepto: `Cargas Sociales (${porcentajeCargasSociales}%) - Obra: ${obraSeleccionadaCarga}`,
+        monto: totalCargasSociales,
+        medio_pago: 'transferencia',
+        referencia: 'RRHH - Cargas Sociales'
+      };
+
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'Tesoreria',
+          action: 'create',
+          data: payloadTesoreria
+        })
+      });
+
+      const data = await res.json().catch(() => ({ success: true }));
+      if (data.success !== false) {
+        alert("¡Cargas sociales registradas con éxito e imputadas en Tesorería!");
+        cargarDatos();
+      } else {
+        alert("Error al registrar cargas sociales en Tesorería.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error de conexión al guardar las cargas sociales.");
     }
   };
 
@@ -846,150 +897,188 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         </div>
       )}
       
-      {/* MÓDULO ACTIVO: CARGA SEMANAL DE HORAS / VIÁTICOS */}
+      {/* MÓDULO ACTIVO: CARGA SEMANAL DE HORAS / VIÁTICOS Y CARGAS SOCIALES */}
       {activeTab === 'carga' && (
-        <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos por Obra</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Registra la asistencia real y viáticos del personal para imputarlo directamente a la obra y tesorería.</p>
-            </div>
-            
-            <button 
-              onClick={handleGuardarCargaSalarial}
-              className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
-            >
-              <CheckCircle2 className="w-4 h-4" /> Registrar Carga de Sueldos ($ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
-            </button>
-          </div>
-
-          {/* Selector de Obra y Fecha */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-                <Building className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Obra de Destino *
-              </label>
-              <select 
-                value={obraSeleccionadaCarga}
-                onChange={(e) => setObraSeleccionadaCarga(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+        <div className="space-y-6">
+          {/* Card Principal: Carga de Sueldos y Viáticos */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
+              <div>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos por Obra</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Registra la asistencia real y viáticos del personal para imputarlo directamente a la obra y tesorería.</p>
+              </div>
+              
+              <button 
+                onClick={handleGuardarCargaSalarial}
+                className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
               >
-                <option value="">-- Seleccione una Obra --</option>
-                {Array.isArray(obras) && obras.map((o, oIdx) => {
-                  const nombreObra = o.nombre || o.Nombre || o.nombre_de_la_obra || `Obra #${oId}`;
-                  const oId = o.id || o.ID || oIdx;
-                  return <option key={oId} value={nombreObra}>{nombreObra}</option>;
-                })}
-              </select>
+                <CheckCircle2 className="w-4 h-4" /> Registrar Carga de Sueldos ($ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
+              </button>
             </div>
 
-            <div>
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-                <Calendar className="w-3.5 h-3.5 text-amber-600" /> Fecha de Liquidación / Parte *
-              </label>
-              <input 
-                type="date"
-                value={fechaCarga}
-                onChange={(e) => setFechaCarga(e.target.value)}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
-              />
-            </div>
-          </div>
+            {/* Selector de Obra y Fecha */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                  <Building className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Obra de Destino *
+                </label>
+                <select 
+                  value={obraSeleccionadaCarga}
+                  onChange={(e) => setObraSeleccionadaCarga(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                >
+                  <option value="">-- Seleccione una Obra --</option>
+                  {Array.isArray(obras) && obras.map((o, oIdx) => {
+                    const nombreObra = o.nombre || o.Nombre || o.nombre_de_la_obra || `Obra #${oId}`;
+                    const oId = o.id || o.ID || oIdx;
+                    return <option key={oId} value={nombreObra}>{nombreObra}</option>;
+                  })}
+                </select>
+              </div>
 
-          {/* Tabla de Carga de Personal */}
-          <div className="overflow-x-auto border border-slate-200 rounded-xl">
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
-                <tr>
-                  <th className="px-4 py-3">Trabajador</th>
-                  <th className="px-4 py-3">Especialidad</th>
-                  <th className="px-4 py-3 text-center">Días Trabajados</th>
-                  <th className="px-4 py-3 text-right">Costo Diario ($)</th>
-                  <th className="px-4 py-3 text-center">Días Viáticos</th>
-                  <th className="px-4 py-3 text-right">Costo Viático Diario ($)</th>
-                  <th className="px-4 py-3 text-right">Total Operario ($)</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {detalleCargaCalculado.map((item, idx) => (
-                  <tr key={item.id || idx} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-bold text-slate-900">{item.nombre}</td>
-                    <td className="px-4 py-3 text-slate-600">{item.especialidad}</td>
-                    <td className="px-4 py-3 text-center">
-                      <input 
-                        type="number" min="0" max="7" step="0.5"
-                        value={item.dias}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, dias: val } : i));
-                        }}
-                        className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold text-blue-600">
-                      $ {Number(item.costoDiario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <input 
-                        type="number" min="0" max="7"
-                        value={item.viaticosCant}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCant: val } : i));
-                        }}
-                        className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <input 
-                        type="number" step="0.01" min="0"
-                        value={item.viaticosCosto}
-                        onChange={(e) => {
-                          const val = e.target.value;
-                          setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCosto: val } : i));
-                        }}
-                        className="w-28 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-right font-black text-slate-900">
-                      $ {item.totalOperario.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                  <Calendar className="w-3.5 h-3.5 text-amber-600" /> Fecha de Liquidación / Parte *
+                </label>
+                <input 
+                  type="date"
+                  value={fechaCarga}
+                  onChange={(e) => setFechaCarga(e.target.value)}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                />
+              </div>
+            </div>
+
+            {/* Tabla de Carga de Personal (Con Checkbox de Cargas Sociales) */}
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
+                  <tr>
+                    <th className="px-4 py-3 text-center" title="Tildar para incluir en Cargas Sociales">Cargas</th>
+                    <th className="px-4 py-3">Trabajador</th>
+                    <th className="px-4 py-3">Especialidad</th>
+                    <th className="px-4 py-3 text-center">Días Trabajados</th>
+                    <th className="px-4 py-3 text-right">Costo Diario ($)</th>
+                    <th className="px-4 py-3 text-center">Días Viáticos</th>
+                    <th className="px-4 py-3 text-right">Costo Viático Diario ($)</th>
+                    <th className="px-4 py-3 text-right">Total Operario ($)</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {detalleCargaCalculado.map((item, idx) => (
+                    <tr key={item.id || idx} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 text-center">
+                        <input 
+                          type="checkbox"
+                          checked={item.incluirCargas}
+                          onChange={(e) => {
+                            const checked = e.target.checked;
+                            setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, incluirCargas: checked } : i));
+                          }}
+                          className="w-4 h-4 text-amber-600 rounded border-slate-300 focus:ring-amber-500 cursor-pointer"
+                        />
+                      </td>
+                      <td className="px-4 py-3 font-bold text-slate-900">{item.nombre}</td>
+                      <td className="px-4 py-3 text-slate-600">{item.especialidad}</td>
+                      <td className="px-4 py-3 text-center">
+                        <input 
+                          type="number" min="0" max="7" step="0.5"
+                          value={item.dias}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, dias: val } : i));
+                          }}
+                          className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-blue-600">
+                        $ {Number(item.costoDiario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <input 
+                          type="number" min="0" max="7"
+                          value={item.viaticosCant}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCant: val } : i));
+                          }}
+                          className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <input 
+                          type="number" step="0.01" min="0"
+                          value={item.viaticosCosto}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCosto: val } : i));
+                          }}
+                          className="w-28 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-slate-900">
+                        $ {item.totalOperario.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Tarjeta de Resumen Final de Sueldos */}
+            <div className="bg-slate-900 text-white p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div>
+                <p className="text-xs text-slate-400 font-bold uppercase">Resumen de Liquidación</p>
+                <h4 className="text-lg font-black">{obraSeleccionadaCarga ? `Obra: ${obraSeleccionadaCarga}` : 'Seleccione una obra para liquidar'}</h4>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-slate-400 uppercase font-bold block">TOTAL GENERAL A PAGAR / IMPUTAR</span>
+                <span className="text-2xl font-black text-amber-400">
+                  $ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
           </div>
 
-          {/* Renglón con fondo gris (Desglose: Sueldos en Mano + Viáticos) */}
-          <div className="bg-slate-100 border border-slate-300 p-5 rounded-2xl flex flex-col md:flex-row justify-between items-center gap-4 text-xs font-bold text-slate-700">
-            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 sm:gap-8">
+          {/* Card Secundaria: Cargas Sociales por Empleado (Calculado por 5 días para los tildados) */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
-                <span className="text-[10px] text-slate-400 uppercase block font-bold">Total Jornales en Mano</span>
-                <span className="text-sm font-black text-slate-900">$ {totalJornalesMano.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
+                  <ShieldCheck className="w-5 h-5 text-blue-600" /> Cálculo de Cargas Sociales (5 Días Base)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Se calcula aplicando el porcentaje sobre el costo diario por 5 días de los operarios tildados arriba.</p>
               </div>
-              <span className="text-base font-bold text-slate-400 hidden sm:inline">+</span>
-              <div>
-                <span className="text-[10px] text-slate-400 uppercase block font-bold">Total Viáticos</span>
-                <span className="text-sm font-black text-slate-900">$ {totalViaticosGeneral.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-              </div>
-            </div>
-            <div className="text-left sm:text-right w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200">
-              <span className="text-[10px] text-slate-400 uppercase block font-bold">Suma de Ambos Conceptos</span>
-              <span className="text-base font-black text-blue-600">$ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
-            </div>
-          </div>
 
-          {/* Tarjeta de Resumen Final */}
-          <div className="bg-slate-900 text-white p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
-            <div>
-              <p className="text-xs text-slate-400 font-bold uppercase">Resumen de Liquidación</p>
-              <h4 className="text-lg font-black">{obraSeleccionadaCarga ? `Obra: ${obraSeleccionadaCarga}` : 'Seleccione una obra para liquidar'}</h4>
+              <div className="flex items-center gap-3 bg-blue-50 px-4 py-2 rounded-xl border border-blue-200">
+                <span className="text-xs font-bold text-blue-900">% Cargas Sociales:</span>
+                <input 
+                  type="number" step="0.01"
+                  value={porcentajeCargasSociales}
+                  onChange={(e) => setPorcentajeCargasSociales(Number(e.target.value) || 0)}
+                  className="w-20 bg-white border border-blue-300 rounded-lg px-2 py-1 text-xs font-black text-blue-900 text-center outline-none focus:border-blue-500 shadow-sm"
+                />
+              </div>
             </div>
-            <div className="text-right">
-              <span className="text-xs text-slate-400 uppercase font-bold block">TOTAL GENERAL A PAGAR / IMPUTAR</span>
-              <span className="text-2xl font-black text-amber-400">
-                $ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
+
+            <div className="bg-blue-50/50 p-5 rounded-2xl border border-blue-100 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div>
+                <span className="text-xs text-blue-900 font-bold block uppercase">Total Cargas Sociales a Imputar</span>
+                <span className="text-xs text-slate-600">
+                  ({detalleCargaCalculado.filter(i => i.incluirCargas).length} operarios seleccionados)
+                </span>
+              </div>
+              <div className="flex items-center gap-4">
+                <span className="text-2xl font-black text-blue-700">
+                  $ {totalCargasSociales.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <button 
+                  onClick={handleRegistrarCargasSociales}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
+                >
+                  <CheckCircle2 className="w-4 h-4" /> Registrar Cargas Sociales en Tesorería
+                </button>
+              </div>
             </div>
           </div>
         </div>
