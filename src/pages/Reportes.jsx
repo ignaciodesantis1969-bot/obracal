@@ -97,9 +97,21 @@ export default function Reportes({
 
             if (Array.isArray(insumosList) && insumosList.length > 0) {
               insumosList.forEach(ins => {
-                const tipoIns = String(ins.tipo || 'Material').trim();
+                const tipoRaw = String(ins.tipo || '').trim().toLowerCase();
+                const nombreIns = String(ins.nombre || '').trim().toLowerCase();
                 const costoIns = (Number(ins.cantidad) || 1) * (Number(ins.costo_unitario) || 0);
-                componentes[tipoIns] = (componentes[tipoIns] || 0) + costoIns;
+
+                let tipoNormalizado = 'Materiales'; // Por defecto
+
+                if (tipoRaw.includes('mano') || nombreIns.includes('mano de obra') || nombreIns.includes('cuadrilla')) {
+                  tipoNormalizado = 'Mano de Obra';
+                } else if (tipoRaw.includes('subcontrato') || tipoRaw.includes('servicio') || nombreIns.includes('subcontrato') || nombreIns.includes('alquiler') || nombreIns.includes('poda')) {
+                  tipoNormalizado = 'Subcontrato';
+                } else if (tipoRaw.includes('material') || tipoRaw.includes('provisión') || tipoRaw.includes('provision')) {
+                  tipoNormalizado = 'Materiales';
+                }
+
+                componentes[tipoNormalizado] = (componentes[tipoNormalizado] || 0) + costoIns;
               });
             } else {
               const nombreTarea = String(t.tarea || '').toLowerCase();
@@ -162,15 +174,54 @@ export default function Reportes({
     }
   }
 
+  // Filtrar facturas del presupuesto y distribuir por concepto de Gasto General
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
-  const totalRealGGEspecifico = facturasPresupuesto
-    .filter(f => String(f.proveedor_id || f.Proveedor_id) === '1')
-    .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
+  let totalRealGGEspecifico = 0;
+  let totalRealImprevistos = 0;
 
-  const totalRealImprevistos = facturasPresupuesto
-    .filter(f => String(f.proveedor_id || f.Proveedor_id) !== '1')
-    .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
+  if (gastosGeneralesDetalle.length > 0) {
+    gastosGeneralesDetalle = gastosGeneralesDetalle.map(ggItem => {
+      let realAsignado = 0;
+      const conceptoLower = ggItem.concepto.toLowerCase();
+      
+      facturasPresupuesto.forEach(fac => {
+        const provId = String(fac.proveedor_id || fac.Proveedor_id || '');
+        const detalleFac = String(fac.detalle_gasto || fac.rubro || '').toLowerCase();
+        const montoFac = Number(fac.total || 0);
+
+        if (conceptoLower.includes('seguridad e higiene')) {
+          if (['1', '2', '6'].includes(provId) || detalleFac.includes('seguridad')) {
+            realAsignado += montoFac;
+          }
+        } else if (conceptoLower.includes('ropa')) {
+          if (provId === '11' || detalleFac.includes('ropa') || detalleFac.includes('botines')) {
+            realAsignado += montoFac;
+          }
+        } else if (conceptoLower.includes('epp') || conceptoLower.includes('casco')) {
+          if (provId === '14' || detalleFac.includes('epp') || detalleFac.includes('casco') || detalleFac.includes('guantes')) {
+            realAsignado += montoFac;
+          }
+        } else if (ggItem.esImprevistos) {
+          if (!['1', '2', '6', '11', '14'].includes(provId)) {
+            realAsignado += montoFac;
+          }
+        }
+      });
+
+      if (ggItem.esImprevistos) {
+        totalRealImprevistos += realAsignado;
+      } else {
+        totalRealGGEspecifico += realAsignado;
+      }
+
+      return {
+        ...ggItem,
+        real: realAsignado,
+        desvio: ggItem.total - realAsignado
+      };
+    });
+  }
 
   const totalRealRubros = 0;
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
@@ -486,8 +537,8 @@ export default function Reportes({
                       </tr>
 
                       {gastosGeneralesDetalle.map((ggItem) => {
-                        const realItemGG = ggItem.esImprevistos ? totalRealImprevistos : (ggItem.id === 'gg-0' ? totalRealGGEspecifico : 0);
-                        const desvioGG = ggItem.total - realItemGG;
+                        const realItemGG = ggItem.real || 0;
+                        const desvioGG = ggItem.desvio !== undefined ? ggItem.desvio : (ggItem.total - realItemGG);
 
                         return (
                           <tr key={ggItem.id} className="hover:bg-amber-50/50">
