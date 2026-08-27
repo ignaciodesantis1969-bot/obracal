@@ -44,32 +44,33 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS
   const [obraSeleccionadaCarga, setObraSeleccionadaCarga] = useState('');
   const [fechaCarga, setFechaCarga] = useState(new Date().toISOString().split('T')[0]);
-  const [detalleCargaPersonal, setDetalleCargaPersonal] = useState(
-    personalInicial.map(p => ({
-      id: p.id || p.ID || Math.random(),
-      nombre: p.nombre || p.Nombre || 'Personal',
-      especialidad: p.especialidad || p.Especialidad || 'Operario',
-      dias: 5,
-      costoDiario: Number(p.costo_en_mano || p.Costo_en_mano || 0),
-      viaticosCant: 5,
-      viaticosCosto: 0
-    }))
-  );
+  const [detalleCargaPersonal, setDetalleCargaPersonal] = useState([]);
 
-  // Sincronizar cambios si props.personalInicial cambia
+  // Sincronizar salarios y asegurar que la carga no se sobrescriba si el usuario ya está tipeando
   React.useEffect(() => {
-    if (Array.isArray(personalInicial)) {
+    if (Array.isArray(personalInicial) && personalInicial.length > 0) {
       const procesados = procesarPersonalInicial(personalInicial);
       setPersonalSalarios(procesados);
-      setDetalleCargaPersonal(procesados.map(p => ({
-        id: p.id || p.ID || Math.random(),
-        nombre: p.nombre || p.Nombre || 'Personal',
-        especialidad: p.especialidad || p.Especialidad || 'Operario',
-        dias: 5,
-        costoDiario: Number(p.costo_en_mano || 0),
-        viaticosCant: 5,
-        viaticosCosto: 0
-      })));
+      
+      setDetalleCargaPersonal(prev => {
+        if (prev.length > 0) {
+          // Si ya existen datos cargados, solo actualizamos el costo diario si cambió la paritaria
+          return prev.map(item => {
+            const match = procesados.find(p => String(p.id || p.ID) === String(item.id));
+            return match ? { ...item, costoDiario: Number(match.costo_en_mano || 0) } : item;
+          });
+        }
+        // Inicialización por primera vez
+        return procesados.map(p => ({
+          id: p.id || p.ID || Math.random(),
+          nombre: p.nombre || p.Nombre || 'Personal',
+          especialidad: p.especialidad || p.Especialidad || 'Operario',
+          dias: 5,
+          costoDiario: Number(p.costo_en_mano || 0),
+          viaticosCant: 5,
+          viaticosCosto: 0
+        }));
+      });
     }
   }, [personalInicial]);
 
@@ -331,9 +332,9 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
 
   // CÁLCULOS Y ACCIONES PARA LA CARGA SEMANAL DE SUELDOS / VIÁTICOS
   const detalleCargaCalculado = detalleCargaPersonal.map(item => {
-    const diasVal = item.dias === '' ? 0 : Number(item.dias);
-    const viatCantVal = item.viaticosCant === '' ? 0 : Number(item.viaticosCant);
-    const viatCostVal = item.viaticosCosto === '' ? 0 : Number(item.viaticosCosto);
+    const diasVal = item.dias === '' || isNaN(item.dias) ? 0 : Number(item.dias);
+    const viatCantVal = item.viaticosCant === '' || isNaN(item.viaticosCant) ? 0 : Number(item.viaticosCant);
+    const viatCostVal = item.viaticosCosto === '' || isNaN(item.viaticosCosto) ? 0 : Number(item.viaticosCosto);
 
     const subtotalJornales = diasVal * (Number(item.costoDiario) || 0);
     const subtotalViaticos = viatCantVal * viatCostVal;
@@ -917,7 +918,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                         type="number" min="0" max="7" step="0.5"
                         value={item.dias}
                         onChange={(e) => {
-                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          const val = e.target.value;
                           setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, dias: val } : i));
                         }}
                         className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
@@ -931,7 +932,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                         type="number" min="0" max="7"
                         value={item.viaticosCant}
                         onChange={(e) => {
-                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          const val = e.target.value;
                           setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCant: val } : i));
                         }}
                         className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
@@ -942,7 +943,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                         type="number" step="0.01" min="0"
                         value={item.viaticosCosto}
                         onChange={(e) => {
-                          const val = e.target.value === '' ? '' : Number(e.target.value);
+                          const val = e.target.value;
                           setDetalleCargaPersonal(prev => prev.map(i => i.id === item.id ? { ...i, viaticosCosto: val } : i));
                         }}
                         className="w-28 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
