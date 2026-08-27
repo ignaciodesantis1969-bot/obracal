@@ -9,7 +9,7 @@ export default function Reportes({
   insumos = [], 
   rubros = [],
   facturas = [],
-  maestroTareasRubros = []
+  maestroTareasRubros = [] // Nombre estándar y unificado en todo el proyecto
 }) {
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Dashboard');
@@ -44,17 +44,23 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // Crear diccionario de búsqueda para el maestro de tareas
-  const maestroMap = {};
+  // 1. Diccionario limpio y unificado basado en MaestroTareasRubros y su campo insumos_detalle
+  const diccionarioMaestroTareas = {};
   if (Array.isArray(maestroTareasRubros)) {
-    maestroTareasRubros.forEach(m => {
-      const tName = String(m.tarea || '').trim().toLowerCase();
-      let detalleInsumos = m.insumos_detalle || m.Insumos_detalle;
-      if (typeof detalleInsumos === 'string' && detalleInsumos.trim()) {
-        try { detalleInsumos = JSON.parse(detalleInsumos); } catch { detalleInsumos = []; }
+    maestroTareasRubros.forEach(itemMaestro => {
+      const nombreTareaKey = String(itemMaestro.tarea || '').trim().toLowerCase();
+      let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle;
+      
+      if (typeof insumosDetalleParsed === 'string' && insumosDetalleParsed.trim()) {
+        try { 
+          insumosDetalleParsed = JSON.parse(insumosDetalleParsed); 
+        } catch (err) { 
+          insumosDetalleParsed = []; 
+        }
       }
-      if (tName && Array.isArray(detalleInsumos)) {
-        maestroMap[tName] = detalleInsumos;
+      
+      if (nombreTareaKey && Array.isArray(insumosDetalleParsed)) {
+        diccionarioMaestroTareas[nombreTareaKey] = insumosDetalleParsed;
       }
     });
   }
@@ -71,79 +77,68 @@ export default function Reportes({
         ? JSON.parse(presupuestoSeleccionado.items_detalle) 
         : presupuestoSeleccionado.items_detalle;
       
-      // 1. Rubros y Tareas con discriminación estricta
+      // Rubros y Tareas
       if (parsedDetalle && parsedDetalle.rubros) {
-        rubrosPresupuestoDetalle = parsedDetalle.rubros.map((r, rIdx) => {
-          const tareas = r.tareas || [];
+        rubrosPresupuestoDetalle = parsedDetalle.rubros.map((rubroItem, rIdx) => {
+          const tareasList = rubroItem.tareas || [];
           let totalRubro = 0;
-          let componentes = {
+          let acumuladorComponentes = {
             'Mano de Obra': 0,
-            'Materiales': 0,
+            'Material': 0,
             'Subcontrato': 0
           };
 
-          tareas.forEach(t => {
-            const tCosto = (Number(t.cantidad) || 1) * (Number(t.costo_unitario) || 0);
-            totalRubro += tCosto;
+          tareasList.forEach(tareaItem => {
+            const costoTareaTotal = (Number(tareaItem.cantidad) || 1) * (Number(tareaItem.costo_unitario) || 0);
+            totalRubro += costoTareaTotal;
 
-            let insumosList = t.insumos || [];
-            if (typeof insumosList === 'string' && insumosList.trim()) {
-              try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
+            // Buscar insumos en la tarea o recurrir al diccionario maestro unificado
+            const nombreTareaKey = String(tareaItem.tarea || '').trim().toLowerCase();
+            let insumosAsociados = tareaItem.insumos || diccionarioMaestroTareas[nombreTareaKey] || [];
+
+            if (typeof insumosAsociados === 'string' && insumosAsociados.trim()) {
+              try { insumosAsociados = JSON.parse(insumosAsociados); } catch { insumosAsociados = []; }
             }
 
-            if (!Array.isArray(insumosList) || insumosList.length === 0) {
-              const tNameKey = String(t.tarea || '').trim().toLowerCase();
-              if (maestroMap[tNameKey]) {
-                insumosList = maestroMap[tNameKey];
-              }
-            }
+            if (Array.isArray(insumosAsociados) && insumosAsociados.length > 0) {
+              insumosAsociados.forEach(insumo => {
+                const tipoInsumo = String(insumo.tipo || 'Material').trim();
+                const subtotalInsumo = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || 0);
 
-            if (Array.isArray(insumosList) && insumosList.length > 0) {
-              insumosList.forEach(ins => {
-                const tipoRaw = String(ins.tipo || '').trim().toLowerCase();
-                const nombreIns = String(ins.nombre || '').trim().toLowerCase();
-                const costoIns = (Number(ins.cantidad) || 1) * (Number(ins.costo_unitario) || 0);
-
-                let tipoNormalizado = 'Materiales';
-
-                if (tipoRaw === 'mano de obra' || tipoRaw.includes('mano') || nombreIns.includes('mano de obra') || nombreIns.includes('cuadrilla')) {
-                  tipoNormalizado = 'Mano de Obra';
-                } else if (tipoRaw === 'subcontrato' || tipoRaw.includes('subcontrato') || tipoRaw.includes('servicio de volquete') || nombreIns.includes('subcontrato') || nombreIns.includes('alquiler') || nombreIns.includes('poda') || nombreIns.includes('carteleria')) {
-                  tipoNormalizado = 'Subcontrato';
-                } else if (tipoRaw === 'material' || tipoRaw.includes('material') || tipoRaw.includes('provisión') || tipoRaw.includes('provision')) {
-                  tipoNormalizado = 'Materiales';
+                // Normalizar claves exactas a las columnas estándar
+                let categoriaFinal = 'Material';
+                if (tipoInsumo.toLowerCase().includes('mano')) {
+                  categoriaFinal = 'Mano de Obra';
+                } else if (tipoInsumo.toLowerCase().includes('subcontrato')) {
+                  categoriaFinal = 'Subcontrato';
                 }
 
-                componentes[tipoNormalizado] = (componentes[tipoNormalizado] || 0) + costoIns;
+                acumuladorComponentes[categoriaFinal] = (acumuladorComponentes[categoriaFinal] || 0) + subtotalInsumo;
               });
             } else {
-              const nombreTarea = String(t.tarea || '').toLowerCase();
-              let tipoDef = 'Subcontrato';
-              if (nombreTarea.includes('material') || nombreTarea.includes('provision')) tipoDef = 'Materiales';
-              else if (nombreTarea.includes('mano de obra')) tipoDef = 'Mano de Obra';
-              
-              componentes[tipoDef] = (componentes[tipoDef] || 0) + tCosto;
+              // Si no posee desglose, clasificar por defecto en Materiales o Subcontrato según el costo total
+              acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
             }
           });
 
           totalPresupuestoRubros += totalRubro;
-          
-          // Filtrar componentes que tengan valor mayor a 0 para no mostrar en cero innecesarios
-          const componentesFiltrados = Object.fromEntries(
-            Object.entries(componentes).filter(([_, val]) => val > 0)
+
+          // Filtrar componentes con valor mayor a cero
+          const componentesActivos = Object.fromEntries(
+            Object.entries(acumuladorComponentes).filter(([_, val]) => val > 0)
           );
 
           return {
             id: rIdx,
-            nombre: r.rubro || `Rubro #${rIdx + 1}`,
+            nombre: rubroItem.rubro || `Rubro #${rIdx + 1}`,
             total: totalRubro,
-            componentes: componentesFiltrados,
-            tareas: tareas
+            componentes: componentesActivos,
+            tareas: tareasList
           };
         });
       }
 
-      // 2. Gastos Generales base
+      // Gastos Generales e Imprevistos
       if (parsedDetalle && parsedDetalle.comercial) {
         if (parsedDetalle.comercial.gastos_generales_insumos) {
           parsedDetalle.comercial.gastos_generales_insumos.forEach((gg, ggIdx) => {
@@ -179,11 +174,11 @@ export default function Reportes({
         }
       }
     } catch (e) {
-      console.error("Error al parsear items_detalle:", e);
+      console.error("Error al procesar el presupuesto:", e);
     }
   }
 
-  // Filtrar facturas del presupuesto y distribuir de forma única y limpia
+  // Imputación real de facturas para Gastos Generales
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
   let totalRealGGEspecifico = 0;
