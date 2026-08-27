@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { base44 } from '@/api/base44Client';
-import { BarChart3, PieChart, Building2, Layers, FileText, CheckCircle2, TrendingUp, TrendingDown, DollarSign } from 'lucide-react';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Building2 } from 'lucide-react';
 
 export default function Reportes({ 
   obras: obrasProp = [], 
@@ -9,9 +8,7 @@ export default function Reportes({
   certificados: certificadosProp = [], 
   movimientos: movimientosProp = [], 
   insumos: insumosProp = [], 
-  rubros: rubrosProp = [],
-  tareas: tareasProp = [],
-  facturas: facturasProp = []
+  rubros: rubrosProp = []
 }) {
   const [obras, setObras] = useState(obrasProp);
   const [presupuestos, setPresupuestos] = useState(presupuestosProp);
@@ -19,52 +16,50 @@ export default function Reportes({
   const [movimientos, setMovimientos] = useState(movimientosProp);
   const [insumos, setInsumos] = useState(insumosProp);
   const [rubros, setRubros] = useState(rubrosProp);
-  const [tareas, setTareas] = useState(tareasProp);
-  const [facturas, setFacturas] = useState(facturasProp);
 
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Dashboard');
 
-  // Estados específicos para el comparativo detallado
+  // Estados para el comparativo detallado
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
   const [rubrosPresupuesto, setRubrosPresupuesto] = useState([]);
   const [loadingComp, setLoadingComp] = useState(false);
 
-  // Cargar datos de respaldo si no se pasan por props
+  // Carga robusta de datos desde base44 si las props vienen vacías
   useEffect(() => {
     let isMounted = true;
     Promise.all([
-      obrasProp.length === 0 && base44?.entities?.Obra?.list ? base44.entities.Obra.list() : Promise.resolve(obrasProp),
-      presupuestosProp.length === 0 && base44?.entities?.Presupuesto?.list ? base44.entities.Presupuesto.list() : Promise.resolve(presupuestosProp),
-      certificadosProp.length === 0 && base44?.entities?.Certificado?.list ? base44.entities.Certificado.list() : Promise.resolve(certificadosProp),
-      movimientosProp.length === 0 && base44?.entities?.Tesoreria?.list ? base44.entities.Tesoreria.list() : Promise.resolve(movimientosProp),
-      insumosProp.length === 0 && base44?.entities?.Insumo?.list ? base44.entities.Insumo.list() : Promise.resolve(insumosProp),
-      rubrosProp.length === 0 && base44?.entities?.Rubro?.list ? base44.entities.Rubro.list() : Promise.resolve(rubrosProp)
+      base44?.entities?.Obra?.list ? base44.entities.Obra.list() : Promise.resolve([]),
+      base44?.entities?.Presupuesto?.list ? base44.entities.Presupuesto.list() : Promise.resolve([]),
+      base44?.entities?.Certificado?.list ? base44.entities.Certificado.list() : Promise.resolve([]),
+      base44?.entities?.Tesoreria?.list ? base44.entities.Tesoreria.list() : Promise.resolve([]),
+      base44?.entities?.Insumo?.list ? base44.entities.Insumo.list() : Promise.resolve([]),
+      base44?.entities?.Rubro?.list ? base44.entities.Rubro.list() : Promise.resolve([])
     ]).then(([o, p, c, m, i, r]) => {
       if (!isMounted) return;
-      if (o.length) setObras(o);
-      if (p.length) setPresupuestos(p);
-      if (c.length) setCertificados(c);
-      if (m.length) setMovimientos(m);
-      if (i.length) setInsumos(i);
-      if (r.length) setRubros(r);
-    }).catch(err => console.error("Error al cargar datos de respaldo en Reportes:", err));
+      if (o && o.length > 0) setObras(o);
+      if (p && p.length > 0) setPresupuestos(p);
+      if (c && c.length > 0) setCertificados(c);
+      if (m && m.length > 0) setMovimientos(m);
+      if (i && i.length > 0) setInsumos(i);
+      if (r && r.length > 0) setRubros(r);
+    }).catch(err => console.error("Error cargando datos:", err));
 
     return () => { isMounted = false; };
   }, []);
 
-  // Cargar rubros específicos al seleccionar presupuesto en el comparativo
+  // Cargar rubros al seleccionar presupuesto
   useEffect(() => {
     if (!compPresupuestoId) {
       setRubrosPresupuesto([]);
       return;
     }
     setLoadingComp(true);
-    const rubrosFiltradosLocal = rubros.filter(r => String(r.presupuesto_id || r.Presupuesto_id) === String(compPresupuestoId));
+    const filtradosLocal = rubros.filter(r => String(r.presupuesto_id || r.Presupuesto_id) === String(compPresupuestoId));
     
-    if (rubrosFiltradosLocal.length > 0) {
-      setRubrosPresupuesto(rubrosFiltradosLocal);
+    if (filtradosLocal.length > 0) {
+      setRubrosPresupuesto(filtradosLocal);
       setLoadingComp(false);
     } else if (base44?.entities?.Rubro?.filter) {
       base44.entities.Rubro.filter({ presupuesto_id: compPresupuestoId })
@@ -78,7 +73,7 @@ export default function Reportes({
     }
   }, [compPresupuestoId, rubros]);
 
-  // Filtrado general
+  // Cálculos generales
   const presupuestosFiltrados = obraFiltro === 'todas' 
     ? presupuestos 
     : presupuestos.filter(p => String(p.obra_id || p.Obra_id) === String(obraFiltro));
@@ -110,15 +105,16 @@ export default function Reportes({
           <p className="text-slate-500 text-sm mt-1">Dashboard, certificaciones y análisis financiero</p>
         </div>
         <div className="w-full md:w-64">
-          <Select value={obraFiltro} onValueChange={setObraFiltro}>
-            <SelectTrigger className="w-full rounded-xl"><SelectValue placeholder="Todas las obras" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="todas">Todas las obras</SelectItem>
-              {obras.map(o => (
-                <SelectItem key={o.id || o.ID} value={String(o.id || o.ID)}>{o.nombre || o.Nombre || 'Obra'}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <select 
+            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
+            value={obraFiltro}
+            onChange={(e) => setObraFiltro(e.target.value)}
+          >
+            <option value="todas">Todas las obras</option>
+            {obras.map(o => (
+              <option key={o.id || o.ID} value={String(o.id || o.ID)}>{o.nombre || o.Nombre || 'Obra'}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -142,7 +138,7 @@ export default function Reportes({
         </div>
       </div>
 
-      {/* SUBSECCIONES (PESTAÑAS) */}
+      {/* PESTAÑAS */}
       <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap">
         {['Dashboard', 'Certificaciones', 'Avance Porcentual', 'Listado de Insumos', 'Comparativo'].map((tab) => (
           <button 
@@ -170,7 +166,7 @@ export default function Reportes({
                 <div className="space-y-2 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
-                    <span className="font-bold text-slate-700">En presupuesto: {obras.length || 0} obras</span>
+                    <span className="font-bold text-slate-700">En presupuesto: {obras.length} obras</span>
                   </div>
                 </div>
               </div>
@@ -180,7 +176,7 @@ export default function Reportes({
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Resumen Financiero</h3>
               <div className="grid grid-cols-2 gap-4 py-6">
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
-                  <h4 className="text-2xl font-black text-blue-600">{obras.length || 0}</h4>
+                  <h4 className="text-2xl font-black text-blue-600">{obras.length}</h4>
                   <p className="text-xs font-bold text-slate-500 uppercase mt-1">Total Obras</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
@@ -296,30 +292,29 @@ export default function Reportes({
               <p className="text-xs text-slate-500 mt-0.5">Desglose por rubros y componentes (Materiales, Mano de Obra, Subcontrato, Equipos)</p>
             </div>
             
-            {/* FILTROS ESPECÍFICOS DE OBRA Y PRESUPUESTO */}
+            {/* SELECTORES NATIVOS GARANTIZADOS */}
             <div className="flex gap-3 w-full md:w-auto">
-              <Select value={compObraId} onValueChange={v => { setCompObraId(v); setCompPresupuestoId(''); }}>
-                <SelectTrigger className="w-48 rounded-xl text-xs"><SelectValue placeholder="Filtrar por Obra..." /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas las obras</SelectItem>
-                  {obras.map(o => (
-                    <SelectItem key={o.id || o.ID} value={String(o.id || o.ID)}>{o.nombre || o.Nombre}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <select 
+                className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
+                value={compObraId}
+                onChange={e => { setCompObraId(e.target.value); setCompPresupuestoId(''); }}
+              >
+                <option value="todas">Todas las obras</option>
+                {obras.map(o => (
+                  <option key={o.id || o.ID} value={String(o.id || o.ID)}>{o.nombre || o.Nombre || 'Obra'}</option>
+                ))}
+              </select>
 
-              <Select value={compPresupuestoId} onValueChange={setCompPresupuestoId}>
-                <SelectTrigger className="w-56 rounded-xl text-xs"><SelectValue placeholder="Seleccionar Presupuesto..." /></SelectTrigger>
-                <SelectContent>
-                  {presupuestosCompFiltrados.length === 0 ? (
-                    <div className="p-2 text-xs text-slate-400 text-center">No hay presupuestos</div>
-                  ) : (
-                    presupuestosCompFiltrados.map(p => (
-                      <SelectItem key={p.id || p.ID} value={String(p.id || p.ID)}>{p.codigo || 'PRES'} - {p.nombre || p.Nombre}</SelectItem>
-                    ))
-                  )}
-                </SelectContent>
-              </Select>
+              <select 
+                className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
+                value={compPresupuestoId}
+                onChange={e => setCompPresupuestoId(e.target.value)}
+              >
+                <option value="">Seleccionar Presupuesto...</option>
+                {presupuestosCompFiltrados.map(p => (
+                  <option key={p.id || p.ID} value={String(p.id || p.ID)}>{p.codigo || 'PRES'} - {p.nombre || p.Nombre || 'Presupuesto'}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -347,10 +342,10 @@ export default function Reportes({
                   {rubrosPresupuesto.map((rubro) => {
                     const rubId = rubro.id || rubro.ID;
                     const componentes = [
-                      { nombre: 'Materiales', tipo: 'material' },
-                      { nombre: 'Mano de Obra', tipo: 'mano_de_obra' },
-                      { nombre: 'Subcontrato', tipo: 'subcontrato' },
-                      { nombre: 'Equipo / Herramienta', tipo: 'equipo' }
+                      { nombre: 'Materiales' },
+                      { nombre: 'Mano de Obra' },
+                      { nombre: 'Subcontrato' },
+                      { nombre: 'Equipo / Herramienta' }
                     ];
 
                     const presupuestoTotalRubro = Number(rubro.monto || rubro.total || 1250000);
