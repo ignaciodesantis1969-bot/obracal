@@ -1,14 +1,16 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft } from 'lucide-react';
 
 export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], cargarDatos }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Estados para el calculador de Cuadrillas y Salarios (basado en modelo Zárate)
+  // Estados para la gestión y edición de Cuadrillas
+  const [vistaCuadrilla, setVistaCuadrilla] = useState('lista'); // 'lista' | 'editor'
+  const [cuadrillaIdEditando, setCuadrillaIdEditando] = useState(null);
+  const [nombreCuadrilla, setNombreCuadrilla] = useState('CUADRILLA LDC ZARATE - PROMEDIO ESTABLE');
   const [porcentajeCargas, setPorcentajeCargas] = useState(76.00);
   
-  // Filas de trabajadores para la cuadrilla activa
   const [cuadrillaItems, setCuadrillaItems] = useState([
     { id: 1, categoria: 'OFICIAL ESPECIALIZADO', cantidad: 1, costoEnMano: 92550.50 },
     { id: 2, categoria: 'OFICIAL CABALLERO', cantidad: 1, costoEnMano: 58941.78 },
@@ -19,7 +21,15 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   ]);
 
   const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 152436.57 });
-  const [nombreCuadrilla, setNombreCuadrilla] = useState('CUADRILLA LDC ZARATE - PROMEDIO ESTABLE');
+
+  // Filtrar insumos que actúan como cuadrillas / mano de obra compuesta
+  const cuadrillasGuardadas = Array.isArray(insumos) 
+    ? insumos.filter(i => {
+        const tipo = String(i.tipo || i.Tipo || '').toLowerCase();
+        const nombre = String(i.nombre || i.nombre_del_articulo || '').toLowerCase();
+        return tipo.includes('mano') || nombre.includes('cuadrilla');
+      })
+    : [];
 
   // Modal Nuevo / Editar Personal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -46,14 +56,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       });
     } else {
       setEditingId(null);
-      setFormData({
-        nombre: '',
-        cuil: '',
-        especialidad: '',
-        telefono: '',
-        email: '',
-        direccion: ''
-      });
+      setFormData({ nombre: '', cuil: '', especialidad: '', telefono: '', email: '', direccion: '' });
     }
     setIsModalOpen(true);
   };
@@ -65,74 +68,139 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Personal',
-          action: action,
-          id: editingId,
-          data: formData
-        })
+        body: JSON.stringify({ tabla: 'Personal', action, id: editingId, data: formData })
       });
-
-      const textoRespuesta = await res.text();
-      let data;
-      try {
-        data = JSON.parse(textoRespuesta);
-      } catch (err) {
-        alert("Error del servidor: " + textoRespuesta.substring(0, 150));
-        return;
-      }
-
-      if (data.success || data.id) {
+      const data = await res.json().catch(() => ({ success: true }));
+      if (data.success !== false) {
         setIsModalOpen(false);
         cargarDatos();
       } else {
-        alert("Error al guardar personal: " + (data.error || "Desconocido"));
+        alert("Error al guardar personal.");
       }
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al guardar el personal.");
     }
   };
 
   const handleEliminarPersonal = async (id) => {
-    if (!id) return;
-    if (!window.confirm("¿Estás seguro de eliminar este registro de personal?")) return;
+    if (!id || !window.confirm("¿Estás seguro de eliminar este registro?")) return;
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Personal', action: 'delete', id: id })
+        body: JSON.stringify({ tabla: 'Personal', action: 'delete', id })
       });
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
-        cargarDatos();
-      } else {
-        alert("No se pudo eliminar el registro.");
-      }
+      cargarDatos();
     } catch (err) {
       console.error(err);
     }
   };
 
-  // Cálculos dinámicos para la cuadrilla
+  // Cálculos dinámicos de la cuadrilla actual en el editor
   const factorCargas = porcentajeCargas / 100;
-  
   const itemsCalculados = cuadrillaItems.map(item => {
     const costoEnMano = Number(item.costoEnMano) || 0;
     const cargasSocialesUnitarias = costoEnMano * factorCargas;
     const subtotalUnitario = costoEnMano + cargasSocialesUnitarias;
     const subtotalTotal = subtotalUnitario * (Number(item.cantidad) || 0);
-    return {
-      ...item,
-      cargasSocialesUnitarias,
-      subtotalUnitario,
-      subtotalTotal
-    };
+    return { ...item, cargasSocialesUnitarias, subtotalUnitario, subtotalTotal };
   });
 
   const sumaSubtotalesPersonal = itemsCalculados.reduce((acc, item) => acc + item.subtotalTotal, 0);
   const totalViaticos = (Number(viaticosCuadrilla.cantidad) || 0) * (Number(viaticosCuadrilla.costo) || 0);
   const costoDiarioCuadrilla = sumaSubtotalesPersonal + totalViaticos;
+
+  // Guardar o Actualizar Cuadrilla como Insumo en el Maestro
+  const handleGuardarCuadrillaComoInsumo = async () => {
+    if (!nombreCuadrilla.trim()) {
+      alert("Por favor ingresa un nombre para la cuadrilla.");
+      return;
+    }
+
+    try {
+      const payloadInsumo = {
+        nombre_del_articulo: nombreCuadrilla,
+        nombre: nombreCuadrilla,
+        tipo: 'Mano de Obra',
+        costo_unitario: costoDiarioCuadrilla,
+        costo: costoDiarioCuadrilla,
+        unidad: 'día',
+        descripcion: JSON.stringify({
+          porcentajeCargas,
+          items: cuadrillaItems,
+          viaticos: viaticosCuadrilla
+        })
+      };
+
+      const action = cuadrillaIdEditando ? 'update' : 'create';
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'Insumos',
+          action: action,
+          id: cuadrillaIdEditando,
+          data: payloadInsumo
+        })
+      });
+
+      const data = await res.json().catch(() => ({ success: true }));
+      if (data.success !== false) {
+        alert("¡Cuadrilla guardada e impactada en el Maestro de Insumos con éxito!");
+        cargarDatos();
+        setVistaCuadrilla('lista');
+      } else {
+        alert("Error al guardar la cuadrilla en Insumos.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error de conexión al guardar la cuadrilla.");
+    }
+  };
+
+  const handleEditarCuadrilla = (cuadrillaIns) => {
+    const cId = cuadrillaIns.id || cuadrillaIns.ID;
+    const cNombre = cuadrillaIns.nombre_del_articulo || cuadrillaIns.nombre || '';
+    setCuadrillaIdEditando(cId);
+    setNombreCuadrilla(cNombre);
+
+    try {
+      const descParsed = JSON.parse(cuadrillaIns.descripcion || '{}');
+      if (descParsed.porcentajeCargas !== undefined) setPorcentajeCargas(descParsed.porcentajeCargas);
+      if (Array.isArray(descParsed.items)) setCuadrillaItems(descParsed.items);
+      if (descParsed.viaticos) setViaticosCuadrilla(descParsed.viaticos);
+    } catch {
+      // Si la descripción es texto plano, mantenemos valores por defecto
+    }
+
+    setVistaCuadrilla('editor');
+  };
+
+  const handleNuevaCuadrilla = () => {
+    setCuadrillaIdEditando(null);
+    setNombreCuadrilla('NUEVA CUADRILLA');
+    setPorcentajeCargas(76.00);
+    setCuadrillaItems([
+      { id: 1, categoria: 'OFICIAL', cantidad: 1, costoEnMano: 60000 },
+      { id: 2, categoria: 'AYUDANTE', cantidad: 1, costoEnMano: 45000 }
+    ]);
+    setViaticosCuadrilla({ cantidad: 1, costo: 50000 });
+    setVistaCuadrilla('editor');
+  };
+
+  const handleEliminarCuadrilla = async (cId) => {
+    if (!cId || !window.confirm("¿Estás seguro de eliminar esta cuadrilla del maestro de insumos?")) return;
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'Insumos', action: 'delete', id: cId })
+      });
+      cargarDatos();
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const personalFiltrado = personalInicial.filter(p => {
     const nombre = String(p.nombre || p.Nombre || '').toLowerCase();
@@ -147,7 +215,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Recursos Humanos</h1>
-          <p className="text-slate-500 text-sm mt-1">Gestión de personal, legajos, salarios y armado de cuadrillas</p>
+          <p className="text-slate-500 text-sm mt-1">Gestión de personal, legajos y armado de cuadrillas de mano de obra</p>
         </div>
         {activeTab === 'personal' && (
           <button 
@@ -164,9 +232,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         <button
           onClick={() => setActiveTab('personal')}
           className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
-            activeTab === 'personal'
-              ? 'bg-amber-500 text-white'
-              : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+            activeTab === 'personal' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
           }`}
         >
           Lista de Personal
@@ -174,19 +240,15 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         <button
           onClick={() => setActiveTab('legajos')}
           className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
-            activeTab === 'legajos'
-              ? 'bg-amber-500 text-white'
-              : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+            activeTab === 'legajos' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
           }`}
         >
           Legajos
         </button>
         <button
-          onClick={() => setActiveTab('salarios')}
+          onClick={() => { setActiveTab('salarios'); setVistaCuadrilla('lista'); }}
           className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
-            activeTab === 'salarios'
-              ? 'bg-amber-500 text-white'
-              : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+            activeTab === 'salarios' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
           }`}
         >
           Salarios y Cuadrillas
@@ -194,9 +256,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         <button
           onClick={() => setActiveTab('carga')}
           className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
-            activeTab === 'carga'
-              ? 'bg-amber-500 text-white'
-              : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+            activeTab === 'carga' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
           }`}
         >
           Carga Semanal de Horas / Viáticos
@@ -234,7 +294,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                     <th className="px-4 py-4">Especialidad</th>
                     <th className="px-4 py-4">Teléfono</th>
                     <th className="px-4 py-4">Mail</th>
-                    <th className="px-4 py-4">Dirección</th>
                     <th className="px-6 py-4 text-right">Acciones</th>
                   </tr>
                 </thead>
@@ -252,10 +311,9 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                         </td>
                         <td className="px-4 py-4 text-slate-600">{p.telefono || p.Telefono || '---'}</td>
                         <td className="px-4 py-4 text-slate-600">{p.email || p.Email || '---'}</td>
-                        <td className="px-4 py-4 text-slate-600">{p.direccion || p.Direccion || '---'}</td>
                         <td className="px-6 py-4 text-right space-x-2">
-                          <button onClick={() => handleOpenModal(p)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarPersonal(pId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleOpenModal(p)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEliminarPersonal(pId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer"><Trash2 className="w-3.5 h-3.5" /></button>
                         </td>
                       </tr>
                     );
@@ -267,125 +325,206 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         </div>
       )}
 
-      {/* Contenido: Salarios y Cuadrillas (Estructura de Costos por Cuadrilla) */}
+      {/* Contenido: Salarios y Cuadrillas */}
       {activeTab === 'salarios' && (
         <div className="space-y-6">
-          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
-              <div>
-                <input 
-                  type="text" 
-                  value={nombreCuadrilla} 
-                  onChange={(e) => setNombreCuadrilla(e.target.value)}
-                  className="text-lg font-black text-slate-900 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-amber-500 outline-none px-1 py-0.5 w-full max-w-md"
-                />
-                <p className="text-xs text-slate-500 mt-1">Armado de costo diario de cuadrilla integrando salarios, cargas sociales y viáticos.</p>
+          {vistaCuadrilla === 'lista' ? (
+            <div className="space-y-4">
+              <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex justify-between items-center">
+                <div>
+                  <h3 className="text-sm font-extrabold text-slate-900 uppercase">Listado de Cuadrillas (Insumos de Mano de Obra)</h3>
+                  <p className="text-xs text-slate-500 mt-1">Cada cuadrilla creada se sincroniza automáticamente como insumo de tipo Mano de Obra para los presupuestos.</p>
+                </div>
+                <button 
+                  onClick={handleNuevaCuadrilla}
+                  className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" /> Nueva Cuadrilla
+                </button>
               </div>
-              
-              <div className="flex items-center gap-3 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200">
-                <span className="text-xs font-bold text-amber-900">Cargas Sociales (%):</span>
-                <input 
-                  type="number" 
-                  step="0.01"
-                  value={porcentajeCargas}
-                  onChange={(e) => setPorcentajeCargas(Number(e.target.value) || 0)}
-                  className="w-20 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-black text-amber-900 text-center outline-none focus:border-amber-500 shadow-sm"
-                />
+
+              <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+                {cuadrillasGuardadas.length === 0 ? (
+                  <div className="p-16 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
+                    <Users className="w-10 h-10 text-slate-300" />
+                    <span>No hay cuadrillas configuradas. Crea la primera para usarla en presupuestos.</span>
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                        <th className="px-6 py-4">Nombre de Cuadrilla (Insumo)</th>
+                        <th className="px-4 py-4">Tipo</th>
+                        <th className="px-4 py-4 text-right">Costo Diario ($)</th>
+                        <th className="px-6 py-4 text-right">Acciones</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {cuadrillasGuardadas.map((c, idx) => {
+                        const cId = c.id || c.ID;
+                        const cNombre = c.nombre_del_articulo || c.nombre || 'Sin nombre';
+                        const cCosto = Number(c.costo_unitario || c.costo || 0);
+                        return (
+                          <tr key={cId || idx} className="hover:bg-slate-50">
+                            <td className="px-6 py-4 font-bold text-slate-900">{cNombre}</td>
+                            <td className="px-4 py-4">
+                              <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px] uppercase">
+                                Mano de Obra
+                              </span>
+                            </td>
+                            <td className="px-4 py-4 text-right font-black text-blue-600">
+                              $ {cCosto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-6 py-4 text-right space-x-2">
+                              <button onClick={() => handleEditarCuadrilla(c)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Modificar"><Edit2 className="w-3.5 h-3.5" /></button>
+                              <button onClick={() => handleEliminarCuadrilla(cId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
               </div>
             </div>
+          ) : (
+            <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
+              <div className="flex justify-between items-center pb-4 border-b">
+                <button 
+                  onClick={() => setVistaCuadrilla('lista')}
+                  className="flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 cursor-pointer bg-slate-100 px-3 py-1.5 rounded-lg"
+                >
+                  <ArrowLeft className="w-4 h-4" /> Volver al listado
+                </button>
+                <button 
+                  onClick={handleGuardarCuadrillaComoInsumo}
+                  className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
+                >
+                  {cuadrillaIdEditando ? 'Actualizar Cuadrilla e Insumo' : 'Guardar y Crear Insumo'}
+                </button>
+              </div>
 
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
-                    <th className="px-4 py-3">Categoría / Rol / Personal</th>
-                    <th className="px-4 py-3 text-center">Cantidad (Activa)</th>
-                    <th className="px-4 py-3 text-right">Costo En Mano ($)</th>
-                    <th className="px-4 py-3 text-right">Cargas Sociales ($)</th>
-                    <th className="px-4 py-3 text-right">Sub-Total / Día ($)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {itemsCalculados.map((item, idx) => (
-                    <tr key={item.id} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 font-bold text-slate-900">{item.categoria}</td>
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div className="w-full max-w-md">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Nombre de la Cuadrilla (Insumo)</label>
+                  <input 
+                    type="text" 
+                    value={nombreCuadrilla} 
+                    onChange={(e) => setNombreCuadrilla(e.target.value)}
+                    className="text-lg font-black text-slate-900 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 outline-none focus:border-amber-500 w-full"
+                  />
+                </div>
+                
+                <div className="flex items-center gap-3 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200">
+                  <span className="text-xs font-bold text-amber-900">Cargas Sociales (%):</span>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={porcentajeCargas}
+                    onChange={(e) => setPorcentajeCargas(Number(e.target.value) || 0)}
+                    className="w-20 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-black text-amber-900 text-center outline-none focus:border-amber-500 shadow-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
+                      <th className="px-4 py-3">Categoría / Rol / Personal</th>
+                      <th className="px-4 py-3 text-center">Cantidad (Activa)</th>
+                      <th className="px-4 py-3 text-right">Costo En Mano ($)</th>
+                      <th className="px-4 py-3 text-right">Cargas Sociales ($)</th>
+                      <th className="px-4 py-3 text-right">Sub-Total / Día ($)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {itemsCalculados.map((item, idx) => (
+                      <tr key={item.id || idx} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-900">
+                          <input 
+                            type="text" 
+                            value={item.categoria}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCuadrillaItems(prev => prev.map(i => i.id === item.id ? { ...i, categoria: val } : i));
+                            }}
+                            className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-amber-500 outline-none w-full font-bold"
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          <input 
+                            type="number" min="0" max="10"
+                            value={item.cantidad}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setCuadrillaItems(prev => prev.map(i => i.id === item.id ? { ...i, cantidad: val } : i));
+                            }}
+                            className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <input 
+                            type="number" step="0.01"
+                            value={item.costoEnMano}
+                            onChange={(e) => {
+                              const val = Number(e.target.value);
+                              setCuadrillaItems(prev => prev.map(i => i.id === item.id ? { ...i, costoEnMano: val } : i));
+                            }}
+                            className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
+                          />
+                        </td>
+                        <td className="px-4 py-3 text-right font-mono text-slate-600">
+                          $ {item.cargasSocialesUnitarias.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-4 py-3 text-right font-black text-slate-900">
+                          $ {item.subtotalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))}
+
+                    {/* Fila de Viáticos */}
+                    <tr className="bg-amber-50/40 font-semibold">
+                      <td className="px-4 py-3 text-amber-900 uppercase font-extrabold">VIÁTICOS</td>
                       <td className="px-4 py-3 text-center">
                         <input 
-                          type="number" 
-                          min="0" 
-                          max="10"
-                          value={item.cantidad}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setCuadrillaItems(prev => prev.map(i => i.id === item.id ? { ...i, cantidad: val } : i));
-                          }}
-                          className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
+                          type="number" min="0" 
+                          value={viaticosCuadrilla.cantidad}
+                          onChange={(e) => setViaticosCuadrilla({ ...viaticosCuadrilla, cantidad: Number(e.target.value) })}
+                          className="w-16 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
                         />
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right" colSpan={2}>
                         <input 
-                          type="number" 
-                          step="0.01"
-                          value={item.costoEnMano}
-                          onChange={(e) => {
-                            const val = Number(e.target.value);
-                            setCuadrillaItems(prev => prev.map(i => i.id === item.id ? { ...i, costoEnMano: val } : i));
-                          }}
-                          className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
+                          type="number" step="0.01"
+                          value={viaticosCuadrilla.costo}
+                          onChange={(e) => setViaticosCuadrilla({ ...viaticosCuadrilla, costo: Number(e.target.value) })}
+                          className="w-40 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
                         />
                       </td>
-                      <td className="px-4 py-3 text-right font-mono text-slate-600">
-                        $ {item.cargasSocialesUnitarias.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-4 py-3 text-right font-black text-slate-900">
-                        $ {item.subtotalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      <td className="px-4 py-3 text-right font-black text-amber-900">
+                        $ {totalViaticos.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                       </td>
                     </tr>
-                  ))}
-
-                  {/* Fila de Viáticos */}
-                  <tr className="bg-amber-50/40 font-semibold">
-                    <td className="px-4 py-3 text-amber-900 uppercase font-extrabold">VIÁTICOS</td>
-                    <td className="px-4 py-3 text-center">
-                      <input 
-                        type="number" 
-                        min="0" 
-                        value={viaticosCuadrilla.cantidad}
-                        onChange={(e) => setViaticosCuadrilla({ ...viaticosCuadrilla, cantidad: Number(e.target.value) })}
-                        className="w-16 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-right" colSpan={2}>
-                      <input 
-                        type="number" 
-                        step="0.01"
-                        value={viaticosCuadrilla.costo}
-                        onChange={(e) => setViaticosCuadrilla({ ...viaticosCuadrilla, costo: Number(e.target.value) })}
-                        className="w-40 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
-                      />
-                    </td>
-                    <td className="px-4 py-3 text-right font-black text-amber-900">
-                      $ {totalViaticos.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            {/* Total final de la cuadrilla */}
-            <div className="bg-slate-900 text-white p-5 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
-              <div>
-                <p className="text-xs text-slate-400 font-bold uppercase">Costo resultante para insumo compuesto</p>
-                <h4 className="text-lg font-black">{nombreCuadrilla}</h4>
+                  </tbody>
+                </table>
               </div>
-              <div className="text-right">
-                <span className="text-xs text-slate-400 uppercase font-bold block">COSTO DIARIO CUADRILLA</span>
-                <span className="text-2xl font-black text-amber-400">
-                  $ {costoDiarioCuadrilla.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
+
+              {/* Total final de la cuadrilla */}
+              <div className="bg-slate-900 text-white p-5 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+                <div>
+                  <p className="text-xs text-slate-400 font-bold uppercase">Costo resultante para insumo compuesto</p>
+                  <h4 className="text-lg font-black">{nombreCuadrilla}</h4>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs text-slate-400 uppercase font-bold block">COSTO DIARIO CUADRILLA</span>
+                  <span className="text-2xl font-black text-amber-400">
+                    $ {costoDiarioCuadrilla.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -418,12 +557,9 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre Completo *</label>
                 <input 
-                  type="text" 
-                  required 
-                  placeholder="Ej: Pérez Juan Carlos"
+                  type="text" required placeholder="Ej: Pérez Juan Carlos"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                  value={formData.nombre} 
-                  onChange={(e) => setFormData({...formData, nombre: e.target.value})} 
+                  value={formData.nombre} onChange={(e) => setFormData({...formData, nombre: e.target.value})} 
                 />
               </div>
 
@@ -431,23 +567,17 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">CUIL *</label>
                   <input 
-                    type="text" 
-                    required 
-                    placeholder="Ej: 20-30816383-1"
+                    type="text" required placeholder="Ej: 20-30816383-1"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.cuil} 
-                    onChange={(e) => setFormData({...formData, cuil: e.target.value})} 
+                    value={formData.cuil} onChange={(e) => setFormData({...formData, cuil: e.target.value})} 
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Especialidad *</label>
                   <input 
-                    type="text" 
-                    required 
-                    placeholder="Ej: Oficial Especializado"
+                    type="text" required placeholder="Ej: Oficial Especializado"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.especialidad} 
-                    onChange={(e) => setFormData({...formData, especialidad: e.target.value})} 
+                    value={formData.especialidad} onChange={(e) => setFormData({...formData, especialidad: e.target.value})} 
                   />
                 </div>
               </div>
@@ -456,21 +586,17 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Teléfono</label>
                   <input 
-                    type="text" 
-                    placeholder="Ej: +54 9 11..."
+                    type="text" placeholder="Ej: +54 9 11..."
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.telefono} 
-                    onChange={(e) => setFormData({...formData, telefono: e.target.value})} 
+                    value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value})} 
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mail</label>
                   <input 
-                    type="email" 
-                    placeholder="correo@ejemplo.com"
+                    type="email" placeholder="correo@ejemplo.com"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.email} 
-                    onChange={(e) => setFormData({...formData, email: e.target.value})} 
+                    value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} 
                   />
                 </div>
               </div>
@@ -478,11 +604,9 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Dirección</label>
                 <input 
-                  type="text" 
-                  placeholder="Ej: Av. San Martín 1234, Benavidez"
+                  type="text" placeholder="Ej: Av. San Martín 1234, Benavidez"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                  value={formData.direccion} 
-                  onChange={(e) => setFormData({...formData, direccion: e.target.value})} 
+                  value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} 
                 />
               </div>
 
