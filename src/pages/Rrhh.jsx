@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, Building, CheckCircle2, ShieldCheck, PieChart } from 'lucide-react';
 
-export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], obras = [], cargarDatos }) {
+export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], obras = [], rubros = [], cargarDatos }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -49,7 +49,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
 
   // Estado para la distribución por Rubros del Presupuesto
   const [distribucionRubros, setDistribucionRubros] = useState([
-    { id: 1, rubro: 'Mano de Obra Estructura / Albañilería', porcentaje: 100 }
+    { id: 1, rubro: '', porcentaje: 100 }
   ]);
 
   // Sincronizar salarios y asegurar que la carga no se sobrescriba si el usuario ya está tipeando
@@ -388,7 +388,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
     for (let r of distribucionRubros) {
       if (!r.rubro.trim()) {
-        alert("Todos los rubros deben tener un nombre o descripción.");
+        alert("Todos los rubros deben tener un nombre o descripción seleccionada.");
         return false;
       }
     }
@@ -981,7 +981,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
               </div>
             </div>
 
-            {/* Distribución por Rubros */}
+            {/* Distribución por Rubros (Con desplegable de Rubros) */}
             <div className="space-y-3 bg-amber-50/40 p-4 rounded-xl border border-amber-200">
               <div className="flex justify-between items-center">
                 <h4 className="text-xs font-extrabold text-amber-900 uppercase flex items-center gap-1.5">
@@ -999,13 +999,21 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
               <div className="space-y-2">
                 {distribucionRubros.map((r, idx) => (
                   <div key={r.id || idx} className="flex items-center gap-2">
-                    <input 
-                      type="text"
-                      placeholder="Nombre del rubro (ej: Estructura, Albañilería, Terminaciones...)"
+                    <select 
                       value={r.rubro}
                       onChange={(e) => handleActualizarRubro(r.id, 'rubro', e.target.value)}
-                      className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500"
-                    />
+                      className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 text-slate-900"
+                    >
+                      <option value="">-- Seleccionar Rubro del Presupuesto --</option>
+                      {Array.isArray(rubros) && rubros.length > 0 ? (
+                        rubros.map((rub, rubIdx) => {
+                          const nombreRubro = rub.nombre || rub.Rubro || rub.rubro || rub;
+                          return <option key={rubIdx} value={nombreRubro}>{nombreRubro}</option>;
+                        })
+                      ) : (
+                        <option value={r.rubro} disabled>{r.rubro || 'No hay rubros provistos'}</option>
+                      )}
+                    </select>
                     <div className="flex items-center gap-1 w-32">
                       <input 
                         type="number" min="0" max="100" step="0.1"
