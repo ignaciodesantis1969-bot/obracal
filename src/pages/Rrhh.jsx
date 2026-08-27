@@ -96,18 +96,20 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  // Agregar trabajador de la lista general a la cuadrilla
-  const handleAgregarPersonalDeLista = (persona) => {
-    const nombrePersona = persona.nombre || persona.Nombre || 'Personal';
-    const especialidadPersona = persona.especialidad || persona.Especialidad || 'Operario';
-    const categoriaTexto = `${especialidadPersona} - ${nombrePersona}`.toUpperCase();
+  // Función para agregar un trabajador directamente desde la lista superior al cuadro de la cuadrilla
+  const handleAgregarPersonalAQuadrilla = (persona) => {
+    const nombre = persona.nombre || persona.Nombre || 'Personal';
+    const especialidad = persona.especialidad || persona.Especialidad || 'Operario';
+    const categoriaTexto = `${especialidad.toUpperCase()} - ${nombre.toUpperCase()}`;
+    const costoBase = Number(persona.costo_en_mano || persona.Costo_en_mano || persona.salario || 0);
 
     const nuevoItem = {
-      id: Date.now(),
+      id: Date.now() + Math.random(),
       categoria: categoriaTexto,
       cantidad: 1,
-      costoEnMano: 0
+      costoEnMano: costoBase
     };
+
     setCuadrillaItems(prev => [...prev, nuevoItem]);
   };
 
@@ -439,30 +441,48 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 </div>
               </div>
 
-              {/* Selector para añadir personal desde la lista general */}
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-3">
-                <span className="text-xs font-bold text-slate-700">Añadir integrante desde la Lista de Personal:</span>
-                <select 
-                  onChange={(e) => {
-                    const pId = e.target.value;
-                    if (!pId) return;
-                    const personaEncontrada = personalInicial.find(p => String(p.id || p.ID) === String(pId));
-                    if (personaEncontrada) {
-                      handleAgregarPersonalDeLista(personaEncontrada);
-                    }
-                    e.target.value = "";
-                  }}
-                  className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
-                >
-                  <option value="">Seleccionar trabajador...</option>
-                  {personalInicial.map(p => (
-                    <option key={p.id || p.ID} value={String(p.id || p.ID)}>
-                      {(p.nombre || p.Nombre)} — {(p.especialidad || p.Especialidad || 'General')}
-                    </option>
-                  ))}
-                </select>
+              {/* SECCIÓN NUEVA: Listado de Personal Disponible para Incorporar */}
+              <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                <div className="flex justify-between items-center">
+                  <h4 className="text-xs font-extrabold text-slate-900 uppercase">Personal Disponible (Hacer clic en "Agregar" para sumar a la cuadrilla)</h4>
+                  <span className="text-[11px] text-slate-500">{personalInicial.length} trabajadores registrados</span>
+                </div>
+
+                {personalInicial.length === 0 ? (
+                  <p className="text-xs text-slate-400 py-4 text-center">No hay personal cargado en el sistema. Ve a la pestaña "Lista de Personal" para agregarlos.</p>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-100 text-slate-600 uppercase font-bold sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2.5">Nombre</th>
+                          <th className="px-4 py-2.5">Especialidad</th>
+                          <th className="px-4 py-2.5 text-right">Acción</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {personalInicial.map((p, pIdx) => (
+                          <tr key={p.id || p.ID || pIdx} className="hover:bg-slate-50">
+                            <td className="px-4 py-2 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
+                            <td className="px-4 py-2 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
+                            <td className="px-4 py-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleAgregarPersonalAQuadrilla(p)}
+                                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer flex items-center gap-1 ml-auto"
+                              >
+                                <UserPlus className="w-3 h-3" /> Agregar
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
+              {/* TABLA DE LA CUADRILLA */}
               <div className="overflow-x-auto border border-slate-200 rounded-xl">
                 <table className="w-full text-left text-xs">
                   <thead>
