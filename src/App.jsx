@@ -47,7 +47,8 @@ const AuthenticatedApp = () => {
     clientes: [],
     movimientos: [],
     personal: [],
-    rubros: []
+    rubros: [],
+    maestroTareasRubros: []
   });
 
   useEffect(() => {
@@ -123,7 +124,8 @@ const AuthenticatedApp = () => {
           clientes: data.clientes || [],
           movimientos: data.movimientos || [],
           personal: data.personal || [],
-          rubros: data.rubros || []
+          rubros: data.rubros || [],
+          maestroTareasRubros: data.maestro_tareas_rubros || data.maestroTareasRubros || []
         });
       }
     } catch (error) {
@@ -256,6 +258,7 @@ const AuthenticatedApp = () => {
                 insumos={globalData.insumos}
                 rubros={globalData.rubros}
                 facturas={globalData.facturas}
+                maestroTareasRubros={globalData.maestroTareasRubros}
               />
             </RequirePermiso>
           } 

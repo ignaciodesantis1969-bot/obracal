@@ -8,7 +8,8 @@ export default function Reportes({
   movimientos = [], 
   insumos = [], 
   rubros = [],
-  facturas = []
+  facturas = [],
+  maestroTareasRubros = []
 }) {
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Dashboard');
@@ -43,6 +44,21 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
+  // Crear diccionario de búsqueda para el maestro de tareas (Mano de obra, materiales, etc.)
+  const maestroMap = {};
+  if (Array.isArray(maestroTareasRubros)) {
+    maestroTareasRubros.forEach(m => {
+      const tName = String(m.tarea || '').trim().toLowerCase();
+      let detalleInsumos = m.insumos_detalle || m.Insumos_detalle;
+      if (typeof detalleInsumos === 'string' && detalleInsumos.trim()) {
+        try { detalleInsumos = JSON.parse(detalleInsumos); } catch { detalleInsumos = []; }
+      }
+      if (tName && Array.isArray(detalleInsumos)) {
+        maestroMap[tName] = detalleInsumos;
+      }
+    });
+  }
+
   // Procesar rubros del presupuesto desde items_detalle
   let rubrosPresupuestoDetalle = [];
   let gastosGeneralesDetalle = [];
@@ -55,7 +71,7 @@ export default function Reportes({
         ? JSON.parse(presupuestoSeleccionado.items_detalle) 
         : presupuestoSeleccionado.items_detalle;
       
-      // 1. Rubros y Tareas (Sin desglose forzado si la tarea tiene un único tipo)
+      // 1. Rubros y Tareas
       if (parsedDetalle && parsedDetalle.rubros) {
         rubrosPresupuestoDetalle = parsedDetalle.rubros.map((r, rIdx) => {
           const tareas = r.tareas || [];
@@ -66,9 +82,17 @@ export default function Reportes({
             const tCosto = (Number(t.cantidad) || 1) * (Number(t.costo_unitario) || 0);
             totalRubro += tCosto;
 
+            // Intentar leer insumos propios de la tarea o buscar en el maestro de tareas
             let insumosList = t.insumos || [];
             if (typeof insumosList === 'string' && insumosList.trim()) {
               try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
+            }
+
+            if (!Array.isArray(insumosList) || insumosList.length === 0) {
+              const tNameKey = String(t.tarea || '').trim().toLowerCase();
+              if (maestroMap[tNameKey]) {
+                insumosList = maestroMap[tNameKey];
+              }
             }
 
             if (Array.isArray(insumosList) && insumosList.length > 0) {
@@ -78,7 +102,6 @@ export default function Reportes({
                 componentes[tipoIns] = (componentes[tipoIns] || 0) + costoIns;
               });
             } else {
-              // Si no tiene insumos desglosados, se clasifica según la naturaleza de la tarea o por defecto como Subcontrato/Material directo
               const nombreTarea = String(t.tarea || '').toLowerCase();
               let tipoDef = 'Subcontrato';
               if (nombreTarea.includes('material') || nombreTarea.includes('provision')) tipoDef = 'Materiales';
@@ -99,7 +122,7 @@ export default function Reportes({
         });
       }
 
-      // 2. Gastos Generales (desde coeficiente_pase / comercial)
+      // 2. Gastos Generales
       if (parsedDetalle && parsedDetalle.comercial) {
         if (parsedDetalle.comercial.gastos_generales_insumos) {
           parsedDetalle.comercial.gastos_generales_insumos.forEach((gg, ggIdx) => {
@@ -118,7 +141,6 @@ export default function Reportes({
           });
         }
 
-        // Agregar ítem de Imprevistos en Gastos Generales
         const porcentajeImprevistos = Number(parsedDetalle.comercial.porcentaje_imprevistos) || 0;
         const costoDirectoBase = Number(presupuestoSeleccionado.costo_directo) || totalPresupuestoRubros;
         const montoImprevistos = costoDirectoBase * (porcentajeImprevistos / 100);
@@ -140,21 +162,17 @@ export default function Reportes({
     }
   }
 
-  // Filtrar facturas asociadas a este presupuesto
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
-  // Imputaciones reales de Gastos Generales específicos (ej. Proveedor ID 1 - Salud Ocupacional / Seguridad e Higiene)
   const totalRealGGEspecifico = facturasPresupuesto
     .filter(f => String(f.proveedor_id || f.Proveedor_id) === '1')
     .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
 
-  // Imputaciones reales que NO coinciden con los ítems específicos de Gastos Generales van 100% a Imprevistos
   const totalRealImprevistos = facturasPresupuesto
     .filter(f => String(f.proveedor_id || f.Proveedor_id) !== '1')
     .reduce((acc, f) => acc + (Number(f.total) || 0), 0);
 
   const totalRealRubros = 0;
-
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
   const granTotalReal = totalRealRubros + totalRealGGEspecifico + totalRealImprevistos;
 
@@ -493,7 +511,7 @@ export default function Reportes({
                     </React.Fragment>
                   )}
 
-                  {/* FILAS DE TOTALES AL PIE SEPARADAS */}
+                  {/* FILAS DE TOTALES AL PIE */}
                   <tr className="bg-slate-200 text-slate-900 font-extrabold border-t-2 border-slate-400">
                     <td className="px-4 py-3 uppercase">SUBTOTAL RUBROS</td>
                     <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
