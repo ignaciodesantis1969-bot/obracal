@@ -1,9 +1,25 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Phone, Mail, MapPin } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign } from 'lucide-react';
 
-export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], cargarDatos }) {
+export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], cargarDatos }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
+
+  // Estados para el calculador de Cuadrillas y Salarios (basado en modelo Zárate)
+  const [porcentajeCargas, setPorcentajeCargas] = useState(76.00);
+  
+  // Filas de trabajadores para la cuadrilla activa
+  const [cuadrillaItems, setCuadrillaItems] = useState([
+    { id: 1, categoria: 'OFICIAL ESPECIALIZADO', cantidad: 1, costoEnMano: 92550.50 },
+    { id: 2, categoria: 'OFICIAL CABALLERO', cantidad: 1, costoEnMano: 58941.78 },
+    { id: 3, categoria: 'OFICIAL OYOLA', cantidad: 0, costoEnMano: 61504.47 },
+    { id: 4, categoria: 'OFICIAL TORRES', cantidad: 1, costoEnMano: 53175.74 },
+    { id: 5, categoria: 'OFICIAL PALACIO', cantidad: 1, costoEnMano: 61215.00 },
+    { id: 6, categoria: '1/2 OFICIAL OYOLA', cantidad: 0, costoEnMano: 55650.00 }
+  ]);
+
+  const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 152436.57 });
+  const [nombreCuadrilla, setNombreCuadrilla] = useState('CUADRILLA LDC ZARATE - PROMEDIO ESTABLE');
 
   // Modal Nuevo / Editar Personal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -98,6 +114,26 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], cargarDa
     }
   };
 
+  // Cálculos dinámicos para la cuadrilla
+  const factorCargas = porcentajeCargas / 100;
+  
+  const itemsCalculados = cuadrillaItems.map(item => {
+    const costoEnMano = Number(item.costoEnMano) || 0;
+    const cargasSocialesUnitarias = costoEnMano * factorCargas;
+    const subtotalUnitario = costoEnMano + cargasSocialesUnitarias;
+    const subtotalTotal = subtotalUnitario * (Number(item.cantidad) || 0);
+    return {
+      ...item,
+      cargasSocialesUnitarias,
+      subtotalUnitario,
+      subtotalTotal
+    };
+  });
+
+  const sumaSubtotalesPersonal = itemsCalculados.reduce((acc, item) => acc + item.subtotalTotal, 0);
+  const totalViaticos = (Number(viaticosCuadrilla.cantidad) || 0) * (Number(viaticosCuadrilla.costo) || 0);
+  const costoDiarioCuadrilla = sumaSubtotalesPersonal + totalViaticos;
+
   const personalFiltrado = personalInicial.filter(p => {
     const nombre = String(p.nombre || p.Nombre || '').toLowerCase();
     const cuil = String(p.cuil || p.Cuil || p.CUIL || '').toLowerCase();
@@ -111,7 +147,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], cargarDa
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Recursos Humanos</h1>
-          <p className="text-slate-500 text-sm mt-1">Gestión de personal, legajos, salarios y asignaciones</p>
+          <p className="text-slate-500 text-sm mt-1">Gestión de personal, legajos, salarios y armado de cuadrillas</p>
         </div>
         {activeTab === 'personal' && (
           <button 
@@ -153,7 +189,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], cargarDa
               : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
           }`}
         >
-          Salarios
+          Salarios y Cuadrillas
         </button>
         <button
           onClick={() => setActiveTab('carga')}
@@ -163,11 +199,11 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], cargarDa
               : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
           }`}
         >
-          Carga Semanal
+          Carga Semanal de Horas / Viáticos
         </button>
       </div>
 
-      {/* Contenido de la Pestaña Activa */}
+      {/* Contenido: Lista de Personal */}
       {activeTab === 'personal' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
@@ -231,19 +267,141 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], cargarDa
         </div>
       )}
 
+      {/* Contenido: Salarios y Cuadrillas (Estructura de Costos por Cuadrilla) */}
+      {activeTab === 'salarios' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
+            <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
+              <div>
+                <input 
+                  type="text" 
+                  value={nombreCuadrilla} 
+                  onChange={(e) => setNombreCuadrilla(e.target.value)}
+                  className="text-lg font-black text-slate-900 bg-transparent border-b border-transparent hover:border-slate-300 focus:border-amber-500 outline-none px-1 py-0.5 w-full max-w-md"
+                />
+                <p className="text-xs text-slate-500 mt-1">Armado de costo diario de cuadrilla integrando salarios, cargas sociales y viáticos.</p>
+              </div>
+              
+              <div className="flex items-center gap-3 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200">
+                <span className="text-xs font-bold text-amber-900">Cargas Sociales (%):</span>
+                <input 
+                  type="number" 
+                  step="0.01"
+                  value={porcentajeCargas}
+                  onChange={(e) => setPorcentajeCargas(Number(e.target.value) || 0)}
+                  className="w-20 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-black text-amber-900 text-center outline-none focus:border-amber-500 shadow-sm"
+                />
+              </div>
+            </div>
+
+            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
+                    <th className="px-4 py-3">Categoría / Rol / Personal</th>
+                    <th className="px-4 py-3 text-center">Cantidad (Activa)</th>
+                    <th className="px-4 py-3 text-right">Costo En Mano ($)</th>
+                    <th className="px-4 py-3 text-right">Cargas Sociales ($)</th>
+                    <th className="px-4 py-3 text-right">Sub-Total / Día ($)</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {itemsCalculados.map((item, idx) => (
+                    <tr key={item.id} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 font-bold text-slate-900">{item.categoria}</td>
+                      <td className="px-4 py-3 text-center">
+                        <input 
+                          type="number" 
+                          min="0" 
+                          max="10"
+                          value={item.cantidad}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setCuadrillaItems(prev => prev.map(i => i.id === item.id ? { ...i, cantidad: val } : i));
+                          }}
+                          className="w-16 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <input 
+                          type="number" 
+                          step="0.01"
+                          value={item.costoEnMano}
+                          onChange={(e) => {
+                            const val = Number(e.target.value);
+                            setCuadrillaItems(prev => prev.map(i => i.id === item.id ? { ...i, costoEnMano: val } : i));
+                          }}
+                          className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
+                        />
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-slate-600">
+                        $ {item.cargasSocialesUnitarias.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className="px-4 py-3 text-right font-black text-slate-900">
+                        $ {item.subtotalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  ))}
+
+                  {/* Fila de Viáticos */}
+                  <tr className="bg-amber-50/40 font-semibold">
+                    <td className="px-4 py-3 text-amber-900 uppercase font-extrabold">VIÁTICOS</td>
+                    <td className="px-4 py-3 text-center">
+                      <input 
+                        type="number" 
+                        min="0" 
+                        value={viaticosCuadrilla.cantidad}
+                        onChange={(e) => setViaticosCuadrilla({ ...viaticosCuadrilla, cantidad: Number(e.target.value) })}
+                        className="w-16 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right" colSpan={2}>
+                      <input 
+                        type="number" 
+                        step="0.01"
+                        value={viaticosCuadrilla.costo}
+                        onChange={(e) => setViaticosCuadrilla({ ...viaticosCuadrilla, costo: Number(e.target.value) })}
+                        className="w-40 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-semibold text-right outline-none focus:border-amber-500"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-right font-black text-amber-900">
+                      $ {totalViaticos.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* Total final de la cuadrilla */}
+            <div className="bg-slate-900 text-white p-5 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div>
+                <p className="text-xs text-slate-400 font-bold uppercase">Costo resultante para insumo compuesto</p>
+                <h4 className="text-lg font-black">{nombreCuadrilla}</h4>
+              </div>
+              <div className="text-right">
+                <span className="text-xs text-slate-400 uppercase font-bold block">COSTO DIARIO CUADRILLA</span>
+                <span className="text-2xl font-black text-amber-400">
+                  $ {costoDiarioCuadrilla.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {activeTab === 'legajos' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-8 text-center text-slate-400 text-xs">
           Módulo de Legajos en desarrollo.
         </div>
       )}
-      {activeTab === 'salarios' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-8 text-center text-slate-400 text-xs">
-          Módulo de Salarios en desarrollo.
-        </div>
-      )}
+      
       {activeTab === 'carga' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-8 text-center text-slate-400 text-xs">
-          Módulo de Carga Semanal en desarrollo.
+        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-8 text-slate-700 space-y-4">
+          <h3 className="text-sm font-extrabold uppercase">Carga Semanal de Horas / Días y Viáticos</h3>
+          <p className="text-xs text-slate-500">Aquí podrás registrar las asistencias y viáticos reales por trabajador para contrastar con el presupuesto.</p>
+          <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
+            Próximamente: Registro de parte diario / semanal por obra e imputación de viáticos individuales.
+          </div>
         </div>
       )}
 
