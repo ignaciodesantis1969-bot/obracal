@@ -62,14 +62,15 @@ export default function Reportes({
     });
   }
 
-  // Normalizador de textos para matching robusto
-  const limpiarTexto = (txt) => String(txt || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  // Normalizador avanzado para matching de nombres de tareas
+  const limpiarTexto = (txt) => String(txt || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
 
-  // 2. Diccionario Maestro de Tareas con clave normalizada
+  // 2. Diccionario Maestro de Tareas
   const maestroTareasMap = {};
   if (Array.isArray(maestroTareasRubros)) {
     maestroTareasRubros.forEach(itemMaestro => {
-      const tareaKey = limpiarTexto(itemMaestro.tarea || itemMaestro.nombre);
+      const tareaRaw = itemMaestro.tarea || itemMaestro.nombre || '';
+      const tareaKey = limpiarTexto(tareaRaw);
       let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle;
       
       if (typeof insumosDetalleParsed === 'string' && insumosDetalleParsed.trim()) {
@@ -77,10 +78,33 @@ export default function Reportes({
       }
       
       if (tareaKey && Array.isArray(insumosDetalleParsed)) {
-        maestroTareasMap[tareaKey] = insumosDetalleParsed;
+        maestroTareasMap[tareaKey] = {
+          original: tareaRaw,
+          insumos: insumosDetalleParsed
+        };
       }
     });
   }
+
+  // Función de búsqueda flexible en el maestro de tareas
+  const buscarInsumosMaestro = (nombreTareaPresupuesto) => {
+    const keyPres = limpiarTexto(nombreTareaPresupuesto);
+    if (!keyPres) return [];
+
+    // Intento 1: Match exacto normalizado
+    if (maestroTareasMap[keyPres]) {
+      return maestroTareasMap[keyPres].insumos;
+    }
+
+    // Intento 2: Match parcial (si una contiene a la otra)
+    for (const [mKey, mObj] of Object.entries(maestroTareasMap)) {
+      if (keyPres.includes(mKey) || mKey.includes(keyPres)) {
+        return mObj.insumos;
+      }
+    }
+
+    return [];
+  };
 
   const obtenerTipoInsumoPorId = (insumoItem) => {
     const insId = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || '').trim();
@@ -122,15 +146,13 @@ export default function Reportes({
             const costoTareaTotal = (Number(tareaItem.cantidad) || 1) * (Number(tareaItem.costo_unitario) || 0);
             totalRubro += costoTareaTotal;
 
-            const tareaNombreKey = limpiarTexto(tareaItem.tarea);
-            let insumosDeLaTarea = tareaItem.insumos || maestroTareasMap[tareaNombreKey] || [];
-
+            let insumosDeLaTarea = tareaItem.insumos;
             if (typeof insumosDeLaTarea === 'string' && insumosDeLaTarea.trim()) {
               try { insumosDeLaTarea = JSON.parse(insumosDeLaTarea); } catch { insumosDeLaTarea = []; }
             }
 
             if (!Array.isArray(insumosDeLaTarea) || insumosDeLaTarea.length === 0) {
-              insumosDeLaTarea = maestroTareasMap[tareaNombreKey] || [];
+              insumosDeLaTarea = buscarInsumosMaestro(tareaItem.tarea);
             }
 
             if (Array.isArray(insumosDeLaTarea) && insumosDeLaTarea.length > 0) {
@@ -153,10 +175,10 @@ export default function Reportes({
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              // Fallback por nombre si no tiene insumos en el maestro
+              // Fallback inteligente por palabras clave si no hay insumos en el maestro
               const tLow = limpiarTexto(tareaItem.tarea);
               let tipoDef = 'Material';
-              if (tLow.includes('mano de obra') || tLow.includes('salarios')) tipoDef = 'Mano de Obra';
+              if (tLow.includes('manodeobra') || tLow.includes('salarios')) tipoDef = 'Mano de Obra';
               else if (tLow.includes('subcontrato') || tLow.includes('volquete') || tLow.includes('georadar')) tipoDef = 'Subcontrato';
               else if (tLow.includes('equipo') || tLow.includes('andamios') || tLow.includes('maquinaria')) tipoDef = 'Equipo/Maquinaria';
 
