@@ -44,7 +44,7 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // 1. Diccionario global de Insumos (Fuente de Verdad)
+  // 1. Diccionario global de Insumos (Fuente de Verdad para los tipos)
   const insumosGlobalMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
@@ -52,11 +52,17 @@ export default function Reportes({
       const gCod = String(insGlobal.codigo || insGlobal.Codigo || '').trim().toLowerCase();
       const gNom = String(insGlobal.nombre || insGlobal.Nombre || '').trim().toLowerCase();
       
-      const tipoOficial = insGlobal.tipo || 'Material';
+      const tipoOficial = String(insGlobal.tipo || 'Material').trim();
+      // Normalizar nombres de tipos si es necesario
+      let tipoNorm = 'Material';
+      if (tipoOficial.toLowerCase().includes('mano')) tipoNorm = 'Mano de Obra';
+      else if (tipoOficial.toLowerCase().includes('subcontrato')) tipoNorm = 'Subcontrato';
+      else if (tipoOficial.toLowerCase().includes('equipo') || tipoOficial.toLowerCase().includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
+      else tipoNorm = 'Material';
 
-      if (gId) insumosGlobalMap[gId] = tipoOficial;
-      if (gCod) insumosGlobalMap[gCod] = tipoOficial;
-      if (gNom) insumosGlobalMap[gNom] = tipoOficial;
+      if (gId) insumosGlobalMap[gId] = tipoNorm;
+      if (gCod) insumosGlobalMap[gCod] = tipoNorm;
+      if (gNom) insumosGlobalMap[gNom] = tipoNorm;
     });
   }
 
@@ -77,8 +83,7 @@ export default function Reportes({
     });
   }
 
-  // Función estricta para obtener el tipo oficial de la base de datos
-  const obtenerTipoOficial = (insumoItem) => {
+  const obtenerTipoNormalizado = (insumoItem) => {
     const idKey = String(insumoItem.id || insumoItem.ID || '').trim();
     const codKey = String(insumoItem.codigo || insumoItem.Codigo || '').trim().toLowerCase();
     const nomKey = String(insumoItem.nombre || insumoItem.Nombre || '').trim().toLowerCase();
@@ -87,7 +92,11 @@ export default function Reportes({
     if (codKey && insumosGlobalMap[codKey]) return insumosGlobalMap[codKey];
     if (nomKey && insumosGlobalMap[nomKey]) return insumosGlobalMap[nomKey];
 
-    return insumoItem.tipo || 'Material';
+    const t = String(insumoItem.tipo || '').toLowerCase();
+    if (t.includes('mano')) return 'Mano de Obra';
+    if (t.includes('subcontrato')) return 'Subcontrato';
+    if (t.includes('equipo') || t.includes('maquinaria')) return 'Equipo/Maquinaria';
+    return 'Material';
   };
 
   // Procesar rubros del presupuesto desde items_detalle
@@ -107,7 +116,12 @@ export default function Reportes({
         rubrosPresupuestoDetalle = parsedDetalle.rubros.map((rubroItem, rIdx) => {
           const tareasList = rubroItem.tareas || [];
           let totalRubro = 0;
-          let acumuladorComponentes = {};
+          let acumuladorComponentes = {
+            'Material': 0,
+            'Mano de Obra': 0,
+            'Subcontrato': 0,
+            'Equipo/Maquinaria': 0
+          };
 
           tareasList.forEach(tareaItem => {
             const costoTareaTotal = (Number(tareaItem.cantidad) || 1) * (Number(tareaItem.costo_unitario) || 0);
@@ -121,27 +135,33 @@ export default function Reportes({
             }
 
             if (Array.isArray(insumosAsociados) && insumosAsociados.length > 0) {
-              insumosAsociados.forEach(insumo => {
-                const tipoOficial = obtenerTipoOficial(insumo);
-                // Si el insumo tiene cantidad y costo unitario propios, usar eso; si no, prorratear el total de la tarea
-                const subtotalInsumo = insumo.costo_unitario !== undefined 
-                  ? (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || 0)
-                  : costoTareaTotal / insumosAsociados.length;
+              let subtotalesIns = [];
+              let sumaInsCosto = 0;
 
-                acumuladorComponentes[tipoOficial] = (acumuladorComponentes[tipoOficial] || 0) + subtotalInsumo;
+              insumosAsociados.forEach(insumo => {
+                const tipoNorm = obtenerTipoNormalizado(insumo);
+                const costoIns = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || 0);
+                subtotalesIns.push({ tipo: tipoNorm, costo: costoIns });
+                sumaInsCosto += costoIns;
               });
-            } else {
-              // Si la tarea no tiene insumos detallados, deducir el tipo por el nombre de la tarea o rubro
-              const textoBusqueda = `${String(rubroItem.rubro || '')} ${String(tareaItem.tarea || '')}`.toLowerCase();
-              let tipoInferred = 'Material';
-              if (textoBusqueda.includes('mano de obra') || textoBusqueda.includes('salarios')) {
-                tipoInferred = 'Mano de Obra';
-              } else if (textoBusqueda.includes('subcontrato') || textoBusqueda.includes('alquiler') || textoBusqueda.includes('volquete') || textoBusqueda.includes('georadar')) {
-                tipoInferred = 'Subcontrato';
-              } else if (textoBusqueda.includes('equipo') || textoBusqueda.includes('maquinaria') || textoBusqueda.includes('andamios')) {
-                tipoInferred = 'Equipo/Maquinaria';
+
+              if (sumaInsCosto > 0) {
+                const ratio = costoTareaTotal / sumaInsCosto;
+                subtotalesIns.forEach(item => {
+                  acumuladorComponentes[item.tipo] = (acumuladorComponentes[item.tipo] || 0) + (item.costo * ratio);
+                });
+              } else {
+                acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
-              acumuladorComponentes[tipoInferred] = (acumuladorComponentes[tipoInferred] || 0) + costoTareaTotal;
+            } else {
+              // Si no tiene insumos, deducir por nombre de tarea / rubro
+              const textoBusq = `${String(rubroItem.rubro || '')} ${String(tareaItem.tarea || '')}`.toLowerCase();
+              let tipoDef = 'Material';
+              if (textoBusq.includes('mano de obra') || textoBusq.includes('salarios')) tipoDef = 'Mano de Obra';
+              else if (textoBusq.includes('subcontrato') || textoBusq.includes('volquete') || textoBusq.includes('georadar')) tipoDef = 'Subcontrato';
+              else if (textoBusq.includes('equipo') || textoBusq.includes('andamios')) tipoDef = 'Equipo/Maquinaria';
+
+              acumuladorComponentes[tipoDef] = (acumuladorComponentes[tipoDef] || 0) + costoTareaTotal;
             }
           });
 
