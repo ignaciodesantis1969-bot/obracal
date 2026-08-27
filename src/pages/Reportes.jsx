@@ -63,7 +63,7 @@ export default function Reportes(props) {
     });
   }
 
-  // Normalizador de textos avanzado para matching de tareas
+  // Normalizador de textos avanzado para matching
   const limpiarTexto = (txt) => String(txt || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
 
   // 2. Diccionario Maestro de Tareas
@@ -102,20 +102,17 @@ export default function Reportes(props) {
 
   // Motor de resolución de tipo de insumo (3 Niveles infalibles)
   const obtenerTipoInsumoInfalible = (insumoItem) => {
-    // Nivel 1: Búsqueda estricta por ID en la tabla global de Insumos
     const insId = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || '').trim();
     if (insId && insumosOficialMap[insId]) {
       return insumosOficialMap[insId];
     }
 
-    // Nivel 2: Tipo explícito en el ítem (si no es el "Material" por defecto del JSON)
     const t = String(insumoItem.tipo || insumoItem.Tipo || '').toLowerCase();
     if (t.includes('mano')) return 'Mano de Obra';
     if (t.includes('subcontrato')) return 'Subcontrato';
     if (t.includes('equipo') || t.includes('maquinaria')) return 'Equipo/Maquinaria';
 
-    // Nivel 3: Red de seguridad semántica basada en el nombre del insumo
-    const nombreIns = String(insumoItem.nombre || insumoItem.nombre_del_articulo || '').toLowerCase();
+    const nombreIns = String(insumoItem.nombre || insumoItem.nombre_del_articulo || insumoItem.concepto || '').toLowerCase();
     if (nombreIns.includes('mano de obra') || nombreIns.includes('cuadrilla') || nombreIns.includes('oficial') || nombreIns.includes('ayudante') || nombreIns.includes('sereno') || nombreIns.includes('operario')) {
       return 'Mano de Obra';
     }
@@ -158,8 +155,16 @@ export default function Reportes(props) {
             totalRubro += costoTareaTotal;
 
             let insumosDeLaTarea = tareaItem.insumos;
-            if (typeof insumosDeLaTarea === 'string' && insumosDeLaTarea.trim()) {
-              try { insumosDeLaTarea = JSON.parse(insumosDeLaTarea); } catch { insumosDeLaTarea = []; }
+
+            // RETROCOMPATIBILIDAD: Manejar insumos antiguos en texto plano
+            if (typeof insumosDeLaTarea === 'string') {
+              if (insumosDeLaTarea.trim().startsWith('[')) {
+                try { insumosDeLaTarea = JSON.parse(insumosDeLaTarea); } catch { insumosDeLaTarea = []; }
+              } else if (insumosDeLaTarea.trim() !== '') {
+                insumosDeLaTarea = [{ nombre: insumosDeLaTarea, tipo: 'Material', cantidad: 1, costo_unitario: costoTareaTotal }];
+              } else {
+                insumosDeLaTarea = [];
+              }
             }
 
             if (!Array.isArray(insumosDeLaTarea) || insumosDeLaTarea.length === 0) {
@@ -172,12 +177,11 @@ export default function Reportes(props) {
 
               insumosDeLaTarea.forEach(insumo => {
                 const tipoNorm = obtenerTipoInsumoInfalible(insumo);
-                const costoIns = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || 0);
+                const costoIns = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || Number(insumo.costo) || 0);
                 subtotalesIns.push({ tipo: tipoNorm, costo: costoIns });
                 sumaInsCosto += costoIns;
               });
 
-              // Distribución proporcional exacta sin duplicar costos
               if (sumaInsCosto > 0) {
                 const ratio = costoTareaTotal / sumaInsCosto;
                 subtotalesIns.forEach(item => {
@@ -187,12 +191,16 @@ export default function Reportes(props) {
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              // Clasificación semántica por nombre de tarea si no tiene insumos vinculados
-              const tLow = limpiarTexto(tareaItem.tarea);
+              // RED DE SEGURIDAD SEMÁNTICA PARA PRESUPUESTOS VIEJOS SIN INSUMOS
+              const textoEvaluacion = (String(tareaItem.tarea) + " " + String(tareaItem.insumos || '')).toLowerCase();
               let tipoDef = 'Material';
-              if (tLow.includes('mano') || tLow.includes('salarios') || tLow.includes('demolicion')) tipoDef = 'Mano de Obra';
-              else if (tLow.includes('subcontrato') || tLow.includes('volquete') || tLow.includes('georadar')) tipoDef = 'Subcontrato';
-              else if (tLow.includes('equipo') || tLow.includes('andamios') || tLow.includes('maquinaria')) tipoDef = 'Equipo/Maquinaria';
+              if (textoEvaluacion.includes('mano') || textoEvaluacion.includes('oficial') || textoEvaluacion.includes('ayudante') || textoEvaluacion.includes('demolicion') || textoEvaluacion.includes('salarios')) {
+                tipoDef = 'Mano de Obra';
+              } else if (textoEvaluacion.includes('subcontrato') || textoEvaluacion.includes('volquete') || textoEvaluacion.includes('georadar') || textoEvaluacion.includes('flete') || textoEvaluacion.includes('alquiler')) {
+                tipoDef = 'Subcontrato';
+              } else if (textoEvaluacion.includes('equipo') || textoEvaluacion.includes('maquinaria') || textoEvaluacion.includes('andamio')) {
+                tipoDef = 'Equipo/Maquinaria';
+              }
 
               acumuladorComponentes[tipoDef] = (acumuladorComponentes[tipoDef] || 0) + costoTareaTotal;
             }

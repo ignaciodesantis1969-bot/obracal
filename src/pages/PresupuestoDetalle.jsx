@@ -181,17 +181,46 @@ export default function PresupuestoDetalle() {
     }
 
     let costoDirectoTotal = 0;
-    nuevosItems.forEach(r => {
-      (r.tareas || []).forEach(t => {
-        costoDirectoTotal += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0);
-      });
-    });
+
+    // Validación y estructuración de insumos por tarea
+    const itemsValidados = nuevosItems.map(rubro => ({
+      ...rubro,
+      tareas: (rubro.tareas || []).map(t => {
+        let insListTarea = t.insumos;
+        if (typeof insListTarea === 'string' && insListTarea.trim()) {
+          if (insListTarea.trim().startsWith('[')) {
+            try { insListTarea = JSON.parse(insListTarea); } catch { insListTarea = []; }
+          } else {
+            insListTarea = insListTarea.split(',').map(item => ({
+              id: '',
+              nombre: item.trim(),
+              tipo: 'Material',
+              unidad: 'gl',
+              cantidad: 1,
+              costo_unitario: 0
+            })).filter(i => i.nombre);
+          }
+        }
+        if (!Array.isArray(insListTarea)) insListTarea = [];
+
+        const cantT = Number(t.cantidad) || 0;
+        const cUnitT = Number(t.costo_unitario) || 0;
+        costoDirectoTotal += cantT * cUnitT;
+
+        return {
+          ...t,
+          cantidad: cantT,
+          costo_unitario: cUnitT,
+          insumos: insListTarea
+        };
+      })
+    }));
 
     const coef = nuevoCoef !== null ? nuevoCoef : (Number(presupuesto?.coeficiente_pase) || 1.30);
     const precioVentaTotal = costoDirectoTotal * coef;
 
     const estructuraCompleta = {
-      rubros: nuevosItems,
+      rubros: itemsValidados,
       comercial: {
         gastos_generales_insumos: gastosGeneralesInsumos,
         porcentaje_comision_venta: porcentajeComisionVenta,
@@ -219,6 +248,7 @@ export default function PresupuestoDetalle() {
         body: JSON.stringify({ tabla: 'Presupuestos', action: 'update', id: presupuestoId, data: datosActualizados })
       });
       setPresupuesto(datosActualizados);
+      setItemsDetalle(itemsValidados);
     } catch (err) {
       console.error("Error al guardar en Google Sheets:", err);
       alert("Hubo un error al guardar los cambios.");
@@ -587,7 +617,7 @@ export default function PresupuestoDetalle() {
         </div>
       </div>
 
-      {/* TARJETAS DE MÉTRICAS (SIN DECIMALES) */}
+      {/* TARJETAS DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
           <span className="text-xs font-bold text-slate-400 uppercase">Costo Directo</span>
@@ -607,7 +637,7 @@ export default function PresupuestoDetalle() {
         </div>
       </div>
 
-      {/* PESTAÑAS EN FORMATO CÁPSULA */}
+      {/* PESTAÑAS */}
       <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-300 shadow-sm inline-flex gap-1">
         <button 
           onClick={() => setActiveTab('costos')}
@@ -629,7 +659,7 @@ export default function PresupuestoDetalle() {
         </button>
       </div>
 
-      {/* CONTENIDO SEGÚN PESTAÑA ACTIVA */}
+      {/* CONTENIDO DE PESTAÑAS */}
       {activeTab === 'costos' && (
         <div className="space-y-4">
           {itemsDetalle.map((rubroObj, rIdx) => {
@@ -680,13 +710,21 @@ export default function PresupuestoDetalle() {
                           const cTot = cant * cUnit;
                           const pVentaItem = cTot * coeficientePase;
 
+                          // Formatear visualización de insumos (array u objeto)
+                          let insumosTexto = '';
+                          if (Array.isArray(t.insumos)) {
+                            insumosTexto = t.insumos.map(i => i.nombre || i.concepto).filter(Boolean).join(', ');
+                          } else if (typeof t.insumos === 'string') {
+                            insumosTexto = t.insumos;
+                          }
+
                           return (
                             <tr key={t.id} className="hover:bg-slate-50 group">
                               <td className="w-[30%] px-6 py-3 break-words">
                                 <div className="font-semibold text-slate-800">{t.tarea}</div>
-                                {t.insumos && (
+                                {insumosTexto && (
                                   <div className="text-[11px] text-slate-500 font-normal mt-0.5">
-                                    <span className="font-bold text-slate-600">Insumos:</span> {t.insumos}
+                                    <span className="font-bold text-slate-600">Insumos:</span> {insumosTexto}
                                   </div>
                                 )}
                               </td>
@@ -698,7 +736,7 @@ export default function PresupuestoDetalle() {
                               <td className="w-[14%] px-4 py-3 text-right">
                                 {esBorrador && (
                                   <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => handleEditarTareaClick(rubroObj.rubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea (Cómputo)">
+                                    <button onClick={() => handleEditarTareaClick(rubroObj.rubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea">
                                       <Edit2 className="w-3.5 h-3.5"/>
                                     </button>
                                     <button onClick={() => handleEliminarTarea(rubroObj.rubro, t.id)} className="p-1 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar Tarea">
@@ -800,6 +838,7 @@ export default function PresupuestoDetalle() {
             </div>
           </div>
 
+          {/* ... resto de la pestaña multiplicador ... */}
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <h4 className="font-extrabold text-sm text-slate-800 uppercase">Gastos Generales (Insumos y Valores Fijos)</h4>
@@ -1225,13 +1264,30 @@ export default function PresupuestoDetalle() {
                     onChange={(e) => {
                       const tareaMt = maestroTareas.find(m => String(m.id) === String(e.target.value));
                       if (tareaMt) {
+                        let insDetalleParsed = tareaMt.insumos_detalle || tareaMt.Insumos_detalle || [];
+                        if (typeof insDetalleParsed === 'string' && insDetalleParsed.trim()) {
+                          try { insDetalleParsed = JSON.parse(insDetalleParsed); } catch { insDetalleParsed = []; }
+                        }
+
+                        const insumosEstructurados = insDetalleParsed.map(ins => {
+                          const insEncontrado = insumosList.find(i => String(i.id) === String(ins.id || ins.insumo_id));
+                          return {
+                            id: ins.id || ins.insumo_id || '',
+                            nombre: ins.nombre || ins.nombre_del_articulo || ins.concepto || '',
+                            tipo: insEncontrado?.tipo || ins.tipo || 'Material',
+                            unidad: ins.unidad || 'gl',
+                            cantidad: Number(ins.cantidad) || 1,
+                            costo_unitario: Number(ins.costo_unitario) || Number(ins.costo) || 0
+                          };
+                        });
+
                         setNuevaTarea({
                           ...nuevaTarea,
                           rubro: tareaMt.rubro || nuevaTarea.rubro,
                           tarea: tareaMt.tarea || '',
                           unidad: tareaMt.unidad || 'm2',
-                          costo_unitario: Number(tareaMt.costo_estimado) || 0,
-                          insumos: tareaMt.insumos || tareaMt.materiales || ''
+                          costo_unitario: Number(tareaMt.costo_estimado || tareaMt.costo_unitario) || 0,
+                          insumos: insumosEstructurados
                         });
                       }
                     }}
@@ -1262,7 +1318,7 @@ export default function PresupuestoDetalle() {
                   type="text" 
                   placeholder="Ej: Cemento, Arena, Hierro..."
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
-                  value={nuevaTarea.insumos}
+                  value={typeof nuevaTarea.insumos === 'string' ? nuevaTarea.insumos : (Array.isArray(nuevaTarea.insumos) ? nuevaTarea.insumos.map(i => i.nombre).join(', ') : '')}
                   onChange={(e) => setNuevaTarea({...nuevaTarea, insumos: e.target.value})}
                 />
               </div>
@@ -1316,7 +1372,7 @@ export default function PresupuestoDetalle() {
         </div>
       )}
 
-      {/* MODAL CREAR GASTO GENERAL MANUAL A BASE DE DATOS */}
+      {/* MODAL CREAR GASTO GENERAL MANUAL */}
       {isNuevoGGModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-sm overflow-hidden">
