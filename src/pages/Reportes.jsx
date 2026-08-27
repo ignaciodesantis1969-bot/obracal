@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Building2 } from 'lucide-react';
+import { Building2, Layers, FileText, DollarSign, TrendingDown, TrendingUp } from 'lucide-react';
 
 export default function Reportes({ 
   obras = [], 
@@ -7,7 +7,8 @@ export default function Reportes({
   certificados = [], 
   movimientos = [], 
   insumos = [], 
-  rubros = [] 
+  rubros = [],
+  facturas = []
 }) {
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Dashboard');
@@ -16,20 +17,20 @@ export default function Reportes({
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
 
-  // Filtrado general
+  // Filtrado general de métricas superiores
   const presupuestosFiltrados = obraFiltro === 'todas' 
     ? presupuestos 
-    : presupuestos.filter(p => String(p.obra_id || p.Obra_id) === String(obraFiltro));
+    : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(obraFiltro));
 
   const certificadosFiltrados = obraFiltro === 'todas' 
     ? certificados 
-    : certificados.filter(c => String(c.obra_id || c.Obra_id) === String(obraFiltro));
+    : certificados.filter(c => String(c.obra_id || c.Obra_id || c.obraId) === String(obraFiltro));
 
   const movimientosFiltrados = obraFiltro === 'todas' 
     ? movimientos 
-    : movimientos.filter(m => String(m.obra_id || m.Obra_id) === String(obraFiltro));
+    : movimientos.filter(m => String(m.obra_id || m.Obra_id || m.obraId) === String(obraFiltro));
 
-  const totalPresupuestado = presupuestosFiltrados.reduce((acc, p) => acc + (Number(p.total || p.Total || p.monto || 0) || 0), 0);
+  const totalPresupuestado = presupuestosFiltrados.reduce((acc, p) => acc + (Number(p.total || p.Total || p.monto || p.precio_venta || 0) || 0), 0);
   const totalCertificado = certificadosFiltrados.reduce((acc, c) => acc + (Number(c.monto || c.Monto || c.total || 0) || 0), 0);
   const totalCobrado = movimientosFiltrados.filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'ingreso').reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
   const totalGastado = movimientosFiltrados.filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso').reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
@@ -37,9 +38,78 @@ export default function Reportes({
 
   const presupuestosCompFiltrados = compObraId === 'todas' 
     ? presupuestos 
-    : presupuestos.filter(p => String(p.obra_id || p.Obra_id) === String(compObraId));
+    : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(compObraId));
 
-  const rubrosPresupuestoSeleccionado = rubros.filter(r => String(r.presupuesto_id || r.Presupuesto_id) === String(compPresupuestoId));
+  // Obtener presupuesto seleccionado para el comparativo
+  const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
+  
+  // Procesar rubros del presupuesto desde items_detalle
+  let rubrosPresupuestoDetalle = [];
+  if (presupuestoSeleccionado && presupuestoSeleccionado.items_detalle) {
+    try {
+      const parsedDetalle = typeof presupuestoSeleccionado.items_detalle === 'string' 
+        ? JSON.parse(presupuestoSeleccionado.items_detalle) 
+        : presupuestoSeleccionado.items_detalle;
+      
+      if (parsedDetalle && parsedDetalle.rubros) {
+        rubrosPresupuestoDetalle = parsedDetalle.rubros.map((r, rIdx) => {
+          const tareas = r.tareas || [];
+          let totalRubro = 0;
+          let componentes = {
+            'Materiales': 0,
+            'Mano de Obra': 0,
+            'Subcontrato': 0,
+            'Equipo / Herramienta': 0
+          };
+
+          tareas.forEach(t => {
+            const tCosto = (Number(t.cantidad) || 1) * (Number(t.costo_unitario) || 0);
+            totalRubro += tCosto;
+
+            // Clasificar según insumos internos si existen o estimar por categoría típica
+            let insumosList = t.insumos || [];
+            if (typeof insumosList === 'string' && insumosList.trim()) {
+              try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
+            }
+
+            if (Array.isArray(insumosList) && insumosList.length > 0) {
+              insumosList.forEach(ins => {
+                const tipoIns = String(ins.tipo || 'Material').toLowerCase();
+                const costoIns = (Number(ins.cantidad) || 1) * (Number(ins.costo_unitario) || 0);
+                if (tipoIns.includes('mano') || tipoIns.includes('obra')) {
+                  componentes['Mano de Obra'] += costoIns;
+                } else if (tipoIns.includes('sub')) {
+                  componentes['Subcontrato'] += costoIns;
+                } else if (tipoIns.includes('equipo') || tipoIns.includes('maquin') || tipoIns.includes('herramienta')) {
+                  componentes['Equipo / Herramienta'] += costoIns;
+                } else {
+                  componentes['Materiales'] += costoIns;
+                }
+              });
+            } else {
+              // Distribución estándar si no hay desglose individual de insumos
+              componentes['Materiales'] += tCosto * 0.60;
+              componentes['Mano de Obra'] += tCosto * 0.30;
+              componentes['Subcontrato'] += tCosto * 0.10;
+            }
+          });
+
+          return {
+            id: rIdx,
+            nombre: r.rubro || `Rubro #${rIdx + 1}`,
+            total: totalRubro,
+            componentes: componentes,
+            tareas: tareas
+          };
+        });
+      }
+    } catch (e) {
+      console.error("Error al parsear items_detalle:", e);
+    }
+  }
+
+  // Filtrar facturas asociadas a este presupuesto
+  const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -228,7 +298,7 @@ export default function Reportes({
         </div>
       )}
 
-      {/* CONTENIDO: COMPARATIVO DETALLADO */}
+      {/* CONTENIDO: COMPARATIVO DETALLADO (RUBROS Y COMPONENTES) */}
       {activeTab === 'Comparativo' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
@@ -237,7 +307,7 @@ export default function Reportes({
               <p className="text-xs text-slate-500 mt-0.5">Desglose por rubros y componentes (Materiales, Mano de Obra, Subcontrato, Equipos)</p>
             </div>
             
-            {/* SELECTORES NATIVOS */}
+            {/* SELECTORES DE OBRA Y PRESUPUESTO */}
             <div className="flex gap-3 w-full md:w-auto">
               <select 
                 className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
@@ -265,10 +335,12 @@ export default function Reportes({
 
           {!compPresupuestoId ? (
             <div className="py-16 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-              Selecciona una obra y un presupuesto para visualizar el comparativo desglosado por componentes.
+              Selecciona una obra y un presupuesto para visualizar el comparativo desglosado por rubros y componentes reales.
             </div>
-          ) : rubrosPresupuestoSeleccionado.length === 0 ? (
-            <div className="py-16 text-center text-slate-400 text-xs">No hay rubros definidos en este presupuesto.</div>
+          ) : rubrosPresupuestoDetalle.length === 0 ? (
+            <div className="py-16 text-center text-slate-400 text-xs border border-slate-200 rounded-2xl">
+              Este presupuesto no contiene rubros o tareas estructuradas en `items_detalle`.
+            </div>
           ) : (
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs">
@@ -276,57 +348,70 @@ export default function Reportes({
                   <tr className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
                     <th className="px-4 py-3">Rubro / Componente</th>
                     <th className="px-4 py-3 text-right">Presupuestado Aprobado ($)</th>
-                    <th className="px-4 py-3 text-right">Imputaciones Reales (Facturas / Gastos) ($)</th>
+                    <th className="px-4 py-3 text-right">Imputaciones Reales (Facturas) ($)</th>
                     <th className="px-4 py-3 text-right">Salarios Semanales (RRHH) ($)</th>
                     <th className="px-4 py-3 text-right">Variación / Desvío ($)</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {rubrosPresupuestoSeleccionado.map((rubro) => {
-                    const rubId = rubro.id || rubro.ID;
-                    const componentes = [
-                      { nombre: 'Materiales' },
-                      { nombre: 'Mano de Obra' },
-                      { nombre: 'Subcontrato' },
-                      { nombre: 'Equipo / Herramienta' }
-                    ];
-
-                    const presupuestoTotalRubro = Number(rubro.monto || rubro.total || 1250000);
-                    const realFacturasRubro = 450000;
-                    const realSalariosRubro = 0;
+                  {rubrosPresupuestoDetalle.map((rubro) => {
+                    const componentesNombres = ['Materiales', 'Mano de Obra', 'Subcontrato', 'Equipo / Herramienta'];
+                    
+                    // Facturas globales distribuidas proporcionalmente o asignadas
+                    const totalFacturasPresupuesto = facturasPresupuesto.reduce((acc, f) => acc + (Number(f.total) || 0), 0);
+                    const proporcionRubro = presupuestoSeleccionado.precio_venta > 0 
+                      ? (rubro.total / Number(presupuestoSeleccionado.precio_venta)) 
+                      : (1 / rubrosPresupuestoDetalle.length);
+                    
+                    const realFacturasRubro = totalFacturasPresupuesto * proporcionRubro;
 
                     return (
-                      <React.Fragment key={rubId}>
+                      <React.Fragment key={rubro.id}>
+                        {/* CABECERA DEL RUBRO */}
                         <tr className="bg-slate-50 font-extrabold text-slate-900 border-t border-slate-200">
-                          <td className="px-4 py-3 uppercase text-amber-600" colSpan={5}>
-                            {rubro.nombre || rubro.Nombre}
+                          <td className="px-4 py-3 uppercase text-amber-600 flex items-center gap-2" colSpan={1}>
+                            <Layers className="w-4 h-4 text-amber-500" />
+                            {rubro.nombre}
+                          </td>
+                          <td className="px-4 py-3 text-right font-black text-slate-900">
+                            $ {rubro.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 text-right font-black text-slate-700">
+                            $ {realFacturasRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="px-4 py-3 text-right font-semibold text-amber-600">
+                            $ 0,00 <span className="text-[9px] text-slate-400">(Próx.)</span>
+                          </td>
+                          <td className={`px-4 py-3 text-right font-black ${rubro.total - realFacturasRubro >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            $ {(rubro.total - realFacturasRubro).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </td>
                         </tr>
 
-                        {componentes.map((comp, cIdx) => {
-                          const pPresupuestado = presupuestoTotalRubro * 0.25;
-                          const pFacturas = realFacturasRubro * 0.25;
-                          const pSalarios = realSalariosRubro;
-                          const totalReal = pFacturas + pSalarios;
-                          const desvio = pPresupuestado - totalReal;
+                        {/* COMPONENTES DEL RUBRO */}
+                        {componentesNombres.map((compNombre, cIdx) => {
+                          const montoPresupuestadoComp = rubro.componentes[compNombre] || 0;
+                          const montoFacturasComp = realFacturasRubro * 0.25;
+                          const montoSalariosComp = 0;
+                          const totalRealComp = montoFacturasComp + montoSalariosComp;
+                          const desvioComp = montoPresupuestadoComp - totalRealComp;
 
                           return (
                             <tr key={cIdx} className="hover:bg-slate-50/80">
                               <td className="px-4 py-2.5 pl-8 text-slate-600 font-medium flex items-center gap-2">
                                 <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                                {comp.nombre}
+                                {compNombre}
                               </td>
                               <td className="px-4 py-2.5 text-right font-bold text-blue-600">
-                                $ {pPresupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                $ {montoPresupuestadoComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
                               <td className="px-4 py-2.5 text-right font-semibold text-slate-700">
-                                $ {pFacturas.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                $ {montoFacturasComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
                               <td className="px-4 py-2.5 text-right font-semibold text-amber-600">
-                                $ {pSalarios.toLocaleString('es-AR', { minimumFractionDigits: 2 })} <span className="text-[9px] text-slate-400">(Próx.)</span>
+                                $ {montoSalariosComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
-                              <td className={`px-4 py-2.5 text-right font-black ${desvio >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                $ {desvio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              <td className={`px-4 py-2.5 text-right font-black ${desvioComp >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                $ {desvioComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
                             </tr>
                           );
