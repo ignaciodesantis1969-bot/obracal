@@ -1,16 +1,17 @@
 import React, { useState } from 'react';
 import { Building2, Layers, ShieldCheck } from 'lucide-react';
 
-export default function Reportes({ 
-  obras = [], 
-  presupuestos = [], 
-  certificados = [], 
-  movimientos = [], 
-  insumos = [], 
-  rubros = [],
-  facturas = [],
-  maestroTareasRubros = []
-}) {
+export default function Reportes(props) {
+  // Extracción segura de props soportando múltiples variaciones de nombres y mayúsculas
+  const obras = props.obras || props.Obras || [];
+  const presupuestos = props.presupuestos || props.Presupuestos || [];
+  const certificados = props.certificados || props.Certificados || [];
+  const movimientos = props.movimientos || props.Movimientos || [];
+  const insumos = props.insumos || props.Insumos || [];
+  const rubros = props.rubros || props.Rubros || [];
+  const facturas = props.facturas || props.Facturas || [];
+  const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
+
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Dashboard');
 
@@ -44,36 +45,91 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // 1. Diccionario Estricto por ID de Insumo (Fuente de Verdad Global)
-  // Mapea ID de Insumo -> Tipo Normalizado
-  const insumoTipoPorIdMap = {};
+  // 1. Diccionario oficial de Insumos (ID -> Tipo Normalizado)
+  const insumosOficialMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
       const gId = String(insGlobal.id || insGlobal.ID || insGlobal.insumo_id || '').trim();
+      const tipoOriginal = String(insGlobal.tipo || insGlobal.Tipo || insGlobal.tipo_insumo || 'Material').trim().toLowerCase();
       if (gId) {
-        const tipoOriginal = String(insGlobal.tipo || insGlobal.Tipo || '').trim().toLowerCase();
         let tipoNorm = 'Material';
         if (tipoOriginal.includes('mano')) tipoNorm = 'Mano de Obra';
         else if (tipoOriginal.includes('subcontrato')) tipoNorm = 'Subcontrato';
         else if (tipoOriginal.includes('equipo') || tipoOriginal.includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
         else tipoNorm = 'Material';
 
-        insumoTipoPorIdMap[gId] = tipoNorm;
+        insumosOficialMap[gId] = tipoNorm;
       }
     });
   }
 
-  // Función para obtener el tipo consultando únicamente el ID en la tabla de Insumos
-  const resolverTipoPorId = (insumoItem) => {
-    const insId = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || '').trim();
-    if (insId && insumoTipoPorIdMap[insId]) {
-      return insumoTipoPorIdMap[insId];
+  // Normalizador de textos avanzado para matching de tareas
+  const limpiarTexto = (txt) => String(txt || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
+
+  // 2. Diccionario Maestro de Tareas
+  const maestroTareasMap = {};
+  if (Array.isArray(maestroTareasRubros)) {
+    maestroTareasRubros.forEach(itemMaestro => {
+      const tareaRaw = itemMaestro.tarea || itemMaestro.nombre || itemMaestro.Tarea || '';
+      const tareaKey = limpiarTexto(tareaRaw);
+      let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle || itemMaestro.insumos || [];
+      
+      if (typeof insumosDetalleParsed === 'string' && insumosDetalleParsed.trim()) {
+        try { insumosDetalleParsed = JSON.parse(insumosDetalleParsed); } catch { insumosDetalleParsed = []; }
+      }
+      
+      if (tareaKey && Array.isArray(insumosDetalleParsed)) {
+        maestroTareasMap[tareaKey] = insumosDetalleParsed;
+      }
+    });
+  }
+
+  const buscarInsumosMaestro = (nombreTareaPresupuesto) => {
+    const keyPres = limpiarTexto(nombreTareaPresupuesto);
+    if (!keyPres) return [];
+
+    if (maestroTareasMap[keyPres]) {
+      return maestroTareasMap[keyPres];
     }
-    // Si no se encuentra el ID en la tabla global, se retorna Material por defecto
+
+    for (const [mKey, mArr] of Object.entries(maestroTareasMap)) {
+      if (keyPres.includes(mKey) || mKey.includes(keyPres)) {
+        return mArr;
+      }
+    }
+    return [];
+  };
+
+  // Motor de resolución de tipo de insumo (3 Niveles infalibles)
+  const obtenerTipoInsumoInfalible = (insumoItem) => {
+    // Nivel 1: Búsqueda estricta por ID en la tabla global de Insumos
+    const insId = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || '').trim();
+    if (insId && insumosOficialMap[insId]) {
+      return insumosOficialMap[insId];
+    }
+
+    // Nivel 2: Tipo explícito en el ítem (si no es el "Material" por defecto del JSON)
+    const t = String(insumoItem.tipo || insumoItem.Tipo || '').toLowerCase();
+    if (t.includes('mano')) return 'Mano de Obra';
+    if (t.includes('subcontrato')) return 'Subcontrato';
+    if (t.includes('equipo') || t.includes('maquinaria')) return 'Equipo/Maquinaria';
+
+    // Nivel 3: Red de seguridad semántica basada en el nombre del insumo
+    const nombreIns = String(insumoItem.nombre || insumoItem.nombre_del_articulo || '').toLowerCase();
+    if (nombreIns.includes('mano de obra') || nombreIns.includes('cuadrilla') || nombreIns.includes('oficial') || nombreIns.includes('ayudante') || nombreIns.includes('sereno') || nombreIns.includes('operario')) {
+      return 'Mano de Obra';
+    }
+    if (nombreIns.includes('volquete') || nombreIns.includes('subcontrato') || nombreIns.includes('georadar') || nombreIns.includes('flete') || nombreIns.includes('alquiler') || nombreIns.includes('servicio')) {
+      return 'Subcontrato';
+    }
+    if (nombreIns.includes('andamio') || nombreIns.includes('maquinaria') || nombreIns.includes('equipo') || nombreIns.includes('hormigonera')) {
+      return 'Equipo/Maquinaria';
+    }
+
     return 'Material';
   };
 
-  // Procesar rubros del presupuesto desde items_detalle usando IDs de insumos
+  // Procesar rubros del presupuesto desde items_detalle
   let rubrosPresupuestoDetalle = [];
   let gastosGeneralesBase = [];
   let totalPresupuestoRubros = 0;
@@ -101,10 +157,13 @@ export default function Reportes({
             const costoTareaTotal = (Number(tareaItem.cantidad) || 1) * (Number(tareaItem.costo_unitario) || 0);
             totalRubro += costoTareaTotal;
 
-            // Obtener insumos directamente de la tarea
             let insumosDeLaTarea = tareaItem.insumos;
             if (typeof insumosDeLaTarea === 'string' && insumosDeLaTarea.trim()) {
               try { insumosDeLaTarea = JSON.parse(insumosDeLaTarea); } catch { insumosDeLaTarea = []; }
+            }
+
+            if (!Array.isArray(insumosDeLaTarea) || insumosDeLaTarea.length === 0) {
+              insumosDeLaTarea = buscarInsumosMaestro(tareaItem.tarea);
             }
 
             if (Array.isArray(insumosDeLaTarea) && insumosDeLaTarea.length > 0) {
@@ -112,13 +171,13 @@ export default function Reportes({
               let sumaInsCosto = 0;
 
               insumosDeLaTarea.forEach(insumo => {
-                const tipoNorm = resolverTipoPorId(insumo);
+                const tipoNorm = obtenerTipoInsumoInfalible(insumo);
                 const costoIns = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || 0);
                 subtotalesIns.push({ tipo: tipoNorm, costo: costoIns });
                 sumaInsCosto += costoIns;
               });
 
-              // Camino de reversa: Prorrateo proporcional exacto basado en la suma de insumos por ID
+              // Distribución proporcional exacta sin duplicar costos
               if (sumaInsCosto > 0) {
                 const ratio = costoTareaTotal / sumaInsCosto;
                 subtotalesIns.forEach(item => {
@@ -128,8 +187,14 @@ export default function Reportes({
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              // Si la tarea no registra insumos internos, se asigna a Material
-              acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
+              // Clasificación semántica por nombre de tarea si no tiene insumos vinculados
+              const tLow = limpiarTexto(tareaItem.tarea);
+              let tipoDef = 'Material';
+              if (tLow.includes('mano') || tLow.includes('salarios') || tLow.includes('demolicion')) tipoDef = 'Mano de Obra';
+              else if (tLow.includes('subcontrato') || tLow.includes('volquete') || tLow.includes('georadar')) tipoDef = 'Subcontrato';
+              else if (tLow.includes('equipo') || tLow.includes('andamios') || tLow.includes('maquinaria')) tipoDef = 'Equipo/Maquinaria';
+
+              acumuladorComponentes[tipoDef] = (acumuladorComponentes[tipoDef] || 0) + costoTareaTotal;
             }
           });
 
