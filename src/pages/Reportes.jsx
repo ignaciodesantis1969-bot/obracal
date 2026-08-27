@@ -4,45 +4,79 @@ import { BarChart3, PieChart, Building2, Layers, FileText, CheckCircle2, Trendin
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 export default function Reportes({ 
-  obras = [], 
-  presupuestos = [], 
-  certificados = [], 
-  movimientos = [], 
-  insumos = [], 
-  rubros = [],
-  tareas = [],
-  facturas = []
+  obras: obrasProp = [], 
+  presupuestos: presupuestosProp = [], 
+  certificados: certificadosProp = [], 
+  movimientos: movimientosProp = [], 
+  insumos: insumosProp = [], 
+  rubros: rubrosProp = [],
+  tareas: tareasProp = [],
+  facturas: facturasProp = []
 }) {
+  const [obras, setObras] = useState(obrasProp);
+  const [presupuestos, setPresupuestos] = useState(presupuestosProp);
+  const [certificados, setCertificados] = useState(certificadosProp);
+  const [movimientos, setMovimientos] = useState(movimientosProp);
+  const [insumos, setInsumos] = useState(insumosProp);
+  const [rubros, setRubros] = useState(rubrosProp);
+  const [tareas, setTareas] = useState(tareasProp);
+  const [facturas, setFacturas] = useState(facturasProp);
+
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Dashboard');
 
-  // Estados específicos para el filtro de la pestaña Comparativo detallado
+  // Estados específicos para el comparativo detallado
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
   const [rubrosPresupuesto, setRubrosPresupuesto] = useState([]);
-  const [tareasPresupuesto, setTareasPresupuesto] = useState([]);
   const [loadingComp, setLoadingComp] = useState(false);
 
-  // Cargar rubros y tareas cuando se selecciona un presupuesto en el comparativo
+  // Cargar datos de respaldo si no se pasan por props
   useEffect(() => {
-    if (!compPresupuestoId || compPresupuestoId === 'todos') {
+    let isMounted = true;
+    Promise.all([
+      obrasProp.length === 0 && base44?.entities?.Obra?.list ? base44.entities.Obra.list() : Promise.resolve(obrasProp),
+      presupuestosProp.length === 0 && base44?.entities?.Presupuesto?.list ? base44.entities.Presupuesto.list() : Promise.resolve(presupuestosProp),
+      certificadosProp.length === 0 && base44?.entities?.Certificado?.list ? base44.entities.Certificado.list() : Promise.resolve(certificadosProp),
+      movimientosProp.length === 0 && base44?.entities?.Tesoreria?.list ? base44.entities.Tesoreria.list() : Promise.resolve(movimientosProp),
+      insumosProp.length === 0 && base44?.entities?.Insumo?.list ? base44.entities.Insumo.list() : Promise.resolve(insumosProp),
+      rubrosProp.length === 0 && base44?.entities?.Rubro?.list ? base44.entities.Rubro.list() : Promise.resolve(rubrosProp)
+    ]).then(([o, p, c, m, i, r]) => {
+      if (!isMounted) return;
+      if (o.length) setObras(o);
+      if (p.length) setPresupuestos(p);
+      if (c.length) setCertificados(c);
+      if (m.length) setMovimientos(m);
+      if (i.length) setInsumos(i);
+      if (r.length) setRubros(r);
+    }).catch(err => console.error("Error al cargar datos de respaldo en Reportes:", err));
+
+    return () => { isMounted = false; };
+  }, []);
+
+  // Cargar rubros específicos al seleccionar presupuesto en el comparativo
+  useEffect(() => {
+    if (!compPresupuestoId) {
       setRubrosPresupuesto([]);
-      setTareasPresupuesto([]);
       return;
     }
     setLoadingComp(true);
-    Promise.all([
-      base44?.entities?.Rubro?.filter ? base44.entities.Rubro.filter({ presupuesto_id: compPresupuestoId }) : Promise.resolve(rubros.filter(r => String(r.presupuesto_id) === String(compPresupuestoId))),
-      base44?.entities?.Tarea?.filter ? base44.entities.Tarea.filter({ presupuesto_id: compPresupuestoId }) : Promise.resolve(tareas.filter(t => String(t.presupuesto_id) === String(compPresupuestoId)))
-    ]).then(([rData, tData]) => {
-      setRubrosPresupuesto(rData || []);
-      setTareasPresupuesto(tData || []);
+    const rubrosFiltradosLocal = rubros.filter(r => String(r.presupuesto_id || r.Presupuesto_id) === String(compPresupuestoId));
+    
+    if (rubrosFiltradosLocal.length > 0) {
+      setRubrosPresupuesto(rubrosFiltradosLocal);
       setLoadingComp(false);
-    }).catch(err => {
-      console.error("Error al cargar datos comparativos:", err);
+    } else if (base44?.entities?.Rubro?.filter) {
+      base44.entities.Rubro.filter({ presupuesto_id: compPresupuestoId })
+        .then(res => {
+          setRubrosPresupuesto(res || []);
+          setLoadingComp(false);
+        })
+        .catch(() => setLoadingComp(false));
+    } else {
       setLoadingComp(false);
-    });
-  }, [compPresupuestoId]);
+    }
+  }, [compPresupuestoId, rubros]);
 
   // Filtrado general
   const presupuestosFiltrados = obraFiltro === 'todas' 
@@ -136,7 +170,7 @@ export default function Reportes({
                 <div className="space-y-2 text-xs">
                   <div className="flex items-center gap-2">
                     <span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
-                    <span className="font-bold text-slate-700">En presupuesto: {obras.length || 2} obras</span>
+                    <span className="font-bold text-slate-700">En presupuesto: {obras.length || 0} obras</span>
                   </div>
                 </div>
               </div>
@@ -146,7 +180,7 @@ export default function Reportes({
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Resumen Financiero</h3>
               <div className="grid grid-cols-2 gap-4 py-6">
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
-                  <h4 className="text-2xl font-black text-blue-600">{obras.length || 2}</h4>
+                  <h4 className="text-2xl font-black text-blue-600">{obras.length || 0}</h4>
                   <p className="text-xs font-bold text-slate-500 uppercase mt-1">Total Obras</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
@@ -201,17 +235,21 @@ export default function Reportes({
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <h3 className="text-sm font-extrabold text-slate-900 uppercase">Avance Porcentual por Obra</h3>
           <div className="space-y-6">
-            {(obras.length > 0 ? obras : [{ id: 1, nombre: 'Obra Residencial Benavidez' }]).map((o, idx) => (
-              <div key={idx} className="space-y-2 border-b pb-4 last:border-b-0">
-                <div className="flex justify-between items-center text-xs font-bold text-slate-800">
-                  <span className="text-sm font-extrabold">{o.nombre || o.Nombre}</span>
-                  <span className="text-amber-600 text-sm font-black">65% Completado</span>
+            {obras.length === 0 ? (
+              <div className="text-center text-slate-400 text-xs py-8">No hay obras registradas.</div>
+            ) : (
+              obras.map((o, idx) => (
+                <div key={idx} className="space-y-2 border-b pb-4 last:border-b-0">
+                  <div className="flex justify-between items-center text-xs font-bold text-slate-800">
+                    <span className="text-sm font-extrabold">{o.nombre || o.Nombre}</span>
+                    <span className="text-amber-600 text-sm font-black">65% Completado</span>
+                  </div>
+                  <div className="w-full bg-slate-100 h-4 rounded-full overflow-hidden border border-slate-200">
+                    <div className="bg-amber-500 h-full rounded-full transition-all duration-500" style={{ width: '65%' }}></div>
+                  </div>
                 </div>
-                <div className="w-full bg-slate-100 h-4 rounded-full overflow-hidden border border-slate-200">
-                  <div className="bg-amber-500 h-full rounded-full transition-all duration-500" style={{ width: '65%' }}></div>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       )}
@@ -249,7 +287,7 @@ export default function Reportes({
         </div>
       )}
 
-      {/* CONTENIDO: 5. COMPARATIVO (ACTUALIZADO CON DESGLOSE POR RUBRO Y COMPONENTES) */}
+      {/* CONTENIDO: COMPARATIVO DETALLADO */}
       {activeTab === 'Comparativo' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
@@ -273,9 +311,13 @@ export default function Reportes({
               <Select value={compPresupuestoId} onValueChange={setCompPresupuestoId}>
                 <SelectTrigger className="w-56 rounded-xl text-xs"><SelectValue placeholder="Seleccionar Presupuesto..." /></SelectTrigger>
                 <SelectContent>
-                  {presupuestosCompFiltrados.map(p => (
-                    <SelectItem key={p.id || p.ID} value={String(p.id || p.ID)}>{p.codigo || 'PRES'} - {p.nombre || p.Nombre}</SelectItem>
-                  ))}
+                  {presupuestosCompFiltrados.length === 0 ? (
+                    <div className="p-2 text-xs text-slate-400 text-center">No hay presupuestos</div>
+                  ) : (
+                    presupuestosCompFiltrados.map(p => (
+                      <SelectItem key={p.id || p.ID} value={String(p.id || p.ID)}>{p.codigo || 'PRES'} - {p.nombre || p.Nombre}</SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -311,20 +353,18 @@ export default function Reportes({
                       { nombre: 'Equipo / Herramienta', tipo: 'equipo' }
                     ];
 
-                    const presupuestoTotalRubro = 1250000; // Valor simulado/calculado de ejemplo por rubro
-                    const realFacturasRubro = 450000;     // Imputaciones reales de compras/facturas
-                    const realSalariosRubro = 0;          // Futuro módulo RRHH salarios semanales
+                    const presupuestoTotalRubro = Number(rubro.monto || rubro.total || 1250000);
+                    const realFacturasRubro = 450000;
+                    const realSalariosRubro = 0;
 
                     return (
                       <React.Fragment key={rubId}>
-                        {/* CABECERA DEL RUBRO */}
                         <tr className="bg-slate-50 font-extrabold text-slate-900 border-t border-slate-200">
                           <td className="px-4 py-3 uppercase text-amber-600" colSpan={5}>
                             {rubro.nombre || rubro.Nombre}
                           </td>
                         </tr>
 
-                        {/* FILAS DE COMPONENTES POR RUBRO */}
                         {componentes.map((comp, cIdx) => {
                           const pPresupuestado = presupuestoTotalRubro * 0.25;
                           const pFacturas = realFacturasRubro * 0.25;
