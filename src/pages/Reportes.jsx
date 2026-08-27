@@ -44,19 +44,20 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // 1. Diccionario global de Insumos (Fuente de Verdad: Pestaña Insumos)
+  // 1. Diccionario global de Insumos (Fuente de Verdad ultra robusta)
   const insumosGlobalMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
-      const gId = String(insGlobal.id || insGlobal.ID || '').trim();
+      const gId = String(insGlobal.id || insGlobal.ID || insGlobal.insumo_id || '').trim();
       const gCod = String(insGlobal.codigo || insGlobal.Codigo || '').trim().toLowerCase();
-      const gNom = String(insGlobal.nombre || insGlobal.Nombre || '').trim().toLowerCase();
+      const gNom = String(insGlobal.nombre || insGlobal.Nombre || insGlobal.nombre_del_articulo || '').trim().toLowerCase();
       
-      const tipoOficial = String(insGlobal.tipo || 'Material').trim().toLowerCase();
+      const tipoOficial = String(insGlobal.tipo || insGlobal.Tipo || 'Material').trim().toLowerCase();
       let tipoNorm = 'Material';
       if (tipoOficial.includes('mano')) tipoNorm = 'Mano de Obra';
       else if (tipoOficial.includes('subcontrato')) tipoNorm = 'Subcontrato';
       else if (tipoOficial.includes('equipo') || tipoOficial.includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
+      else if (tipoOficial.includes('gasto')) tipoNorm = 'Gastos Generales';
       else tipoNorm = 'Material';
 
       if (gId) insumosGlobalMap[gId] = tipoNorm;
@@ -69,7 +70,7 @@ export default function Reportes({
   const diccionarioMaestroTareas = {};
   if (Array.isArray(maestroTareasRubros)) {
     maestroTareasRubros.forEach(itemMaestro => {
-      const nombreTareaKey = String(itemMaestro.tarea || '').trim().toLowerCase();
+      const nombreTareaKey = String(itemMaestro.tarea || itemMaestro.nombre || '').trim().toLowerCase();
       let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle;
       
       if (typeof insumosDetalleParsed === 'string' && insumosDetalleParsed.trim()) {
@@ -83,15 +84,15 @@ export default function Reportes({
   }
 
   const obtenerTipoNormalizado = (insumoItem) => {
-    const idKey = String(insumoItem.id || insumoItem.ID || '').trim();
+    const idKey = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || insumoItem.id_insumo || '').trim();
     const codKey = String(insumoItem.codigo || insumoItem.Codigo || '').trim().toLowerCase();
-    const nomKey = String(insumoItem.nombre || insumoItem.Nombre || '').trim().toLowerCase();
+    const nomKey = String(insumoItem.nombre || insumoItem.Nombre || insumoItem.nombre_del_articulo || '').trim().toLowerCase();
 
     if (idKey && insumosGlobalMap[idKey]) return insumosGlobalMap[idKey];
     if (codKey && insumosGlobalMap[codKey]) return insumosGlobalMap[codKey];
     if (nomKey && insumosGlobalMap[nomKey]) return insumosGlobalMap[nomKey];
 
-    const t = String(insumoItem.tipo || '').toLowerCase();
+    const t = String(insumoItem.tipo || insumoItem.Tipo || '').toLowerCase();
     if (t.includes('mano')) return 'Mano de Obra';
     if (t.includes('subcontrato')) return 'Subcontrato';
     if (t.includes('equipo') || t.includes('maquinaria')) return 'Equipo/Maquinaria';
