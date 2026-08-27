@@ -44,65 +44,56 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // 1. Diccionario oficial de Insumos: ID -> Tipo real normalizado
+  // 1. Diccionario oficial de Insumos (soporta múltiples variantes de nombres de propiedades)
   const insumosOficialMap = {};
-  if (Array.isArray(insumos)) {
-    insumos.forEach(insGlobal => {
-      const gId = String(insGlobal.id || insGlobal.ID || insGlobal.insumo_id || '').trim();
-      const tipoOriginal = String(insGlobal.tipo || insGlobal.Tipo || 'Material').trim().toLowerCase();
-      if (gId) {
-        let tipoNorm = 'Material';
-        if (tipoOriginal.includes('mano')) tipoNorm = 'Mano de Obra';
-        else if (tipoOriginal.includes('subcontrato')) tipoNorm = 'Subcontrato';
-        else if (tipoOriginal.includes('equipo') || tipoOriginal.includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
-        else tipoNorm = 'Material';
+  const listaInsumosGlobal = Array.isArray(insumos) ? insumos : [];
+  listaInsumosGlobal.forEach(insGlobal => {
+    const gId = String(insGlobal.id || insGlobal.ID || insGlobal.insumo_id || '').trim();
+    const tipoOriginal = String(insGlobal.tipo || insGlobal.Tipo || insGlobal.tipo_insumo || 'Material').trim().toLowerCase();
+    if (gId) {
+      let tipoNorm = 'Material';
+      if (tipoOriginal.includes('mano')) tipoNorm = 'Mano de Obra';
+      else if (tipoOriginal.includes('subcontrato')) tipoNorm = 'Subcontrato';
+      else if (tipoOriginal.includes('equipo') || tipoOriginal.includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
+      else tipoNorm = 'Material';
 
-        insumosOficialMap[gId] = tipoNorm;
-      }
-    });
-  }
+      insumosOficialMap[gId] = tipoNorm;
+    }
+  });
 
-  // Normalizador avanzado para matching de nombres de tareas
+  // Normalizador de textos avanzado
   const limpiarTexto = (txt) => String(txt || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
 
   // 2. Diccionario Maestro de Tareas
   const maestroTareasMap = {};
-  if (Array.isArray(maestroTareasRubros)) {
-    maestroTareasRubros.forEach(itemMaestro => {
-      const tareaRaw = itemMaestro.tarea || itemMaestro.nombre || '';
-      const tareaKey = limpiarTexto(tareaRaw);
-      let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle;
-      
-      if (typeof insumosDetalleParsed === 'string' && insumosDetalleParsed.trim()) {
-        try { insumosDetalleParsed = JSON.parse(insumosDetalleParsed); } catch { insumosDetalleParsed = []; }
-      }
-      
-      if (tareaKey && Array.isArray(insumosDetalleParsed)) {
-        maestroTareasMap[tareaKey] = {
-          original: tareaRaw,
-          insumos: insumosDetalleParsed
-        };
-      }
-    });
-  }
+  const listaMaestro = Array.isArray(maestroTareasRubros) ? maestroTareasRubros : [];
+  listaMaestro.forEach(itemMaestro => {
+    const tareaRaw = itemMaestro.tarea || itemMaestro.nombre || itemMaestro.Tarea || '';
+    const tareaKey = limpiarTexto(tareaRaw);
+    let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle || itemMaestro.insumos || [];
+    
+    if (typeof insumosDetalleParsed === 'string' && insumosDetalleParsed.trim()) {
+      try { insumosDetalleParsed = JSON.parse(insumosDetalleParsed); } catch { insumosDetalleParsed = []; }
+    }
+    
+    if (tareaKey && Array.isArray(insumosDetalleParsed)) {
+      maestroTareasMap[tareaKey] = insumosDetalleParsed;
+    }
+  });
 
-  // Función de búsqueda flexible en el maestro de tareas
   const buscarInsumosMaestro = (nombreTareaPresupuesto) => {
     const keyPres = limpiarTexto(nombreTareaPresupuesto);
     if (!keyPres) return [];
 
-    // Intento 1: Match exacto normalizado
     if (maestroTareasMap[keyPres]) {
-      return maestroTareasMap[keyPres].insumos;
+      return maestroTareasMap[keyPres];
     }
 
-    // Intento 2: Match parcial (si una contiene a la otra)
-    for (const [mKey, mObj] of Object.entries(maestroTareasMap)) {
+    for (const [mKey, mArr] of Object.entries(maestroTareasMap)) {
       if (keyPres.includes(mKey) || mKey.includes(keyPres)) {
-        return mObj.insumos;
+        return mArr;
       }
     }
-
     return [];
   };
 
@@ -175,10 +166,10 @@ export default function Reportes({
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              // Fallback inteligente por palabras clave si no hay insumos en el maestro
+              // Detección robusta por palabras clave en la tarea si no hay insumos vinculados
               const tLow = limpiarTexto(tareaItem.tarea);
               let tipoDef = 'Material';
-              if (tLow.includes('manodeobra') || tLow.includes('salarios')) tipoDef = 'Mano de Obra';
+              if (tLow.includes('manodeobra') || tLow.includes('salarios') || tLow.includes('demolicion')) tipoDef = 'Mano de Obra';
               else if (tLow.includes('subcontrato') || tLow.includes('volquete') || tLow.includes('georadar')) tipoDef = 'Subcontrato';
               else if (tLow.includes('equipo') || tLow.includes('andamios') || tLow.includes('maquinaria')) tipoDef = 'Equipo/Maquinaria';
 
