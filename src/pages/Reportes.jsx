@@ -44,18 +44,17 @@ export default function Reportes({
   // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // 1. Diccionario oficial de Insumos: ID -> Tipo real desde la pestaña Insumos
+  // 1. Diccionario oficial de Insumos: ID -> Tipo real normalizado
   const insumosOficialMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
       const gId = String(insGlobal.id || insGlobal.ID || insGlobal.insumo_id || '').trim();
-      const tipoOriginal = String(insGlobal.tipo || insGlobal.Tipo || 'Material').trim();
+      const tipoOriginal = String(insGlobal.tipo || insGlobal.Tipo || 'Material').trim().toLowerCase();
       if (gId) {
         let tipoNorm = 'Material';
-        const tLower = tipoOriginal.toLowerCase();
-        if (tLower.includes('mano')) tipoNorm = 'Mano de Obra';
-        else if (tLower.includes('subcontrato')) tipoNorm = 'Subcontrato';
-        else if (tLower.includes('equipo') || tLower.includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
+        if (tipoOriginal.includes('mano')) tipoNorm = 'Mano de Obra';
+        else if (tipoOriginal.includes('subcontrato')) tipoNorm = 'Subcontrato';
+        else if (tipoOriginal.includes('equipo') || tipoOriginal.includes('maquinaria')) tipoNorm = 'Equipo/Maquinaria';
         else tipoNorm = 'Material';
 
         insumosOficialMap[gId] = tipoNorm;
@@ -63,11 +62,14 @@ export default function Reportes({
     });
   }
 
-  // 2. Diccionario Maestro de Tareas: nombre de tarea -> lista de insumos del maestro
+  // Normalizador de textos para matching robusto
+  const limpiarTexto = (txt) => String(txt || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+
+  // 2. Diccionario Maestro de Tareas con clave normalizada
   const maestroTareasMap = {};
   if (Array.isArray(maestroTareasRubros)) {
     maestroTareasRubros.forEach(itemMaestro => {
-      const tareaKey = String(itemMaestro.tarea || itemMaestro.nombre || '').trim().toLowerCase();
+      const tareaKey = limpiarTexto(itemMaestro.tarea || itemMaestro.nombre);
       let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle;
       
       if (typeof insumosDetalleParsed === 'string' && insumosDetalleParsed.trim()) {
@@ -80,7 +82,6 @@ export default function Reportes({
     });
   }
 
-  // Función para determinar el tipo exacto de un insumo consultando su ID en la tabla de Insumos
   const obtenerTipoInsumoPorId = (insumoItem) => {
     const insId = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || '').trim();
     if (insId && insumosOficialMap[insId]) {
@@ -121,7 +122,7 @@ export default function Reportes({
             const costoTareaTotal = (Number(tareaItem.cantidad) || 1) * (Number(tareaItem.costo_unitario) || 0);
             totalRubro += costoTareaTotal;
 
-            const tareaNombreKey = String(tareaItem.tarea || '').trim().toLowerCase();
+            const tareaNombreKey = limpiarTexto(tareaItem.tarea);
             let insumosDeLaTarea = tareaItem.insumos || maestroTareasMap[tareaNombreKey] || [];
 
             if (typeof insumosDeLaTarea === 'string' && insumosDeLaTarea.trim()) {
@@ -152,7 +153,14 @@ export default function Reportes({
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
+              // Fallback por nombre si no tiene insumos en el maestro
+              const tLow = limpiarTexto(tareaItem.tarea);
+              let tipoDef = 'Material';
+              if (tLow.includes('mano de obra') || tLow.includes('salarios')) tipoDef = 'Mano de Obra';
+              else if (tLow.includes('subcontrato') || tLow.includes('volquete') || tLow.includes('georadar')) tipoDef = 'Subcontrato';
+              else if (tLow.includes('equipo') || tLow.includes('andamios') || tLow.includes('maquinaria')) tipoDef = 'Equipo/Maquinaria';
+
+              acumuladorComponentes[tipoDef] = (acumuladorComponentes[tipoDef] || 0) + costoTareaTotal;
             }
           });
 
@@ -212,7 +220,7 @@ export default function Reportes({
     }
   }
 
-  // Imputación real de facturas para Gastos Generales sin duplicaciones
+  // Imputación real de facturas para Gastos Generales cruzando por presupuesto_id y proveedor_id
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
   let totalRealGGEspecifico = 0;
@@ -224,9 +232,9 @@ export default function Reportes({
     
     facturasPresupuesto.forEach(fac => {
       const provId = String(fac.proveedor_id || fac.Proveedor_id || '');
-      const montoFac = Number(fac.total || 0);
+      const montoFac = Number(fac.total || fac.Total || 0);
 
-      if (conceptoLower.includes('licenciado - (programa)') && provId === '1') {
+      if ((conceptoLower.includes('licenciado') || conceptoLower.includes('programa')) && provId === '1') {
         realAsignado += montoFac;
       } else if (conceptoLower.includes('visita obligatoria') && provId === '2') {
         realAsignado += montoFac;
