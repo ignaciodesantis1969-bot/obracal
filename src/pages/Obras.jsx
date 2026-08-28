@@ -5,7 +5,7 @@ export default function Obras() {
   const [obras, setObras] = useState([]);
   const [clientes, setClientes] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false); // <--- Nuevo estado para saber si estamos guardando
+  const [isSaving, setIsSaving] = useState(false); // 🛡️ Estado de bloqueo contra clics múltiples
   const [error, setError] = useState('');
   
   const [searchTerm, setSearchTerm] = useState('');
@@ -63,7 +63,6 @@ export default function Obras() {
     let maxNum = 0;
     listaObras.forEach(o => {
       if (o.codigo && o.codigo.startsWith('OB')) {
-        // Extrae el número después de 'OB'
         const numParte = parseInt(o.codigo.replace('OB', ''), 10);
         if (!isNaN(numParte) && numParte > maxNum) {
           maxNum = numParte;
@@ -71,7 +70,6 @@ export default function Obras() {
       }
     });
     
-    // Si la máxima era 5, ahora es 6 -> OB006
     const siguienteNum = maxNum + 1;
     return `OB${String(siguienteNum).padStart(3, '0')}`;
   };
@@ -82,7 +80,6 @@ export default function Obras() {
     const codCliente = cliente && cliente.codigo ? cliente.codigo : 'CL00X';
     let codObra = obra.codigo || 'OB001';
     
-    // Si el código ya viene con formato compuesto, lo respetamos
     if (codObra.includes('-')) {
       return codObra;
     }
@@ -100,7 +97,7 @@ export default function Obras() {
   const handleAbrirFormularioNuevo = () => {
     setEditingId(null); 
     setNuevaObra({ 
-      codigo: generarProximoCodigo(obras), // <--- Generamos el código aquí
+      codigo: generarProximoCodigo(obras),
       nombre: '', 
       cliente_id: '', 
       direccion: '', 
@@ -127,10 +124,12 @@ export default function Obras() {
     setIsFormOpen(true);
   };
 
+  // 🛡️ FUNCIÓN DE GUARDADO CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
   const handleGuardar = async (e) => {
     e.preventDefault();
-    setIsSaving(true); // <--- Bloqueamos el botón y mostramos que está guardando
+    if (isSaving) return; // Detiene clics adicionales si ya está enviando
 
+    setIsSaving(true);
     try {
       const action = editingId ? 'update' : 'create';
       const bodyPayload = {
@@ -154,7 +153,6 @@ export default function Obras() {
         setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'en_ejecucion', fecha_de_inicio: '', notas: '' });
         setEditingId(null);
         setIsFormOpen(false);
-        // Volvemos a cargar los datos para ver la nueva obra en la tabla
         await cargarDatos(); 
       } else {
         alert("Error al guardar: " + (res.error || "Desconocido"));
@@ -162,7 +160,7 @@ export default function Obras() {
     } catch (err) {
       alert("Error de conexión al intentar guardar.");
     } finally {
-      setIsSaving(false); // <--- Liberamos el botón
+      setIsSaving(false); // 🔓 Libera el bloqueo al finalizar la petición
     }
   };
 
@@ -265,7 +263,7 @@ export default function Obras() {
               type="text" 
               placeholder="Código de Obra" 
               required
-              readOnly // <--- Bloqueado para que el usuario no lo cambie
+              readOnly
               className="bg-slate-100 border border-slate-300 text-slate-500 font-bold rounded-lg px-3 py-2 text-sm focus:outline-none shadow-sm cursor-not-allowed"
               value={nuevaObra.codigo} 
               title="El código se genera automáticamente"

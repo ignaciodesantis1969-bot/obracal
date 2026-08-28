@@ -27,6 +27,10 @@ export default function Tesoreria({
   const [archivoBase64Venta, setArchivoBase64Venta] = useState('');
   const [nombreArchivoVenta, setNombreArchivoVenta] = useState('');
 
+  // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
+  const [isSaving, setIsSaving] = useState(false);
+  const [isSavingVenta, setIsSavingVenta] = useState(false);
+
   const [formData, setFormData] = useState({
     tipo: 'Egreso',
     fecha: new Date().toISOString().split('T')[0],
@@ -181,10 +185,10 @@ export default function Tesoreria({
   };
 
   const totalRetenciones = Number(formData.retencion_suss || 0) + 
-                           Number(formData.retencion_iva || 0) + 
-                           Number(formData.retencion_ganancias || 0) + 
-                           Number(formData.retencion_iibb_pba || 0) + 
-                           Number(formData.retencion_iibb_caba || 0);
+                         Number(formData.retencion_iva || 0) + 
+                         Number(formData.retencion_ganancias || 0) + 
+                         Number(formData.retencion_iibb_pba || 0) + 
+                         Number(formData.retencion_iibb_caba || 0);
 
   const montoBrutoFacturas = Number(formData.monto || 0);
   const montoNetoEfectivo = Math.max(0, montoBrutoFacturas - totalRetenciones);
@@ -368,6 +372,9 @@ export default function Tesoreria({
 
   const handleGuardarMovimiento = async (e) => {
     e.preventDefault();
+    if (isSaving) return;
+
+    setIsSaving(true);
     try {
       const action = editingId ? 'update' : 'create';
       const payloadData = {
@@ -442,11 +449,16 @@ export default function Tesoreria({
     } catch (err) {
       console.error(err);
       alert("Error de conexión al guardar el movimiento.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleGuardarFacturaVenta = async (e) => {
     e.preventDefault();
+    if (isSavingVenta) return;
+
+    setIsSavingVenta(true);
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -483,6 +495,8 @@ export default function Tesoreria({
     } catch (err) {
       console.error(err);
       alert("Error de conexión al registrar la factura de venta.");
+    } finally {
+      setIsSavingVenta(false);
     }
   };
 
@@ -995,33 +1009,33 @@ export default function Tesoreria({
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">Nuevo Movimiento con Retenciones</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+              <button onClick={() => setIsModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
             
             <form onSubmit={handleGuardarMovimiento} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo *</label>
-                  <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase" value={formData.tipo} onChange={(e) => setFormData({...formData, tipo: e.target.value})}>
+                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.tipo} onChange={(e) => setFormData({...formData, tipo: e.target.value})}>
                     <option value="Egreso">Egreso</option>
                     <option value="Ingreso">Ingreso</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha *</label>
-                  <input type="date" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.fecha} onChange={(e) => setFormData({...formData, fecha: e.target.value})} />
+                  <input type="date" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.fecha} onChange={(e) => setFormData({...formData, fecha: e.target.value})} />
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto *</label>
-                  <input type="text" required placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
+                  <input type="text" required disabled={isSaving} placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto Bruto / Factura ($) *</label>
-                  <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
+                  <input type="number" step="0.01" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Medio de Pago</label>
-                  <select className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase" value={formData.medio_pago} onChange={(e) => setFormData({...formData, medio_pago: e.target.value})}>
+                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.medio_pago} onChange={(e) => setFormData({...formData, medio_pago: e.target.value})}>
                     <option value="transferencia">Transferencia</option>
                     <option value="efectivo">Efectivo</option>
                     <option value="cheque">Cheque</option>
@@ -1030,7 +1044,7 @@ export default function Tesoreria({
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Referencia</label>
-                  <input type="text" placeholder="N° cheque, transferencia..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" value={formData.referencia} onChange={(e) => setFormData({...formData, referencia: e.target.value})} />
+                  <input type="text" disabled={isSaving} placeholder="N° cheque, transferencia..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.referencia} onChange={(e) => setFormData({...formData, referencia: e.target.value})} />
                 </div>
               </div>
 
@@ -1040,23 +1054,23 @@ export default function Tesoreria({
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">SUSS ($)</label>
-                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_suss} onChange={(e) => setFormData({...formData, retencion_suss: e.target.value})} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_suss} onChange={(e) => setFormData({...formData, retencion_suss: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">IVA ($)</label>
-                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_iva} onChange={(e) => setFormData({...formData, retencion_iva: e.target.value})} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iva} onChange={(e) => setFormData({...formData, retencion_iva: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Ganancias ($)</label>
-                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_ganancias} onChange={(e) => setFormData({...formData, retencion_ganancias: e.target.value})} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_ganancias} onChange={(e) => setFormData({...formData, retencion_ganancias: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">IIBB PBA ($)</label>
-                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_iibb_pba} onChange={(e) => setFormData({...formData, retencion_iibb_pba: e.target.value})} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iibb_pba} onChange={(e) => setFormData({...formData, retencion_iibb_pba: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">IIBB CABA ($)</label>
-                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500" value={formData.retencion_iibb_caba} onChange={(e) => setFormData({...formData, retencion_iibb_caba: e.target.value})} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iibb_caba} onChange={(e) => setFormData({...formData, retencion_iibb_caba: e.target.value})} />
                   </div>
                   <div className="bg-amber-50 p-2 rounded-xl border border-amber-200 flex flex-col justify-center">
                     <span className="text-[10px] font-bold text-amber-800 uppercase">Neto Cash Flow:</span>
@@ -1073,7 +1087,7 @@ export default function Tesoreria({
                     </h4>
                     <p className="text-[11px] text-slate-500">Asocia este movimiento a una o varias facturas (montos totales o parciales).</p>
                   </div>
-                  <button type="button" onClick={handleAgregarFacturaFila} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors">
+                  <button type="button" onClick={handleAgregarFacturaFila} disabled={isSaving} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors disabled:opacity-50">
                     <Plus className="w-3.5 h-3.5" /> Agregar Factura
                   </button>
                 </div>
@@ -1092,7 +1106,8 @@ export default function Tesoreria({
                         <tr key={item.id} className="hover:bg-slate-50">
                           <td className="px-3 py-2">
                             <select 
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500"
+                              disabled={isSaving}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100"
                               value={item.factura_id}
                               onChange={(e) => handleCambiarFacturaFila(item.id, 'factura_id', e.target.value)}
                             >
@@ -1124,13 +1139,14 @@ export default function Tesoreria({
                             <input 
                               type="number" 
                               step="0.01" 
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500" 
+                              disabled={isSaving}
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500 disabled:bg-slate-100" 
                               value={item.monto} 
                               onChange={(e) => handleCambiarFacturaFila(item.id, 'monto', e.target.value)} 
                             />
                           </td>
                           <td className="px-3 py-2 text-center">
-                            <button type="button" onClick={() => handleQuitarFacturaFila(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button>
+                            <button type="button" onClick={() => handleQuitarFacturaFila(item.id)} disabled={isSaving} className="text-slate-400 hover:text-red-600 disabled:opacity-50"><Trash2 className="w-4 h-4 mx-auto" /></button>
                           </td>
                         </tr>
                       ))}
@@ -1140,8 +1156,11 @@ export default function Tesoreria({
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-                <button type="submit" className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm">Registrar</button>
+                <button type="button" onClick={() => setIsModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
+                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isSaving ? 'Registrando...' : 'Registrar'}
+                </button>
               </div>
             </form>
           </div>
@@ -1154,7 +1173,7 @@ export default function Tesoreria({
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-sky-50">
               <h3 className="font-bold text-sky-950">+ Nueva Factura de Venta</h3>
-              <button onClick={() => setIsFacturaVentaModalOpen(false)} className="text-sky-400 hover:text-sky-700"><X className="w-5 h-5"/></button>
+              <button onClick={() => setIsFacturaVentaModalOpen(false)} disabled={isSavingVenta} className="text-sky-400 hover:text-sky-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
             
             {pasoFacturaVenta === 'subir' ? (
@@ -1219,7 +1238,8 @@ export default function Tesoreria({
                   <button 
                     type="button" 
                     onClick={() => setPasoFacturaVenta('subir')} 
-                    className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-800"
+                    disabled={isSavingVenta}
+                    className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-800 disabled:opacity-50"
                   >
                     <ArrowLeft className="w-4 h-4" /> Cambiar archivo
                   </button>
@@ -1228,7 +1248,7 @@ export default function Tesoreria({
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="sm:col-span-3">
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Comprobante *</label>
-                    <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 uppercase" value={formDataVenta.tipo_comprobante} onChange={(e) => setFormDataVenta({...formDataVenta, tipo_comprobante: e.target.value})}>
+                    <select required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 uppercase disabled:bg-slate-100" value={formDataVenta.tipo_comprobante} onChange={(e) => setFormDataVenta({...formDataVenta, tipo_comprobante: e.target.value})}>
                       <option value="FACTURA A">FACTURA A</option>
                       <option value="NOTA DE DEBITO A">NOTA DE DEBITO A</option>
                       <option value="NOTA DE CREDITO A">NOTA DE CREDITO A</option>
@@ -1243,15 +1263,15 @@ export default function Tesoreria({
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Punto de Venta</label>
-                    <input type="text" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.punto_venta} onChange={(e) => setFormDataVenta({...formDataVenta, punto_venta: e.target.value})} />
+                    <input type="text" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.punto_venta} onChange={(e) => setFormDataVenta({...formDataVenta, punto_venta: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Comp. Nro *</label>
-                    <input type="text" required placeholder="Ej: 00000171" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.numero_comp} onChange={(e) => setFormDataVenta({...formDataVenta, numero_comp: e.target.value})} />
+                    <input type="text" required disabled={isSavingVenta} placeholder="Ej: 00000171" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.numero_comp} onChange={(e) => setFormDataVenta({...formDataVenta, numero_comp: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cliente *</label>
-                    <select required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({...formDataVenta, cliente_id: e.target.value})}>
+                    <select required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({...formDataVenta, cliente_id: e.target.value})}>
                       <option value="">Seleccione cliente...</option>
                       {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
                     </select>
@@ -1261,18 +1281,18 @@ export default function Tesoreria({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
-                    <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_emision} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_emision: e.target.value})} />
+                    <input type="date" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.fecha_emision} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_emision: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Vto. Pago</label>
-                    <input type="date" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_vencimiento: e.target.value})} />
+                    <input type="date" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_vencimiento: e.target.value})} />
                   </div>
                 </div>
 
                 <div className="space-y-3 pt-4 border-t">
                   <div className="flex justify-between items-center">
                     <h4 className="font-extrabold text-xs uppercase text-slate-800">Detalle de Conceptos / Ítems</h4>
-                    <button type="button" onClick={handleAgregarItemVenta} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-xs font-bold transition-colors">
+                    <button type="button" onClick={handleAgregarItemVenta} disabled={isSavingVenta} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-xs font-bold transition-colors disabled:opacity-50">
                       <Plus className="w-3.5 h-3.5" /> Agregar Ítem
                     </button>
                   </div>
@@ -1293,8 +1313,9 @@ export default function Tesoreria({
                             <td className="px-3 py-2">
                               <input 
                                 type="text" 
+                                disabled={isSavingVenta}
                                 placeholder="Detalle del concepto..." 
-                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-sky-500"
+                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100"
                                 value={item.descripcion}
                                 onChange={(e) => handleCambiarItemVenta(item.id, 'descripcion', e.target.value)}
                               />
@@ -1303,7 +1324,8 @@ export default function Tesoreria({
                               <input 
                                 type="number" 
                                 step="0.01" 
-                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-sky-500"
+                                disabled={isSavingVenta}
+                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-sky-500 disabled:bg-slate-100"
                                 value={item.cantidad}
                                 onChange={(e) => handleCambiarItemVenta(item.id, 'cantidad', e.target.value)}
                               />
@@ -1312,7 +1334,8 @@ export default function Tesoreria({
                               <input 
                                 type="number" 
                                 step="0.01" 
-                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-sky-500"
+                                disabled={isSavingVenta}
+                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-sky-500 disabled:bg-slate-100"
                                 value={item.precio_unitario}
                                 onChange={(e) => handleCambiarItemVenta(item.id, 'precio_unitario', e.target.value)}
                               />
@@ -1321,7 +1344,7 @@ export default function Tesoreria({
                               $ {Number(item.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                             </td>
                             <td className="px-3 py-2 text-center">
-                              <button type="button" onClick={() => handleQuitarItemVenta(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 className="w-4 h-4 mx-auto" /></button>
+                              <button type="button" onClick={() => handleQuitarItemVenta(item.id)} disabled={isSavingVenta} className="text-slate-400 hover:text-red-600 disabled:opacity-50"><Trash2 className="w-4 h-4 mx-auto" /></button>
                             </td>
                           </tr>
                         ))}
@@ -1337,7 +1360,7 @@ export default function Tesoreria({
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 21% ($)</label>
-                    <input type="number" step="0.01" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500" value={formDataVenta.iva_21} onChange={(e) => {
+                    <input type="number" step="0.01" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.iva_21} onChange={(e) => {
                       const iva = Number(e.target.value) || 0;
                       const total = Number(formDataVenta.neto_gravado) + iva + Number(formDataVenta.otros_tributos);
                       setFormDataVenta({...formDataVenta, iva_21: iva, total: total});
@@ -1345,13 +1368,16 @@ export default function Tesoreria({
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Total ($)</label>
-                    <input type="number" step="0.01" required className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
+                    <input type="number" step="0.01" required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
                   </div>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-4 border-t">
-                  <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-                  <button type="submit" className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl text-xs font-bold shadow-sm">Guardar Factura Venta</button>
+                  <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} disabled={isSavingVenta} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Cancelar</button>
+                  <button type="submit" disabled={isSavingVenta} className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 disabled:bg-sky-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
+                    {isSavingVenta && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {isSavingVenta ? 'Guardando...' : 'Guardar Factura Venta'}
+                  </button>
                 </div>
               </form>
             )}

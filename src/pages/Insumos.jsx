@@ -13,6 +13,9 @@ export default function Insumos() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
+  // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
+  const [isSaving, setIsSaving] = useState(false);
+
   const [nuevoInsumo, setNuevoInsumo] = useState({ 
     codigo: '', 
     nombre: '', 
@@ -96,8 +99,12 @@ export default function Insumos() {
     setIsFormOpen(true);
   };
 
+  // 🛡️ FUNCIÓN DE GUARDADO CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
   const handleGuardar = async (e) => {
     e.preventDefault();
+    if (isSaving) return; // Detiene clics adicionales si ya está enviando
+
+    setIsSaving(true);
     try {
       const action = editingId ? 'update' : 'create';
       const bodyPayload = { 
@@ -126,6 +133,8 @@ export default function Insumos() {
       }
     } catch (err) {
       alert("Error de conexión al intentar guardar.");
+    } finally {
+      setIsSaving(false); // 🔓 Libera el bloqueo al finalizar la petición
     }
   };
 
@@ -285,8 +294,21 @@ export default function Insumos() {
               <option value="inactivo">Inactivo</option>
             </select>
             <div className="md:col-span-4 flex justify-end gap-2 mt-2">
-              <button type="button" onClick={() => { setIsFormOpen(false); setEditingId(null); }} className="px-4 py-2 text-slate-700 text-sm font-medium">Cancelar</button>
-              <button type="submit" className="px-6 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold shadow-sm">Guardar</button>
+              <button 
+                type="button" 
+                onClick={() => { setIsFormOpen(false); setEditingId(null); }} 
+                disabled={isSaving}
+                className="px-4 py-2 text-slate-700 text-sm font-medium disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button 
+                type="submit" 
+                disabled={isSaving}
+                className="px-6 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold shadow-sm flex items-center gap-2"
+              >
+                {isSaving ? <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</> : 'Guardar'}
+              </button>
             </div>
           </form>
         </div>

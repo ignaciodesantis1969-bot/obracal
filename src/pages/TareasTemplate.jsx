@@ -13,6 +13,9 @@ export default function TareasTemplate() {
   const [rubrosAbiertos, setRubrosAbiertos] = useState({});
   const [tareasAbiertas, setTareasAbiertas] = useState({});
 
+  // 🛡️ ESTADOS DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
+  const [isSaving, setIsSaving] = useState(false);
+
   const [formData, setFormData] = useState({ 
     codigo: '', 
     rubro: '', 
@@ -210,19 +213,22 @@ export default function TareasTemplate() {
     return `R${String(maxNum + 1).padStart(3, '0')}`;
   };
 
+  // 🛡️ FUNCIÓN DE GUARDADO CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
   const handleGuardar = async (e) => {
     e.preventDefault();
+    if (isSaving) return; // Detiene clics adicionales si ya está enviando
 
-    if (activeForm === 'rubro') {
-      const nombreRubroUpper = (formData.rubro || '').trim().toUpperCase();
-      if (!nombreRubroUpper) {
-        alert("Ingrese un nombre de rubro válido.");
-        return;
-      }
+    setIsSaving(true);
+    try {
+      if (activeForm === 'rubro') {
+        const nombreRubroUpper = (formData.rubro || '').trim().toUpperCase();
+        if (!nombreRubroUpper) {
+          alert("Ingrese un nombre de rubro válido.");
+          return;
+        }
 
-      const codigoGenerado = generarCodigoRubroAutomatico();
+        const codigoGenerado = generarCodigoRubroAutomatico();
 
-      try {
         const resRubro = await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -246,37 +252,39 @@ export default function TareasTemplate() {
         } else {
           alert("Error al guardar el rubro: " + (resData.error || "Desconocido"));
         }
-      } catch (err) {
-        console.error(err);
-        alert("Error de conexión al guardar el rubro.");
+        return;
       }
-      return;
-    }
 
-    const action = editingId ? 'update' : 'create';
-    const itemAGuardar = {
-        ...formData,
-        rubro: (formData.rubro || '').trim().toUpperCase(),
-        tarea: formData.tarea,
-        costo_estimado: costoTotal,
-        hs_mo: `${totalHsMo.toFixed(3)} hs`,
-        insumos_detalle: JSON.stringify(formData.insumos_asociados)
-    };
-    
-    const response = await fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: 'MaestroTareasRubros', action, id: editingId, data: itemAGuardar })
-    });
-    const res = await response.json();
-    
-    if (res.success) {
-      setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
-      setEditingId(null);
-      setActiveForm(null);
-      cargarDatos();
-    } else {
-      alert("Error al guardar: " + (res.error || "Desconocido"));
+      const action = editingId ? 'update' : 'create';
+      const itemAGuardar = {
+          ...formData,
+          rubro: (formData.rubro || '').trim().toUpperCase(),
+          tarea: formData.tarea,
+          costo_estimado: costoTotal,
+          hs_mo: `${totalHsMo.toFixed(3)} hs`,
+          insumos_detalle: JSON.stringify(formData.insumos_asociados)
+      };
+      
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'MaestroTareasRubros', action, id: editingId, data: itemAGuardar })
+      });
+      const res = await response.json();
+      
+      if (res.success) {
+        setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
+        setEditingId(null);
+        setActiveForm(null);
+        cargarDatos();
+      } else {
+        alert("Error al guardar: " + (res.error || "Desconocido"));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error de conexión al intentar guardar.");
+    } finally {
+      setIsSaving(false); // 🔓 Libera el bloqueo al finalizar la petición
     }
   };
 
@@ -396,7 +404,7 @@ export default function TareasTemplate() {
               <h2 className="text-lg font-bold text-slate-900">
                 {activeForm === 'rubro' ? 'Crear Nuevo Rubro' : (editingId ? 'Editar Tarea' : 'Nueva Tarea')}
               </h2>
-              <button onClick={() => { setActiveForm(null); setEditingId(null); }} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg">
+              <button onClick={() => { setActiveForm(null); setEditingId(null); }} disabled={isSaving} className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg disabled:opacity-50">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -408,8 +416,9 @@ export default function TareasTemplate() {
                     <input 
                         type="text" 
                         required
+                        disabled={isSaving}
                         placeholder="Ej: INSTALACIONES, ESTRUCTURA" 
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase font-semibold focus:border-amber-500 focus:outline-none"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase font-semibold focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                         value={formData.rubro}
                         onChange={(e) => setFormData({...formData, rubro: e.target.value.toUpperCase()})}
                     />
@@ -422,7 +431,8 @@ export default function TareasTemplate() {
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar Rubro *</label>
                     <select 
                         required
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase font-semibold focus:border-amber-500 focus:outline-none"
+                        disabled={isSaving}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase font-semibold focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                         value={formData.rubro}
                         onChange={(e) => setFormData({...formData, rubro: e.target.value})}
                     >
@@ -439,8 +449,9 @@ export default function TareasTemplate() {
                         <input 
                             type="text" 
                             required
+                            disabled={isSaving}
                             placeholder="Ej: Hormigón H-21" 
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:border-amber-500 focus:outline-none"
+                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                             value={formData.tarea}
                             onChange={(e) => setFormData({...formData, tarea: e.target.value})}
                         />
@@ -448,7 +459,8 @@ export default function TareasTemplate() {
                     <div>
                         <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Unidad de Medida *</label>
                         <select 
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase focus:border-amber-500 focus:outline-none"
+                            disabled={isSaving}
+                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                             value={formData.unidad}
                             onChange={(e) => setFormData({...formData, unidad: e.target.value})}
                         >
@@ -465,8 +477,9 @@ export default function TareasTemplate() {
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Descripción</label>
                     <textarea 
                         rows="2"
+                        disabled={isSaving}
                         placeholder="Descripción opcional" 
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:border-amber-500 focus:outline-none"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
                         value={formData.descripcion}
                         onChange={(e) => setFormData({...formData, descripcion: e.target.value})}
                     />
@@ -481,8 +494,9 @@ export default function TareasTemplate() {
                       <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                       <input 
                         type="text"
+                        disabled={isSaving}
                         placeholder="Buscar insumo para agregar..."
-                        className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:bg-white focus:border-amber-500 outline-none"
+                        className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:bg-white focus:border-amber-500 outline-none disabled:bg-slate-100"
                         value={busquedaInsumo}
                         onChange={(e) => setBusquedaInsumo(e.target.value)}
                       />
@@ -527,11 +541,12 @@ export default function TareasTemplate() {
                               <input 
                                 type="number" 
                                 step="0.001" 
-                                className="w-20 bg-white border border-slate-300 rounded px-2 py-1 text-center font-bold text-slate-800 focus:outline-none focus:border-amber-500"
+                                disabled={isSaving}
+                                className="w-20 bg-white border border-slate-300 rounded px-2 py-1 text-center font-bold text-slate-800 focus:outline-none focus:border-amber-500 disabled:bg-slate-100"
                                 value={item.cantidad}
                                 onChange={(e) => handleCambiarCantidadInsumo(item.id, e.target.value)}
                               />
-                              <button type="button" onClick={() => handleQuitarInsumo(item.id)} className="p-1 text-red-400 hover:text-red-600">
+                              <button type="button" onClick={() => handleQuitarInsumo(item.id)} disabled={isSaving} className="p-1 text-red-400 hover:text-red-600 disabled:opacity-50">
                                 <Trash2 className="w-4 h-4" />
                               </button>
                             </div>
@@ -555,9 +570,10 @@ export default function TareasTemplate() {
               )}
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-                  <button type="button" onClick={() => { setActiveForm(null); setEditingId(null); }} className="px-4 py-2.5 text-slate-700 hover:bg-slate-100 rounded-xl text-sm font-medium">Cancelar</button>
-                  <button type="submit" className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-semibold shadow-sm">
-                    {activeForm === 'rubro' ? 'Crear Rubro' : (editingId ? 'Actualizar Tarea' : 'Crear Tarea')}
+                  <button type="button" onClick={() => { setActiveForm(null); setEditingId(null); }} disabled={isSaving} className="px-4 py-2.5 text-slate-700 hover:bg-slate-100 rounded-xl text-sm font-medium disabled:opacity-50">Cancelar</button>
+                  <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-sm font-semibold shadow-sm flex items-center gap-2">
+                    {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {isSaving ? 'Guardando...' : (activeForm === 'rubro' ? 'Crear Rubro' : (editingId ? 'Actualizar Tarea' : 'Crear Tarea'))}
                   </button>
               </div>
             </form>

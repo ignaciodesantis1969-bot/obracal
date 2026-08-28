@@ -11,6 +11,9 @@ export default function Presupuestos() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
 
+  // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
+  const [isSaving, setIsSaving] = useState(false);
+
   // Vistas de Pestañas: 'workspace' (Borrador + Entregado) | 'aprobados' (Aprobado) | 'archivados' (Rechazado + Versiones viejas)
   const [activeTab, setActiveTab] = useState('workspace');
 
@@ -94,8 +97,12 @@ export default function Presupuestos() {
     });
   };
 
+  // 🛡️ FUNCIÓN DE CREACIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
   const handleCrear = async (e) => {
     e.preventDefault();
+    if (isSaving) return;
+
+    setIsSaving(true);
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -122,6 +129,8 @@ export default function Presupuestos() {
     } catch (err) {
       console.error("Error:", err);
       alert("Error de conexión al crear.");
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -509,14 +518,15 @@ export default function Presupuestos() {
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">Nuevo Presupuesto</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+              <button onClick={() => setIsModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={handleCrear} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra Asociada *</label>
                 <select 
                   required
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold"
+                  disabled={isSaving}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold disabled:bg-slate-100"
                   value={nuevoPresupuesto.obra_id}
                   onChange={handleObraChange}
                 >
@@ -544,8 +554,9 @@ export default function Presupuestos() {
                 <input 
                   type="text"
                   required
+                  disabled={isSaving}
                   placeholder="Ej: Ampliación Edificio Central"
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold disabled:bg-slate-100"
                   value={nuevoPresupuesto.nombre}
                   onChange={(e) => setNuevoPresupuesto({...nuevoPresupuesto, nombre: e.target.value})}
                 />
@@ -557,15 +568,18 @@ export default function Presupuestos() {
                   type="number"
                   step="0.0001"
                   required
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-bold text-amber-600"
+                  disabled={isSaving}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-bold text-amber-600 disabled:bg-slate-100"
                   value={nuevoPresupuesto.coeficiente_pase}
                   onChange={(e) => setNuevoPresupuesto({...nuevoPresupuesto, coeficiente_pase: e.target.value})}
                 />
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm text-slate-600">Cancelar</button>
-                <button type="submit" className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold">Crear Presupuesto</button>
+                <button type="button" onClick={() => setIsModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
+                  {isSaving ? <><Loader2 className="w-4 h-4 animate-spin"/> Creando...</> : 'Crear Presupuesto'}
+                </button>
               </div>
             </form>
           </div>

@@ -10,6 +10,9 @@ export default function Clientes() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
+  // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
+  const [isSaving, setIsSaving] = useState(false);
+
   // Incluimos 'direccion' en el estado del formulario
   const [nuevoCliente, setNuevoCliente] = useState({ 
     codigo: '', 
@@ -61,8 +64,12 @@ export default function Clientes() {
     setIsFormOpen(true);
   };
 
+  // 🛡️ FUNCIÓN DE GUARDADO CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
   const handleGuardar = async (e) => {
     e.preventDefault();
+    if (isSaving) return; // Detiene clics adicionales si ya está enviando
+
+    setIsSaving(true);
     try {
       const action = editingId ? 'update' : 'create';
       const bodyPayload = {
@@ -92,6 +99,8 @@ export default function Clientes() {
       }
     } catch (err) {
       alert("Error de conexión al intentar guardar.");
+    } finally {
+      setIsSaving(false); // 🔓 Libera el bloqueo al finalizar la petición
     }
   };
 
@@ -217,15 +226,17 @@ export default function Clientes() {
               <button 
                 type="button" 
                 onClick={() => { setIsFormOpen(false); setEditingId(null); }} 
-                className="px-4 py-2 text-slate-700 hover:bg-slate-300 rounded-lg text-sm font-medium transition-colors"
+                disabled={isSaving}
+                className="px-4 py-2 text-slate-700 hover:bg-slate-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button 
                 type="submit" 
-                className="px-6 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-medium transition-colors shadow-sm"
+                disabled={isSaving}
+                className="px-6 py-2 bg-slate-900 hover:bg-slate-800 disabled:bg-slate-600 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
               >
-                {editingId ? 'Actualizar Cliente' : 'Guardar Cliente'}
+                {isSaving ? <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</> : (editingId ? 'Actualizar Cliente' : 'Guardar Cliente')}
               </button>
             </div>
           </form>

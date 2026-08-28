@@ -10,6 +10,10 @@ export default function Proveedores() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingProveedor, setEditingProveedor] = useState(null);
 
+  // 🛡️ ESTADOS DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
+  const [isSavingCreate, setIsSavingCreate] = useState(false);
+  const [isSavingUpdate, setIsSavingUpdate] = useState(false);
+
   const [nuevoProveedor, setNuevoProveedor] = useState({
     codigo: '',
     razon_social: '',
@@ -63,8 +67,12 @@ export default function Proveedores() {
     return `PR${String(maxNum + 1).padStart(3, '0')}`;
   };
 
+  // 🛡️ FUNCIÓN DE CREACIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
   const handleCrear = async (e) => {
     e.preventDefault();
+    if (isSavingCreate) return;
+
+    setIsSavingCreate(true);
     try {
       const codigoActual = generarCodigoAutomatico(proveedores);
       const proveedorConCodigo = { ...nuevoProveedor, codigo: codigoActual, estado: 'Activo' };
@@ -89,13 +97,17 @@ export default function Proveedores() {
     } catch (err) {
       console.error("Error:", err);
       alert("Error de conexión al crear.");
+    } finally {
+      setIsSavingCreate(false);
     }
   };
 
+  // 🛡️ FUNCIÓN DE ACTUALIZACIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
   const handleActualizar = async (e) => {
     e.preventDefault();
-    if (!editingProveedor) return;
+    if (!editingProveedor || isSavingUpdate) return;
 
+    setIsSavingUpdate(true);
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -118,6 +130,8 @@ export default function Proveedores() {
     } catch (err) {
       console.error("Error:", err);
       alert("Error de conexión al actualizar.");
+    } finally {
+      setIsSavingUpdate(false);
     }
   };
 
@@ -362,8 +376,10 @@ export default function Proveedores() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm text-slate-600">Cancelar</button>
-                <button type="submit" className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold">Guardar Proveedor</button>
+                <button type="button" onClick={() => setIsModalOpen(false)} disabled={isSavingCreate} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSavingCreate} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
+                  {isSavingCreate ? <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</> : 'Guardar Proveedor'}
+                </button>
               </div>
             </form>
           </div>
@@ -453,8 +469,10 @@ export default function Proveedores() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-sm text-slate-600">Cancelar</button>
-                <button type="submit" className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold">Actualizar Proveedor</button>
+                <button type="button" onClick={() => setIsEditModalOpen(false)} disabled={isSavingUpdate} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSavingUpdate} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
+                  {isSavingUpdate ? <><Loader2 className="w-4 h-4 animate-spin"/> Actualizando...</> : 'Actualizar Proveedor'}
+                </button>
               </div>
             </form>
           </div>

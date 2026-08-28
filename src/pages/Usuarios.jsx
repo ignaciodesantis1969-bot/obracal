@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { UserPlus, UserX, Shield, Mail, Loader2 } from 'lucide-react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
@@ -58,6 +58,8 @@ export default function Usuarios() {
 
   const handleCrear = async (e) => {
     e.preventDefault();
+    if (isSubmitting) return;
+
     setIsSubmitting(true);
     try {
       // 1. Crear instancia secundaria usando las opciones de la app principal (evita errores de importación)
@@ -146,7 +148,8 @@ export default function Usuarios() {
           <input
             type="text"
             placeholder="Nombre completo"
-            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
+            disabled={isSubmitting}
+            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 disabled:bg-slate-100"
             value={nuevoUsuario.nombre}
             onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, nombre: e.target.value })}
             required
@@ -154,7 +157,8 @@ export default function Usuarios() {
           <input
             type="email"
             placeholder="Correo electrónico"
-            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
+            disabled={isSubmitting}
+            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 disabled:bg-slate-100"
             value={nuevoUsuario.email}
             onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, email: e.target.value })}
             required
@@ -162,13 +166,15 @@ export default function Usuarios() {
           <input
             type="password"
             placeholder="Contraseña temporal"
-            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
+            disabled={isSubmitting}
+            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 disabled:bg-slate-100"
             value={nuevoUsuario.password}
             onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, password: e.target.value })}
             required
           />
           <select
-            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 bg-white"
+            disabled={isSubmitting}
+            className="border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 bg-white disabled:bg-slate-100"
             value={nuevoUsuario.role}
             onChange={(e) => setNuevoUsuario({ ...nuevoUsuario, role: e.target.value })}
           >
@@ -180,9 +186,10 @@ export default function Usuarios() {
           <button 
             type="submit" 
             disabled={isSubmitting}
-            className="bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-lg px-4 py-2 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+            className="bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white font-medium rounded-lg px-4 py-2 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
           >
-            {isSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Agregar Usuario"}
+            {isSubmitting && <Loader2 className="w-4 h-4 animate-spin" />}
+            {isSubmitting ? 'Registrando...' : 'Agregar Usuario'}
           </button>
         </form>
       </div>
