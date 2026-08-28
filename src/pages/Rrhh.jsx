@@ -79,6 +79,20 @@ export default function Rrhh({
   const [archivoLegajoBase64, setArchivoLegajoBase64] = useState('');
   const [cargandoLegajo, setCargandoLegajo] = useState(false);
 
+  // Listado fijo requerido para Documentación Principal
+  const DOCUMENTOS_PRINCIPALES_OBLIGATORIOS = [
+    "DNI",
+    "Alta Afip",
+    "Baja Afip",
+    "Alta IERIC",
+    "Tarjeta IERIC",
+    "Alta Cuenta Fondo de Desempleo",
+    "Telegrama de Renuncia",
+    "Certificado de Trabajo ART. 80",
+    "Certificacion de Servicios y Remuneraciones",
+    "Constancia de CUIL"
+  ];
+
   React.useEffect(() => {
     if (safePersonal.length > 0 && !legajoEmpleadoSeleccionado) {
       setLegajoEmpleadoSeleccionado(String(safePersonal[0].id || safePersonal[0].ID || ''));
@@ -416,7 +430,54 @@ export default function Rrhh({
     }
   };
 
-  // Manejo de Archivos de Legajos
+  // Manejo de Archivos de Legajos Fijos (Documentación Principal)
+  const handleSubirDocumentoFijo = async (docTitulo, file) => {
+    if (!file) return;
+    if (!legajoEmpleadoSeleccionado) {
+      alert("Por favor selecciona un trabajador.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result;
+      setCargandoLegajo(true);
+      try {
+        const payload = {
+          tabla: 'Legajos',
+          action: 'create',
+          data: {
+            personal_id: legajoEmpleadoSeleccionado,
+            subseccion: 'documentacion_principal',
+            nombre_archivo: docTitulo,
+            archivo_url: base64String,
+            fecha: new Date().toISOString().split('T')[0]
+          }
+        };
+
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({ success: true }));
+        if (data.success !== false) {
+          alert(`¡Documento "${docTitulo}" subido y archivado con éxito!`);
+          cargarDatos();
+        } else {
+          alert("Error al subir el archivo: " + (data.error || 'Desconocido'));
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Error de conexión al subir el documento.");
+      } finally {
+        setCargandoLegajo(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Manejo de Archivos para otras Secciones (Recibos, Estudios, etc.)
   const handleArchivoLegajoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -430,7 +491,7 @@ export default function Rrhh({
     reader.readAsDataURL(file);
   };
 
-  const handleSubirLegajo = async (e) => {
+  const handleSubirLegajoLibre = async (e) => {
     e.preventDefault();
     if (!legajoEmpleadoSeleccionado) {
       alert("Por favor selecciona un trabajador.");
@@ -826,83 +887,43 @@ export default function Rrhh({
                 })}
               </div>
 
-              {/* Formulario de Carga y Listado */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Formulario de Subida (1 Columna) */}
-                <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4 h-fit">
-                  <h4 className="text-xs font-extrabold text-slate-900 uppercase flex items-center gap-1.5">
-                    <Upload className="w-4 h-4 text-amber-500" /> Subir Nuevo Archivo
-                  </h4>
-                  
-                  <form onSubmit={handleSubirLegajo} className="space-y-4">
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Título / Descripción del Archivo *</label>
-                      <input 
-                        type="text"
-                        required
-                        placeholder="Ej: Recibo Agosto 2026, Apto Médico..."
-                        value={nombreDocumentoLegajo}
-                        onChange={(e) => setNombreDocumentoLegajo(e.target.value)}
-                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
-                      />
-                    </div>
+              {/* Contenido según la subsección activa */}
+              {legajoSubseccionActiva === 'documentacion_principal' ? (
+                /* LISTADO FIJO PARA DOCUMENTACIÓN PRINCIPAL */
+                <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
+                  <div>
+                    <h4 className="text-xs font-extrabold text-slate-900 uppercase">Documentación Principal Obligatoria</h4>
+                    <p className="text-xs text-slate-500 mt-0.5">Sube cada documento obligatorio requerido para el legajo del trabajador.</p>
+                  </div>
 
-                    <div>
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Seleccionar Archivo (PDF, JPG, PNG) *</label>
-                      <input 
-                        type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
-                        onChange={handleArchivoLegajoChange}
-                        className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100 cursor-pointer"
-                      />
-                    </div>
+                  <div className="grid grid-cols-1 gap-3 pt-2">
+                    {DOCUMENTOS_PRINCIPALES_OBLIGATORIOS.map((docTitulo) => {
+                      const docExistente = legajosLista.find(l => 
+                        String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && 
+                        String(l.subseccion || l.Subseccion) === 'documentacion_principal' && 
+                        String(l.nombre_archivo || l.Nombre_archivo).trim().toLowerCase() === docTitulo.toLowerCase()
+                      );
 
-                    <button 
-                      type="submit"
-                      disabled={cargandoLegajo}
-                      className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer flex items-center justify-center gap-2"
-                    >
-                      {cargandoLegajo ? 'Subiendo a Drive...' : 'Archivar Documento'}
-                    </button>
-                  </form>
-                </div>
+                      return (
+                        <div key={docTitulo} className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 bg-slate-50 border border-slate-200 rounded-xl gap-4 hover:bg-slate-100/60 transition-colors">
+                          <div className="flex items-center gap-3">
+                            <div className={`p-2.5 rounded-lg ${docExistente ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-800'}`}>
+                              <FileText className="w-4 h-4" />
+                            </div>
+                            <div>
+                              <h5 className="text-xs font-bold text-slate-900">{docTitulo}</h5>
+                              <p className="text-[10px] text-slate-500 mt-0.5">
+                                {docExistente ? `Subido el: ${docExistente.fecha || docExistente.Fecha || '---'}` : 'Pendiente de carga'}
+                              </p>
+                            </div>
+                          </div>
 
-                {/* Listado de Archivos en la Subsección (2 Columnas) */}
-                <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
-                  <h4 className="text-xs font-extrabold text-slate-900 uppercase">
-                    Archivos Archivados ({legajosLista.filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva).length})
-                  </h4>
-
-                  {legajosLista.filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva).length === 0 ? (
-                    <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-xl">
-                      No hay documentos cargados en esta sección para este trabajador.
-                    </div>
-                  ) : (
-                    <div className="space-y-3 max-h-96 overflow-y-auto">
-                      {legajosLista
-                        .filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva)
-                        .map((item, idx) => {
-                          const lId = item.id || item.ID || idx;
-                          const lNombre = item.nombre_archivo || item.Nombre_archivo || 'Documento sin título';
-                          const lUrl = item.url_archivo || item.Url_archivo || item.archivo_url || '#';
-                          const lFecha = item.fecha || item.Fecha || '---';
-
-                          return (
-                            <div key={lId} className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
-                              <div className="flex items-center gap-3">
-                                <div className="p-2.5 bg-amber-100 text-amber-800 rounded-lg">
-                                  <FileText className="w-4 h-4" />
-                                </div>
-                                <div>
-                                  <h5 className="text-xs font-bold text-slate-900">{lNombre}</h5>
-                                  <p className="text-[10px] text-slate-500 mt-0.5">Subido el: {lFecha}</p>
-                                </div>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                {lUrl && lUrl !== '#' && (
+                          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+                            {docExistente ? (
+                              <>
+                                {(docExistente.url_archivo || docExistente.Url_archivo || docExistente.archivo_url) && (
                                   <a 
-                                    href={lUrl} 
+                                    href={docExistente.url_archivo || docExistente.Url_archivo || docExistente.archivo_url} 
                                     target="_blank" 
                                     rel="noopener noreferrer"
                                     className="px-3 py-1.5 bg-white border border-slate-300 hover:border-amber-500 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition-all"
@@ -911,20 +932,137 @@ export default function Rrhh({
                                   </a>
                                 )}
                                 <button 
-                                  onClick={() => handleEliminarLegajo(lId)}
+                                  onClick={() => handleEliminarLegajo(docExistente.id || docExistente.ID)}
                                   className="p-1.5 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg shadow-sm cursor-pointer"
                                   title="Eliminar documento"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </button>
+                              </>
+                            ) : (
+                              <div className="flex items-center gap-2 w-full sm:w-auto">
+                                <input 
+                                  type="file"
+                                  accept=".pdf,.jpg,.jpeg,.png"
+                                  id={`file-fixed-${docTitulo}`}
+                                  className="hidden"
+                                  onChange={(e) => handleSubirDocumentoFijo(docTitulo, e.target.files[0])}
+                                />
+                                <label 
+                                  htmlFor={`file-fixed-${docTitulo}`}
+                                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer transition-all w-full sm:w-auto justify-center"
+                                >
+                                  <Upload className="w-3.5 h-3.5" /> Subir Archivo
+                                </label>
                               </div>
-                            </div>
-                          );
-                        })}
-                    </div>
-                  )}
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                /* FORMULARIO LIBRE PARA OTRAS SECCIONES (Recibos, Estudios, Capacitaciones) */
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                  {/* Formulario de Subida (1 Columna) */}
+                  <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4 h-fit">
+                    <h4 className="text-xs font-extrabold text-slate-900 uppercase flex items-center gap-1.5">
+                      <Upload className="w-4 h-4 text-amber-500" /> Subir Nuevo Archivo
+                    </h4>
+                    
+                    <form onSubmit={handleSubirLegajoLibre} className="space-y-4">
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Título / Descripción del Archivo *</label>
+                        <input 
+                          type="text"
+                          required
+                          placeholder="Ej: Recibo Agosto 2026, Apto Médico..."
+                          value={nombreDocumentoLegajo}
+                          onChange={(e) => setNombreDocumentoLegajo(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Seleccionar Archivo (PDF, JPG, PNG) *</label>
+                        <input 
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          onChange={handleArchivoLegajoChange}
+                          className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100 cursor-pointer"
+                        />
+                      </div>
+
+                      <button 
+                        type="submit"
+                        disabled={cargandoLegajo}
+                        className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer flex items-center justify-center gap-2"
+                      >
+                        {cargandoLegajo ? 'Subiendo a Drive...' : 'Archivar Documento'}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* Listado de Archivos en la Subsección (2 Columnas) */}
+                  <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
+                    <h4 className="text-xs font-extrabold text-slate-900 uppercase">
+                      Archivos Archivados ({legajosLista.filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva).length})
+                    </h4>
+
+                    {legajosLista.filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva).length === 0 ? (
+                      <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-xl">
+                        No hay documentos cargados en esta sección para este trabajador.
+                      </div>
+                    ) : (
+                      <div className="space-y-3 max-h-96 overflow-y-auto">
+                        {legajosLista
+                          .filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva)
+                          .map((item, idx) => {
+                            const lId = item.id || item.ID || idx;
+                            const lNombre = item.nombre_archivo || item.Nombre_archivo || 'Documento sin título';
+                            const lUrl = item.url_archivo || item.Url_archivo || item.archivo_url || '#';
+                            const lFecha = item.fecha || item.Fecha || '---';
+
+                            return (
+                              <div key={lId} className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
+                                <div className="flex items-center gap-3">
+                                  <div className="p-2.5 bg-amber-100 text-amber-800 rounded-lg">
+                                    <FileText className="w-4 h-4" />
+                                  </div>
+                                  <div>
+                                    <h5 className="text-xs font-bold text-slate-900">{lNombre}</h5>
+                                    <p className="text-[10px] text-slate-500 mt-0.5">Subido el: {lFecha}</p>
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2">
+                                  {lUrl && lUrl !== '#' && (
+                                    <a 
+                                      href={lUrl} 
+                                      target="_blank" 
+                                      rel="noopener noreferrer"
+                                      className="px-3 py-1.5 bg-white border border-slate-300 hover:border-amber-500 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition-all"
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5 text-amber-600" /> Ver Archivo
+                                    </a>
+                                  )}
+                                  <button 
+                                    onClick={() => handleEliminarLegajo(lId)}
+                                    className="p-1.5 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg shadow-sm cursor-pointer"
+                                    title="Eliminar documento"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
