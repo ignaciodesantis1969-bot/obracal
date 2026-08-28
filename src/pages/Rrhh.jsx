@@ -524,11 +524,6 @@ export default function Rrhh({
     reader.readAsDataURL(file);
   };
 
-  const fotoPerfilActual = legajosLista.find(l => 
-    String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && 
-    String(l.subseccion || l.Subseccion) === 'foto_perfil'
-  );
-
   // Manejo de Archivos para otras Secciones (Recibos, Estudios, etc.)
   const handleArchivoLegajoChange = (e) => {
     const file = e.target.files[0];
@@ -901,89 +896,90 @@ export default function Rrhh({
               </div>
             </div>
 
- {/* Espacio para la foto cuadrada con opciones Subir / Borrar */}
-{legajoEmpleadoSeleccionado && (
-  <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-    <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
-      {(() => {
-        const fotoPerfilObj = legajosLista.find(l => {
-          const pId = String(l.personal_id || l.Personal_id || l.personalId || '');
-          const sub = String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '');
-          return pId === String(legajoEmpleadoSeleccionado) && sub === 'fotoperfil';
-        });
+            {/* Espacio para la foto cuadrada con opciones Subir / Borrar */}
+            {legajoEmpleadoSeleccionado && (
+              <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
+                  {(() => {
+                    const fotoPerfilObj = legajosLista.find(l => {
+                      const pId = String(l.personal_id || l.Personal_id || l.personalId || '');
+                      const sub = String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '');
+                      return pId === String(legajoEmpleadoSeleccionado) && sub === 'fotoperfil';
+                    });
 
-        const urlRaw = fotoPerfilObj?.url_archivo || fotoPerfilObj?.Url_archivo || fotoPerfilObj?.archivo_url || fotoPerfilObj?.Archivo_url;
+                    const urlRaw = fotoPerfilObj?.url_archivo || fotoPerfilObj?.Url_archivo || fotoPerfilObj?.archivo_url || fotoPerfilObj?.Archivo_url;
 
-        // Función para convertir el enlace de Google Drive a formato de imagen directa
-        const convertirUrlDrive = (url) => {
-          if (!url) return '';
-          if (url.startsWith('data:')) return url;
-          
-          let fileId = '';
-          const matchD = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-          if (matchD && matchD[1]) {
-            fileId = matchD[1];
-          } else {
-            const matchId = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-            if (matchId && matchId[1]) {
-              fileId = matchId[1];
-            }
-          }
+                    const convertirUrlDrive = (url) => {
+                      if (!url) return '';
+                      if (url.startsWith('data:')) return url;
+                      
+                      let fileId = '';
+                      const matchD = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+                      if (matchD && matchD[1]) {
+                        fileId = matchD[1];
+                      } else {
+                        const matchId = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+                        if (matchId && matchId[1]) {
+                          fileId = matchId[1];
+                        }
+                      }
 
-          if (fileId) {
-            return `https://lh3.googleusercontent.com/d/${fileId}`;
-          }
-          return url;
-        };
+                      if (fileId) {
+                        return `https://lh3.googleusercontent.com/d/${fileId}`;
+                      }
+                      return url;
+                    };
 
-        const urlFinal = convertirUrlDrive(urlRaw);
+                    const urlFinal = convertirUrlDrive(urlRaw);
 
-        if (urlFinal && urlFinal !== 'Comprobante_Adjunto') {
-          return (
-            <img 
-              src={urlFinal} 
-              alt="Foto empleado" 
-              className="w-full h-full object-cover"
-              onError={(e) => { e.target.style.display = 'none'; }}
-            />
-          );
-        }
-        return <ImageIcon className="w-8 h-8 text-slate-400" />;
-      })()}
-    </div>
+                    if (urlFinal && urlFinal !== 'Comprobante_Adjunto') {
+                      return (
+                        <img 
+                          src={urlFinal} 
+                          alt="Foto empleado" 
+                          className="w-full h-full object-cover"
+                          onError={(e) => { e.target.style.display = 'none'; }}
+                        />
+                      );
+                    }
+                    return <ImageIcon className="w-8 h-8 text-slate-400" />;
+                  })()}
+                </div>
 
-    <div className="flex flex-col gap-2">
-      <span className="text-[10px] font-extrabold text-slate-600 uppercase">Foto Carnet / Perfil</span>
-      <div className="flex items-center gap-2">
-        <input 
-          type="file"
-          accept=".jpg,.jpeg,.png"
-          id="file-foto-perfil"
-          className="hidden"
-          onChange={(e) => handleSubirFotoTrabajador(e.target.files[0])}
-        />
-        <label 
-          htmlFor="file-foto-perfil"
-          className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer flex items-center gap-1 transition-all text-center"
-        >
-          <Upload className="w-3 h-3" /> Subir foto
-        </label>
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10px] font-extrabold text-slate-600 uppercase">Foto Carnet / Perfil</span>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="file"
+                      accept=".jpg,.jpeg,.png"
+                      id="file-foto-perfil"
+                      className="hidden"
+                      onChange={(e) => handleSubirFotoTrabajador(e.target.files[0])}
+                    />
+                    <label 
+                      htmlFor="file-foto-perfil"
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer flex items-center gap-1 transition-all text-center"
+                    >
+                      <Upload className="w-3 h-3" /> Subir foto
+                    </label>
 
-        {legajosLista.some(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '') === 'fotoperfil') && (
-          <button 
-            onClick={() => {
-              const obj = legajosLista.find(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '') === 'fotoperfil');
-              if (obj) handleEliminarLegajo(obj.id || obj.ID);
-            }}
-            className="px-3 py-1.5 bg-white border border-slate-300 hover:border-red-500 text-slate-700 hover:text-red-600 rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all"
-          >
-            Borrar
-          </button>
-        )}
-      </div>
-    </div>
-  </div>
-)}
+                    {legajosLista.some(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '') === 'fotoperfil') && (
+                      <button 
+                        onClick={() => {
+                          const obj = legajosLista.find(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '') === 'fotoperfil');
+                          if (obj) handleEliminarLegajo(obj.id || obj.ID);
+                        }}
+                        className="px-3 py-1.5 bg-white border border-slate-300 hover:border-red-500 text-slate-700 hover:text-red-600 rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all"
+                      >
+                        Borrar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           {!legajoEmpleadoSeleccionado ? (
             <div className="bg-white p-12 rounded-2xl border border-slate-300 shadow-sm text-center text-slate-400 text-xs">
               Por favor selecciona un trabajador para gestionar sus legajos.
@@ -1852,7 +1848,7 @@ export default function Rrhh({
                 <input 
                   type="text" placeholder="Ej: Av. San Martín 1234, Benavidez"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} 
+                  value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} 
                 />
               </div>
 
