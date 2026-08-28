@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock } from 'lucide-react';
+import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronRight } from 'lucide-react';
 
 export default function PresupuestoDetalle() {
   const { id: presupuestoId } = useParams();
@@ -48,6 +48,10 @@ export default function PresupuestoDetalle() {
     debitosCreditos: 0,
     beneficio: 20.27
   });
+
+  // ESTADOS NUEVOS PARA EL CONTROL VISUAL (DESPLEGABLE Y NUMERACIÓN MANUAL)
+  const [rubrosColapsados, setRubrosColapsados] = useState({});
+  const [rubrosConOrden, setRubrosConOrden] = useState([]);
 
   const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
@@ -168,6 +172,45 @@ export default function PresupuestoDetalle() {
     }
   }, [presupuestoId]);
 
+  // Sincronizar y mantener numeración manual única de los rubros
+  useEffect(() => {
+    if (itemsDetalle && itemsDetalle.length > 0) {
+      const rubrosUnicos = itemsDetalle.map(r => r.rubro);
+      setRubrosConOrden(prev => {
+        const existentesMap = new Map(prev.map(r => [r.nombre, r.numero]));
+        let maxNum = prev.reduce((max, r) => Math.max(max, r.numero), 0);
+        
+        return rubrosUnicos.map(nombre => ({
+          nombre,
+          numero: existentesMap.has(nombre) ? existentesMap.get(nombre) : ++maxNum
+        })).sort((a, b) => a.numero - b.numero);
+      });
+    }
+  }, [itemsDetalle]);
+
+  const toggleRubro = (nombreRubro) => {
+    setRubrosColapsados(prev => ({
+      ...prev,
+      [nombreRubro]: !prev[nombreRubro]
+    }));
+  };
+
+  const handleCambiarNumeroRubro = (nombreRubro, nuevoNumeroStr) => {
+    const nuevoNumero = parseInt(nuevoNumeroStr, 10);
+    if (isNaN(nuevoNumero) || nuevoNumero <= 0) return;
+
+    const yaExiste = rubrosConOrden.some(r => r.nombre !== nombreRubro && r.numero === nuevoNumero);
+    if (yaExiste) {
+      alert(`¡Atención! El número ${nuevoNumero} ya está asignado a otro rubro. Por favor elige uno diferente para evitar duplicados.`);
+      return;
+    }
+
+    setRubrosConOrden(prev => 
+      prev.map(r => r.nombre === nombreRubro ? { ...r, numero: nuevoNumero } : r)
+          .sort((a, b) => a.numero - b.numero)
+    );
+  };
+
   const estadoActual = String(presupuesto?.estado_presupuesto || presupuesto?.estado || 'borrador').toLowerCase();
   const esBorrador = estadoActual === 'borrador';
   const esEntregado = estadoActual === 'entregado';
@@ -182,7 +225,6 @@ export default function PresupuestoDetalle() {
 
     let costoDirectoTotal = 0;
 
-    // Validación y estructuración de insumos por tarea
     const itemsValidados = nuevosItems.map(rubro => ({
       ...rubro,
       tareas: (rubro.tareas || []).map(t => {
@@ -662,99 +704,138 @@ export default function PresupuestoDetalle() {
       {/* CONTENIDO DE PESTAÑAS */}
       {activeTab === 'costos' && (
         <div className="space-y-4">
-          {itemsDetalle.map((rubroObj, rIdx) => {
-            const tareasDelRubro = rubroObj.tareas || [];
-            let costoRubro = 0;
-            tareasDelRubro.forEach(t => { costoRubro += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0); });
-            const precioVentaRubro = costoRubro * coeficientePase;
+          {rubrosConOrden
+            .sort((a, b) => a.numero - b.numero)
+            .map((rubroOrdenObj) => {
+              const nombreRubro = rubroOrdenObj.nombre;
+              const numeroRubro = rubroOrdenObj.numero;
+              const rubroObj = itemsDetalle.find(r => r.rubro === nombreRubro);
+              if (!rubroObj) return null;
 
-            return (
-              <div key={rIdx} className="bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm group/rubro">
-                <div className="bg-slate-800 text-white px-6 py-3.5 flex justify-between items-center">
-                  <span className="font-extrabold text-sm tracking-wide uppercase">{rubroObj.rubro}</span>
-                  <div className="flex items-center gap-6">
-                    <span className="text-xs text-slate-300">Costo: <strong className="text-amber-400">$ {Math.round(costoRubro).toLocaleString('es-AR')}</strong></span>
-                    <span className="text-xs text-slate-300">Venta: <strong className="text-emerald-400">$ {Math.round(precioVentaRubro).toLocaleString('es-AR')}</strong></span>
-                    {esBorrador && (
-                      <button 
-                        onClick={() => handleEliminarRubro(rubroObj.rubro)} 
-                        className="text-red-400 hover:text-red-200 p-1 rounded transition-colors flex items-center gap-1 text-xs font-semibold bg-slate-900/40 px-2 py-1 border border-red-500/30"
-                        title="Eliminar Rubro Completo"
+              const tareasDelRubro = rubroObj.tareas || [];
+              let costoRubro = 0;
+              tareasDelRubro.forEach(t => { costoRubro += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0); });
+              const precioVentaRubro = costoRubro * coeficientePase;
+              const estaColapsado = rubrosColapsados[nombreRubro];
+
+              return (
+                <div key={nombreRubro} className="bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm">
+                  {/* ENCABEZADO DEL RUBRO (INTERACTIVO, DESPLEGABLE Y CON NÚMERO MANUAL SEGURO) */}
+                  <div className="bg-slate-800 text-white px-6 py-3.5 flex justify-between items-center">
+                    <div className="flex items-center gap-3">
+                      {/* INPUT MANUAL PARA NUMERACIÓN Y ORDEN A VOLUNTAD */}
+                      <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg">
+                        <span className="text-[10px] text-amber-400 font-bold">N°</span>
+                        <input 
+                          type="number"
+                          min="1"
+                          value={numeroRubro}
+                          onChange={(e) => handleCambiarNumeroRubro(nombreRubro, e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          className="w-10 bg-slate-800 text-amber-400 font-black text-xs text-center rounded outline-none focus:ring-1 focus:ring-amber-400"
+                          title="Edita este número para reordenar el rubro"
+                        />
+                      </div>
+
+                      {/* BOTÓN DESPLEGABLE Y TÍTULO */}
+                      <div 
+                        onClick={() => toggleRubro(nombreRubro)}
+                        className="flex items-center gap-2 cursor-pointer select-none"
                       >
-                        <Trash2 className="w-3.5 h-3.5"/> Eliminar Rubro
-                      </button>
-                    )}
+                        {estaColapsado ? (
+                          <ChevronRight className="w-4 h-4 text-amber-400" />
+                        ) : (
+                          <ChevronDown className="w-4 h-4 text-amber-400" />
+                        )}
+                        <span className="font-extrabold text-sm tracking-wide uppercase text-white">{nombreRubro}</span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-6">
+                      <span className="text-xs text-slate-300">Costo: <strong className="text-amber-400">$ {Math.round(costoRubro).toLocaleString('es-AR')}</strong></span>
+                      <span className="text-xs text-slate-300">Venta: <strong className="text-emerald-400">$ {Math.round(precioVentaRubro).toLocaleString('es-AR')}</strong></span>
+                      {esBorrador && (
+                        <button 
+                          onClick={() => handleEliminarRubro(nombreRubro)} 
+                          className="text-red-400 hover:text-red-200 p-1 rounded transition-colors flex items-center gap-1 text-xs font-semibold bg-slate-900/40 px-2 py-1 border border-red-500/30"
+                          title="Eliminar Rubro Completo"
+                        >
+                          <Trash2 className="w-3.5 h-3.5"/> Eliminar Rubro
+                        </button>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                <div className="divide-y divide-slate-100">
-                  {tareasDelRubro.length === 0 ? (
-                    <div className="px-6 py-6 text-xs text-slate-400 italic text-center">No hay tareas cargadas en este rubro. Hacé clic en "Nueva Tarea" para agregar.</div>
-                  ) : (
-                    <table className="w-full text-left text-xs table-fixed">
-                      <thead>
-                        <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
-                          <th className="w-[30%] px-6 py-3">Tarea e Insumos</th>
-                          <th className="w-[8%] px-2 py-3 text-center">Unidad</th>
-                          <th className="w-[9%] px-2 py-3 text-center">Cantidad</th>
-                          <th className="w-[13%] px-3 py-3 text-right">Costo Unit.</th>
-                          <th className="w-[13%] px-3 py-3 text-right">Costo Total</th>
-                          <th className="w-[13%] px-3 py-3 text-right">Precio Venta</th>
-                          <th className="w-[14%] px-4 py-3 text-right">Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {tareasDelRubro.map(t => {
-                          const cant = Number(t.cantidad) || 0;
-                          const cUnit = Number(t.costo_unitario) || 0;
-                          const cTot = cant * cUnit;
-                          const pVentaItem = cTot * coeficientePase;
-
-                          // Formatear visualización de insumos (array u objeto)
-                          let insumosTexto = '';
-                          if (Array.isArray(t.insumos)) {
-                            insumosTexto = t.insumos.map(i => i.nombre || i.concepto).filter(Boolean).join(', ');
-                          } else if (typeof t.insumos === 'string') {
-                            insumosTexto = t.insumos;
-                          }
-
-                          return (
-                            <tr key={t.id} className="hover:bg-slate-50 group">
-                              <td className="w-[30%] px-6 py-3 break-words">
-                                <div className="font-semibold text-slate-800">{t.tarea}</div>
-                                {insumosTexto && (
-                                  <div className="text-[11px] text-slate-500 font-normal mt-0.5">
-                                    <span className="font-bold text-slate-600">Insumos:</span> {insumosTexto}
-                                  </div>
-                                )}
-                              </td>
-                              <td className="w-[8%] px-2 py-3 uppercase text-slate-600 text-center">{t.unidad}</td>
-                              <td className="w-[9%] px-2 py-3 text-center font-bold text-slate-800">{cant}</td>
-                              <td className="w-[13%] px-3 py-3 text-right text-slate-600">$ {Math.round(cUnit).toLocaleString('es-AR')}</td>
-                              <td className="w-[13%] px-3 py-3 text-right font-black text-slate-900">$ {Math.round(cTot).toLocaleString('es-AR')}</td>
-                              <td className="w-[13%] px-3 py-3 text-right font-black text-amber-600">$ {Math.round(pVentaItem).toLocaleString('es-AR')}</td>
-                              <td className="w-[14%] px-4 py-3 text-right">
-                                {esBorrador && (
-                                  <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button onClick={() => handleEditarTareaClick(rubroObj.rubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea">
-                                      <Edit2 className="w-3.5 h-3.5"/>
-                                    </button>
-                                    <button onClick={() => handleEliminarTarea(rubroObj.rubro, t.id)} className="p-1 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar Tarea">
-                                      <Trash2 className="w-3.5 h-3.5"/>
-                                    </button>
-                                  </div>
-                                )}
-                              </td>
+                  {/* CONTENIDO DE TAREAS (SE OCULTA SI ESTÁ COLAPSADO) */}
+                  {!estaColapsado && (
+                    <div className="divide-y divide-slate-100">
+                      {tareasDelRubro.length === 0 ? (
+                        <div className="px-6 py-6 text-xs text-slate-400 italic text-center">No hay tareas cargadas en este rubro. Hacé clic en "Nueva Tarea" para agregar.</div>
+                      ) : (
+                        <table className="w-full text-left text-xs table-fixed">
+                          <thead>
+                            <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
+                              <th className="w-[30%] px-6 py-3">Tarea e Insumos</th>
+                              <th className="w-[8%] px-2 py-3 text-center">Unidad</th>
+                              <th className="w-[9%] px-2 py-3 text-center">Cantidad</th>
+                              <th className="w-[13%] px-3 py-3 text-right">Costo Unit.</th>
+                              <th className="w-[13%] px-3 py-3 text-right">Costo Total</th>
+                              <th className="w-[13%] px-3 py-3 text-right">Precio Venta</th>
+                              <th className="w-[14%] px-4 py-3 text-right">Acciones</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {tareasDelRubro.map(t => {
+                              const cant = Number(t.cantidad) || 0;
+                              const cUnit = Number(t.costo_unitario) || 0;
+                              const cTot = cant * cUnit;
+                              const pVentaItem = cTot * coeficientePase;
+
+                              let insumosTexto = '';
+                              if (Array.isArray(t.insumos)) {
+                                insumosTexto = t.insumos.map(i => i.nombre || i.concepto).filter(Boolean).join(', ');
+                              } else if (typeof t.insumos === 'string') {
+                                insumosTexto = t.insumos;
+                              }
+
+                              return (
+                                <tr key={t.id} className="hover:bg-slate-50 group">
+                                  <td className="w-[30%] px-6 py-3 break-words">
+                                    <div className="font-semibold text-slate-800">{t.tarea}</div>
+                                    {insumosTexto && (
+                                      <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                                        <span className="font-bold text-slate-600">Insumos:</span> {insumosTexto}
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="w-[8%] px-2 py-3 uppercase text-slate-600 text-center">{t.unidad}</td>
+                                  <td className="w-[9%] px-2 py-3 text-center font-bold text-slate-800">{cant}</td>
+                                  <td className="w-[13%] px-3 py-3 text-right text-slate-600">$ {Math.round(cUnit).toLocaleString('es-AR')}</td>
+                                  <td className="w-[13%] px-3 py-3 text-right font-black text-slate-900">$ {Math.round(cTot).toLocaleString('es-AR')}</td>
+                                  <td className="w-[13%] px-3 py-3 text-right font-black text-amber-600">$ {Math.round(pVentaItem).toLocaleString('es-AR')}</td>
+                                  <td className="w-[14%] px-4 py-3 text-right">
+                                    {esBorrador && (
+                                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                        <button onClick={() => handleEditarTareaClick(nombreRubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea">
+                                          <Edit2 className="w-3.5 h-3.5"/>
+                                        </button>
+                                        <button onClick={() => handleEliminarTarea(nombreRubro, t.id)} className="p-1 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar Tarea">
+                                          <Trash2 className="w-3.5 h-3.5"/>
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      )}
+                    </div>
                   )}
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
         </div>
       )}
 
@@ -838,7 +919,6 @@ export default function PresupuestoDetalle() {
             </div>
           </div>
 
-          {/* ... resto de la pestaña multiplicador ... */}
           <div className="space-y-4">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <h4 className="font-extrabold text-sm text-slate-800 uppercase">Gastos Generales (Insumos y Valores Fijos)</h4>
