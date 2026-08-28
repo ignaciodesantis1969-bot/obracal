@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, Building, CheckCircle2, ShieldCheck, PieChart } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart } from 'lucide-react';
 
-export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], obras = [], rubros = [], cargarDatos }) {
+export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], obras = [], rubros = [], presupuestos = [], cargarDatos }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
 
@@ -42,7 +42,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 0 });
 
   // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS Y CARGAS SOCIALES
-  const [obraSeleccionadaCarga, setObraSeleccionadaCarga] = useState('');
+  const [presupuestoSeleccionadoCarga, setPresupuestoSeleccionadoCarga] = useState('');
   const [fechaCarga, setFechaCarga] = useState(new Date().toISOString().split('T')[0]);
   const [porcentajeCargasSociales, setPorcentajeCargasSociales] = useState(76.00);
   const [detalleCargaPersonal, setDetalleCargaPersonal] = useState([]);
@@ -51,6 +51,42 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const [distribucionRubros, setDistribucionRubros] = useState([
     { id: 1, rubro: '', porcentaje: 100 }
   ]);
+
+  // Filtrar presupuestos aprobados
+  const presupuestosAprobados = Array.isArray(presupuestos) 
+    ? presupuestos.filter(p => {
+        const estado = String(p.estado || p.Status || p.status || '').toLowerCase();
+        return estado === 'aprobado' || estado === 'aprobada';
+      })
+    : [];
+
+  // Obtener rubros disponibles según el presupuesto seleccionado
+  const rubrosDisponiblesPresupuesto = React.useMemo(() => {
+    if (!presupuestoSeleccionadoCarga) return [];
+    
+    // Buscar el presupuesto seleccionado
+    const presupuestoObj = presupuestosAprobados.find(p => {
+      const pId = String(p.id || p.ID || p.nombre || p.nombre_del_presupuesto || '');
+      return pId === String(presupuestoSeleccionadoCarga);
+    });
+
+    if (presupuestoObj) {
+      let rawRubros = presupuestoObj.rubros || presupuestoObj.items || presupuestoObj.detalle || presupuestoObj.capitulos;
+      if (typeof rawRubros === 'string') {
+        try { rawRubros = JSON.parse(rawRubros); } catch(e) { rawRubros = []; }
+      }
+      if (Array.isArray(rawRubros) && rawRubros.length > 0) {
+        return rawRubros.map(r => typeof r === 'string' ? r : (r.nombre || r.rubro || r.descripcion || 'Rubro'));
+      }
+    }
+
+    // Si no tiene rubros internos directos, filtrar la lista global de rubros o devolverla
+    if (Array.isArray(rubros) && rubros.length > 0) {
+      return rubros.map(r => typeof r === 'string' ? r : (r.nombre || r.rubro || r.Rubro || 'Rubro'));
+    }
+
+    return [];
+  }, [presupuestoSeleccionadoCarga, presupuestosAprobados, rubros]);
 
   // Sincronizar salarios y asegurar que la carga no se sobrescriba si el usuario ya está tipeando
   React.useEffect(() => {
@@ -378,8 +414,8 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const sumaPorcentajesRubros = distribucionRubros.reduce((acc, r) => acc + (Number(r.porcentaje) || 0), 0);
 
   const validarDistribucionRubros = () => {
-    if (!obraSeleccionadaCarga) {
-      alert("Por favor selecciona una Obra.");
+    if (!presupuestoSeleccionadoCarga) {
+      alert("Por favor selecciona un Presupuesto.");
       return false;
     }
     if (Math.abs(sumaPorcentajesRubros - 100) > 0.01) {
@@ -413,7 +449,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         const payloadTesoreria = {
           tipo: 'Egreso',
           fecha: fechaCarga,
-          concepto: `Sueldos y Viáticos - Obra: ${obraSeleccionadaCarga} [Rubro: ${r.rubro} - ${pct}%]`,
+          concepto: `Sueldos y Viáticos - Presupuesto: ${presupuestoSeleccionadoCarga} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
           medio_pago: 'transferencia',
           referencia: 'RRHH'
@@ -456,7 +492,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         const payloadTesoreria = {
           tipo: 'Egreso',
           fecha: fechaCarga,
-          concepto: `Cargas Sociales (${porcentajeCargasSociales}%) - Obra: ${obraSeleccionadaCarga} [Rubro: ${r.rubro} - ${pct}%]`,
+          concepto: `Cargas Sociales (${porcentajeCargasSociales}%) - Presupuesto: ${presupuestoSeleccionadoCarga} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
           medio_pago: 'transferencia',
           referencia: 'RRHH - Cargas Sociales'
@@ -940,31 +976,35 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       {/* MÓDULO ACTIVO: CARGA SEMANAL DE HORAS / VIÁTICOS Y CARGAS SOCIALES */}
       {activeTab === 'carga' && (
         <div className="space-y-6">
-          {/* Card: Selección de Obra, Fecha y Distribución por Rubros del Presupuesto */}
+          {/* Card: Selección de Presupuesto Aprobado, Fecha y Distribución por Rubros */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase">Configuración de Imputación</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Selecciona la obra, la fecha y define qué porcentaje del gasto se imputará a cada rubro del presupuesto.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Selecciona el presupuesto aprobado, la fecha y define qué porcentaje del gasto se imputará a cada rubro.</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-                  <Building className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Obra de Destino *
+                  <FileText className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Presupuesto Aprobado *
                 </label>
                 <select 
-                  value={obraSeleccionadaCarga}
-                  onChange={(e) => setObraSeleccionadaCarga(e.target.value)}
+                  value={presupuestoSeleccionadoCarga}
+                  onChange={(e) => setPresupuestoSeleccionadoCarga(e.target.value)}
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                 >
-                  <option value="">-- Seleccione una Obra --</option>
-                  {Array.isArray(obras) && obras.map((o, oIdx) => {
-                    const nombreObra = o.nombre || o.Nombre || o.nombre_de_la_obra || `Obra #${oId}`;
-                    const oId = o.id || o.ID || oIdx;
-                    return <option key={oId} value={nombreObra}>{nombreObra}</option>;
-                  })}
+                  <option value="">-- Seleccione un Presupuesto Aprobado --</option>
+                  {presupuestosAprobados.length > 0 ? (
+                    presupuestosAprobados.map((p, pIdx) => {
+                      const pId = p.id || p.ID || p.nombre || p.nombre_del_presupuesto || pIdx;
+                      const pNombre = p.nombre || p.Nombre || p.nombre_del_presupuesto || p.obra || `Presupuesto #${pId}`;
+                      return <option key={pId} value={pId}>{pNombre}</option>;
+                    })
+                  ) : (
+                    <option value="" disabled>No hay presupuestos aprobados disponibles</option>
+                  )}
                 </select>
               </div>
 
@@ -981,7 +1021,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
               </div>
             </div>
 
-            {/* Distribución por Rubros (Con desplegable de Rubros) */}
+            {/* Distribución por Rubros (Con desplegable de Rubros del Presupuesto seleccionado) */}
             <div className="space-y-3 bg-amber-50/40 p-4 rounded-xl border border-amber-200">
               <div className="flex justify-between items-center">
                 <h4 className="text-xs font-extrabold text-amber-900 uppercase flex items-center gap-1.5">
@@ -1005,13 +1045,12 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                       className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 text-slate-900"
                     >
                       <option value="">-- Seleccionar Rubro del Presupuesto --</option>
-                      {Array.isArray(rubros) && rubros.length > 0 ? (
-                        rubros.map((rub, rubIdx) => {
-                          const nombreRubro = rub.nombre || rub.Rubro || rub.rubro || rub;
-                          return <option key={rubIdx} value={nombreRubro}>{nombreRubro}</option>;
-                        })
+                      {rubrosDisponiblesPresupuesto.length > 0 ? (
+                        rubrosDisponiblesPresupuesto.map((rubName, rubIdx) => (
+                          <option key={rubIdx} value={rubName}>{rubName}</option>
+                        ))
                       ) : (
-                        <option value={r.rubro} disabled>{r.rubro || 'No hay rubros provistos'}</option>
+                        <option value="" disabled>Seleccione un presupuesto con rubros primero</option>
                       )}
                     </select>
                     <div className="flex items-center gap-1 w-32">
@@ -1048,7 +1087,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
-                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos por Obra</h3>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos por Presupuesto</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Registra la asistencia real y viáticos del personal para imputarlo a los rubros y tesorería.</p>
               </div>
               
@@ -1140,7 +1179,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
             <div className="bg-slate-900 text-white p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
               <div>
                 <p className="text-xs text-slate-400 font-bold uppercase">Resumen de Liquidación</p>
-                <h4 className="text-lg font-black">{obraSeleccionadaCarga ? `Obra: ${obraSeleccionadaCarga}` : 'Seleccione una obra para liquidar'}</h4>
+                <h4 className="text-lg font-black">{presupuestoSeleccionadoCarga ? `Presupuesto ID: ${presupuestoSeleccionadoCarga}` : 'Seleccione un presupuesto para liquidar'}</h4>
               </div>
               <div className="text-right">
                 <span className="text-xs text-slate-400 uppercase font-bold block">TOTAL GENERAL A PAGAR / IMPUTAR</span>
