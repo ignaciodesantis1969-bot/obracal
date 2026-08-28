@@ -902,51 +902,67 @@ export default function Rrhh({
             </div>
 
             {/* Espacio para la foto cuadrada con opciones Subir / Borrar */}
-            {legajoEmpleadoSeleccionado && (
-              <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                <div className="w-32 h-32 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
-                  {fotoPerfilActual && (fotoPerfilActual.url_archivo || fotoPerfilActual.Url_archivo || fotoPerfilActual.archivo_url) ? (
-                    <img 
-                      src={fotoPerfilActual.url_archivo || fotoPerfilActual.Url_archivo || fotoPerfilActual.archivo_url} 
-                      alt="Foto empleado" 
-                      className="w-full h-full object-cover"
-                    />
-                  ) : (
-                    <ImageIcon className="w-8 h-8 text-slate-400" />
-                  )}
-                </div>
+{legajoEmpleadoSeleccionado && (
+  <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+    <div className="w-34 h-34 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
+      {(() => {
+        const urlRaw = fotoPerfilActual?.url_archivo || fotoPerfilActual?.Url_archivo || fotoPerfilActual?.archivo_url || fotoPerfilActual?.Archivo_url;
+        
+        // Función para transformar el enlace de Google Drive a formato de visualización directa
+        const convertirUrlDrive = (url) => {
+          if (!url) return '';
+          const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+          if (match && match[1]) {
+            return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+          }
+          return url;
+        };
 
-                <div className="flex flex-col gap-2">
-                  <span className="text-[10px] font-extrabold text-slate-600 uppercase">Foto Carnet / Perfil</span>
-                  <div className="flex items-center gap-2">
-                    <input 
-                      type="file"
-                      accept=".jpg,.jpeg,.png"
-                      id="file-foto-perfil"
-                      className="hidden"
-                      onChange={(e) => handleSubirFotoTrabajador(e.target.files[0])}
-                    />
-                    <label 
-                      htmlFor="file-foto-perfil"
-                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer flex items-center gap-1 transition-all text-center"
-                    >
-                      <Upload className="w-3 h-3" /> Subir foto
-                    </label>
+        const urlFinal = convertirUrlDrive(urlRaw);
 
-                    {fotoPerfilActual && (
-                      <button 
-                        onClick={() => handleEliminarLegajo(fotoPerfilActual.id || fotoPerfilActual.ID)}
-                        className="px-3 py-1.5 bg-white border border-slate-300 hover:border-red-500 text-slate-700 hover:text-red-600 rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all"
-                      >
-                        Borrar
-                      </button>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
+        if (urlFinal) {
+          return (
+            <img 
+              src={urlFinal} 
+              alt="Foto empleado" 
+              className="w-full h-full object-cover"
+              onError={(e) => { e.target.style.display = 'none'; }}
+            />
+          );
+        }
+        return <ImageIcon className="w-8 h-8 text-slate-400" />;
+      })()}
+    </div>
 
+    <div className="flex flex-col gap-2">
+      <span className="text-[10px] font-extrabold text-slate-600 uppercase">Foto Carnet / Perfil</span>
+      <div className="flex items-center gap-2">
+        <input 
+          type="file"
+          accept=".jpg,.jpeg,.png"
+          id="file-foto-perfil"
+          className="hidden"
+          onChange={(e) => handleSubirFotoTrabajador(e.target.files[0])}
+        />
+        <label 
+          htmlFor="file-foto-perfil"
+          className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer flex items-center gap-1 transition-all text-center"
+        >
+          <Upload className="w-3 h-3" /> Subir foto
+        </label>
+
+        {fotoPerfilActual && (
+          <button 
+            onClick={() => handleEliminarLegajo(fotoPerfilActual.id || fotoPerfilActual.ID)}
+            className="px-3 py-1.5 bg-white border border-slate-300 hover:border-red-500 text-slate-700 hover:text-red-600 rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all"
+          >
+            Borrar
+          </button>
+        )}
+      </div>
+    </div>
+  </div>
+)}
           {!legajoEmpleadoSeleccionado ? (
             <div className="bg-white p-12 rounded-2xl border border-slate-300 shadow-sm text-center text-slate-400 text-xs">
               Por favor selecciona un trabajador para gestionar sus legajos.
