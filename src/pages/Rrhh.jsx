@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon } from 'lucide-react';
 
 export default function Rrhh({ 
   GOOGLE_SCRIPT_URL = '', 
@@ -477,6 +477,58 @@ export default function Rrhh({
     reader.readAsDataURL(file);
   };
 
+  // Manejo de Foto de Perfil del Trabajador
+  const handleSubirFotoTrabajador = async (file) => {
+    if (!file) return;
+    if (!legajoEmpleadoSeleccionado) {
+      alert("Por favor selecciona un trabajador.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64String = reader.result;
+      setCargandoLegajo(true);
+      try {
+        const payload = {
+          tabla: 'Legajos',
+          action: 'create',
+          data: {
+            personal_id: legajoEmpleadoSeleccionado,
+            subseccion: 'foto_perfil',
+            nombre_archivo: 'Foto Carnet',
+            archivo_url: base64String,
+            fecha: new Date().toISOString().split('T')[0]
+          }
+        };
+
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({ success: true }));
+        if (data.success !== false) {
+          alert("¡Foto de perfil actualizada con éxito!");
+          cargarDatos();
+        } else {
+          alert("Error al subir la foto.");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Error de conexión al subir la foto.");
+      } finally {
+        setCargandoLegajo(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const fotoPerfilActual = legajosLista.find(l => 
+    String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && 
+    String(l.subseccion || l.Subseccion) === 'foto_perfil'
+  );
+
   // Manejo de Archivos para otras Secciones (Recibos, Estudios, etc.)
   const handleArchivoLegajoChange = (e) => {
     const file = e.target.files[0];
@@ -822,31 +874,77 @@ export default function Rrhh({
       {/* MÓDULO DE LEGAJOS */}
       {activeTab === 'legajos' && (
         <div className="space-y-6">
-          {/* Selector Superior de Empleado */}
-          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-            <div>
+          {/* Selector Superior de Empleado con Foto Cuadrada Estética */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
+            <div className="flex-1">
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Seleccionar Trabajador</h3>
               <p className="text-xs text-slate-500 mt-0.5">Elige el empleado para consultar o adjuntar documentación en su legajo digital.</p>
+              
+              <div className="mt-4 w-full max-w-md">
+                <select
+                  value={legajoEmpleadoSeleccionado}
+                  onChange={(e) => setLegajoEmpleadoSeleccionado(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
+                >
+                  <option value="">-- Seleccionar Trabajador --</option>
+                  {personalSalarios.map(p => {
+                    const pId = String(p.id || p.ID);
+                    const pNombre = p.nombre || p.Nombre || 'Personal';
+                    const pEsp = p.especialidad || p.Especialidad || 'Operario';
+                    return (
+                      <option key={pId} value={pId}>
+                        {pNombre} ({pEsp})
+                      </option>
+                    );
+                  })}
+                </select>
+              </div>
             </div>
-            <div className="w-full sm:w-80">
-              <select
-                value={legajoEmpleadoSeleccionado}
-                onChange={(e) => setLegajoEmpleadoSeleccionado(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
-              >
-                <option value="">-- Seleccionar Trabajador --</option>
-                {personalSalarios.map(p => {
-                  const pId = String(p.id || p.ID);
-                  const pNombre = p.nombre || p.Nombre || 'Personal';
-                  const pEsp = p.especialidad || p.Especialidad || 'Operario';
-                  return (
-                    <option key={pId} value={pId}>
-                      {pNombre} ({pEsp})
-                    </option>
-                  );
-                })}
-              </select>
-            </div>
+
+            {/* Espacio para la foto cuadrada con opciones Subir / Borrar */}
+            {legajoEmpleadoSeleccionado && (
+              <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
+                  {fotoPerfilActual && (fotoPerfilActual.url_archivo || fotoPerfilActual.Url_archivo || fotoPerfilActual.archivo_url) ? (
+                    <img 
+                      src={fotoPerfilActual.url_archivo || fotoPerfilActual.Url_archivo || fotoPerfilActual.archivo_url} 
+                      alt="Foto empleado" 
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <ImageIcon className="w-8 h-8 text-slate-400" />
+                  )}
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <span className="text-[10px] font-extrabold text-slate-600 uppercase">Foto Carnet / Perfil</span>
+                  <div className="flex items-center gap-2">
+                    <input 
+                      type="file"
+                      accept=".jpg,.jpeg,.png"
+                      id="file-foto-perfil"
+                      className="hidden"
+                      onChange={(e) => handleSubirFotoTrabajador(e.target.files[0])}
+                    />
+                    <label 
+                      htmlFor="file-foto-perfil"
+                      className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer flex items-center gap-1 transition-all text-center"
+                    >
+                      <Upload className="w-3 h-3" /> Subir foto
+                    </label>
+
+                    {fotoPerfilActual && (
+                      <button 
+                        onClick={() => handleEliminarLegajo(fotoPerfilActual.id || fotoPerfilActual.ID)}
+                        className="px-3 py-1.5 bg-white border border-slate-300 hover:border-red-500 text-slate-700 hover:text-red-600 rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all"
+                      >
+                        Borrar
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {!legajoEmpleadoSeleccionado ? (
@@ -1717,7 +1815,7 @@ export default function Rrhh({
                 <input 
                   type="text" placeholder="Ej: Av. San Martín 1234, Benavidez"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                  value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} 
+                    value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} 
                 />
               </div>
 
