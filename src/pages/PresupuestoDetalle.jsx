@@ -26,6 +26,10 @@ export default function PresupuestoDetalle() {
   const [isSavingGG, setIsSavingGG] = useState(false);
   const [nuevoGastoGeneral, setNuevoGastoGeneral] = useState({ concepto: '', unitario: '' });
 
+  // 🛡️ ESTADOS DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
+  const [isSavingRubro, setIsSavingRubro] = useState(false);
+  const [isSavingTarea, setIsSavingTarea] = useState(false);
+
   const [nuevaTarea, setNuevaTarea] = useState({
     rubro: '',
     tarea: '',
@@ -49,7 +53,6 @@ export default function PresupuestoDetalle() {
     beneficio: 20.27
   });
 
-  // ESTADOS NUEVOS PARA EL CONTROL VISUAL (DESPLEGABLE Y NUMERACIÓN MANUAL)
   const [rubrosColapsados, setRubrosColapsados] = useState({});
   const [rubrosConOrden, setRubrosConOrden] = useState([]);
 
@@ -172,7 +175,6 @@ export default function PresupuestoDetalle() {
     }
   }, [presupuestoId]);
 
-  // Sincronizar y mantener numeración manual única de los rubros
   useEffect(() => {
     if (itemsDetalle && itemsDetalle.length > 0) {
       const rubrosUnicos = itemsDetalle.map(r => r.rubro);
@@ -310,27 +312,32 @@ export default function PresupuestoDetalle() {
     return `R${String(maxNum + 1).padStart(3, '0')}`;
   };
 
+  // 🛡️ FUNCIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES (RUBROS)
   const handleCrearRubro = async (e) => {
     e.preventDefault();
+    if (isSavingRubro) return;
+
     if (!esBorrador) {
       alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
     if (!nombreNuevoRubro.trim()) return;
-    const nombreRubroUpper = nombreNuevoRubro.trim().toUpperCase();
-    
-    if (itemsDetalle.some(r => r.rubro === nombreRubroUpper)) {
-      alert("El rubro ya existe en este presupuesto.");
-      return;
-    }
 
-    const codigoGenerado = generarCodigoRubroAutomatico();
-
-    const nuevos = [...itemsDetalle, { rubro: nombreRubroUpper, tareas: [] }];
-    setItemsDetalle(nuevos);
-    await guardarEstructuraPresupuesto(nuevos);
-
+    setIsSavingRubro(true);
     try {
+      const nombreRubroUpper = nombreNuevoRubro.trim().toUpperCase();
+      
+      if (itemsDetalle.some(r => r.rubro === nombreRubroUpper)) {
+        alert("El rubro ya existe en este presupuesto.");
+        return;
+      }
+
+      const codigoGenerado = generarCodigoRubroAutomatico();
+
+      const nuevos = [...itemsDetalle, { rubro: nombreRubroUpper, tareas: [] }];
+      setItemsDetalle(nuevos);
+      await guardarEstructuraPresupuesto(nuevos);
+
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -350,12 +357,15 @@ export default function PresupuestoDetalle() {
         ...rubrosList, 
         { id: dataRes.id || Date.now(), codigo: codigoGenerado, nombre: nombreRubroUpper, descripcion: 'Creado desde presupuesto' }
       ]);
+
+      setNombreNuevoRubro('');
+      setIsRubroModalOpen(false);
     } catch (err) {
       console.error("Error al guardar el rubro en la base de datos:", err);
+      alert("Error al guardar el rubro.");
+    } finally {
+      setIsSavingRubro(false);
     }
-
-    setNombreNuevoRubro('');
-    setIsRubroModalOpen(false);
   };
 
   const handleEliminarRubro = (nombreRubro) => {
@@ -370,8 +380,11 @@ export default function PresupuestoDetalle() {
     }
   };
 
-  const handleGuardarTarea = (e) => {
+  // 🛡️ FUNCIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES (TAREAS)
+  const handleGuardarTarea = async (e) => {
     e.preventDefault();
+    if (isSavingTarea) return;
+
     if (!esBorrador) {
       alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
@@ -381,47 +394,55 @@ export default function PresupuestoDetalle() {
       return;
     }
 
-    let nuevosItems;
-    if (editingTarea) {
-      nuevosItems = itemsDetalle.map(r => {
-        if (r.rubro === nuevaTarea.rubro) {
-          return {
-            ...r,
-            tareas: r.tareas.map(t => t.id === editingTarea.id ? { ...nuevaTarea, id: editingTarea.id } : t)
-          };
-        } else {
-          return {
-            ...r,
-            tareas: r.tareas.filter(t => t.id !== editingTarea.id)
-          };
-        }
-      });
-      const existeEnDestino = nuevosItems.some(r => r.rubro === nuevaTarea.rubro && r.tareas.some(t => t.id === editingTarea.id));
-      if (!existeEnDestino) {
-        nuevosItems = nuevosItems.map(r => {
+    setIsSavingTarea(true);
+    try {
+      let nuevosItems;
+      if (editingTarea) {
+        nuevosItems = itemsDetalle.map(r => {
           if (r.rubro === nuevaTarea.rubro) {
-            return { ...r, tareas: [...r.tareas, { ...nuevaTarea, id: editingTarea.id }] };
+            return {
+              ...r,
+              tareas: r.tareas.map(t => t.id === editingTarea.id ? { ...nuevaTarea, id: editingTarea.id } : t)
+            };
+          } else {
+            return {
+              ...r,
+              tareas: r.tareas.filter(t => t.id !== editingTarea.id)
+            };
+          }
+        });
+        const existeEnDestino = nuevosItems.some(r => r.rubro === nuevaTarea.rubro && r.tareas.some(t => t.id === editingTarea.id));
+        if (!existeEnDestino) {
+          nuevosItems = nuevosItems.map(r => {
+            if (r.rubro === nuevaTarea.rubro) {
+              return { ...r, tareas: [...r.tareas, { ...nuevaTarea, id: editingTarea.id }] };
+            }
+            return r;
+          });
+        }
+      } else {
+        nuevosItems = itemsDetalle.map(r => {
+          if (r.rubro === nuevaTarea.rubro) {
+            return {
+              ...r,
+              tareas: [...r.tareas, { ...nuevaTarea, id: Date.now() }]
+            };
           }
           return r;
         });
       }
-    } else {
-      nuevosItems = itemsDetalle.map(r => {
-        if (r.rubro === nuevaTarea.rubro) {
-          return {
-            ...r,
-            tareas: [...r.tareas, { ...nuevaTarea, id: Date.now() }]
-          };
-        }
-        return r;
-      });
-    }
 
-    setItemsDetalle(nuevosItems);
-    guardarEstructuraPresupuesto(nuevosItems);
-    setIsTareaModalOpen(false);
-    setEditingTarea(null);
-    setNuevaTarea({ rubro: '', tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
+      setItemsDetalle(nuevosItems);
+      await guardarEstructuraPresupuesto(nuevosItems);
+      setIsTareaModalOpen(false);
+      setEditingTarea(null);
+      setNuevaTarea({ rubro: '', tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
+    } catch (err) {
+      console.error("Error al guardar tarea:", err);
+      alert("Hubo un error al guardar la tarea.");
+    } finally {
+      setIsSavingTarea(false);
+    }
   };
 
   const handleEditarTareaClick = (rubroName, tarea) => {
@@ -720,10 +741,9 @@ export default function PresupuestoDetalle() {
 
               return (
                 <div key={nombreRubro} className="bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm">
-                  {/* ENCABEZADO DEL RUBRO (INTERACTIVO, DESPLEGABLE Y CON NÚMERO MANUAL SEGURO) */}
+                  {/* ENCABEZADO DEL RUBRO */}
                   <div className="bg-slate-800 text-white px-6 py-3.5 flex justify-between items-center">
                     <div className="flex items-center gap-3">
-                      {/* INPUT MANUAL PARA NUMERACIÓN Y ORDEN A VOLUNTAD */}
                       <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg">
                         <span className="text-[10px] text-amber-400 font-bold">N°</span>
                         <input 
@@ -737,7 +757,6 @@ export default function PresupuestoDetalle() {
                         />
                       </div>
 
-                      {/* BOTÓN DESPLEGABLE Y TÍTULO */}
                       <div 
                         onClick={() => toggleRubro(nombreRubro)}
                         className="flex items-center gap-2 cursor-pointer select-none"
@@ -766,7 +785,7 @@ export default function PresupuestoDetalle() {
                     </div>
                   </div>
 
-                  {/* CONTENIDO DE TAREAS (SE OCULTA SI ESTÁ COLAPSADO) */}
+                  {/* CONTENIDO DE TAREAS */}
                   {!estaColapsado && (
                     <div className="divide-y divide-slate-100">
                       {tareasDelRubro.length === 0 ? (
@@ -1270,7 +1289,7 @@ export default function PresupuestoDetalle() {
         </div>
       )}
 
-      {/* MODAL NUEVO RUBRO */}
+      {/* MODAL NUEVO RUBRO CON BLOQUEO DE DOBLE CLIC */}
       {isRubroModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
@@ -1300,15 +1319,17 @@ export default function PresupuestoDetalle() {
                 />
               </div>
               <div className="flex justify-end gap-2 pt-2">
-                <button type="button" onClick={() => setIsRubroModalOpen(false)} className="px-4 py-2 text-sm text-slate-600">Cancelar</button>
-                <button type="submit" className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold">Guardar Rubro</button>
+                <button type="button" onClick={() => setIsRubroModalOpen(false)} disabled={isSavingRubro} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSavingRubro} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
+                  {isSavingRubro ? <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</> : 'Guardar Rubro'}
+                </button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* MODAL NUEVA / EDITAR TAREA */}
+      {/* MODAL NUEVA / EDITAR TAREA CON BLOQUEO DE DOBLE CLIC */}
       {isTareaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden">
@@ -1444,8 +1465,10 @@ export default function PresupuestoDetalle() {
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <button type="button" onClick={() => setIsTareaModalOpen(false)} className="px-4 py-2 text-sm text-slate-600">Cancelar</button>
-                <button type="submit" className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-sm font-semibold">{editingTarea ? 'Actualizar Tarea' : 'Guardar Tarea'}</button>
+                <button type="button" onClick={() => setIsTareaModalOpen(false)} disabled={isSavingTarea} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSavingTarea} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
+                  {isSavingTarea ? <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</> : (editingTarea ? 'Actualizar Tarea' : 'Guardar Tarea')}
+                </button>
               </div>
             </form>
           </div>
