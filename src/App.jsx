@@ -205,6 +205,8 @@ const AuthenticatedApp = () => {
                 personalInicial={globalData.personal}
                 insumos={globalData.insumos}
                 obras={globalData.obras}
+                rubros={rubros}
+                presupuestos={presupuestos}
                 cargarDatos={cargarDatos}
               />
             </RequirePermiso>

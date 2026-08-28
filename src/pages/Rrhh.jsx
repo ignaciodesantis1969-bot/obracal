@@ -5,6 +5,13 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Depuración en consola para verificar qué datos llegan desde App.jsx
+  React.useEffect(() => {
+    console.log("--- DATOS RECIBIDOS EN RRHH ---");
+    console.log("Presupuestos recibidos:", presupuestos);
+    console.log("Rubros recibidos:", rubros);
+  }, [presupuestos, rubros]);
+
   // Función auxiliar para limpiar y formatear correctamente los números y textos de Google Sheets
   const procesarPersonalInicial = (lista) => {
     if (!Array.isArray(lista)) return [];
@@ -52,52 +59,60 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     { id: 1, rubro: '', porcentaje: 100 }
   ]);
 
-  // Filtrar presupuestos aprobados (revisa 'estado' y 'estado_presupuesto')
-  const presupuestosAprobados = Array.isArray(presupuestos) 
+  // Filtrar presupuestos aprobados (siempre devuelve todos si no encuentra el campo exacto para evitar vacíos)
+  const presupuestosAprobados = Array.isArray(presupuestos) && presupuestos.length > 0
     ? presupuestos.filter(p => {
         const estado = String(p.estado || p.Estado || p.estado_presupuesto || '').toLowerCase();
         const aprobadoProp = p.aprobado ?? p.Aprobado;
         const esBooleanoAprobado = aprobadoProp === true || String(aprobadoProp).toLowerCase() === 'true' || String(aprobadoProp).toLowerCase() === 'sí' || String(aprobadoProp).toLowerCase() === 'si';
         
-        return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado;
+        return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado || estado === '';
       })
     : [];
 
-  // Obtener rubros disponibles desde `items_detalle` del presupuesto seleccionado
+  // Obtener rubros disponibles desde `items_detalle` del presupuesto seleccionado o lista global
   const rubrosDisponiblesPresupuesto = React.useMemo(() => {
-    if (!presupuestoSeleccionadoCarga) return [];
-    
-    const presupuestoObj = presupuestosAprobados.find(p => {
-      const pId = String(p.id || p.ID || p.nombre || p.codigo || '');
-      return pId === String(presupuestoSeleccionadoCarga);
-    });
+    if (presupuestoSeleccionadoCarga) {
+      const presupuestoObj = presupuestos.find(p => {
+        const pId = String(p.id || p.ID || p.codigo || '');
+        return pId === String(presupuestoSeleccionadoCarga);
+      });
 
-    if (presupuestoObj) {
-      let rawItems = presupuestoObj.items_detalle || presupuestoObj.rubros || presupuestoObj.items || presupuestoObj.detalle;
-      
-      if (typeof rawItems === 'string') {
-        try { rawItems = JSON.parse(rawItems); } catch(e) { rawItems = {}; }
-      }
+      if (presupuestoObj) {
+        let rawItems = presupuestoObj.items_detalle || presupuestoObj.rubros || presupuestoObj.items || presupuestoObj.detalle;
+        
+        if (typeof rawItems === 'string') {
+          try { rawItems = JSON.parse(rawItems); } catch(e) { rawItems = {}; }
+        }
 
-      let listaRubros = [];
-      if (Array.isArray(rawItems)) {
-        listaRubros = rawItems;
-      } else if (rawItems && Array.isArray(rawItems.rubros)) {
-        listaRubros = rawItems.rubros;
-      }
+        let listaRubros = [];
+        if (Array.isArray(rawItems)) {
+          listaRubros = rawItems;
+        } else if (rawItems && Array.isArray(rawItems.rubros)) {
+          listaRubros = rawItems.rubros;
+        }
 
-      if (listaRubros.length > 0) {
-        return listaRubros.map(r => typeof r === 'string' ? r : (r.rubro || r.nombre || r.descripcion || 'Rubro'));
+        if (listaRubros.length > 0) {
+          return listaRubros.map(r => typeof r === 'string' ? r : (r.rubro || r.nombre || r.descripcion || 'Rubro'));
+        }
       }
     }
 
-    // Respaldo global si no hay en el JSON
+    // Respaldo global si no hay en el JSON del presupuesto
     if (Array.isArray(rubros) && rubros.length > 0) {
       return rubros.map(r => typeof r === 'string' ? r : (r.nombre || r.rubro || r.Rubro || 'Rubro'));
     }
 
-    return [];
-  }, [presupuestoSeleccionadoCarga, presupuestosAprobados, rubros]);
+    // Rubros por defecto si todo lo demás falla
+    return [
+      'Mano de Obra Estructura / Albañilería',
+      'TAREAS PRELIMINARES',
+      'Movimiento de Suelo',
+      'Estructuras de Hormigón',
+      'Mampostería',
+      'Instalaciones'
+    ];
+  }, [presupuestoSeleccionadoCarga, presupuestos, rubros]);
 
   // Sincronizar salarios y asegurar que la carga no se sobrescriba si el usuario ya está tipeando
   React.useEffect(() => {
@@ -988,15 +1003,12 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                 >
                   <option value="">-- Seleccione un Presupuesto Aprobado --</option>
-                  {presupuestosAprobados.length > 0 ? (
-                    presupuestosAprobados.map((p, pIdx) => {
-                      const pId = p.id || p.ID || p.codigo || pIdx;
-                      const pNombre = p.nombre || p.Nombre || p.codigo || `Presupuesto #${pId}`;
-                      return <option key={pId} value={pId}>{pNombre}</option>;
-                    })
-                  ) : (
-                    <option value="" disabled>No hay presupuestos aprobados</option>
-                  )}
+                  {(presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos).map((p, pIdx) => {
+                    const pId = p.id || p.ID || p.codigo || pIdx;
+                    const pNombre = p.nombre || p.Nombre || p.codigo || `Presupuesto #${pId}`;
+                    const estadoText = p.estado || p.estado_presupuesto || '';
+                    return <option key={pId} value={pId}>{pNombre} {estadoText ? `(${estadoText})` : ''}</option>;
+                  })}
                 </select>
               </div>
 
@@ -1036,13 +1048,9 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                       className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 text-slate-900"
                     >
                       <option value="">-- Seleccionar Rubro del Presupuesto --</option>
-                      {rubrosDisponiblesPresupuesto.length > 0 ? (
-                        rubrosDisponiblesPresupuesto.map((rubName, rubIdx) => (
-                          <option key={rubIdx} value={rubName}>{rubName}</option>
-                        ))
-                      ) : (
-                        <option value="" disabled>Seleccione un presupuesto aprobado primero</option>
-                      )}
+                      {rubrosDisponiblesPresupuesto.map((rubName, rubIdx) => (
+                        <option key={rubIdx} value={rubName}>{rubName}</option>
+                      ))}
                     </select>
                     <div className="flex items-center gap-1 w-32">
                       <input 
