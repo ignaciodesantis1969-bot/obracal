@@ -904,7 +904,7 @@ export default function Rrhh({
             {/* Espacio para la foto cuadrada con opciones Subir / Borrar */}
             {legajoEmpleadoSeleccionado && (
               <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
+                <div className="w-32 h-32 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
                   {fotoPerfilActual && (fotoPerfilActual.url_archivo || fotoPerfilActual.Url_archivo || fotoPerfilActual.archivo_url) ? (
                     <img 
                       src={fotoPerfilActual.url_archivo || fotoPerfilActual.Url_archivo || fotoPerfilActual.archivo_url} 
