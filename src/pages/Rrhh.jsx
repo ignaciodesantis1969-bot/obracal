@@ -1,16 +1,24 @@
 import React, { useState } from 'react';
 import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart } from 'lucide-react';
 
-export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos = [], obras = [], rubros = [], presupuestos = [], cargarDatos }) {
+export default function Rrhh({ 
+  GOOGLE_SCRIPT_URL = '', 
+  personalInicial = [], 
+  insumos = [], 
+  obras = [], 
+  rubros = [], 
+  presupuestos = [], 
+  cargarDatos = () => {} 
+}) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
   const [searchTerm, setSearchTerm] = useState('');
 
-  // Depuración en consola para verificar qué datos llegan desde App.jsx
-  React.useEffect(() => {
-    console.log("--- DATOS RECIBIDOS EN RRHH ---");
-    console.log("Presupuestos recibidos:", presupuestos);
-    console.log("Rubros recibidos:", rubros);
-  }, [presupuestos, rubros]);
+  // Respaldos seguros locales por si el componente padre no envía alguna prop
+  const safePersonal = Array.isArray(personalInicial) ? personalInicial : [];
+  const safeInsumos = Array.isArray(insumos) ? insumos : [];
+  const safeObras = Array.isArray(obras) ? obras : [];
+  const safeRubros = Array.isArray(rubros) ? rubros : [];
+  const safePresupuestos = Array.isArray(presupuestos) ? presupuestos : [];
 
   // Función auxiliar para limpiar y formatear correctamente los números y textos de Google Sheets
   const procesarPersonalInicial = (lista) => {
@@ -35,7 +43,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   };
 
   // Estado local para los salarios y datos del personal
-  const [personalSalarios, setPersonalSalarios] = useState(procesarPersonalInicial(personalInicial));
+  const [personalSalarios, setPersonalSalarios] = useState(procesarPersonalInicial(safePersonal));
 
   const [multiplicadorParitaria, setMultiplicadorParitaria] = useState('');
   const [mesAcuerdoGlobal, setMesAcuerdoGlobal] = useState('Agosto 2026');
@@ -59,21 +67,19 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     { id: 1, rubro: '', porcentaje: 100 }
   ]);
 
-  // Filtrar presupuestos aprobados (siempre devuelve todos si no encuentra el campo exacto para evitar vacíos)
-  const presupuestosAprobados = Array.isArray(presupuestos) && presupuestos.length > 0
-    ? presupuestos.filter(p => {
-        const estado = String(p.estado || p.Estado || p.estado_presupuesto || '').toLowerCase();
-        const aprobadoProp = p.aprobado ?? p.Aprobado;
-        const esBooleanoAprobado = aprobadoProp === true || String(aprobadoProp).toLowerCase() === 'true' || String(aprobadoProp).toLowerCase() === 'sí' || String(aprobadoProp).toLowerCase() === 'si';
-        
-        return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado || estado === '';
-      })
-    : [];
+  // Filtrar presupuestos aprobados de manera flexible
+  const presupuestosAprobados = safePresupuestos.filter(p => {
+    const estado = String(p.estado || p.Estado || p.estado_presupuesto || '').toLowerCase();
+    const aprobadoProp = p.aprobado ?? p.Aprobado;
+    const esBooleanoAprobado = aprobadoProp === true || String(aprobadoProp).toLowerCase() === 'true' || String(aprobadoProp).toLowerCase() === 'sí' || String(aprobadoProp).toLowerCase() === 'si';
+    
+    return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado || estado === '';
+  });
 
   // Obtener rubros disponibles desde `items_detalle` del presupuesto seleccionado o lista global
   const rubrosDisponiblesPresupuesto = React.useMemo(() => {
     if (presupuestoSeleccionadoCarga) {
-      const presupuestoObj = presupuestos.find(p => {
+      const presupuestoObj = safePresupuestos.find(p => {
         const pId = String(p.id || p.ID || p.codigo || '');
         return pId === String(presupuestoSeleccionadoCarga);
       });
@@ -99,11 +105,11 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
 
     // Respaldo global si no hay en el JSON del presupuesto
-    if (Array.isArray(rubros) && rubros.length > 0) {
-      return rubros.map(r => typeof r === 'string' ? r : (r.nombre || r.rubro || r.Rubro || 'Rubro'));
+    if (safeRubros.length > 0) {
+      return safeRubros.map(r => typeof r === 'string' ? r : (r.nombre || r.rubro || r.Rubro || 'Rubro'));
     }
 
-    // Rubros por defecto si todo lo demás falla
+    // Rubros por defecto de respaldo
     return [
       'Mano de Obra Estructura / Albañilería',
       'TAREAS PRELIMINARES',
@@ -112,12 +118,12 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
       'Mampostería',
       'Instalaciones'
     ];
-  }, [presupuestoSeleccionadoCarga, presupuestos, rubros]);
+  }, [presupuestoSeleccionadoCarga, safePresupuestos, safeRubros]);
 
-  // Sincronizar salarios y asegurar que la carga no se sobrescriba si el usuario ya está tipeando
+  // Sincronizar salarios
   React.useEffect(() => {
-    if (Array.isArray(personalInicial) && personalInicial.length > 0) {
-      const procesados = procesarPersonalInicial(personalInicial);
+    if (safePersonal.length > 0) {
+      const procesados = procesarPersonalInicial(safePersonal);
       setPersonalSalarios(procesados);
       
       setDetalleCargaPersonal(prev => {
@@ -139,16 +145,14 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         }));
       });
     }
-  }, [personalInicial]);
+  }, [safePersonal]);
 
   // Filtrar insumos que actúan como cuadrillas / mano de obra compuesta
-  const cuadrillasGuardadas = Array.isArray(insumos) 
-    ? insumos.filter(i => {
-        const tipo = String(i.tipo || i.Tipo || '').toLowerCase();
-        const nombre = String(i.nombre || i.nombre_del_articulo || '').toLowerCase();
-        return tipo.includes('mano') || nombre.includes('cuadrilla');
-      })
-    : [];
+  const cuadrillasGuardadas = safeInsumos.filter(i => {
+    const tipo = String(i.tipo || i.Tipo || '').toLowerCase();
+    const nombre = String(i.nombre || i.nombre_del_articulo || '').toLowerCase();
+    return tipo.includes('mano') || nombre.includes('cuadrilla');
+  });
 
   // Modal Nuevo / Editar Personal
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -1003,7 +1007,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                 >
                   <option value="">-- Seleccione un Presupuesto Aprobado --</option>
-                  {(presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos).map((p, pIdx) => {
+                  {(presupuestosAprobados.length > 0 ? presupuestosAprobados : safePresupuestos).map((p, pIdx) => {
                     const pId = p.id || p.ID || p.codigo || pIdx;
                     const pNombre = p.nombre || p.Nombre || p.codigo || `Presupuesto #${pId}`;
                     const estadoText = p.estado || p.estado_presupuesto || '';
