@@ -901,26 +901,44 @@ export default function Rrhh({
               </div>
             </div>
 
-            {/* Espacio para la foto cuadrada con opciones Subir / Borrar */}
+ {/* Espacio para la foto cuadrada con opciones Subir / Borrar */}
 {legajoEmpleadoSeleccionado && (
   <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-    <div className="w-34 h-34 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
+    <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
       {(() => {
-        const urlRaw = fotoPerfilActual?.url_archivo || fotoPerfilActual?.Url_archivo || fotoPerfilActual?.archivo_url || fotoPerfilActual?.Archivo_url;
-        
-        // Función para transformar el enlace de Google Drive a formato de visualización directa
+        const fotoPerfilObj = legajosLista.find(l => {
+          const pId = String(l.personal_id || l.Personal_id || l.personalId || '');
+          const sub = String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '');
+          return pId === String(legajoEmpleadoSeleccionado) && sub === 'fotoperfil';
+        });
+
+        const urlRaw = fotoPerfilObj?.url_archivo || fotoPerfilObj?.Url_archivo || fotoPerfilObj?.archivo_url || fotoPerfilObj?.Archivo_url;
+
+        // Función para convertir el enlace de Google Drive a formato de imagen directa
         const convertirUrlDrive = (url) => {
           if (!url) return '';
-          const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-          if (match && match[1]) {
-            return `https://drive.google.com/uc?export=view&id=${match[1]}`;
+          if (url.startsWith('data:')) return url;
+          
+          let fileId = '';
+          const matchD = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+          if (matchD && matchD[1]) {
+            fileId = matchD[1];
+          } else {
+            const matchId = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+            if (matchId && matchId[1]) {
+              fileId = matchId[1];
+            }
+          }
+
+          if (fileId) {
+            return `https://lh3.googleusercontent.com/d/${fileId}`;
           }
           return url;
         };
 
         const urlFinal = convertirUrlDrive(urlRaw);
 
-        if (urlFinal) {
+        if (urlFinal && urlFinal !== 'Comprobante_Adjunto') {
           return (
             <img 
               src={urlFinal} 
@@ -951,9 +969,12 @@ export default function Rrhh({
           <Upload className="w-3 h-3" /> Subir foto
         </label>
 
-        {fotoPerfilActual && (
+        {legajosLista.some(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '') === 'fotoperfil') && (
           <button 
-            onClick={() => handleEliminarLegajo(fotoPerfilActual.id || fotoPerfilActual.ID)}
+            onClick={() => {
+              const obj = legajosLista.find(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '') === 'fotoperfil');
+              if (obj) handleEliminarLegajo(obj.id || obj.ID);
+            }}
             className="px-3 py-1.5 bg-white border border-slate-300 hover:border-red-500 text-slate-700 hover:text-red-600 rounded-lg text-xs font-bold shadow-sm cursor-pointer transition-all"
           >
             Borrar
