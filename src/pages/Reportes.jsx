@@ -6,7 +6,7 @@ export default function Reportes(props) {
   const obras = props.obras || props.Obras || [];
   const presupuestos = props.presupuestos || props.Presupuestos || [];
   const certificados = props.certificados || props.Certificados || [];
-  const movimientos = props.movimientos || props.Movimientos || [];
+  const movimientos = props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria || [];
   const insumos = props.insumos || props.Insumos || [];
   const rubros = props.rubros || props.Rubros || [];
   const facturas = props.facturas || props.Facturas || [];
@@ -38,7 +38,7 @@ export default function Reportes(props) {
   const totalGastado = movimientosFiltrados.filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso').reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
   const resultadoNeto = totalCobrado - totalGastado;
 
-  // FILTRADO ESTRICTO DE PRESUPUESTOS APROBADOS (Columna J: estado_presupuesto)
+  // FILTRADO ESTRICTO DE PRESUPUESTOS APROBADOS
   const presupuestosCompFiltrados = (compObraId === 'todas' 
     ? presupuestos 
     : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(compObraId))
@@ -106,7 +106,7 @@ export default function Reportes(props) {
     return [];
   };
 
-  // Motor de resolución de tipo de insumo (3 Niveles infalibles)
+  // Motor de resolución de tipo de insumo
   const obtenerTipoInsumoInfalible = (insumoItem) => {
     const insId = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || '').trim();
     if (insId && insumosOficialMap[insId]) {
@@ -130,6 +130,44 @@ export default function Reportes(props) {
     }
 
     return 'Material';
+  };
+
+  // Filtrar movimientos de Tesorería provenientes de RRHH para el presupuesto seleccionado
+  const movimientosRrhhPresupuesto = React.useMemo(() => {
+    if (!compPresupuestoId) return [];
+    return movimientos.filter(m => {
+      const tipo = String(m.tipo || m.Tipo || '').toLowerCase();
+      if (tipo !== 'egreso') return false;
+
+      const concepto = String(m.concepto || m.Concepto || '');
+      const referencia = String(m.referencia || m.Referencia || '');
+      const mPresupuestoId = String(m.presupuesto_id || m.Presupuesto_id || '');
+
+      const matchIdDirecto = mPresupuestoId && mPresupuestoId === String(compPresupuestoId);
+      const matchTextoPresupuesto = concepto.includes(`Presupuesto: ${compPresupuestoId}`);
+      const esRrhh = referencia.toUpperCase().includes('RRHH') || concepto.includes('Sueldos') || concepto.includes('Cargas Sociales');
+
+      return (matchIdDirecto || matchTextoPresupuesto) && esRrhh;
+    });
+  }, [movimientos, compPresupuestoId]);
+
+  // Obtener salarios acumulados por rubro desde Tesorería (RRHH)
+  const obtenerSalariosPorRubro = (nombreRubro) => {
+    let totalRubroRrhh = 0;
+    movimientosRrhhPresupuesto.forEach(m => {
+      const concepto = String(m.concepto || m.Concepto || '');
+      const monto = Number(m.monto || m.Monto || 0);
+      
+      const regex = /\[Rubro:\s*(.*?)\s*-\s*[\d.]+%\s*\]/i;
+      const match = concepto.match(regex);
+      if (match && match[1]) {
+        const rubroMov = match[1].trim();
+        if (limpiarTexto(rubroMov) === limpiarTexto(nombreRubro)) {
+          totalRubroRrhh += monto;
+        }
+      }
+    });
+    return totalRubroRrhh;
   };
 
   // Procesar rubros del presupuesto desde items_detalle
@@ -164,7 +202,6 @@ export default function Reportes(props) {
             let listaInsumosParsed = [];
             let esEstructuradoValido = false;
 
-            // Manejo limpio de insumos (JSON estructurado vs texto plano antiguo)
             if (typeof insumosDeLaTarea === 'string' && insumosDeLaTarea.trim()) {
               if (insumosDeLaTarea.trim().startsWith('[')) {
                 try {
@@ -174,14 +211,13 @@ export default function Reportes(props) {
                   }
                 } catch { listaInsumosParsed = []; }
               } else {
-                listaInsumosParsed = []; // Texto plano se deja vacío para activar la red semántica
+                listaInsumosParsed = [];
               }
             } else if (Array.isArray(insumosDeLaTarea) && insumosDeLaTarea.length > 0) {
               listaInsumosParsed = insumosDeLaTarea;
               esEstructuradoValido = true;
             }
 
-            // Si no hay insumos estructurados, buscamos en el Maestro de Tareas
             if (!esEstructuradoValido) {
               listaInsumosParsed = buscarInsumosMaestro(tareaItem.tarea);
               if (Array.isArray(listaInsumosParsed) && listaInsumosParsed.length > 0) {
@@ -209,7 +245,6 @@ export default function Reportes(props) {
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              // RED DE SEGURIDAD SEMÁNTICA INTELIGENTE PARA TAREAS VIEJAS SIN INSUMOS
               const textoPlano = typeof tareaItem.insumos === 'string' ? tareaItem.insumos : '';
               const textoEvaluacion = (String(tareaItem.tarea || '') + " " + textoPlano).toLowerCase();
               let tipoDef = 'Material';
@@ -282,7 +317,7 @@ export default function Reportes(props) {
     }
   }
 
-  // Imputación real de facturas para Gastos Generales cruzando por presupuesto_id y proveedor_id
+  // Imputación real de facturas para Gastos Generales
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
   let totalRealGGEspecifico = 0;
@@ -326,9 +361,7 @@ export default function Reportes(props) {
     };
   });
 
-  const totalRealRubros = 0;
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
-  const granTotalReal = totalRealRubros + totalRealGGEspecifico + totalRealImprevistos;
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -523,10 +556,9 @@ export default function Reportes(props) {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Análisis Comparativo Detallado (Presupuesto vs Real)</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Desglose por rubros, gastos generales y componentes reales</p>
+              <p className="text-xs text-slate-500 mt-0.5">Desglose por rubros, gastos generales y sueldos de RRHH</p>
             </div>
             
-            {/* SELECTORES DE OBRA Y PRESUPUESTO */}
             <div className="flex gap-3 w-full md:w-auto">
               <select 
                 className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
@@ -556,145 +588,164 @@ export default function Reportes(props) {
             <div className="py-16 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
               Selecciona una obra y un presupuesto aprobado para visualizar el comparativo desglosado.
             </div>
-          ) : (
-            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
-                    <th className="px-4 py-3">Rubro / Componente / Gastos Generales</th>
-                    <th className="px-4 py-3 text-right">Presupuestado Aprobado ($)</th>
-                    <th className="px-4 py-3 text-right">Imputaciones Reales (Facturas) ($)</th>
-                    <th className="px-4 py-3 text-right">Salarios Semanales (RRHH) ($)</th>
-                    <th className="px-4 py-3 text-right">Variación / Desvío ($)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {/* SECCIÓN 1: RUBROS CON SUS COMPONENTES REALES */}
-                  {rubrosPresupuestoDetalle.map((rubro) => {
-                    const componentesEntradas = Object.entries(rubro.componentes);
-                    const realFacturasRubro = 0;
+          ) : (() => {
+            let totalRealRubrosCalculado = 0;
 
-                    return (
-                      <React.Fragment key={`rub-${rubro.id}`}>
-                        <tr className="bg-slate-50 font-extrabold text-slate-900 border-t border-slate-200">
-                          <td className="px-4 py-3 uppercase text-amber-600 flex items-center gap-2">
-                            <Layers className="w-4 h-4 text-amber-500" />
-                            {rubro.nombre}
+            return (
+              <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
+                      <th className="px-4 py-3">Rubro / Componente / Gastos Generales</th>
+                      <th className="px-4 py-3 text-right">Presupuestado Aprobado ($)</th>
+                      <th className="px-4 py-3 text-right">Imputaciones Reales (Facturas) ($)</th>
+                      <th className="px-4 py-3 text-right">Salarios Semanales (RRHH) ($)</th>
+                      <th className="px-4 py-3 text-right">Variación / Desvío ($)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {/* SECCIÓN 1: RUBROS CON SUS COMPONENTES Y SALARIOS DE RRHH */}
+                    {rubrosPresupuestoDetalle.map((rubro) => {
+                      const componentesEntradas = Object.entries(rubro.componentes);
+                      const realFacturasRubro = 0; 
+                      const realSalariosRubro = obtenerSalariosPorRubro(rubro.nombre);
+                      const totalRealRubroActual = realFacturasRubro + realSalariosRubro;
+                      totalRealRubrosCalculado += totalRealRubroActual;
+                      const desvioRubro = rubro.total - totalRealRubroActual;
+
+                      return (
+                        <React.Fragment key={`rub-${rubro.id}`}>
+                          <tr className="bg-slate-50 font-extrabold text-slate-900 border-t border-slate-200">
+                            <td className="px-4 py-3 uppercase text-amber-600 flex items-center gap-2">
+                              <Layers className="w-4 h-4 text-amber-500" />
+                              {rubro.nombre}
+                            </td>
+                            <td className="px-4 py-3 text-right font-black text-slate-900">
+                              $ {rubro.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-3 text-right font-black text-slate-700">
+                              $ {realFacturasRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-3 text-right font-black text-amber-600">
+                              $ {realSalariosRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className={`px-4 py-3 text-right font-black ${desvioRubro >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              $ {desvioRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+
+                          {componentesEntradas.map(([compNombre, montoComp], cIdx) => {
+                            const esManoDeObra = limpiarTexto(compNombre).includes('mano') || limpiarTexto(compNombre).includes('obra');
+                            const realComp = esManoDeObra ? realSalariosRubro : 0;
+                            const desvioComp = montoComp - realComp;
+
+                            return (
+                              <tr key={cIdx} className="hover:bg-slate-50/80">
+                                <td className="px-4 py-2.5 pl-8 text-slate-600 font-medium flex items-center gap-2">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                                  {compNombre}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-bold text-blue-600">
+                                  $ {montoComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-semibold text-slate-700">$ 0,00</td>
+                                <td className="px-4 py-2.5 text-right font-semibold text-amber-600">
+                                  $ {realComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </td>
+                                <td className={`px-4 py-2.5 text-right font-black ${desvioComp >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                  $ {desvioComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
+                      );
+                    })}
+
+                    {/* SECCIÓN 2: GASTOS GENERALES E IMPREVISTOS */}
+                    {gastosGeneralesDetalle.length > 0 && (
+                      <React.Fragment>
+                        <tr className="bg-amber-50 font-extrabold text-slate-900 border-t-2 border-amber-200">
+                          <td className="px-4 py-3 uppercase text-amber-800 flex items-center gap-2" colSpan={1}>
+                            <ShieldCheck className="w-4 h-4 text-amber-600" />
+                            GASTOS GENERALES (SEGURIDAD E HIGIENE / EPP / ROPA / IMPREVISTOS)
                           </td>
-                          <td className="px-4 py-3 text-right font-black text-slate-900">
-                            $ {rubro.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          <td className="px-4 py-3 text-right font-black text-amber-900">
+                            $ {totalPresupuestoGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </td>
                           <td className="px-4 py-3 text-right font-black text-slate-700">
-                            $ {realFacturasRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            $ {(totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </td>
-                          <td className="px-4 py-3 text-right font-semibold text-amber-600">
-                            $ 0,00 <span className="text-[9px] text-slate-400">(Próx.)</span>
-                          </td>
-                          <td className={`px-4 py-3 text-right font-black ${rubro.total - realFacturasRubro >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            $ {(rubro.total - realFacturasRubro).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          <td className="px-4 py-3 text-right font-semibold text-amber-600">$ 0,00</td>
+                          <td className={`px-4 py-3 text-right font-black ${totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            $ {(totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </td>
                         </tr>
 
-                        {componentesEntradas.map(([compNombre, montoComp], cIdx) => {
-                          const desvioComp = montoComp;
+                        {gastosGeneralesDetalle.map((ggItem) => {
+                          const realItemGG = ggItem.real || 0;
+                          const desvioGG = ggItem.desvio !== undefined ? ggItem.desvio : (ggItem.total - realItemGG);
 
                           return (
-                            <tr key={cIdx} className="hover:bg-slate-50/80">
-                              <td className="px-4 py-2.5 pl-8 text-slate-600 font-medium flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                                {compNombre}
+                            <tr key={ggItem.id} className="hover:bg-amber-50/50">
+                              <td className="px-4 py-2.5 pl-8 text-slate-700 font-medium flex items-center gap-2">
+                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                                {ggItem.concepto} {!ggItem.esImprevistos && `(Cant: ${ggItem.cantidad})`}
                               </td>
                               <td className="px-4 py-2.5 text-right font-bold text-blue-600">
-                                $ {montoComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                $ {ggItem.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
-                              <td className="px-4 py-2.5 text-right font-semibold text-slate-700">$ 0,00</td>
+                              <td className="px-4 py-2.5 text-right font-semibold text-slate-700">
+                                $ {realItemGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              </td>
                               <td className="px-4 py-2.5 text-right font-semibold text-amber-600">$ 0,00</td>
-                              <td className="px-4 py-2.5 text-right font-black text-emerald-600">
-                                $ {desvioComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              <td className={`px-4 py-2.5 text-right font-black ${desvioGG >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                $ {desvioGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </td>
                             </tr>
                           );
                         })}
                       </React.Fragment>
-                    );
-                  })}
+                    )}
 
-                  {/* SECCIÓN 2: GASTOS GENERALES E IMPREVISTOS */}
-                  {gastosGeneralesDetalle.length > 0 && (
-                    <React.Fragment>
-                      <tr className="bg-amber-50 font-extrabold text-slate-900 border-t-2 border-amber-200">
-                        <td className="px-4 py-3 uppercase text-amber-800 flex items-center gap-2" colSpan={1}>
-                          <ShieldCheck className="w-4 h-4 text-amber-600" />
-                          GASTOS GENERALES (SEGURIDAD E HIGIENE / EPP / ROPA / IMPREVISTOS)
-                        </td>
-                        <td className="px-4 py-3 text-right font-black text-amber-900">
-                          $ {totalPresupuestoGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-4 py-3 text-right font-black text-slate-700">
-                          $ {(totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-4 py-3 text-right font-semibold text-amber-600">$ 0,00</td>
-                        <td className={`px-4 py-3 text-right font-black ${totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          $ {(totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </td>
-                      </tr>
+                    {/* FILAS DE TOTALES AL PIE */}
+                    <tr className="bg-slate-200 text-slate-900 font-extrabold border-t-2 border-slate-400">
+                      <td className="px-4 py-3 uppercase">SUBTOTAL RUBROS</td>
+                      <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-3 text-right">$ 0,00</td>
+                      <td className="px-4 py-3 text-right">$ {movimientosRrhhPresupuesto.reduce((acc, m) => acc + Number(m.monto || m.Monto || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-3 text-right">$ {(totalPresupuestoRubros - totalRealRubrosCalculado).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    </tr>
 
-                      {gastosGeneralesDetalle.map((ggItem) => {
-                        const realItemGG = ggItem.real || 0;
-                        const desvioGG = ggItem.desvio !== undefined ? ggItem.desvio : (ggItem.total - realItemGG);
+                    <tr className="bg-amber-200 text-amber-950 font-extrabold">
+                      <td className="px-4 py-3 uppercase">TOTAL GASTOS GENERALES E IMPREVISTOS</td>
+                      <td className="px-4 py-3 text-right">$ {totalPresupuestoGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-3 text-right">$ {(totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-3 text-right">$ 0,00</td>
+                      <td className="px-4 py-3 text-right">$ {(totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                    </tr>
 
-                        return (
-                          <tr key={ggItem.id} className="hover:bg-amber-50/50">
-                            <td className="px-4 py-2.5 pl-8 text-slate-700 font-medium flex items-center gap-2">
-                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                              {ggItem.concepto} {!ggItem.esImprevistos && `(Cant: ${ggItem.cantidad})`}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-bold text-blue-600">
-                              $ {ggItem.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-semibold text-slate-700">
-                              $ {realItemGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-semibold text-amber-600">$ 0,00</td>
-                            <td className={`px-4 py-2.5 text-right font-black ${desvioGG >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              $ {desvioGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  )}
+                    {(() => {
+                      const granTotalReal = totalRealRubrosCalculado + totalRealGGEspecifico + totalRealImprevistos;
+                      const granTotalDesvio = granTotalPresupuestado - granTotalReal;
 
-                  {/* FILAS DE TOTALES AL PIE */}
-                  <tr className="bg-slate-200 text-slate-900 font-extrabold border-t-2 border-slate-400">
-                    <td className="px-4 py-3 uppercase">SUBTOTAL RUBROS</td>
-                    <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-right">$ 0,00</td>
-                    <td className="px-4 py-3 text-right">$ 0,00</td>
-                    <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                  </tr>
-
-                  <tr className="bg-amber-200 text-amber-950 font-extrabold">
-                    <td className="px-4 py-3 uppercase">TOTAL GASTOS GENERALES E IMPREVISTOS</td>
-                    <td className="px-4 py-3 text-right">$ {totalPresupuestoGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-right">$ {(totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-right">$ 0,00</td>
-                    <td className="px-4 py-3 text-right">$ {(totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                  </tr>
-
-                  <tr className="bg-slate-900 text-white font-black text-sm">
-                    <td className="px-4 py-4 uppercase">GRAN TOTAL GENERAL</td>
-                    <td className="px-4 py-4 text-right">$ {granTotalPresupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-4 text-right">$ {granTotalReal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-4 text-right">$ 0,00</td>
-                    <td className={`px-4 py-4 text-right ${granTotalPresupuestado - granTotalReal >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                      $ {(granTotalPresupuestado - granTotalReal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          )}
+                      return (
+                        <tr className="bg-slate-900 text-white font-black text-sm">
+                          <td className="px-4 py-4 uppercase">GRAN TOTAL GENERAL</td>
+                          <td className="px-4 py-4 text-right">$ {granTotalPresupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-4 text-right">$ {(totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-4 text-right">$ {movimientosRrhhPresupuesto.reduce((acc, m) => acc + Number(m.monto || m.Monto || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className={`px-4 py-4 text-right ${granTotalDesvio >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            $ {granTotalDesvio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      );
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>
