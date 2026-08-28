@@ -48,7 +48,8 @@ const AuthenticatedApp = () => {
     movimientos: [],
     personal: [],
     rubros: [],
-    maestroTareasRubros: []
+    maestroTareasRubros: [],
+    legajos: [] // <--- Agregado para almacenar los legajos globales
   });
 
   useEffect(() => {
@@ -125,7 +126,8 @@ const AuthenticatedApp = () => {
           movimientos: data.movimientos || [],
           personal: data.personal || [],
           rubros: data.rubros || [],
-          maestroTareasRubros: data.maestro_tareas_rubros || data.maestroTareasRubros || []
+          maestroTareasRubros: data.maestro_tareas_rubros || data.maestroTareasRubros || [],
+          legajos: data.legajos || [] // <--- Agregado para recibir los legajos desde Google Sheets
         });
       }
     } catch (error) {
@@ -207,12 +209,13 @@ const AuthenticatedApp = () => {
                 obras={globalData.obras}
                 rubros={globalData.rubros}
                 presupuestos={globalData.presupuestos}
+                legajosInicial={globalData.legajos}
                 cargarDatos={cargarDatos}
               />
             </RequirePermiso>
           } 
         />
-        
+
         <Route 
           path="/compras" 
           element={

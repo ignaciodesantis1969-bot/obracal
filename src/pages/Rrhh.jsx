@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck } from 'lucide-react';
 
 export default function Rrhh({ 
   GOOGLE_SCRIPT_URL = '', 
@@ -8,6 +8,7 @@ export default function Rrhh({
   obras = [], 
   rubros = [], 
   presupuestos = [], 
+  legajosInicial = [],
   cargarDatos = () => {} 
 }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
@@ -19,6 +20,15 @@ export default function Rrhh({
   const safeObras = Array.isArray(obras) ? obras : [];
   const safeRubros = Array.isArray(rubros) ? rubros : [];
   const safePresupuestos = Array.isArray(presupuestos) ? presupuestos : [];
+  const safeLegajos = Array.isArray(legajosInicial) ? legajosInicial : [];
+
+  const [legajosLista, setLegajosLista] = useState(safeLegajos);
+
+  React.useEffect(() => {
+    if (Array.isArray(legajosInicial)) {
+      setLegajosLista(legajosInicial);
+    }
+  }, [legajosInicial]);
 
   // Función auxiliar para limpiar y formatear correctamente los números y textos de Google Sheets
   const procesarPersonalInicial = (lista) => {
@@ -62,6 +72,19 @@ export default function Rrhh({
   const [porcentajeCargasSociales, setPorcentajeCargasSociales] = useState(76.00);
   const [detalleCargaPersonal, setDetalleCargaPersonal] = useState([]);
 
+  // Estados para el Módulo de Legajos
+  const [legajoEmpleadoSeleccionado, setLegajoEmpleadoSeleccionado] = useState('');
+  const [legajoSubseccionActiva, setLegajoSubseccionActiva] = useState('documentacion_principal');
+  const [nombreDocumentoLegajo, setNombreDocumentoLegajo] = useState('');
+  const [archivoLegajoBase64, setArchivoLegajoBase64] = useState('');
+  const [cargandoLegajo, setCargandoLegajo] = useState(false);
+
+  React.useEffect(() => {
+    if (safePersonal.length > 0 && !legajoEmpleadoSeleccionado) {
+      setLegajoEmpleadoSeleccionado(String(safePersonal[0].id || safePersonal[0].ID || ''));
+    }
+  }, [safePersonal]);
+
   // Estado para la distribución por Rubros del Presupuesto
   const [distribucionRubros, setDistribucionRubros] = useState([
     { id: 1, rubro: '', porcentaje: 100 }
@@ -104,12 +127,10 @@ export default function Rrhh({
       }
     }
 
-    // Respaldo global si no hay en el JSON del presupuesto
     if (safeRubros.length > 0) {
       return safeRubros.map(r => typeof r === 'string' ? r : (r.nombre || r.rubro || r.Rubro || 'Rubro'));
     }
 
-    // Rubros por defecto de respaldo
     return [
       'Mano de Obra Estructura / Albañilería',
       'TAREAS PRELIMINARES',
@@ -147,7 +168,6 @@ export default function Rrhh({
     }
   }, [safePersonal]);
 
-  // Filtrar insumos que actúan como cuadrillas / mano de obra compuesta
   const cuadrillasGuardadas = safeInsumos.filter(i => {
     const tipo = String(i.tipo || i.Tipo || '').toLowerCase();
     const nombre = String(i.nombre || i.nombre_del_articulo || '').toLowerCase();
@@ -396,6 +416,86 @@ export default function Rrhh({
     }
   };
 
+  // Manejo de Archivos de Legajos
+  const handleArchivoLegajoChange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setArchivoLegajoBase64(reader.result);
+      if (!nombreDocumentoLegajo) {
+        setNombreDocumentoLegajo(file.name.replace(/\.[^/.]+$/, ""));
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleSubirLegajo = async (e) => {
+    e.preventDefault();
+    if (!legajoEmpleadoSeleccionado) {
+      alert("Por favor selecciona un trabajador.");
+      return;
+    }
+    if (!nombreDocumentoLegajo.trim()) {
+      alert("Por favor ingresa un nombre para el documento.");
+      return;
+    }
+    if (!archivoLegajoBase64) {
+      alert("Por favor selecciona un archivo PDF, JPG o PNG.");
+      return;
+    }
+
+    setCargandoLegajo(true);
+    try {
+      const payload = {
+        tabla: 'Legajos',
+        action: 'create',
+        data: {
+          personal_id: legajoEmpleadoSeleccionado,
+          subseccion: legajoSubseccionActiva,
+          nombre_archivo: nombreDocumentoLegajo,
+          archivo_url: archivoLegajoBase64,
+          fecha: new Date().toISOString().split('T')[0]
+        }
+      };
+
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json().catch(() => ({ success: true }));
+      if (data.success !== false) {
+        alert("¡Documento de legajo subido y archivado con éxito!");
+        setNombreDocumentoLegajo('');
+        setArchivoLegajoBase64('');
+        cargarDatos();
+      } else {
+        alert("Error al subir el archivo: " + (data.error || 'Desconocido'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error de conexión al subir el documento.");
+    } finally {
+      setCargandoLegajo(false);
+    }
+  };
+
+  const handleEliminarLegajo = async (id) => {
+    if (!id || !window.confirm("¿Estás seguro de eliminar este documento del legajo?")) return;
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'Legajos', action: 'delete', id })
+      });
+      cargarDatos();
+    } catch (err) {
+      console.error(err);
+      alert("Error al eliminar el documento.");
+    }
+  };
+
   const detalleCargaCalculado = detalleCargaPersonal.map(item => {
     const diasVal = item.dias === '' || isNaN(item.dias) ? 0 : Number(item.dias);
     const viatCantVal = item.viaticosCant === '' || isNaN(item.viaticosCant) ? 0 : Number(item.viaticosCant);
@@ -550,7 +650,7 @@ export default function Rrhh({
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Recursos Humanos</h1>
-          <p className="text-slate-500 text-sm mt-1">Gestión de personal, salarios por paritarias y armado de cuadrillas</p>
+          <p className="text-slate-500 text-sm mt-1">Gestión de personal, salarios, legajos y armado de cuadrillas</p>
         </div>
         {activeTab === 'personal' && (
           <button 
@@ -655,6 +755,178 @@ export default function Rrhh({
               </table>
             )}
           </div>
+        </div>
+      )}
+
+      {/* MÓDULO DE LEGAJOS */}
+      {activeTab === 'legajos' && (
+        <div className="space-y-6">
+          {/* Selector Superior de Empleado */}
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Seleccionar Trabajador</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Elige el empleado para consultar o adjuntar documentación en su legajo digital.</p>
+            </div>
+            <div className="w-full sm:w-80">
+              <select
+                value={legajoEmpleadoSeleccionado}
+                onChange={(e) => setLegajoEmpleadoSeleccionado(e.target.value)}
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
+              >
+                <option value="">-- Seleccionar Trabajador --</option>
+                {personalSalarios.map(p => {
+                  const pId = String(p.id || p.ID);
+                  const pNombre = p.nombre || p.Nombre || 'Personal';
+                  const pEsp = p.especialidad || p.Especialidad || 'Operario';
+                  return (
+                    <option key={pId} value={pId}>
+                      {pNombre} ({pEsp})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+          </div>
+
+          {!legajoEmpleadoSeleccionado ? (
+            <div className="bg-white p-12 rounded-2xl border border-slate-300 shadow-sm text-center text-slate-400 text-xs">
+              Por favor selecciona un trabajador para gestionar sus legajos.
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {/* Botones de las 4 Subsecciones */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                  { id: 'documentacion_principal', label: 'Documentación Principal', icon: FileText },
+                  { id: 'recibos_sueldo', label: 'Recibos de Sueldo', icon: DollarSign },
+                  { id: 'estudios_medicos', label: 'Estudios Médicos', icon: ShieldCheck },
+                  { id: 'capacitaciones_epp', label: 'Capacitaciones y EPP', icon: FileCheck }
+                ].map(sub => {
+                  const IconComp = sub.icon;
+                  const isActive = legajoSubseccionActiva === sub.id;
+                  const cantArchivos = legajosLista.filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === sub.id).length;
+                  
+                  return (
+                    <button
+                      key={sub.id}
+                      onClick={() => setLegajoSubseccionActiva(sub.id)}
+                      className={`p-4 rounded-2xl border text-left transition-all shadow-sm cursor-pointer flex flex-col justify-between gap-3 ${
+                        isActive ? 'bg-amber-500 border-amber-500 text-white' : 'bg-white border-slate-300 text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center">
+                        <IconComp className={`w-5 h-5 ${isActive ? 'text-white' : 'text-amber-500'}`} />
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-black ${isActive ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-600'}`}>
+                          {cantArchivos} archivos
+                        </span>
+                      </div>
+                      <span className="text-xs font-extrabold uppercase">{sub.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Formulario de Carga y Listado */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Formulario de Subida (1 Columna) */}
+                <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4 h-fit">
+                  <h4 className="text-xs font-extrabold text-slate-900 uppercase flex items-center gap-1.5">
+                    <Upload className="w-4 h-4 text-amber-500" /> Subir Nuevo Archivo
+                  </h4>
+                  
+                  <form onSubmit={handleSubirLegajo} className="space-y-4">
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Título / Descripción del Archivo *</label>
+                      <input 
+                        type="text"
+                        required
+                        placeholder="Ej: Recibo Agosto 2026, Apto Médico..."
+                        value={nombreDocumentoLegajo}
+                        onChange={(e) => setNombreDocumentoLegajo(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Seleccionar Archivo (PDF, JPG, PNG) *</label>
+                      <input 
+                        type="file"
+                        accept=".pdf,.jpg,.jpeg,.png"
+                        onChange={handleArchivoLegajoChange}
+                        className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100 cursor-pointer"
+                      />
+                    </div>
+
+                    <button 
+                      type="submit"
+                      disabled={cargandoLegajo}
+                      className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer flex items-center justify-center gap-2"
+                    >
+                      {cargandoLegajo ? 'Subiendo a Drive...' : 'Archivar Documento'}
+                    </button>
+                  </form>
+                </div>
+
+                {/* Listado de Archivos en la Subsección (2 Columnas) */}
+                <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
+                  <h4 className="text-xs font-extrabold text-slate-900 uppercase">
+                    Archivos Archivados ({legajosLista.filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva).length})
+                  </h4>
+
+                  {legajosLista.filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva).length === 0 ? (
+                    <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-xl">
+                      No hay documentos cargados en esta sección para este trabajador.
+                    </div>
+                  ) : (
+                    <div className="space-y-3 max-h-96 overflow-y-auto">
+                      {legajosLista
+                        .filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva)
+                        .map((item, idx) => {
+                          const lId = item.id || item.ID || idx;
+                          const lNombre = item.nombre_archivo || item.Nombre_archivo || 'Documento sin título';
+                          const lUrl = item.url_archivo || item.Url_archivo || item.archivo_url || '#';
+                          const lFecha = item.fecha || item.Fecha || '---';
+
+                          return (
+                            <div key={lId} className="flex items-center justify-between p-3.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 transition-colors">
+                              <div className="flex items-center gap-3">
+                                <div className="p-2.5 bg-amber-100 text-amber-800 rounded-lg">
+                                  <FileText className="w-4 h-4" />
+                                </div>
+                                <div>
+                                  <h5 className="text-xs font-bold text-slate-900">{lNombre}</h5>
+                                  <p className="text-[10px] text-slate-500 mt-0.5">Subido el: {lFecha}</p>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                {lUrl && lUrl !== '#' && (
+                                  <a 
+                                    href={lUrl} 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-1.5 bg-white border border-slate-300 hover:border-amber-500 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition-all"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5 text-amber-600" /> Ver Archivo
+                                  </a>
+                                )}
+                                <button 
+                                  onClick={() => handleEliminarLegajo(lId)}
+                                  className="p-1.5 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg shadow-sm cursor-pointer"
+                                  title="Eliminar documento"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -980,12 +1252,6 @@ export default function Rrhh({
         </div>
       )}
 
-      {activeTab === 'legajos' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-8 text-center text-slate-400 text-xs">
-          Módulo de Legajos en desarrollo.
-        </div>
-      )}
-      
       {activeTab === 'carga' && (
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
