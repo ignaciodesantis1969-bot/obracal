@@ -52,35 +52,46 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     { id: 1, rubro: '', porcentaje: 100 }
   ]);
 
-  // Filtrar presupuestos aprobados
+  // Filtrar presupuestos aprobados (revisa 'estado' y 'estado_presupuesto')
   const presupuestosAprobados = Array.isArray(presupuestos) 
     ? presupuestos.filter(p => {
-        const estado = String(p.estado || p.Status || p.status || '').toLowerCase();
-        return estado === 'aprobado' || estado === 'aprobada';
+        const estado = String(p.estado || p.Estado || p.estado_presupuesto || '').toLowerCase();
+        const aprobadoProp = p.aprobado ?? p.Aprobado;
+        const esBooleanoAprobado = aprobadoProp === true || String(aprobadoProp).toLowerCase() === 'true' || String(aprobadoProp).toLowerCase() === 'sí' || String(aprobadoProp).toLowerCase() === 'si';
+        
+        return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado;
       })
     : [];
 
-  // Obtener rubros disponibles según el presupuesto seleccionado
+  // Obtener rubros disponibles desde `items_detalle` del presupuesto seleccionado
   const rubrosDisponiblesPresupuesto = React.useMemo(() => {
     if (!presupuestoSeleccionadoCarga) return [];
     
-    // Buscar el presupuesto seleccionado
     const presupuestoObj = presupuestosAprobados.find(p => {
-      const pId = String(p.id || p.ID || p.nombre || p.nombre_del_presupuesto || '');
+      const pId = String(p.id || p.ID || p.nombre || p.codigo || '');
       return pId === String(presupuestoSeleccionadoCarga);
     });
 
     if (presupuestoObj) {
-      let rawRubros = presupuestoObj.rubros || presupuestoObj.items || presupuestoObj.detalle || presupuestoObj.capitulos;
-      if (typeof rawRubros === 'string') {
-        try { rawRubros = JSON.parse(rawRubros); } catch(e) { rawRubros = []; }
+      let rawItems = presupuestoObj.items_detalle || presupuestoObj.rubros || presupuestoObj.items || presupuestoObj.detalle;
+      
+      if (typeof rawItems === 'string') {
+        try { rawItems = JSON.parse(rawItems); } catch(e) { rawItems = {}; }
       }
-      if (Array.isArray(rawRubros) && rawRubros.length > 0) {
-        return rawRubros.map(r => typeof r === 'string' ? r : (r.nombre || r.rubro || r.descripcion || 'Rubro'));
+
+      let listaRubros = [];
+      if (Array.isArray(rawItems)) {
+        listaRubros = rawItems;
+      } else if (rawItems && Array.isArray(rawItems.rubros)) {
+        listaRubros = rawItems.rubros;
+      }
+
+      if (listaRubros.length > 0) {
+        return listaRubros.map(r => typeof r === 'string' ? r : (r.rubro || r.nombre || r.descripcion || 'Rubro'));
       }
     }
 
-    // Si no tiene rubros internos directos, filtrar la lista global de rubros o devolverla
+    // Respaldo global si no hay en el JSON
     if (Array.isArray(rubros) && rubros.length > 0) {
       return rubros.map(r => typeof r === 'string' ? r : (r.nombre || r.rubro || r.Rubro || 'Rubro'));
     }
@@ -193,7 +204,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  // Modificación manual individual de costo o mes en la tabla de salarios y persistencia en Google Sheets
   const handleActualizarPersonalFila = async (id, campo, valor) => {
     setPersonalSalarios(prev => prev.map(p => {
       const pId = p.id || p.ID;
@@ -218,7 +228,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  // Aplicar multiplicador de paritaria y mes a todo el personal y guardarlo
   const handleAplicarParitariaMasiva = async () => {
     const mult = Number(multiplicadorParitaria);
     if (!mult || mult <= 0) {
@@ -251,7 +260,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  // Agregar trabajador de la lista superior a la cuadrilla activa
   const handleAgregarPersonalAQuadrilla = (persona) => {
     const nombre = persona.nombre || persona.Nombre || 'Personal';
     const especialidad = persona.especialidad || persona.Especialidad || 'Operario';
@@ -268,7 +276,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     setCuadrillaItems(prev => [...prev, nuevoItem]);
   };
 
-  // Cálculos dinámicos de la cuadrilla actual en el editor
   const factorCargas = porcentajeCargas / 100;
   const itemsCalculados = cuadrillaItems.map(item => {
     const costoEnMano = Number(item.costoEnMano) || 0;
@@ -282,7 +289,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
   const totalViaticos = (Number(viaticosCuadrilla.cantidad) || 0) * (Number(viaticosCuadrilla.costo) || 0);
   const costoDiarioCuadrilla = sumaSubtotalesPersonal + totalViaticos;
 
-  // Guardar o Actualizar Cuadrilla como Insumo en el Maestro
   const handleGuardarCuadrillaComoInsumo = async () => {
     if (!nombreCuadrilla.trim()) {
       alert("Por favor ingresa un nombre para la cuadrilla.");
@@ -371,7 +377,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
   };
 
-  // CÁLCULOS Y ACCIONES PARA LA CARGA SEMANAL DE SUELDOS / VIÁTICOS Y CARGAS SOCIALES
   const detalleCargaCalculado = detalleCargaPersonal.map(item => {
     const diasVal = item.dias === '' || isNaN(item.dias) ? 0 : Number(item.dias);
     const viatCantVal = item.viaticosCant === '' || isNaN(item.viaticosCant) ? 0 : Number(item.viaticosCant);
@@ -385,7 +390,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
 
   const totalGeneralCarga = detalleCargaCalculado.reduce((acc, curr) => acc + curr.totalOperario, 0);
 
-  // Cálculo de Cargas Sociales (siempre calculado por 5 días para los empleados tildados)
   const factorCargasSociales = (Number(porcentajeCargasSociales) || 0) / 100;
   const totalCargasSociales = detalleCargaCalculado.reduce((acc, item) => {
     if (!item.incluirCargas) return acc;
@@ -394,7 +398,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     return acc + cargasEmpleado;
   }, 0);
 
-  // Funciones para manejar la distribución por rubros
   const handleAgregarRubroDistribucion = () => {
     setDistribucionRubros(prev => [...prev, { id: Date.now(), rubro: '', porcentaje: 0 }]);
   };
@@ -440,7 +443,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
 
     try {
-      // Registrar un movimiento en Tesorería por cada rubro según su porcentaje
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
@@ -483,7 +485,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
     }
 
     try {
-      // Registrar un movimiento en Tesorería por cada rubro según su porcentaje
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
@@ -542,7 +543,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         )}
       </div>
 
-      {/* Botones de pestañas */}
       <div className="flex gap-2 flex-wrap pb-2">
         <button
           onClick={() => setActiveTab('personal')}
@@ -578,7 +578,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         </button>
       </div>
 
-      {/* Contenido: Lista de Personal */}
       {activeTab === 'personal' && (
         <div className="space-y-4">
           <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
@@ -640,12 +639,10 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         </div>
       )}
 
-      {/* Contenido: Salarios y Cuadrillas */}
       {activeTab === 'salarios' && (
         <div className="space-y-6">
           {vistaCuadrilla === 'lista' ? (
             <div className="space-y-6">
-              {/* PANEL SUPERIOR: MAESTRO DE SALARIOS Y PARITARIAS */}
               <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
                   <div>
@@ -718,7 +715,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 </div>
               </div>
 
-              {/* LISTADO DE CUADRILLAS */}
               <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex justify-between items-center">
                 <div>
                   <h3 className="text-sm font-extrabold text-slate-900 uppercase">Listado de Cuadrillas (Insumos de Mano de Obra)</h3>
@@ -815,7 +811,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 </div>
               </div>
 
-              {/* SECCIÓN: Listado de Personal para Agregar con un Clic */}
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
                 <div className="flex justify-between items-center">
                   <h4 className="text-xs font-extrabold text-slate-900 uppercase">Personal Disponible (Hacer clic en "Agregar" para sumar con el salario vigente)</h4>
@@ -856,7 +851,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                 </div>
               </div>
 
-              {/* TABLA DE LA CUADRILLA */}
               <div className="overflow-x-auto border border-slate-200 rounded-xl">
                 <table className="w-full text-left text-xs">
                   <thead>
@@ -973,10 +967,8 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         </div>
       )}
       
-      {/* MÓDULO ACTIVO: CARGA SEMANAL DE HORAS / VIÁTICOS Y CARGAS SOCIALES */}
       {activeTab === 'carga' && (
         <div className="space-y-6">
-          {/* Card: Selección de Presupuesto Aprobado, Fecha y Distribución por Rubros */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
@@ -998,12 +990,12 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                   <option value="">-- Seleccione un Presupuesto Aprobado --</option>
                   {presupuestosAprobados.length > 0 ? (
                     presupuestosAprobados.map((p, pIdx) => {
-                      const pId = p.id || p.ID || p.nombre || p.nombre_del_presupuesto || pIdx;
-                      const pNombre = p.nombre || p.Nombre || p.nombre_del_presupuesto || p.obra || `Presupuesto #${pId}`;
+                      const pId = p.id || p.ID || p.codigo || pIdx;
+                      const pNombre = p.nombre || p.Nombre || p.codigo || `Presupuesto #${pId}`;
                       return <option key={pId} value={pId}>{pNombre}</option>;
                     })
                   ) : (
-                    <option value="" disabled>No hay presupuestos aprobados disponibles</option>
+                    <option value="" disabled>No hay presupuestos aprobados</option>
                   )}
                 </select>
               </div>
@@ -1021,7 +1013,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
               </div>
             </div>
 
-            {/* Distribución por Rubros (Con desplegable de Rubros del Presupuesto seleccionado) */}
             <div className="space-y-3 bg-amber-50/40 p-4 rounded-xl border border-amber-200">
               <div className="flex justify-between items-center">
                 <h4 className="text-xs font-extrabold text-amber-900 uppercase flex items-center gap-1.5">
@@ -1050,7 +1041,7 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
                           <option key={rubIdx} value={rubName}>{rubName}</option>
                         ))
                       ) : (
-                        <option value="" disabled>Seleccione un presupuesto con rubros primero</option>
+                        <option value="" disabled>Seleccione un presupuesto aprobado primero</option>
                       )}
                     </select>
                     <div className="flex items-center gap-1 w-32">
@@ -1083,7 +1074,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
             </div>
           </div>
 
-          {/* Card Principal: Carga de Sueldos y Viáticos */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
@@ -1099,7 +1089,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
               </button>
             </div>
 
-            {/* Tabla de Carga de Personal (Con Checkbox de Cargas Sociales) */}
             <div className="overflow-x-auto border border-slate-200 rounded-xl">
               <table className="w-full text-left text-xs">
                 <thead className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
@@ -1175,7 +1164,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
               </table>
             </div>
 
-            {/* Tarjeta de Resumen Final de Sueldos */}
             <div className="bg-slate-900 text-white p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
               <div>
                 <p className="text-xs text-slate-400 font-bold uppercase">Resumen de Liquidación</p>
@@ -1190,7 +1178,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
             </div>
           </div>
 
-          {/* Card Secundaria: Cargas Sociales por Empleado */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
@@ -1234,7 +1221,6 @@ export default function Rrhh({ GOOGLE_SCRIPT_URL, personalInicial = [], insumos 
         </div>
       )}
 
-      {/* MODAL NUEVO / EDITAR PERSONAL */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden my-8">
