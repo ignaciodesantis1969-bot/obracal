@@ -38,42 +38,56 @@ export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = fal
   }
 };
 
-export const exportarPresupuestoPDF = (presupuesto, cliente, rubrosItems, esVenta = false, coeficiente = 1) => {
+export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, esVenta = false, coeficiente = 1) => {
   try {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     let currentY = 14;
 
-    // Encabezado superior
+    // 1 & 2) Encabezado superior (Sin versión V1, código a la izquierda, título ajustado)
     doc.setFillColor(254, 243, 199);
-    doc.roundedRect(14, currentY, 38, 7, 1, 1, 'F');
+    doc.roundedRect(14, currentY, 42, 7, 1, 1, 'F');
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
+    doc.setFontSize(7.5);
     doc.setTextColor(180, 83, 9);
     doc.text(presupuesto?.codigo || 'CL004-OB002', 17, currentY + 5);
 
-    doc.setFillColor(239, 246, 255);
-    doc.roundedRect(55, currentY, 12, 7, 1, 1, 'F');
-    doc.setTextColor(29, 78, 216);
-    doc.text(presupuesto?.version || 'V1', 58, currentY + 5);
-
+    // Título con fuente más chica (10.5) para que no se corte
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(14);
+    doc.setFontSize(10.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(presupuesto?.nombre || 'Cotización Obra', 72, currentY + 5);
+    doc.text(presupuesto?.nombre || 'Cotización Obra', 60, currentY + 5);
 
+    // Fecha con recuero más oscuro y visible (Slate-200)
     const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
-    doc.setFillColor(241, 245, 249);
+    doc.setFillColor(226, 232, 240); // Gris más oscuro y contrastante
     doc.roundedRect(pageWidth - 45, currentY - 1, 31, 8, 2, 2, 'F');
     doc.setFont("helvetica", "bold");
     doc.setFontSize(8);
-    doc.setTextColor(71, 85, 105);
+    doc.setTextColor(51, 65, 85);
     doc.text(fechaTexto, pageWidth - 40, currentY + 4.5);
 
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(12);
-    doc.setTextColor(30, 41, 59);
-    doc.text("SICE SA", pageWidth - 25, currentY + 14, { align: 'right' });
+    // 4) Carga de Logo desde la carpeta public (ej: /logo-sice.png)
+    try {
+      const response = await fetch('/logo-07.png');
+      if (response.ok) {
+        const blob = await response.blob();
+        const reader = new FileReader();
+        await new Promise((resolve) => {
+          reader.onloadend = () => {
+            doc.addImage(reader.result, 'PNG', pageWidth - 35, currentY + 10, 22, 10);
+            resolve();
+          };
+          reader.readAsDataURL(blob);
+        });
+      }
+    } catch (e) {
+      // Si no encuentra la imagen, muestra texto de respaldo limpio
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(11);
+      doc.setTextColor(30, 41, 59);
+      doc.text("SICE SA", pageWidth - 25, currentY + 16, { align: 'right' });
+    }
 
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
@@ -112,7 +126,6 @@ export const exportarPresupuestoPDF = (presupuesto, cliente, rubrosItems, esVent
 
       granTotal += subtotalRubro;
 
-      // Verificar espacio en página
       if (currentY > 260) {
         doc.addPage();
         currentY = 20;
@@ -134,13 +147,13 @@ export const exportarPresupuestoPDF = (presupuesto, cliente, rubrosItems, esVent
 
       currentY += 10;
 
-      // Tabla con los encabezados solicitados: Tareas, Unidades, Cantidad, Precio Unitario, Precio Total
+      // Tabla con encabezados en gris visible (Slate-300: [203, 213, 225])
       autoTable(doc, {
         startY: currentY,
         head: [["Tareas", "Unidades", "Cantidad", "Precio Unitario", "Precio Total"]],
         body: tableRows,
         theme: 'grid',
-        headStyles: { fillColor: [248, 250, 252], textColor: [100, 116, 139], fontStyle: 'bold', fontSize: 8 },
+        headStyles: { fillColor: [203, 213, 225], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 8 },
         bodyStyles: { fontSize: 8, textColor: [51, 65, 85] },
         columnStyles: {
           0: { cellWidth: 'auto' },
@@ -156,7 +169,6 @@ export const exportarPresupuestoPDF = (presupuesto, cliente, rubrosItems, esVent
       currentY = doc.lastAutoTable.finalY + 8;
     });
 
-    // Total general al pie
     if (currentY > 260) {
       doc.addPage();
       currentY = 20;
