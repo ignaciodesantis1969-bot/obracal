@@ -445,8 +445,8 @@ export default function Reportes(props) {
     
     facturasPresupuesto.forEach(fac => {
       const provId = String(fac.proveedor_id || fac.Proveedor_id || '');
-      const tipoInsumoFac = String(fac.tipo_insumo || fac.Tipo_insumo || '').toLowerCase();
-      // 🛡️ AQUÍ SE TOMA EL SUBTOTAL NETO (SIN IVA NI PERCEPCIONES)
+      const tipoInsumoFac = String(fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || '').toLowerCase();
+      // 🛡️ SE TOMA EL SUBTOTAL NETO (SIN IVA NI PERCEPCIONES)
       const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
 
       const matchConcepto = tipoInsumoFac && (tipoInsumoFac.includes(conceptoLower) || conceptoLower.includes(tipoInsumoFac));
@@ -461,8 +461,7 @@ export default function Reportes(props) {
           realAsignado += montoFac;
         }
       } else if (ggItem.esImprevistos) {
-        // Imprevistos absorbe las facturas imputadas a Gastos Generales que no caen en un renglón específico exacto
-        const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || '').toLowerCase();
+        const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || '').toLowerCase();
         if (rubroFac.includes('gastos generales') && !['1', '2', '6', '11', '14'].includes(provId) && !tipoInsumoFac.includes('seguridad') && !tipoInsumoFac.includes('ropa') && !tipoInsumoFac.includes('epp')) {
           realAsignado += montoFac;
         }
@@ -874,12 +873,14 @@ export default function Reportes(props) {
                     {rubrosPresupuestoDetalle.map((rubro) => {
                       const componentesEntradas = Object.entries(rubro.componentes);
                       
-                      // 🛡️ CÁLCULO DE FACTURAS REALES PARA EL RUBRO (USANDO SUBTOTAL NETO)
+                      // 🛡️ CÁLCULO ROBUSTO DE FACTURAS REALES PARA EL RUBRO (TOLERANTE A VARIANTES DE TEXTO)
                       const realFacturasRubro = facturasPresupuesto
                         .filter(fac => {
-                          const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || '').trim();
+                          const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').trim();
                           if (rFac.toLowerCase().includes('gastos generales')) return false;
-                          return limpiarTexto(rFac) === limpiarTexto(rubro.nombre);
+                          const limpioRubroFac = limpiarTexto(rFac);
+                          const limpioRubroPres = limpiarTexto(rubro.nombre);
+                          return limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac);
                         })
                         .reduce((acc, fac) => acc + Number(fac.subtotal || fac.Subtotal || 0), 0);
 
@@ -991,9 +992,11 @@ export default function Reportes(props) {
                         $ {rubrosPresupuestoDetalle.reduce((acc, r) => {
                           const fRubro = facturasPresupuesto
                             .filter(fac => {
-                              const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || '').trim();
+                              const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').trim();
                               if (rFac.toLowerCase().includes('gastos generales')) return false;
-                              return limpiarTexto(rFac) === limpiarTexto(r.nombre);
+                              const limpioRubroFac = limpiarTexto(rFac);
+                              const limpioRubroPres = limpiarTexto(r.nombre);
+                              return limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac);
                             })
                             .reduce((sum, fac) => sum + Number(fac.subtotal || fac.Subtotal || 0), 0);
                           return acc + fRubro;
@@ -1015,9 +1018,11 @@ export default function Reportes(props) {
                       const totalFacturasRubrosNeto = rubrosPresupuestoDetalle.reduce((acc, r) => {
                         const fRubro = facturasPresupuesto
                           .filter(fac => {
-                            const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || '').trim();
+                            const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').trim();
                             if (rFac.toLowerCase().includes('gastos generales')) return false;
-                            return limpiarTexto(rFac) === limpiarTexto(r.nombre);
+                            const limpioRubroFac = limpiarTexto(rFac);
+                            const limpioRubroPres = limpiarTexto(r.nombre);
+                            return limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac);
                           })
                           .reduce((sum, fac) => sum + Number(fac.subtotal || fac.Subtotal || 0), 0);
                         return acc + fRubro;

@@ -284,13 +284,14 @@ export default function Compras({
 
     const fechaCruda = f.fecha || f.Fecha || f.FECHA;
     const vencCrudo = f.vencimiento || f.Vencimiento || f.VENCIMIENTO;
+    const renglonRecuperado = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || f.renglon || f.Renglon || f.detalle_gasto || 'Material';
 
     setFormData({ 
       ...f, 
       tipo_gasto: f.tipo_gasto || f.Tipo_gasto || 'Presupuesto',
       presupuesto_id: f.presupuesto_id || f.Presupuesto_id || '',
       rubro_presupuesto: f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '',
-      tipo_insumo: f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || 'Material',
+      tipo_insumo: renglonRecuperado,
       detalle_gasto: f.detalle_gasto || f.Detalle_gasto || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
@@ -315,7 +316,7 @@ export default function Compras({
       const action = editingId ? 'update' : 'create';
       const codigoFinal = editingId ? formData.codigo : generarSiguienteCodigoFactura();
 
-      // 🛡️ PAYLOAD ROBUSTO: Se envían todas las variantes de nombres de columnas para asegurar el guardado correcto
+      // 🛡️ PAYLOAD ULTRA ROBUSTO: Duplicamos el valor del renglón en todas las variantes de nombres de columnas posibles
       const payloadData = {
         ...formData,
         codigo: codigoFinal,
@@ -327,6 +328,11 @@ export default function Compras({
         Tipo_insumo: formData.tipo_insumo,
         insumo: formData.tipo_insumo,
         Insumo: formData.tipo_insumo,
+        renglon: formData.tipo_insumo,
+        Renglon: formData.tipo_insumo,
+        RENGLON: formData.tipo_insumo,
+        detalle_gasto: formData.tipo_insumo,
+        Detalle_gasto: formData.tipo_insumo,
         archivo_url: formData.archivo_url || ''
       };
 
@@ -684,7 +690,7 @@ export default function Compras({
                   const archivoLink = f.archivo_url || f.Archivo_url || f.archivo || '';
                   const tipoGastoDisplay = f.tipo_gasto || f.Tipo_gasto || 'Presupuesto';
                   const rubroPresupuesto = f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '';
-                  const tipoInsumo = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || '';
+                  const tipoInsumo = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || f.renglon || f.Renglon || '';
                   const detalleDisplay = rubroPresupuesto ? `${rubroPresupuesto} (${tipoInsumo})` : (f.rubro || '---');
 
                   return (
@@ -955,8 +961,7 @@ export default function Compras({
                         setFormData({
                           ...formData, 
                           rubro_presupuesto: nuevoRubro,
-                          // Resetear tipo_insumo al cambiar de rubro para evitar valores incompatibles
-                          tipo_insumo: nuevoRubro === 'Gastos Generales' ? '' : 'Material'
+                          tipo_insumo: '' // Resetear para forzar selección de renglón
                         });
                       }}
                     >
