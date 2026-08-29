@@ -289,8 +289,8 @@ export default function Compras({
       ...f, 
       tipo_gasto: f.tipo_gasto || f.Tipo_gasto || 'Presupuesto',
       presupuesto_id: f.presupuesto_id || f.Presupuesto_id || '',
-      rubro_presupuesto: f.rubro_presupuesto || f.Rubro_presupuesto || '',
-      tipo_insumo: f.tipo_insumo || f.Tipo_insumo || 'Material',
+      rubro_presupuesto: f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '',
+      tipo_insumo: f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || 'Material',
       detalle_gasto: f.detalle_gasto || f.Detalle_gasto || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
@@ -315,9 +315,18 @@ export default function Compras({
       const action = editingId ? 'update' : 'create';
       const codigoFinal = editingId ? formData.codigo : generarSiguienteCodigoFactura();
 
+      // 🛡️ PAYLOAD ROBUSTO: Se envían tanto en minúscula como en mayúscula para garantizar compatibilidad con cualquier estructura de backend/Google Sheets
       const payloadData = {
         ...formData,
         codigo: codigoFinal,
+        rubro_presupuesto: formData.rubro_presupuesto,
+        Rubro_presupuesto: formData.rubro_presupuesto,
+        rubro: formData.rubro_presupuesto,
+        Rubro: formData.rubro_presupuesto,
+        tipo_insumo: formData.tipo_insumo,
+        Tipo_insumo: formData.tipo_insumo,
+        insumo: formData.tipo_insumo,
+        Insumo: formData.tipo_insumo,
         archivo_url: formData.archivo_url || ''
       };
 
@@ -674,8 +683,8 @@ export default function Compras({
                   const codigoDisplay = f.codigo || f.Codigo || f.CODIGO || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const archivoLink = f.archivo_url || f.Archivo_url || f.archivo || '';
                   const tipoGastoDisplay = f.tipo_gasto || f.Tipo_gasto || 'Presupuesto';
-                  const rubroPresupuesto = f.rubro_presupuesto || f.Rubro_presupuesto || '';
-                  const tipoInsumo = f.tipo_insumo || f.Tipo_insumo || '';
+                  const rubroPresupuesto = f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '';
+                  const tipoInsumo = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || '';
                   const detalleDisplay = rubroPresupuesto ? `${rubroPresupuesto} (${tipoInsumo})` : (f.rubro || '---');
 
                   return (
