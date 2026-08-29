@@ -57,7 +57,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     doc.setTextColor(15, 23, 42);
     doc.text(presupuesto?.nombre || 'Cotización Obra', 60, currentY + 5);
 
-    // Carga de Logo desde la carpeta public: /logo-07.png (ocupa exactamente el alto de las 3 líneas: altura 20)
+    // Carga del logo completo (símbolo + texto) desde la carpeta public (ej: /logo-sice.png)
     try {
       const response = await fetch('/logo-07.png');
       if (response.ok) {
@@ -65,8 +65,8 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
         const reader = new FileReader();
         await new Promise((resolve) => {
           reader.onloadend = () => {
-            // Se posiciona a la derecha alineado con el margen (ancho 38, alto 20 para abarcar las 3 líneas)
-            doc.addImage(reader.result, 'PNG', pageWidth - 14 - 38, currentY, 38, 20);
+            // Proporción horizontal ajustada para el logo completo con texto (ancho 52, alto 18)
+            doc.addImage(reader.result, 'PNG', pageWidth - 14 - 52, currentY - 1, 52, 18);
             resolve();
           };
           reader.readAsDataURL(blob);
@@ -76,16 +76,16 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(22);
       doc.setTextColor(30, 41, 59);
-      doc.text("SICE SA", pageWidth - 14, currentY + 12, { align: 'right' });
+      doc.text("SICE S.A.", pageWidth - 14, currentY + 12, { align: 'right' });
     }
 
-    // Línea 2: Obra y Cliente
+    // Línea de Obra y Cliente
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
     doc.text(`Obra: ${presupuesto?.obra_nombre || 'Ampliacion Sala de Cargas Baterias'}   •   Cliente: ${cliente?.razon_social || cliente?.nombre || 'LDC ARGENTINA S.A.'}`, 14, currentY + 12);
 
-    // Línea 3: Fecha abajo con la palabra "Fecha:"
+    // Línea de Fecha con la palabra "Fecha:"
     const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
     doc.text(`Fecha: ${fechaTexto}`, 14, currentY + 18);
 
