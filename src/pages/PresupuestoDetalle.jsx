@@ -31,6 +31,10 @@ export default function PresupuestoDetalle() {
   const [isSavingRubro, setIsSavingRubro] = useState(false);
   const [isSavingTarea, setIsSavingTarea] = useState(false);
 
+  // 📥 ESTADOS PARA EL MODAL DE EXPORTACIÓN (COSTOS VS VENTA)
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [exportFormato, setExportFormato] = useState('excel'); // 'excel' o 'pdf'
+
   const [nuevaTarea, setNuevaTarea] = useState({
     rubro: '',
     tarea: '',
@@ -610,14 +614,28 @@ export default function PresupuestoDetalle() {
     return rubroMaestro === rubroSeleccionado && m.tarea !== '---';
   });
 
-  // Aplanar todos los ítems para las funciones de exportación
-  const itemsExportacion = itemsDetalle.flatMap(r => 
+  // Ítems calculados para Costos
+  const itemsCostosExportacion = itemsDetalle.flatMap(r => 
     (r.tareas || []).map(t => ({
       descripcion: `[${r.rubro}] ${t.tarea}`,
       cantidad: t.cantidad,
-      precio_unitario: Number(t.costo_unitario || 0) * coeficientePase,
-      subtotal: (Number(t.cantidad || 0) * Number(t.costo_unitario || 0)) * coeficientePase
+      precio_unitario: Number(t.costo_unitario || 0),
+      subtotal: Number(t.cantidad || 0) * Number(t.costo_unitario || 0)
     }))
+  );
+
+  // Ítems calculados para Venta (con Coeficiente de Pase aplicado)
+  const itemsVentaExportacion = itemsDetalle.flatMap(r => 
+    (r.tareas || []).map(t => {
+      const pUnitVenta = Number(t.costo_unitario || 0) * coeficientePase;
+      const subtotalVenta = (Number(t.cantidad || 0) * Number(t.costo_unitario || 0)) * coeficientePase;
+      return {
+        descripcion: `[${r.rubro}] ${t.tarea}`,
+        cantidad: t.cantidad,
+        precio_unitario: pUnitVenta,
+        subtotal: subtotalVenta
+      };
+    })
   );
 
   return (
@@ -632,16 +650,16 @@ export default function PresupuestoDetalle() {
           <ArrowLeft className="w-4 h-4" /> Volver a Presupuestos
         </Link>
 
-        {/* 📥 BOTONES DE EXPORTACIÓN EXCEL Y PDF */}
+        {/* 📥 BOTONES QUE ABREN EL MODAL DE ELECCIÓN */}
         <div className="flex items-center gap-2">
           <button 
-            onClick={() => exportarPresupuestoExcel(presupuesto, itemsExportacion)}
+            onClick={() => { setExportFormato('excel'); setIsExportModalOpen(true); }}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm flex items-center gap-1.5"
           >
             📥 Descargar Excel
           </button>
           <button 
-            onClick={() => exportarPresupuestoPDF(presupuesto, cliente, itemsExportacion)}
+            onClick={() => { setExportFormato('pdf'); setIsExportModalOpen(true); }}
             className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm flex items-center gap-1.5"
           >
             📄 Descargar PDF
@@ -1313,6 +1331,64 @@ export default function PresupuestoDetalle() {
             >
               Aplicar al Presupuesto
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE SELECCIÓN PARA EXPORTAR (COSTOS VS VENTA) */}
+      {isExportModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden p-6 space-y-6">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-slate-900 uppercase text-xs">
+                Seleccionar Versión ({exportFormato.toUpperCase()})
+              </h3>
+              <button onClick={() => setIsExportModalOpen(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5"/>
+              </button>
+            </div>
+            <p className="text-xs text-slate-600">
+              ¿Qué versión del presupuesto deseas exportar en formato <span className="font-bold uppercase">{exportFormato}</span>?
+            </p>
+            <div className="grid grid-cols-1 gap-3">
+              <button 
+                onClick={() => {
+                  if (exportFormato === 'excel') {
+                    exportarPresupuestoExcel(presupuesto, itemsCostosExportacion);
+                  } else {
+                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (COSTOS)` }, cliente, itemsCostosExportacion);
+                  }
+                  setIsExportModalOpen(false);
+                }}
+                className="w-full py-3 px-4 bg-slate-50 hover:bg-slate-100 text-slate-800 rounded-xl font-bold text-xs transition-colors text-left flex justify-between items-center border border-slate-200"
+              >
+                <span>📊 Presupuesto de Costos</span>
+                <span className="text-slate-500 font-normal">$ {Math.round(costoDirectoBase).toLocaleString('es-AR')}</span>
+              </button>
+              
+              <button 
+                onClick={() => {
+                  if (exportFormato === 'excel') {
+                    exportarPresupuestoExcel({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, itemsVentaExportacion);
+                  } else {
+                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, cliente, itemsVentaExportacion);
+                  }
+                  setIsExportModalOpen(false);
+                }}
+                className="w-full py-3 px-4 bg-amber-50 hover:bg-amber-100 text-amber-900 rounded-xl font-bold text-xs transition-colors text-left flex justify-between items-center border border-amber-200"
+              >
+                <span>💰 Presupuesto de Venta</span>
+                <span className="text-amber-700 font-normal">$ {Math.round(precioVentaGeneral).toLocaleString('es-AR')}</span>
+              </button>
+            </div>
+            <div className="flex justify-end pt-2">
+              <button 
+                onClick={() => setIsExportModalOpen(false)}
+                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

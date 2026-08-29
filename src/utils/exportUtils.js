@@ -1,8 +1,7 @@
 import * as XLSXModule from 'xlsx';
 import jsPDF from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
-// Solución de compatibilidad para empaquetadores modernos (Vite/Webpack)
 const XLSX = XLSXModule.default || XLSXModule;
 
 export const exportarPresupuestoExcel = (presupuesto, items) => {
@@ -52,7 +51,8 @@ export const exportarPresupuestoPDF = (presupuesto, cliente, items) => {
       `$ ${Number(item.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
     ]);
 
-    doc.autoTable({
+    // Uso de la API funcional autoTable(doc, opciones) para compatibilidad total con Vite
+    autoTable(doc, {
       startY: 48,
       head: [tableColumn],
       body: tableRows,
