@@ -315,7 +315,7 @@ export default function Compras({
       const action = editingId ? 'update' : 'create';
       const codigoFinal = editingId ? formData.codigo : generarSiguienteCodigoFactura();
 
-      // 🛡️ PAYLOAD ROBUSTO: Se envían tanto en minúscula como en mayúscula para garantizar compatibilidad con cualquier estructura de backend/Google Sheets
+      // 🛡️ PAYLOAD ROBUSTO: Se envían todas las variantes de nombres de columnas para asegurar el guardado correcto
       const payloadData = {
         ...formData,
         codigo: codigoFinal,
@@ -945,7 +945,21 @@ export default function Compras({
                 {formData.tipo_gasto === 'Presupuesto' && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro del Presupuesto *</label>
-                    <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.rubro_presupuesto} onChange={(e) => setFormData({...formData, rubro_presupuesto: e.target.value})}>
+                    <select 
+                      required 
+                      disabled={isSaving} 
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                      value={formData.rubro_presupuesto} 
+                      onChange={(e) => {
+                        const nuevoRubro = e.target.value;
+                        setFormData({
+                          ...formData, 
+                          rubro_presupuesto: nuevoRubro,
+                          // Resetear tipo_insumo al cambiar de rubro para evitar valores incompatibles
+                          tipo_insumo: nuevoRubro === 'Gastos Generales' ? '' : 'Material'
+                        });
+                      }}
+                    >
                       <option value="">Seleccionar rubro...</option>
                       <option value="Gastos Generales">-- GASTOS GENERALES --</option>
                       {rubrosDelPresupuesto.length === 0 ? (
@@ -959,10 +973,13 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* TIPO DE INSUMO (DINÁMICO SEGÚN SI ES GASTOS GENERALES O RUBRO NORMAL) */}
+                {/* TIPO DE INSUMO / RENGLÓN DE GASTOS GENERALES (DINÁMICO) */}
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo *</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                    {formData.rubro_presupuesto === 'Gastos Generales' ? 'Renglón Gastos Generales *' : 'Tipo de Insumo *'}
+                  </label>
                   <select 
+                    required
                     disabled={isSaving} 
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
                     value={formData.tipo_insumo} 
