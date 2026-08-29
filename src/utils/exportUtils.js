@@ -4,7 +4,7 @@ import autoTable from 'jspdf-autotable';
 
 const XLSX = XLSXModule.default || XLSXModule;
 
-export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = false, coeficiente = 1) => {
+export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = false, coeficiente = 1, notas = {}) => {
   try {
     if (!rubrosItems || rubrosItems.length === 0) {
       alert("No hay ítems disponibles para exportar.");
@@ -13,22 +13,17 @@ export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = fal
 
     const datosExcel = [];
 
-    // Encabezado superior idéntico al PDF
     datosExcel.push([presupuesto?.nombre || 'COTIZACIÓN DE OBRA', '', '', '', '']);
     datosExcel.push([`Código: ${presupuesto?.codigo || 'N/A'}`, '', '', `Fecha: ${presupuesto?.fecha || new Date().toLocaleDateString('es-AR')}`, '']);
-    datosExcel.push([]); // Espacio en blanco
+    datosExcel.push([]);
 
     let granTotal = 0;
 
-    // Estructurar rubro por rubro exactamente igual al formato visual
     rubrosItems.forEach((rubroObj, index) => {
       const tareas = rubroObj.tareas || [];
       if (tareas.length === 0) return;
 
-      // Fila título del rubro
       datosExcel.push([`N° ${index + 1} - ${rubroObj.rubro || 'RUBRO'}`, '', '', '', '']);
-      
-      // Cabecera de columnas de la tabla
       datosExcel.push(["Tareas", "Unidades", "Cantidad", "Precio Unitario", "Precio Total"]);
 
       let subtotalRubro = 0;
@@ -51,15 +46,23 @@ export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = fal
 
       granTotal += subtotalRubro;
 
-      // Subtotal del Rubro
       const labelSubtotal = esVenta ? "Subtotal Venta Rubro:" : "Subtotal Costo Rubro:";
       datosExcel.push(['', '', '', labelSubtotal, subtotalRubro]);
-      datosExcel.push([]); // Línea en blanco separadora
+      datosExcel.push([]);
     });
 
-    // Fila de Total General al final
     datosExcel.push([]);
     datosExcel.push(['', '', '', 'TOTAL GENERAL:', granTotal]);
+    datosExcel.push([]);
+
+    // Agregar notas y condiciones al final del Excel
+    if (notas) {
+      if (notas.impuestos) datosExcel.push(['IMPUESTOS:', notas.impuestos]);
+      if (notas.plazo) datosExcel.push(['PLAZO DE EJECUCIÓN DE OBRA:', notas.plazo]);
+      if (notas.condiciones) datosExcel.push(['CONDICIONES COMERCIALES:', notas.condiciones]);
+      if (notas.consideraciones) datosExcel.push(['CONSIDERACIONES GENERALES:', notas.consideraciones]);
+      if (notas.exclusiones) datosExcel.push(['EXCLUSIONES:', notas.exclusiones]);
+    }
 
     const worksheet = XLSX.utils.aoa_to_sheet(datosExcel);
     const workbook = XLSX.utils.book_new();
@@ -73,13 +76,13 @@ export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = fal
   }
 };
 
-export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, esVenta = false, coeficiente = 1) => {
+export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, esVenta = false, coeficiente = 1, notas = {}) => {
   try {
     const doc = new jsPDF();
     const pageWidth = doc.internal.pageSize.getWidth();
     let currentY = 14;
 
-    // 1) Encabezado superior (Código de presupuesto y Título)
+    // 1) Encabezado superior
     doc.setFillColor(254, 243, 199);
     doc.roundedRect(14, currentY, 42, 7, 1, 1, 'F');
     doc.setFont("helvetica", "bold");
@@ -92,9 +95,9 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     doc.setTextColor(15, 23, 42);
     doc.text(presupuesto?.nombre || 'Cotización Obra', 60, currentY + 5);
 
-    // 2) Logo SICE S.A. desde la carpeta public (/logo-07.png)
+    // 2) Logo SICE S.A.
     try {
-      const response = await fetch('/logo-07.png');
+      const response = await fetch('/logo-sice.png');
       if (response.ok) {
         const blob = await response.blob();
         const reader = new FileReader();
@@ -113,13 +116,13 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       doc.text("SICE S.A.", pageWidth - 14, currentY + 12, { align: 'right' });
     }
 
-    // 3) Línea de Obra y Cliente
+    // 3) Obra y Cliente
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
     doc.text(`Obra: ${presupuesto?.obra_nombre || 'Ampliacion Sala de Cargas Baterias'}   •   Cliente: ${cliente?.razon_social || cliente?.nombre || 'LDC ARGENTINA S.A.'}`, 14, currentY + 12);
 
-    // 4) Línea de Fecha con la etiqueta "Fecha:"
+    // 4) Fecha
     const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
     doc.text(`Fecha: ${fechaTexto}`, 14, currentY + 18);
 
@@ -131,7 +134,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
 
     let granTotal = 0;
 
-    // 5) Iteración rubro por rubro con diseño idéntico
+    // 5) Rubro por Rubro (Evitando que se corten entre páginas con rowPageBreak: 'avoid')
     (rubrosItems || []).forEach((rubroObj, index) => {
       const tareas = rubroObj.tareas || [];
       if (tareas.length === 0) return;
@@ -155,7 +158,8 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
 
       granTotal += subtotalRubro;
 
-      if (currentY > 260) {
+      // Estimación de espacio para mantener el rubro unido si es posible
+      if (currentY + 20 + (tareas.length * 8) > 270) {
         doc.addPage();
         currentY = 20;
       }
@@ -176,12 +180,12 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
 
       currentY += 10;
 
-      // Tabla de ítems con encabezados en gris visible y formato unificado
       autoTable(doc, {
         startY: currentY,
         head: [["Tareas", "Unidades", "Cantidad", "Precio Unitario", "Precio Total"]],
         body: tableRows,
         theme: 'grid',
+        rowPageBreak: 'avoid', // Evita que una fila se parta feamente
         headStyles: { fillColor: [203, 213, 225], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 8 },
         bodyStyles: { fontSize: 8, textColor: [51, 65, 85] },
         columnStyles: {
@@ -198,12 +202,12 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       currentY = doc.lastAutoTable.finalY + 8;
     });
 
-    if (currentY > 255) {
+    if (currentY > 245) {
       doc.addPage();
       currentY = 20;
     }
 
-    // 6) Cuadro negro para el Total General (1.5 veces más alto que los rubros: altura 14)
+    // 6) Cuadro negro para el Total General
     doc.setFillColor(30, 41, 59);
     doc.roundedRect(14, currentY, pageWidth - 28, 14, 2, 2, 'F');
 
@@ -221,7 +225,52 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       { align: 'right' }
     );
 
-    const tipoSufijo = esVenta ? 'VENTY' : 'COSTOS';
+    currentY += 20;
+
+    // 7) Sección de Condiciones y Consideraciones Finales en PDF
+    if (currentY > 210) {
+      doc.addPage();
+      currentY = 20;
+    }
+
+    const notasList = [
+      { label: "IMPUESTOS:", text: notas.impuestos },
+      { label: "PLAZO DE EJECUCIÓN DE OBRA:", text: notas.plazo },
+      { label: "CONDICIONES COMERCIALES:", text: notas.condiciones },
+      { label: "CONSIDERACIONES GENERALES:", text: notas.consideraciones },
+      { label: "EXCLUSIONES:", text: notas.exclusiones }
+    ];
+
+    notasList.forEach(n => {
+      if (currentY > 275) {
+        doc.addPage();
+        currentY = 20;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text(n.label, 14, currentY);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      const splitText = doc.splitTextToSize(n.text || '', pageWidth - 70);
+      doc.text(splitText, 65, currentY);
+
+      currentY += Math.max(6, splitText.length * 4) + 3;
+    });
+
+    // 8) Numeración de páginas automática al pie
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(`Página ${i} de ${pageCount}`, pageWidth - 20, doc.internal.pageSize.getHeight() - 10, { align: 'right' });
+    }
+
+    const tipoSufijo = esVenta ? 'VENTA' : 'COSTOS';
     doc.save(`Presupuesto_${presupuesto?.codigo || 'Detalle'}_${tipoSufijo}.pdf`);
   } catch (error) {
     console.error("Error al exportar PDF:", error);

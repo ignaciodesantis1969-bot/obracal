@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { exportarPresupuestoExcel, exportarPresupuestoPDF } from '../utils/exportUtils';
 
 export default function PresupuestoDetalle() {
@@ -34,6 +34,15 @@ export default function PresupuestoDetalle() {
   // 📥 ESTADOS PARA EL MODAL DE EXPORTACIÓN (COSTOS VS VENTA)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
   const [exportFormato, setExportFormato] = useState('excel'); // 'excel' o 'pdf'
+
+  // 📝 ESTADOS DE NOTAS Y CONDICIONES FINALES (precargados por defecto)
+  const [notasPresupuesto, setNotasPresupuesto] = useState({
+    impuestos: "El precio indicado en la cotización no contempla el impuesto I.V.A.",
+    plazo: "Se estima un tiempo de obra de 130 días hábiles (Aproximadamente 6 meses corridos).",
+    condiciones: "Acopio de materiales de 40 % de presente presupuesto y saldo en Certificaciones mensuales.\nEl saldo a certificar mensualmente se ajustara de acuerdo a las variaciones que sufrieran por un lado los salarios, a partir del convenio colectivo de trabajo del año 1993 y/o cualquier otro aumento de salarios, sea este remunerativo o no y el aumento de los materiales; expresado esto en la columna CONSTRUCCION de los índices publicados por la C.A.C. . Se consideró para la elaboración de éste presupuesto, los jornales pagados por nuestra empresa durante el mes de Agosto de 2026; no incluye posible aumento de ley con homologación posterior a la fecha del presente presupuesto y de aplicación retroactiva. Índice Base para el calculo del ajuste del saldo; Índice C.A.C. correspondiente a CONSTRUCCION del mes de JULIO 2026.",
+    consideraciones: "El presente presupuesto considera y incluye la elaboración y presentación de la siguiente documentación del personal afectado al servicio: Formulario 931 de Declaración Jurada ante la AFIP; Comprobantes de Pagos 931; Comprobantes de pagos sindicales; Cláusulas de no repetición; Estudios anuales de ley básicos (Examen común de Sangre, Radiografía de Tórax, Ecografía, Agudeza Visual, Agudeza auditiva, Examen Físico Clínico); Altas tempranas; Certificado de cobertura de Seguro de Vida Obligatorio (el mismo no incluye nómina, la cual se desprende del Formulario 931); Recibos de sueldo del personal afectado.\nConsidera personal de Seguridad y Higiene permanente, visitas de ley. También un programa de seguridad aprobado por ART. mientras se ejecutan estos trabajos.",
+    exclusiones: ""
+  });
 
   const [nuevaTarea, setNuevaTarea] = useState({
     rubro: '',
@@ -116,6 +125,9 @@ export default function PresupuestoDetalle() {
           if (comercialParseado.impuestos_porcentajes) {
             setImpuestosPorcentajes(prev => ({ ...prev, ...comercialParseado.impuestos_porcentajes }));
           }
+          if (comercialParseado.notas) {
+            setNotasPorDefecto(comercialParseado.notas);
+          }
         } else {
           if (presActual.gastos_generales_insumos) {
             try {
@@ -170,6 +182,13 @@ export default function PresupuestoDetalle() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const setNotasPorDefecto = (notasObj) => {
+    setNotasPresupuesto(prev => ({
+      ...prev,
+      ...notasObj
+    }));
   };
 
   useEffect(() => { 
@@ -274,7 +293,8 @@ export default function PresupuestoDetalle() {
         gastos_generales_insumos: gastosGeneralesInsumos,
         porcentaje_comision_venta: porcentajeComisionVenta,
         porcentaje_imprevistos: porcentajeImprevistos,
-        impuestos_porcentajes: impuestosPorcentajes
+        impuestos_porcentajes: impuestosPorcentajes,
+        notas: notasPresupuesto
       }
     };
 
@@ -670,6 +690,7 @@ export default function PresupuestoDetalle() {
             <span className={`px-2.5 py-1 rounded-full font-bold text-xs uppercase ${esBorrador ? 'bg-slate-100 text-slate-700' : esAprobado ? 'bg-emerald-100 text-emerald-800' : esRechazado ? 'bg-red-100 text-red-800' : 'bg-purple-100 text-purple-800'}`}>
               {estadoActual}
             </span>
+
           </div>
           <p className="text-slate-500 text-sm mt-1.5 flex items-center gap-4">
             <span><strong>Obra:</strong> {obra?.nombre || obra?.nombre_obra || 'Sin obra asignada'}</span>
@@ -745,137 +766,221 @@ export default function PresupuestoDetalle() {
 
       {/* CONTENIDO DE PESTAÑAS */}
       {activeTab === 'costos' && (
-        <div className="space-y-4">
-          {rubrosConOrden
-            .sort((a, b) => a.numero - b.numero)
-            .map((rubroOrdenObj) => {
-              const nombreRubro = rubroOrdenObj.nombre;
-              const numeroRubro = rubroOrdenObj.numero;
-              const rubroObj = itemsDetalle.find(r => r.rubro === nombreRubro);
-              if (!rubroObj) return null;
+        <div className="space-y-6">
+          <div className="space-y-4">
+            {rubrosConOrden
+              .sort((a, b) => a.numero - b.numero)
+              .map((rubroOrdenObj) => {
+                const nombreRubro = rubroOrdenObj.nombre;
+                const numeroRubro = rubroOrdenObj.numero;
+                const rubroObj = itemsDetalle.find(r => r.rubro === nombreRubro);
+                if (!rubroObj) return null;
 
-              const tareasDelRubro = rubroObj.tareas || [];
-              let costoRubro = 0;
-              tareasDelRubro.forEach(t => { costoRubro += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0); });
-              const precioVentaRubro = costoRubro * coeficientePase;
-              const estaColapsado = rubrosColapsados[nombreRubro];
+                const tareasDelRubro = rubroObj.tareas || [];
+                let costoRubro = 0;
+                tareasDelRubro.forEach(t => { costoRubro += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0); });
+                const precioVentaRubro = costoRubro * coeficientePase;
+                const estaColapsado = rubrosColapsados[nombreRubro];
 
-              return (
-                <div key={nombreRubro} className="bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm">
-                  {/* ENCABEZADO DEL RUBRO */}
-                  <div className="bg-slate-800 text-white px-6 py-3.5 flex justify-between items-center">
-                    <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg">
-                        <span className="text-[10px] text-amber-400 font-bold">N°</span>
-                        <input 
-                          type="number"
-                          min="1"
-                          value={numeroRubro}
-                          onChange={(e) => handleCambiarNumeroRubro(nombreRubro, e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          className="w-10 bg-slate-800 text-amber-400 font-black text-xs text-center rounded outline-none focus:ring-1 focus:ring-amber-400"
-                          title="Edita este número para reordenar el rubro"
-                        />
-                      </div>
+                return (
+                  <div key={nombreRubro} className="bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm">
+                    {/* ENCABEZADO DEL RUBRO */}
+                    <div className="bg-slate-800 text-white px-6 py-3.5 flex justify-between items-center">
+                      <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg">
+                          <span className="text-[10px] text-amber-400 font-bold">N°</span>
+                          <input 
+                            type="number"
+                            min="1"
+                            value={numeroRubro}
+                            onChange={(e) => handleCambiarNumeroRubro(nombreRubro, e.target.value)}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-10 bg-slate-800 text-amber-400 font-black text-xs text-center rounded outline-none focus:ring-1 focus:ring-amber-400"
+                            title="Edita este número para reordenar el rubro"
+                          />
+                        </div>
 
-                      <div 
-                        onClick={() => toggleRubro(nombreRubro)}
-                        className="flex items-center gap-2 cursor-pointer select-none"
-                      >
-                        {estaColapsado ? (
-                          <ChevronRight className="w-4 h-4 text-amber-400" />
-                        ) : (
-                          <ChevronDown className="w-4 h-4 text-amber-400" />
-                        )}
-                        <span className="font-extrabold text-sm tracking-wide uppercase text-white">{nombreRubro}</span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-6">
-                      <span className="text-xs text-slate-300">Costo: <strong className="text-amber-400">$ {Math.round(costoRubro).toLocaleString('es-AR')}</strong></span>
-                      <span className="text-xs text-slate-300">Venta: <strong className="text-emerald-400">$ {Math.round(precioVentaRubro).toLocaleString('es-AR')}</strong></span>
-                      {esBorrador && (
-                        <button 
-                          onClick={() => handleEliminarRubro(nombreRubro)} 
-                          className="text-red-400 hover:text-red-200 p-1 rounded transition-colors flex items-center gap-1 text-xs font-semibold bg-slate-900/40 px-2 py-1 border border-red-500/30"
-                          title="Eliminar Rubro Completo"
+                        <div 
+                          onClick={() => toggleRubro(nombreRubro)}
+                          className="flex items-center gap-2 cursor-pointer select-none"
                         >
-                          <Trash2 className="w-3.5 h-3.5"/> Eliminar Rubro
-                        </button>
-                      )}
+                          {estaColapsado ? (
+                            <ChevronRight className="w-4 h-4 text-amber-400" />
+                          ) : (
+                            <ChevronDown className="w-4 h-4 text-amber-400" />
+                          )}
+                          <span className="font-extrabold text-sm tracking-wide uppercase text-white">{nombreRubro}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-6">
+                        <span className="text-xs text-slate-300">Costo: <strong className="text-amber-400">$ {Math.round(costoRubro).toLocaleString('es-AR')}</strong></span>
+                        <span className="text-xs text-slate-300">Venta: <strong className="text-emerald-400">$ {Math.round(precioVentaRubro).toLocaleString('es-AR')}</strong></span>
+                        {esBorrador && (
+                          <button 
+                            onClick={() => handleEliminarRubro(nombreRubro)} 
+                            className="text-red-400 hover:text-red-200 p-1 rounded transition-colors flex items-center gap-1 text-xs font-semibold bg-slate-900/40 px-2 py-1 border border-red-500/30"
+                            title="Eliminar Rubro Completo"
+                          >
+                            <Trash2 className="w-3.5 h-3.5"/> Eliminar Rubro
+                          </button>
+                        )}
+                      </div>
                     </div>
+
+                    {/* CONTENIDO DE TAREAS */}
+                    {!estaColapsado && (
+                      <div className="divide-y divide-slate-100">
+                        {tareasDelRubro.length === 0 ? (
+                          <div className="px-6 py-6 text-xs text-slate-400 italic text-center">No hay tareas cargadas en este rubro. Hacé clic en "Nueva Tarea" para agregar.</div>
+                        ) : (
+                          <table className="w-full text-left text-xs table-fixed">
+                            <thead>
+                              <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
+                                <th className="w-[30%] px-6 py-3">Tarea e Insumos</th>
+                                <th className="w-[8%] px-2 py-3 text-center">Unidad</th>
+                                <th className="w-[9%] px-2 py-3 text-center">Cantidad</th>
+                                <th className="w-[13%] px-3 py-3 text-right">Costo Unit.</th>
+                                <th className="w-[13%] px-3 py-3 text-right">Costo Total</th>
+                                <th className="w-[13%] px-3 py-3 text-right">Precio Venta</th>
+                                <th className="w-[14%] px-4 py-3 text-right">Acciones</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {tareasDelRubro.map(t => {
+                                const cant = Number(t.cantidad) || 0;
+                                const cUnit = Number(t.costo_unitario) || 0;
+                                const cTot = cant * cUnit;
+                                const pVentaItem = cTot * coeficientePase;
+
+                                let insumosTexto = '';
+                                if (Array.isArray(t.insumos)) {
+                                  insumosTexto = t.insumos.map(i => i.nombre || i.concepto).filter(Boolean).join(', ');
+                                } else if (typeof t.insumos === 'string') {
+                                  insumosTexto = t.insumos;
+                                }
+
+                                return (
+                                  <tr key={t.id} className="hover:bg-slate-50 group">
+                                    <td className="w-[30%] px-6 py-3 break-words">
+                                      <div className="font-semibold text-slate-800">{t.tarea}</div>
+                                      {insumosTexto && (
+                                        <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                                          <span className="font-bold text-slate-600">Insumos:</span> {insumosTexto}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="w-[8%] px-2 py-3 uppercase text-slate-600 text-center">{t.unidad}</td>
+                                    <td className="w-[9%] px-2 py-3 text-center font-bold text-slate-800">{cant}</td>
+                                    <td className="w-[13%] px-3 py-3 text-right text-slate-600">$ {Math.round(cUnit).toLocaleString('es-AR')}</td>
+                                    <td className="w-[13%] px-3 py-3 text-right font-black text-slate-900">$ {Math.round(cTot).toLocaleString('es-AR')}</td>
+                                    <td className="w-[13%] px-3 py-3 text-right font-black text-amber-600">$ {Math.round(pVentaItem).toLocaleString('es-AR')}</td>
+                                    <td className="w-[14%] px-4 py-3 text-right">
+                                      {esBorrador && (
+                                        <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <button onClick={() => handleEditarTareaClick(nombreRubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea">
+                                            <Edit2 className="w-3.5 h-3.5"/>
+                                          </button>
+                                          <button onClick={() => handleEliminarTarea(nombreRubro, t.id)} className="p-1 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar Tarea">
+                                            <Trash2 className="w-3.5 h-3.5"/>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    )}
                   </div>
+                );
+              })}
+          </div>
 
-                  {/* CONTENIDO DE TAREAS */}
-                  {!estaColapsado && (
-                    <div className="divide-y divide-slate-100">
-                      {tareasDelRubro.length === 0 ? (
-                        <div className="px-6 py-6 text-xs text-slate-400 italic text-center">No hay tareas cargadas en este rubro. Hacé clic en "Nueva Tarea" para agregar.</div>
-                      ) : (
-                        <table className="w-full text-left text-xs table-fixed">
-                          <thead>
-                            <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
-                              <th className="w-[30%] px-6 py-3">Tarea e Insumos</th>
-                              <th className="w-[8%] px-2 py-3 text-center">Unidad</th>
-                              <th className="w-[9%] px-2 py-3 text-center">Cantidad</th>
-                              <th className="w-[13%] px-3 py-3 text-right">Costo Unit.</th>
-                              <th className="w-[13%] px-3 py-3 text-right">Costo Total</th>
-                              <th className="w-[13%] px-3 py-3 text-right">Precio Venta</th>
-                              <th className="w-[14%] px-4 py-3 text-right">Acciones</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {tareasDelRubro.map(t => {
-                              const cant = Number(t.cantidad) || 0;
-                              const cUnit = Number(t.costo_unitario) || 0;
-                              const cTot = cant * cUnit;
-                              const pVentaItem = cTot * coeficientePase;
+          {/* 📝 SECCIÓN DE CONDICIONES Y CONSIDERACIONES FINALES (EDITABLE) */}
+          <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm space-y-6">
+            <div className="flex items-center gap-2 border-b pb-4">
+              <FileText className="w-5 h-5 text-amber-500" />
+              <h3 className="font-extrabold text-slate-900 text-sm uppercase">Condiciones, Impuestos y Consideraciones Finales</h3>
+            </div>
 
-                              let insumosTexto = '';
-                              if (Array.isArray(t.insumos)) {
-                                insumosTexto = t.insumos.map(i => i.nombre || i.concepto).filter(Boolean).join(', ');
-                              } else if (typeof t.insumos === 'string') {
-                                insumosTexto = t.insumos;
-                              }
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {/* Impuestos */}
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-black text-slate-800 uppercase">IMPUESTOS:</label>
+                <textarea
+                  rows={2}
+                  disabled={!esBorrador}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-amber-500 font-medium disabled:bg-slate-100"
+                  value={notasPresupuesto.impuestos}
+                  onChange={(e) => setNotasPresupuesto({...notasPresupuesto, impuestos: e.target.value})}
+                />
+              </div>
 
-                              return (
-                                <tr key={t.id} className="hover:bg-slate-50 group">
-                                  <td className="w-[30%] px-6 py-3 break-words">
-                                    <div className="font-semibold text-slate-800">{t.tarea}</div>
-                                    {insumosTexto && (
-                                      <div className="text-[11px] text-slate-500 font-normal mt-0.5">
-                                        <span className="font-bold text-slate-600">Insumos:</span> {insumosTexto}
-                                      </div>
-                                    )}
-                                  </td>
-                                  <td className="w-[8%] px-2 py-3 uppercase text-slate-600 text-center">{t.unidad}</td>
-                                  <td className="w-[9%] px-2 py-3 text-center font-bold text-slate-800">{cant}</td>
-                                  <td className="w-[13%] px-3 py-3 text-right text-slate-600">$ {Math.round(cUnit).toLocaleString('es-AR')}</td>
-                                  <td className="w-[13%] px-3 py-3 text-right font-black text-slate-900">$ {Math.round(cTot).toLocaleString('es-AR')}</td>
-                                  <td className="w-[13%] px-3 py-3 text-right font-black text-amber-600">$ {Math.round(pVentaItem).toLocaleString('es-AR')}</td>
-                                  <td className="w-[14%] px-4 py-3 text-right">
-                                    {esBorrador && (
-                                      <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <button onClick={() => handleEditarTareaClick(nombreRubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea">
-                                          <Edit2 className="w-3.5 h-3.5"/>
-                                        </button>
-                                        <button onClick={() => handleEliminarTarea(nombreRubro, t.id)} className="p-1 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar Tarea">
-                                          <Trash2 className="w-3.5 h-3.5"/>
-                                        </button>
-                                      </div>
-                                    )}
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      )}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+              {/* Plazo de Ejecución */}
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-black text-slate-800 uppercase">PLAZO DE EJECUCIÓN DE OBRA:</label>
+                <textarea
+                  rows={2}
+                  disabled={!esBorrador}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-amber-500 font-medium disabled:bg-slate-100"
+                  value={notasPresupuesto.plazo}
+                  onChange={(e) => setNotasPresupuesto({...notasPresupuesto, plazo: e.target.value})}
+                />
+              </div>
+
+              {/* Condiciones Comerciales */}
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-black text-slate-800 uppercase">CONDICIONES COMERCIALES:</label>
+                <textarea
+                  rows={5}
+                  disabled={!esBorrador}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-amber-500 font-medium disabled:bg-slate-100 leading-relaxed"
+                  value={notasPresupuesto.condiciones}
+                  onChange={(e) => setNotasPresupuesto({...notasPresupuesto, condiciones: e.target.value})}
+                />
+              </div>
+
+              {/* Consideraciones Generales */}
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-black text-slate-800 uppercase">CONSIDERACIONES GENERALES:</label>
+                <textarea
+                  rows={4}
+                  disabled={!esBorrador}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-amber-500 font-medium disabled:bg-slate-100 leading-relaxed"
+                  value={notasPresupuesto.consideraciones}
+                  onChange={(e) => setNotasPresupuesto({...notasPresupuesto, consideraciones: e.target.value})}
+                />
+              </div>
+
+              {/* Exclusiones */}
+              <div className="space-y-1.5 md:col-span-2">
+                <label className="block text-xs font-black text-slate-800 uppercase">EXCLUSIONES:</label>
+                <textarea
+                  rows={3}
+                  disabled={!esBorrador}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl p-3 text-xs text-slate-700 outline-none focus:border-amber-500 font-medium disabled:bg-slate-100"
+                  value={notasPresupuesto.exclusiones}
+                  placeholder="Escriba exclusiones si las hubiera..."
+                  onChange={(e) => setNotasPresupuesto({...notasPresupuesto, exclusiones: e.target.value})}
+                />
+              </div>
+            </div>
+
+            {esBorrador && (
+              <div className="flex justify-end pt-2">
+                <button
+                  onClick={() => guardarEstructuraPresupuesto(itemsDetalle)}
+                  className="px-5 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs shadow-sm transition-colors"
+                >
+                  Guardar Notas y Condiciones
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -1329,9 +1434,9 @@ export default function PresupuestoDetalle() {
               <button 
                 onClick={() => {
                   if (exportFormato === 'excel') {
-                    exportarPresupuestoExcel(presupuesto, itemsDetalle, false, 1);
+                    exportarPresupuestoExcel(presupuesto, itemsDetalle, false, 1, notasPresupuesto);
                   } else {
-                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (COSTOS)` }, cliente, itemsDetalle, false, 1);
+                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (COSTOS)` }, cliente, itemsDetalle, false, 1, notasPresupuesto);
                   }
                   setIsExportModalOpen(false);
                 }}
@@ -1344,9 +1449,9 @@ export default function PresupuestoDetalle() {
               <button 
                 onClick={() => {
                   if (exportFormato === 'excel') {
-                    exportarPresupuestoExcel({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, itemsDetalle, true, coeficientePase);
+                    exportarPresupuestoExcel({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, itemsDetalle, true, coeficientePase, notasPresupuesto);
                   } else {
-                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, cliente, itemsDetalle, true, coeficientePase);
+                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, cliente, itemsDetalle, true, coeficientePase, notasPresupuesto);
                   }
                   setIsExportModalOpen(false);
                 }}
