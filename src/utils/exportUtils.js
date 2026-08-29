@@ -103,7 +103,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
         const reader = new FileReader();
         await new Promise((resolve) => {
           reader.onloadend = () => {
-            doc.addImage(reader.result, 'PNG', pageWidth - 14 - 45, currentY - 1, 52, 18);
+            doc.addImage(reader.result, 'PNG', pageWidth - 18 - 52, currentY - 1, 52, 18);
             resolve();
           };
           reader.readAsDataURL(blob);
