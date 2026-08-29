@@ -168,8 +168,13 @@ export default function PresupuestoDetalle() {
 
       if (!Array.isArray(itemsParseados) || itemsParseados.length === 0) {
         itemsParseados = [
-          { rubro: 'RUBRO GENERAL / PRINCIPAL', tareas: [] }
+          { rubro: 'RUBRO GENERAL / PRINCIPAL', numero: 1, tareas: [] }
         ];
+      } else {
+        itemsParseados = itemsParseados.map((r, idx) => ({
+          ...r,
+          numero: r.numero !== undefined ? Number(r.numero) : idx + 1
+        }));
       }
 
       setItemsDetalle(itemsParseados);
@@ -201,16 +206,11 @@ export default function PresupuestoDetalle() {
 
   useEffect(() => {
     if (itemsDetalle && itemsDetalle.length > 0) {
-      const rubrosUnicos = itemsDetalle.map(r => r.rubro);
-      setRubrosConOrden(prev => {
-        const existentesMap = new Map(prev.map(r => [r.nombre, r.numero]));
-        let maxNum = prev.reduce((max, r) => Math.max(max, r.numero), 0);
-        
-        return rubrosUnicos.map(nombre => ({
-          nombre,
-          numero: existentesMap.has(nombre) ? existentesMap.get(nombre) : ++maxNum
-        })).sort((a, b) => a.numero - b.numero);
-      });
+      const rubrosOrdenados = itemsDetalle.map(r => ({
+        nombre: r.rubro,
+        numero: r.numero !== undefined ? Number(r.numero) : 1
+      })).sort((a, b) => a.numero - b.numero);
+      setRubrosConOrden(rubrosOrdenados);
     }
   }, [itemsDetalle]);
 
@@ -225,16 +225,18 @@ export default function PresupuestoDetalle() {
     const nuevoNumero = parseInt(nuevoNumeroStr, 10);
     if (isNaN(nuevoNumero) || nuevoNumero <= 0) return;
 
-    const yaExiste = rubrosConOrden.some(r => r.nombre !== nombreRubro && r.numero === nuevoNumero);
+    const yaExiste = itemsDetalle.some(r => r.rubro !== nombreRubro && Number(r.numero) === nuevoNumero);
     if (yaExiste) {
       alert(`¡Atención! El número ${nuevoNumero} ya está asignado a otro rubro. Por favor elige uno diferente para evitar duplicados.`);
       return;
     }
 
-    setRubrosConOrden(prev => 
-      prev.map(r => r.nombre === nombreRubro ? { ...r, numero: nuevoNumero } : r)
-          .sort((a, b) => a.numero - b.numero)
+    const nuevosItems = itemsDetalle.map(r => 
+      r.rubro === nombreRubro ? { ...r, numero: nuevoNumero } : r
     );
+
+    setItemsDetalle(nuevosItems);
+    guardarEstructuraPresupuesto(nuevosItems);
   };
 
   const estadoActual = String(presupuesto?.estado_presupuesto || presupuesto?.estado || 'borrador').toLowerCase();
@@ -251,8 +253,9 @@ export default function PresupuestoDetalle() {
 
     let costoDirectoTotal = 0;
 
-    const itemsValidados = nuevosItems.map(rubro => ({
+    const itemsValidados = nuevosItems.map((rubro, idx) => ({
       ...rubro,
+      numero: rubro.numero !== undefined ? Number(rubro.numero) : idx + 1,
       tareas: (rubro.tareas || []).map(t => {
         let insListTarea = t.insumos;
         if (typeof insListTarea === 'string' && insListTarea.trim()) {
@@ -358,8 +361,9 @@ export default function PresupuestoDetalle() {
       }
 
       const codigoGenerado = generarCodigoRubroAutomatico();
+      const maxNum = itemsDetalle.reduce((max, r) => Math.max(max, Number(r.numero) || 0), 0);
 
-      const nuevos = [...itemsDetalle, { rubro: nombreRubroUpper, tareas: [] }];
+      const nuevos = [...itemsDetalle, { rubro: nombreRubroUpper, numero: maxNum + 1, tareas: [] }];
       setItemsDetalle(nuevos);
       await guardarEstructuraPresupuesto(nuevos);
 
