@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronRight } from 'lucide-react';
+import { exportarPresupuestoExcel, exportarPresupuestoPDF } from '../utils/exportUtils';
 
 export default function PresupuestoDetalle() {
   const { id: presupuestoId } = useParams();
@@ -609,17 +610,43 @@ export default function PresupuestoDetalle() {
     return rubroMaestro === rubroSeleccionado && m.tarea !== '---';
   });
 
+  // Aplanar todos los ítems para las funciones de exportación
+  const itemsExportacion = itemsDetalle.flatMap(r => 
+    (r.tareas || []).map(t => ({
+      descripcion: `[${r.rubro}] ${t.tarea}`,
+      cantidad: t.cantidad,
+      precio_unitario: Number(t.costo_unitario || 0) * coeficientePase,
+      subtotal: (Number(t.cantidad || 0) * Number(t.costo_unitario || 0)) * coeficientePase
+    }))
+  );
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       
-      {/* Botón de Regreso */}
-      <div>
+      {/* Botón de Regreso y Acciones de Exportación */}
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <Link 
           to="/presupuestos"
           className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 transition-colors shadow-sm"
         >
           <ArrowLeft className="w-4 h-4" /> Volver a Presupuestos
         </Link>
+
+        {/* 📥 BOTONES DE EXPORTACIÓN EXCEL Y PDF */}
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => exportarPresupuestoExcel(presupuesto, itemsExportacion)}
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm flex items-center gap-1.5"
+          >
+            📥 Descargar Excel
+          </button>
+          <button 
+            onClick={() => exportarPresupuestoPDF(presupuesto, cliente, itemsExportacion)}
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm flex items-center gap-1.5"
+          >
+            📄 Descargar PDF
+          </button>
+        </div>
       </div>
 
       {/* Alerta si está Bloqueado */}
@@ -649,6 +676,7 @@ export default function PresupuestoDetalle() {
             <span className={`px-2.5 py-1 rounded-full font-bold text-xs uppercase ${esBorrador ? 'bg-slate-100 text-slate-700' : esAprobado ? 'bg-emerald-100 text-emerald-800' : esRechazado ? 'bg-red-100 text-red-800' : 'bg-purple-100 text-purple-800'}`}>
               {estadoActual}
             </span>
+
           </div>
           <p className="text-slate-500 text-sm mt-1.5 flex items-center gap-4">
             <span><strong>Obra:</strong> {obra?.nombre || obra?.nombre_obra || 'Sin obra asignada'}</span>
