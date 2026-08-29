@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Building2, Layers, ShieldCheck } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package } from 'lucide-react';
 
 export default function Reportes(props) {
   // Extracción segura de props soportando múltiples variaciones de nombres y mayúsculas
@@ -18,6 +18,10 @@ export default function Reportes(props) {
   // Estados para el comparativo detallado
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
+
+  // 📝 Estados para la nueva Pestaña de Insumos Mejorada
+  const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
+  const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(false); // false = por rubro, true = general consolidado
 
   // Filtrado general de métricas superiores
   const presupuestosFiltrados = obraFiltro === 'todas' 
@@ -38,7 +42,7 @@ export default function Reportes(props) {
   const totalGastado = movimientosFiltrados.filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso').reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
   const resultadoNeto = totalCobrado - totalGastado;
 
-  // FILTRADO ESTRICTO DE PRESUPUESTOS APROBADOS
+  // FILTRADO ESTRICTO DE PRESUPUESTOS APROBADOS (PARA COMPARATIVO)
   const presupuestosCompFiltrados = (compObraId === 'todas' 
     ? presupuestos 
     : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(compObraId))
@@ -131,6 +135,121 @@ export default function Reportes(props) {
 
     return 'Material';
   };
+
+  // 📝 PROCESAMIENTO AVANZADO PARA LA PESTAÑA DE INSUMOS (SIN RESTRICCIÓN DE ESTADO + 4 CATEGORÍAS)
+  const presupuestoInsumosSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(insumoPresupuestoId));
+
+  const { insumosPorRubro, insumosGenerales } = useMemo(() => {
+    if (!presupuestoInsumosSeleccionado) return { insumosPorRubro: {}, insumosGenerales: {} };
+
+    let itemsDetalle = [];
+    try {
+      const parsed = typeof presupuestoInsumosSeleccionado.items_detalle === 'string' 
+        ? JSON.parse(presupuestoInsumosSeleccionado.items_detalle) 
+        : presupuestoInsumosSeleccionado.items_detalle;
+      
+      itemsDetalle = parsed?.rubros || parsed || [];
+    } catch (e) {
+      itemsDetalle = [];
+    }
+
+    const porRubro = {};
+    const general = {
+      'MANO DE OBRA': [],
+      'MATERIALES': [],
+      'SUBCONTRATOS': [],
+      'EQUIPOS / HERRAMIENTAS': [],
+      'OTROS': []
+    };
+
+    itemsDetalle.forEach(rubroObj => {
+      const nombreRubro = rubroObj.rubro || 'SIN RUBRO';
+      if (!porRubro[nombreRubro]) {
+        porRubro[nombreRubro] = {
+          'MANO DE OBRA': [],
+          'MATERIALES': [],
+          'SUBCONTRATOS': [],
+          'EQUIPOS / HERRAMIENTAS': [],
+          'OTROS': []
+        };
+      }
+
+      (rubroObj.tareas || []).forEach(tarea => {
+        let insumosTarea = tarea.insumos;
+        const cantTarea = Number(tarea.cantidad) || 1;
+        const costoTarea = Number(tarea.costo_unitario) || 0;
+
+        // Soporte si está guardado como JSON string, texto separado por comas o array directo
+        if (typeof insumosTarea === 'string' && insumosTarea.trim().startsWith('[')) {
+          try { insumosTarea = JSON.parse(insumosTarea); } catch { insumosTarea = []; }
+        } else if (typeof insumosTarea === 'string' && insumosTarea.trim()) {
+          insumosTarea = insumosTarea.split(',').map(nombre => ({
+            nombre: nombre.trim(),
+            tipo: 'MATERIALES',
+            unidad: 'gl',
+            cantidad: 1,
+            costo_unitario: costoTarea
+          }));
+        }
+
+        // Si no tiene insumos explícitos en la tarea, intentar buscar en el maestro de tareas
+        if (!Array.isArray(insumosTarea) || insumosTarea.length === 0) {
+          const maestroInsumosEncontrados = buscarInsumosMaestro(tarea.tarea);
+          if (Array.isArray(maestroInsumosEncontrados) && maestroInsumosEncontrados.length > 0) {
+            insumosTarea = maestroInsumosEncontrados;
+          }
+        }
+
+        if (Array.isArray(insumosTarea) && insumosTarea.length > 0) {
+          insumosTarea.forEach(ins => {
+            const tipoResuelto = obtenerTipoInsumoInfalible(ins);
+            const categoriaOriginal = String(ins.tipo || ins.categoria || tipoResuelto).trim().toUpperCase();
+            
+            let catNormalizada = 'MATERIALES';
+            if (categoriaOriginal.includes('MANO') || categoriaOriginal.includes('OBRA')) catNormalizada = 'MANO DE OBRA';
+            else if (categoriaOriginal.includes('MAT')) catNormalizada = 'MATERIALES';
+            else if (categoriaOriginal.includes('SUB')) catNormalizada = 'SUBCONTRATOS';
+            else if (categoriaOriginal.includes('EQ') || categoriaOriginal.includes('HERR') || categoriaOriginal.includes('MAQUINARIA')) catNormalizada = 'EQUIPOS / HERRAMIENTAS';
+
+            const cantIns = Number(ins.cantidad) || 1;
+            const cUnitIns = Number(ins.costo_unitario) || Number(ins.costo) || costoTarea;
+            const cantidadTotal = cantIns * cantTarea; // 🧮 Multiplicación automática de cantidad unitaria por cómputo de tarea
+            const totalInsumo = cantidadTotal * cUnitIns;
+
+            const itemProcesado = {
+              rubro: nombreRubro,
+              tarea: tarea.tarea || 'Sin tarea',
+              nombre: ins.nombre || ins.nombre_del_articulo || ins.concepto || 'Insumo sin nombre',
+              unidad: ins.unidad || 'un',
+              cantidad: cantidadTotal,
+              costo_unitario: cUnitIns,
+              total: totalInsumo
+            };
+
+            porRubro[nombreRubro][catNormalizada].push(itemProcesado);
+            general[catNormalizada].push(itemProcesado);
+          });
+        } else {
+          // Fallback si no tiene ningún insumo asociado
+          const itemFallback = {
+            rubro: nombreRubro,
+            tarea: tarea.tarea || 'Sin tarea',
+            nombre: tarea.tarea || 'Índice general',
+            unidad: tarea.unidad || 'gl',
+            cantidad: cantTarea,
+            costo_unitario: costoTarea,
+            total: cantTarea * costoTarea
+          };
+          porRubro[nombreRubro]['MATERIALES'].push(itemFallback);
+          general['MATERIALES'].push(itemFallback);
+        }
+      });
+    });
+
+    return { insumosPorRubro: porRubro, insumosGenerales: general };
+  }, [presupuestoInsumosSeleccionado]);
+
+  const ordenCategorias = ['MANO DE OBRA', 'MATERIALES', 'SUBCONTRATOS', 'EQUIPOS / HERRAMIENTAS', 'OTROS'];
 
   // Filtrar movimientos de Tesorería provenientes de RRHH para el presupuesto seleccionado
   const movimientosRrhhPresupuesto = React.useMemo(() => {
@@ -517,35 +636,184 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {/* CONTENIDO: LISTADO DE INSUMOS */}
+      {/* 📝 CONTENIDO: LISTADO DE INSUMOS (ACTUALIZADO CON LAS NUEVAS REGLAS) */}
       {activeTab === 'Listado de Insumos' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden p-6 space-y-4">
-          <h3 className="text-sm font-extrabold text-slate-900 uppercase">Listado de Insumos y Materiales</h3>
-          {insumos.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-xs">No hay insumos cargados.</div>
+        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
+                <Package className="w-4 h-4 text-amber-500" /> Listado de Insumos por Presupuesto
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">Selecciona un presupuesto (cualquier estado) para ver el desglose o consolidado de insumos.</p>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
+              {/* Selector de Presupuesto (Sin restricción de estado) */}
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <Filter className="w-4 h-4 text-amber-500 shrink-0" />
+                <select
+                  className="w-full sm:w-80 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer shadow-sm"
+                  value={insumoPresupuestoId}
+                  onChange={(e) => setInsumoPresupuestoId(e.target.value)}
+                >
+                  <option value="">-- Seleccionar Presupuesto (cualquier estado) --</option>
+                  {presupuestos.map(p => (
+                    <option key={p.id || p.ID} value={String(p.id || p.ID)}>
+                      [{p.codigo || 'S/C'}] {p.nombre || p.Nombre} — Estado: {p.estado_presupuesto || p.estado || 'borrador'}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Selector de Vista (Desglosado por rubro vs General consolidado) */}
+              {presupuestoInsumosSeleccionado && (
+                <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 w-full sm:w-auto justify-center">
+                  <button
+                    onClick={() => setVistaGeneralInsumos(false)}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${!vistaGeneralInsumos ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    <Layers className="w-3.5 h-3.5" /> Por Rubro
+                  </button>
+                  <button
+                    onClick={() => setVistaGeneralInsumos(true)}
+                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${vistaGeneralInsumos ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
+                  >
+                    <List className="w-3.5 h-3.5" /> General
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {!presupuestoInsumosSeleccionado ? (
+            <div className="py-16 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
+              Selecciona un presupuesto arriba para desplegar el listado de insumos.
+            </div>
+          ) : vistaGeneralInsumos ? (
+            /* VISTA GENERAL / CONSOLIDADA SIN DISCRIMINAR RUBROS */
+            <div className="space-y-6">
+              <div className="border-b pb-2">
+                <h4 className="font-extrabold text-slate-900 text-xs uppercase">Listado General Consolidado de Insumos</h4>
+                <p className="text-[11px] text-slate-500">Agrupado por categoría (Mano de obra, Materiales, Subcontratos, Equipos/Herramientas) en todo el presupuesto.</p>
+              </div>
+
+              <div className="space-y-6">
+                {ordenCategorias.map(cat => {
+                  const lista = insumosGenerales[cat];
+                  if (!lista || lista.length === 0) return null;
+
+                  const totalCat = lista.reduce((acc, item) => acc + item.total, 0);
+
+                  return (
+                    <div key={cat} className="space-y-2">
+                      <div className="flex justify-between items-center border-b border-slate-200 pb-1">
+                        <h5 className="text-xs font-black text-amber-600 uppercase tracking-wider">
+                          {cat} ({lista.length} ítems)
+                        </h5>
+                        <span className="text-xs font-bold text-slate-700">
+                          Total: $ {Math.round(totalCat).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      
+                      <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                        <table className="w-full text-left text-xs">
+                          <thead>
+                            <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
+                              <th className="py-2.5 px-3">Insumo / Artículo</th>
+                              <th className="py-2.5 px-3">Rubro de Origen</th>
+                              <th className="py-2.5 px-3">Tarea Asociada</th>
+                              <th className="py-2.5 px-2 text-center">Unidad</th>
+                              <th className="py-2.5 px-2 text-center">Cantidad Total</th>
+                              <th className="py-2.5 px-3 text-right">Costo Unit.</th>
+                              <th className="py-2.5 px-3 text-right">Total ($)</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {lista.map((ins, idx) => (
+                              <tr key={idx} className="hover:bg-slate-50">
+                                <td className="py-2.5 px-3 font-bold text-slate-800">{ins.nombre}</td>
+                                <td className="py-2.5 px-3 font-semibold text-slate-600 uppercase text-[11px]">{ins.rubro}</td>
+                                <td className="py-2.5 px-3 text-slate-500">{ins.tarea}</td>
+                                <td className="py-2.5 px-2 text-center uppercase text-slate-600">{ins.unidad}</td>
+                                <td className="py-2.5 px-2 text-center font-bold text-slate-800">{ins.cantidad}</td>
+                                <td className="py-2.5 px-3 text-right text-slate-600">$ {Math.round(ins.costo_unitario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="py-2.5 px-3 text-right font-black text-slate-900">$ {Math.round(ins.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
           ) : (
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
-                  <th className="px-4 py-3">Artículo</th>
-                  <th className="px-4 py-3">Descripción</th>
-                  <th className="px-4 py-3 text-center">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {insumos.map((ins, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-bold text-slate-900">{ins.nombre_del_articulo || ins.nombre}</td>
-                    <td className="px-4 py-3 text-slate-600">{ins.descripcion || '---'}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="px-2.5 py-1 rounded-full font-bold text-[10px] uppercase bg-emerald-100 text-emerald-800">
-                        {ins.estado || 'Disponible'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            /* VISTA DESGLOSADA POR RUBRO Y CATEGORÍA */
+            <div className="space-y-6">
+              {Object.keys(insumosPorRubro).length === 0 ? (
+                <div className="p-8 text-center text-slate-500 text-xs">
+                  Este presupuesto no contiene tareas ni insumos cargados.
+                </div>
+              ) : (
+                Object.entries(insumosPorRubro).map(([nombreRubro, categorias]) => (
+                  <div key={nombreRubro} className="border border-slate-300 rounded-2xl overflow-hidden shadow-sm">
+                    <div className="bg-slate-800 text-white px-6 py-3 font-extrabold text-xs uppercase tracking-wide flex items-center justify-between">
+                      <span>Rubro: {nombreRubro}</span>
+                    </div>
+                    
+                    <div className="p-6 space-y-6 bg-white">
+                      {ordenCategorias.map(cat => {
+                        const listaInsumos = categorias[cat];
+                        if (!listaInsumos || listaInsumos.length === 0) return null;
+
+                        const totalCatRubro = listaInsumos.reduce((acc, item) => acc + item.total, 0);
+
+                        return (
+                          <div key={cat} className="space-y-2">
+                            <div className="flex justify-between items-center border-b border-slate-200 pb-1">
+                              <h5 className="text-xs font-black text-amber-600 uppercase tracking-wider">
+                                {cat}
+                              </h5>
+                              <span className="text-[11px] font-bold text-slate-600">
+                                Subtotal: $ {Math.round(totalCatRubro).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              </span>
+                            </div>
+                            
+                            <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                              <table className="w-full text-left text-xs">
+                                <thead>
+                                  <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
+                                    <th className="py-2 px-3">Insumo / Artículo</th>
+                                    <th className="py-2 px-3">Asociado a Tarea</th>
+                                    <th className="py-2 px-2 text-center">Unidad</th>
+                                    <th className="py-2 px-2 text-center">Cantidad Total</th>
+                                    <th className="py-2 px-3 text-right">Costo Unit.</th>
+                                    <th className="py-2 px-3 text-right">Total ($)</th>
+                                  </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100">
+                                  {listaInsumos.map((ins, idx) => (
+                                    <tr key={idx} className="hover:bg-slate-50">
+                                      <td className="py-2 px-3 font-bold text-slate-800">{ins.nombre}</td>
+                                      <td className="py-2 px-3 text-slate-500">{ins.tarea}</td>
+                                      <td className="py-2 px-2 text-center uppercase text-slate-600">{ins.unidad}</td>
+                                      <td className="py-2 px-2 text-center font-bold text-slate-800">{ins.cantidad}</td>
+                                      <td className="py-2 px-3 text-right text-slate-600">$ {Math.round(ins.costo_unitario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                      <td className="py-2 px-3 text-right font-black text-slate-900">$ {Math.round(ins.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           )}
         </div>
       )}
