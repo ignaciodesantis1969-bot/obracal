@@ -57,15 +57,16 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     doc.setTextColor(15, 23, 42);
     doc.text(presupuesto?.nombre || 'Cotización Obra', 60, currentY + 5);
 
-    // Carga de Logo desde la carpeta public (2 veces más grande: ancho 44, alto 20)
+    // Carga de Logo desde la carpeta public: /logo-07.png (ocupa exactamente el alto de las 3 líneas: altura 20)
     try {
-      const response = await fetch('/logo-sice.png');
+      const response = await fetch('/logo-07.png');
       if (response.ok) {
         const blob = await response.blob();
         const reader = new FileReader();
         await new Promise((resolve) => {
           reader.onloadend = () => {
-            doc.addImage(reader.result, 'PNG', pageWidth - 58, currentY - 2, 44, 20);
+            // Se posiciona a la derecha alineado con el margen (ancho 38, alto 20 para abarcar las 3 líneas)
+            doc.addImage(reader.result, 'PNG', pageWidth - 14 - 38, currentY, 38, 20);
             resolve();
           };
           reader.readAsDataURL(blob);
@@ -75,16 +76,16 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       doc.setFont("helvetica", "bold");
       doc.setFontSize(22);
       doc.setTextColor(30, 41, 59);
-      doc.text("SICE SA", pageWidth - 14, currentY + 10, { align: 'right' });
+      doc.text("SICE SA", pageWidth - 14, currentY + 12, { align: 'right' });
     }
 
-    // Línea de Obra y Cliente
+    // Línea 2: Obra y Cliente
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
     doc.text(`Obra: ${presupuesto?.obra_nombre || 'Ampliacion Sala de Cargas Baterias'}   •   Cliente: ${cliente?.razon_social || cliente?.nombre || 'LDC ARGENTINA S.A.'}`, 14, currentY + 12);
 
-    // Línea de Fecha abajo con la palabra "Fecha:"
+    // Línea 3: Fecha abajo con la palabra "Fecha:"
     const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
     doc.text(`Fecha: ${fechaTexto}`, 14, currentY + 18);
 
