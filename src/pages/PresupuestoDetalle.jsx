@@ -614,30 +614,6 @@ export default function PresupuestoDetalle() {
     return rubroMaestro === rubroSeleccionado && m.tarea !== '---';
   });
 
-  // Ítems calculados para Costos
-  const itemsCostosExportacion = itemsDetalle.flatMap(r => 
-    (r.tareas || []).map(t => ({
-      descripcion: `[${r.rubro}] ${t.tarea}`,
-      cantidad: t.cantidad,
-      precio_unitario: Number(t.costo_unitario || 0),
-      subtotal: Number(t.cantidad || 0) * Number(t.costo_unitario || 0)
-    }))
-  );
-
-  // Ítems calculados para Venta (con Coeficiente de Pase aplicado)
-  const itemsVentaExportacion = itemsDetalle.flatMap(r => 
-    (r.tareas || []).map(t => {
-      const pUnitVenta = Number(t.costo_unitario || 0) * coeficientePase;
-      const subtotalVenta = (Number(t.cantidad || 0) * Number(t.costo_unitario || 0)) * coeficientePase;
-      return {
-        descripcion: `[${r.rubro}] ${t.tarea}`,
-        cantidad: t.cantidad,
-        precio_unitario: pUnitVenta,
-        subtotal: subtotalVenta
-      };
-    })
-  );
-
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       
@@ -694,7 +670,6 @@ export default function PresupuestoDetalle() {
             <span className={`px-2.5 py-1 rounded-full font-bold text-xs uppercase ${esBorrador ? 'bg-slate-100 text-slate-700' : esAprobado ? 'bg-emerald-100 text-emerald-800' : esRechazado ? 'bg-red-100 text-red-800' : 'bg-purple-100 text-purple-800'}`}>
               {estadoActual}
             </span>
-
           </div>
           <p className="text-slate-500 text-sm mt-1.5 flex items-center gap-4">
             <span><strong>Obra:</strong> {obra?.nombre || obra?.nombre_obra || 'Sin obra asignada'}</span>
@@ -1354,9 +1329,9 @@ export default function PresupuestoDetalle() {
               <button 
                 onClick={() => {
                   if (exportFormato === 'excel') {
-                    exportarPresupuestoExcel(presupuesto, itemsCostosExportacion);
+                    exportarPresupuestoExcel(presupuesto, itemsDetalle, false, 1);
                   } else {
-                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (COSTOS)` }, cliente, itemsCostosExportacion);
+                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (COSTOS)` }, cliente, itemsDetalle, false, 1);
                   }
                   setIsExportModalOpen(false);
                 }}
@@ -1369,9 +1344,9 @@ export default function PresupuestoDetalle() {
               <button 
                 onClick={() => {
                   if (exportFormato === 'excel') {
-                    exportarPresupuestoExcel({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, itemsVentaExportacion);
+                    exportarPresupuestoExcel({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, itemsDetalle, true, coeficientePase);
                   } else {
-                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, cliente, itemsVentaExportacion);
+                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, cliente, itemsDetalle, true, coeficientePase);
                   }
                   setIsExportModalOpen(false);
                 }}
