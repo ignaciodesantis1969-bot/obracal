@@ -44,7 +44,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     const pageWidth = doc.internal.pageSize.getWidth();
     let currentY = 14;
 
-    // 1 & 2) Encabezado superior (Sin versión V1, código a la izquierda, título ajustado)
+    // Encabezado superior (Código y Título ajustado sin versión V1)
     doc.setFillColor(254, 243, 199);
     doc.roundedRect(14, currentY, 42, 7, 1, 1, 'F');
     doc.setFont("helvetica", "bold");
@@ -52,53 +52,47 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     doc.setTextColor(180, 83, 9);
     doc.text(presupuesto?.codigo || 'CL004-OB002', 17, currentY + 5);
 
-    // Título con fuente más chica (10.5) para que no se corte
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10.5);
     doc.setTextColor(15, 23, 42);
     doc.text(presupuesto?.nombre || 'Cotización Obra', 60, currentY + 5);
 
-    // Fecha con recuero más oscuro y visible (Slate-200)
-    const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
-    doc.setFillColor(226, 232, 240); // Gris más oscuro y contrastante
-    doc.roundedRect(pageWidth - 45, currentY - 1, 31, 8, 2, 2, 'F');
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8);
-    doc.setTextColor(51, 65, 85);
-    doc.text(fechaTexto, pageWidth - 40, currentY + 4.5);
-
-    // 4) Carga de Logo desde la carpeta public (ej: /logo-sice.png)
+    // Carga de Logo desde la carpeta public (2 veces más grande: ancho 44, alto 20)
     try {
-      const response = await fetch('/logo-07.png');
+      const response = await fetch('/logo-sice.png');
       if (response.ok) {
         const blob = await response.blob();
         const reader = new FileReader();
         await new Promise((resolve) => {
           reader.onloadend = () => {
-            doc.addImage(reader.result, 'PNG', pageWidth - 35, currentY + 10, 22, 10);
+            doc.addImage(reader.result, 'PNG', pageWidth - 58, currentY - 2, 44, 20);
             resolve();
           };
           reader.readAsDataURL(blob);
         });
       }
     } catch (e) {
-      // Si no encuentra la imagen, muestra texto de respaldo limpio
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(11);
+      doc.setFontSize(22);
       doc.setTextColor(30, 41, 59);
-      doc.text("SICE SA", pageWidth - 25, currentY + 16, { align: 'right' });
+      doc.text("SICE SA", pageWidth - 14, currentY + 10, { align: 'right' });
     }
 
+    // Línea de Obra y Cliente
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
-    doc.text(`Obra: ${presupuesto?.obra_nombre || 'Ampliacion Sala de Cargas Baterias'}   •   Cliente: ${cliente?.razon_social || cliente?.nombre || 'LDC ARGENTINA S.A.'}`, 14, currentY + 14);
+    doc.text(`Obra: ${presupuesto?.obra_nombre || 'Ampliacion Sala de Cargas Baterias'}   •   Cliente: ${cliente?.razon_social || cliente?.nombre || 'LDC ARGENTINA S.A.'}`, 14, currentY + 12);
+
+    // Línea de Fecha abajo con la palabra "Fecha:"
+    const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
+    doc.text(`Fecha: ${fechaTexto}`, 14, currentY + 18);
 
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(14, currentY + 20, pageWidth - 14, currentY + 20);
+    doc.line(14, currentY + 23, pageWidth - 14, currentY + 23);
 
-    currentY += 26;
+    currentY += 29;
 
     let granTotal = 0;
 
@@ -147,7 +141,6 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
 
       currentY += 10;
 
-      // Tabla con encabezados en gris visible (Slate-300: [203, 213, 225])
       autoTable(doc, {
         startY: currentY,
         head: [["Tareas", "Unidades", "Cantidad", "Precio Unitario", "Precio Total"]],
@@ -169,18 +162,26 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       currentY = doc.lastAutoTable.finalY + 8;
     });
 
-    if (currentY > 260) {
+    if (currentY > 255) {
       doc.addPage();
       currentY = 20;
     }
 
+    // Cuadro negro para el Total General (1.5 veces más grande que los rubros: altura 14)
+    doc.setFillColor(30, 41, 59);
+    doc.roundedRect(14, currentY, pageWidth - 28, 14, 2, 2, 'F');
+
     doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(255, 255, 255);
+    doc.text("TOTAL GENERAL:", 20, currentY + 9);
+
     doc.setFontSize(11);
-    doc.setTextColor(15, 23, 42);
+    doc.setTextColor(250, 204, 21);
     doc.text(
-      `TOTAL GENERAL: $ ${granTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
-      pageWidth - 14, 
-      currentY + 5, 
+      `$ ${granTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 
+      pageWidth - 20, 
+      currentY + 9, 
       { align: 'right' }
     );
 
