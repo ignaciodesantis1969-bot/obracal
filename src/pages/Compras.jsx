@@ -41,7 +41,7 @@ export default function Compras({
     tipo_gasto: 'Presupuesto', // 'Presupuesto', 'Gasto Corriente', 'Gasto Extra'
     presupuesto_id: '',
     rubro_presupuesto: '', 
-    tipo_insumo: 'Material', // 'Material', 'Subcontrato', 'Equipo / Herramienta'
+    tipo_insumo: 'Material', // 'Material', 'Subcontrato', 'Equipo / Herramienta', 'Gastos Generales'
     detalle_gasto: '',
     fecha: new Date().toISOString().split('T')[0],
     vencimiento: '',
@@ -935,13 +935,14 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* TIPO DE INSUMO */}
+                {/* TIPO DE INSUMO (CORREGIDO CON GASTOS GENERALES) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo *</label>
                   <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.tipo_insumo} onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}>
                     <option value="Material">Material</option>
                     <option value="Subcontrato">Subcontrato</option>
                     <option value="Equipo / Herramienta">Equipo / Herramienta</option>
+                    <option value="Gastos Generales">Gastos Generales</option>
                   </select>
                 </div>
 
