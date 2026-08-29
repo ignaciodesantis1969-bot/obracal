@@ -432,7 +432,7 @@ export default function Reportes(props) {
     }
   }
 
-  // 🛡️ MOTOR DE GASTOS GENERALES CORREGIDO Y ROBUSTO (CON TOKENS INTELIGENTES Y SET DE ASIGNACIÓN ÚNICA)
+  // 🛡️ MOTOR DE GASTOS GENERALES CORREGIDO (INCLUYE FAC.DETALLE_GASTO)
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
   let totalRealGGEspecifico = 0;
@@ -448,9 +448,17 @@ export default function Reportes(props) {
       facturasPresupuesto.forEach((fac, fIdx) => {
         if (facturasAsignadasGG.has(fIdx)) return;
 
-        const tipoInsumoFac = String(fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || fac.concepto || fac.descripcion || '').toLowerCase();
+        // Se incluye fac.detalle_gasto y fac.Detalle_gasto para capturar lo que viene de la hoja de Google Sheets
+        const tipoInsumoFac = String(
+          fac.tipo_insumo || fac.Tipo_insumo || 
+          fac.renglon || fac.Renglon || 
+          fac.concepto || fac.Concepto || 
+          fac.descripcion || fac.Descripcion || 
+          fac.detalle_gasto || fac.Detalle_gasto || ''
+        ).toLowerCase();
+
         const limpioFac = limpiarTexto(tipoInsumoFac);
-        const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || '').toLowerCase();
+        const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').toLowerCase();
         const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
 
         let match = false;
@@ -466,7 +474,7 @@ export default function Reportes(props) {
         } else if (cLower.includes('epp')) {
           match = limpioFac.includes('epp') || limpioFac.includes('casco') || limpioFac.includes('guantes') || limpioFac.includes('gafas') || limpioFac.includes('copa');
         } else if (cLower.includes('examen') || cLower.includes('medico') || cLower.includes('médico')) {
-          match = limpioFac.includes('examen') || limpioFac.includes('medico') || limpioFac.includes('aptitud');
+          match = limpioFac.includes('examen') || limpioFac.includes('medico') || limpioFac.includes('médico') || limpioFac.includes('aptitud');
         } else if (cLower.includes('revision') || cLower.includes('ypf') || cLower.includes('gas')) {
           match = limpioFac.includes('revision') || limpioFac.includes('ypf') || limpioFac.includes('gas');
         } else {
@@ -488,15 +496,17 @@ export default function Reportes(props) {
     };
   });
 
-  // Asignación automática residual para Imprevistos (facturas de gastos generales no asignadas a ítems específicos)
+  // Asignación automática residual para Imprevistos
   const imprevistoItemIndex = gastosGeneralesDetalle.findIndex(g => g.esImprevistos);
   if (imprevistoItemIndex !== -1) {
     let realImprevistosCalc = 0;
     facturasPresupuesto.forEach((fac, fIdx) => {
       if (facturasAsignadasGG.has(fIdx)) return;
 
-      const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || '').toLowerCase();
-      const tipoInsFac = String(fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || '').toLowerCase();
+      const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').toLowerCase();
+      const tipoInsFac = String(
+        fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || fac.detalle_gasto || fac.Detalle_gasto || ''
+      ).toLowerCase();
       const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
 
       const esDeGG = rubroFac.includes('gastos generales') || tipoInsFac.includes('gasto general') || tipoInsFac.includes('imprevisto');
