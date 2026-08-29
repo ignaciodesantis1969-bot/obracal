@@ -136,7 +136,7 @@ export default function Reportes(props) {
     return 'Material';
   };
 
-  // 📝 PROCESAMIENTO AVANZADO PARA LA PESTAÑA DE INSUMOS (SIN RESTRICCIÓN DE ESTADO + 4 CATEGORÍAS)
+  // 📝 PROCESAMIENTO AVANZADO PARA LA PESTAÑA DE INSUMOS
   const presupuestoInsumosSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(insumoPresupuestoId));
 
   const { insumosPorRubro, insumosGenerales } = useMemo(() => {
@@ -179,7 +179,6 @@ export default function Reportes(props) {
         const cantTarea = Number(tarea.cantidad) || 1;
         const costoTarea = Number(tarea.costo_unitario) || 0;
 
-        // Soporte si está guardado como JSON string, texto separado por comas o array directo
         if (typeof insumosTarea === 'string' && insumosTarea.trim().startsWith('[')) {
           try { insumosTarea = JSON.parse(insumosTarea); } catch { insumosTarea = []; }
         } else if (typeof insumosTarea === 'string' && insumosTarea.trim()) {
@@ -192,7 +191,6 @@ export default function Reportes(props) {
           }));
         }
 
-        // Si no tiene insumos explícitos en la tarea, intentar buscar en el maestro de tareas
         if (!Array.isArray(insumosTarea) || insumosTarea.length === 0) {
           const maestroInsumosEncontrados = buscarInsumosMaestro(tarea.tarea);
           if (Array.isArray(maestroInsumosEncontrados) && maestroInsumosEncontrados.length > 0) {
@@ -213,7 +211,7 @@ export default function Reportes(props) {
 
             const cantIns = Number(ins.cantidad) || 1;
             const cUnitIns = Number(ins.costo_unitario) || Number(ins.costo) || costoTarea;
-            const cantidadTotal = cantIns * cantTarea; // 🧮 Multiplicación automática de cantidad unitaria por cómputo de tarea
+            const cantidadTotal = cantIns * cantTarea;
             const totalInsumo = cantidadTotal * cUnitIns;
 
             const itemProcesado = {
@@ -230,7 +228,6 @@ export default function Reportes(props) {
             general[catNormalizada].push(itemProcesado);
           });
         } else {
-          // Fallback si no tiene ningún insumo asociado
           const itemFallback = {
             rubro: nombreRubro,
             tarea: tarea.tarea || 'Sin tarea',
@@ -436,7 +433,7 @@ export default function Reportes(props) {
     }
   }
 
-  // Imputación real de facturas para Gastos Generales
+  // Imputación real de facturas para este presupuesto
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
   let totalRealGGEspecifico = 0;
@@ -448,20 +445,25 @@ export default function Reportes(props) {
     
     facturasPresupuesto.forEach(fac => {
       const provId = String(fac.proveedor_id || fac.Proveedor_id || '');
-      const montoFac = Number(fac.total || fac.Total || 0);
+      const tipoInsumoFac = String(fac.tipo_insumo || fac.Tipo_insumo || '').toLowerCase();
+      // 🛡️ AQUÍ SE TOMA EL SUBTOTAL NETO (SIN IVA NI PERCEPCIONES)
+      const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
 
-      if ((conceptoLower.includes('licenciado') || conceptoLower.includes('programa')) && provId === '1') {
-        realAsignado += montoFac;
-      } else if (conceptoLower.includes('visita obligatoria') && provId === '2') {
-        realAsignado += montoFac;
-      } else if (conceptoLower.includes('técnico') && provId === '6') {
-        realAsignado += montoFac;
-      } else if (conceptoLower.includes('ropa') && provId === '11') {
-        realAsignado += montoFac;
-      } else if (conceptoLower.includes('epp') && provId === '14') {
-        realAsignado += montoFac;
+      const matchConcepto = tipoInsumoFac && (tipoInsumoFac.includes(conceptoLower) || conceptoLower.includes(tipoInsumoFac));
+
+      if (matchConcepto || ((conceptoLower.includes('licenciado') || conceptoLower.includes('programa')) && provId === '1') || 
+          (conceptoLower.includes('visita obligatoria') && provId === '2') || 
+          (conceptoLower.includes('técnico') && provId === '6') || 
+          (conceptoLower.includes('ropa') && provId === '11') || 
+          (conceptoLower.includes('epp') && provId === '14')) {
+        
+        if (!ggItem.esImprevistos) {
+          realAsignado += montoFac;
+        }
       } else if (ggItem.esImprevistos) {
-        if (!['1', '2', '6', '11', '14'].includes(provId)) {
+        // Imprevistos absorbe las facturas imputadas a Gastos Generales que no caen en un renglón específico exacto
+        const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || '').toLowerCase();
+        if (rubroFac.includes('gastos generales') && !['1', '2', '6', '11', '14'].includes(provId) && !tipoInsumoFac.includes('seguridad') && !tipoInsumoFac.includes('ropa') && !tipoInsumoFac.includes('epp')) {
           realAsignado += montoFac;
         }
       }
@@ -636,7 +638,7 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {/* 📝 CONTENIDO: LISTADO DE INSUMOS (ACTUALIZADO CON LAS NUEVAS REGLAS) */}
+      {/* CONTENIDO: LISTADO DE INSUMOS */}
       {activeTab === 'Listado de Insumos' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
@@ -648,7 +650,6 @@ export default function Reportes(props) {
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-              {/* Selector de Presupuesto (Sin restricción de estado) */}
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <Filter className="w-4 h-4 text-amber-500 shrink-0" />
                 <select
@@ -665,7 +666,6 @@ export default function Reportes(props) {
                 </select>
               </div>
 
-              {/* Selector de Vista (Desglosado por rubro vs General consolidado) */}
               {presupuestoInsumosSeleccionado && (
                 <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 w-full sm:w-auto justify-center">
                   <button
@@ -690,7 +690,6 @@ export default function Reportes(props) {
               Selecciona un presupuesto arriba para desplegar el listado de insumos.
             </div>
           ) : vistaGeneralInsumos ? (
-            /* VISTA GENERAL / CONSOLIDADA SIN DISCRIMINAR RUBROS */
             <div className="space-y-6">
               <div className="border-b pb-2">
                 <h4 className="font-extrabold text-slate-900 text-xs uppercase">Listado General Consolidado de Insumos</h4>
@@ -749,7 +748,6 @@ export default function Reportes(props) {
               </div>
             </div>
           ) : (
-            /* VISTA DESGLOSADA POR RUBRO Y CATEGORÍA */
             <div className="space-y-6">
               {Object.keys(insumosPorRubro).length === 0 ? (
                 <div className="p-8 text-center text-slate-500 text-xs">
@@ -875,7 +873,16 @@ export default function Reportes(props) {
                     {/* SECCIÓN 1: RUBROS CON SUS COMPONENTES Y SALARIOS DE RRHH */}
                     {rubrosPresupuestoDetalle.map((rubro) => {
                       const componentesEntradas = Object.entries(rubro.componentes);
-                      const realFacturasRubro = 0; 
+                      
+                      // 🛡️ CÁLCULO DE FACTURAS REALES PARA EL RUBRO (USANDO SUBTOTAL NETO)
+                      const realFacturasRubro = facturasPresupuesto
+                        .filter(fac => {
+                          const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || '').trim();
+                          if (rFac.toLowerCase().includes('gastos generales')) return false;
+                          return limpiarTexto(rFac) === limpiarTexto(rubro.nombre);
+                        })
+                        .reduce((acc, fac) => acc + Number(fac.subtotal || fac.Subtotal || 0), 0);
+
                       const realSalariosRubro = obtenerSalariosPorRubro(rubro.nombre);
                       const totalRealRubroActual = realFacturasRubro + realSalariosRubro;
                       totalRealRubrosCalculado += totalRealRubroActual;
@@ -980,7 +987,18 @@ export default function Reportes(props) {
                     <tr className="bg-slate-200 text-slate-900 font-extrabold border-t-2 border-slate-400">
                       <td className="px-4 py-3 uppercase">SUBTOTAL RUBROS</td>
                       <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-3 text-right">$ 0,00</td>
+                      <td className="px-4 py-3 text-right">
+                        $ {rubrosPresupuestoDetalle.reduce((acc, r) => {
+                          const fRubro = facturasPresupuesto
+                            .filter(fac => {
+                              const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || '').trim();
+                              if (rFac.toLowerCase().includes('gastos generales')) return false;
+                              return limpiarTexto(rFac) === limpiarTexto(r.nombre);
+                            })
+                            .reduce((sum, fac) => sum + Number(fac.subtotal || fac.Subtotal || 0), 0);
+                          return acc + fRubro;
+                        }, 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </td>
                       <td className="px-4 py-3 text-right">$ {movimientosRrhhPresupuesto.reduce((acc, m) => acc + Number(m.monto || m.Monto || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-3 text-right">$ {(totalPresupuestoRubros - totalRealRubrosCalculado).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                     </tr>
@@ -994,6 +1012,17 @@ export default function Reportes(props) {
                     </tr>
 
                     {(() => {
+                      const totalFacturasRubrosNeto = rubrosPresupuestoDetalle.reduce((acc, r) => {
+                        const fRubro = facturasPresupuesto
+                          .filter(fac => {
+                            const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || '').trim();
+                            if (rFac.toLowerCase().includes('gastos generales')) return false;
+                            return limpiarTexto(rFac) === limpiarTexto(r.nombre);
+                          })
+                          .reduce((sum, fac) => sum + Number(fac.subtotal || fac.Subtotal || 0), 0);
+                        return acc + fRubro;
+                      }, 0);
+
                       const granTotalReal = totalRealRubrosCalculado + totalRealGGEspecifico + totalRealImprevistos;
                       const granTotalDesvio = granTotalPresupuestado - granTotalReal;
 
@@ -1001,7 +1030,7 @@ export default function Reportes(props) {
                         <tr className="bg-slate-900 text-white font-black text-sm">
                           <td className="px-4 py-4 uppercase">GRAN TOTAL GENERAL</td>
                           <td className="px-4 py-4 text-right">$ {granTotalPresupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-4 text-right">$ {(totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-4 text-right">$ {(totalFacturasRubrosNeto + totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                           <td className="px-4 py-4 text-right">$ {movimientosRrhhPresupuesto.reduce((acc, m) => acc + Number(m.monto || m.Monto || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                           <td className={`px-4 py-4 text-right ${granTotalDesvio >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                             $ {granTotalDesvio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
