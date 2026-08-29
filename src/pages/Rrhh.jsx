@@ -44,10 +44,16 @@ export default function Rrhh({
         mesCrudo = 'Agosto 2026';
       }
 
+      // Normalizar estado (activo o baja) desde la nueva columna
+      let estadoCrudo = String(p.estado || p.Estado || 'activo').trim().toLowerCase();
+      const esBaja = estadoCrudo.includes('baja') || estadoCrudo.includes('inactivo') || estadoCrudo === 'no';
+      const estadoNormalizado = esBaja ? 'baja' : 'activo';
+
       return {
         ...p,
         costo_en_mano: Number(costoCrudo) || 0,
-        mes_acuerdo: mesCrudo
+        mes_acuerdo: mesCrudo,
+        estado: estadoNormalizado
       };
     });
   };
@@ -155,7 +161,7 @@ export default function Rrhh({
     ];
   }, [presupuestoSeleccionadoCarga, safePresupuestos, safeRubros]);
 
-  // Sincronizar salarios
+  // Sincronizar salarios y estado
   React.useEffect(() => {
     if (safePersonal.length > 0) {
       const procesados = procesarPersonalInicial(safePersonal);
@@ -199,7 +205,8 @@ export default function Rrhh({
     email: '',
     direccion: '',
     costo_en_mano: 0,
-    mes_acuerdo: 'Agosto 2026'
+    mes_acuerdo: 'Agosto 2026',
+    estado: 'activo'
   });
 
   const handleOpenModal = (persona = null) => {
@@ -213,11 +220,12 @@ export default function Rrhh({
         email: persona.email || persona.Email || '',
         direccion: persona.direccion || persona.Direccion || '',
         costo_en_mano: Number(persona.costo_en_mano || persona.Costo_en_mano || persona.salario || 0),
-        mes_acuerdo: persona.mes_acuerdo || persona.Mes_acuerdo || 'Agosto 2026'
+        mes_acuerdo: persona.mes_acuerdo || persona.Mes_acuerdo || 'Agosto 2026',
+        estado: persona.estado || 'activo'
       });
     } else {
       setEditingId(null);
-      setFormData({ nombre: '', cuil: '', especialidad: '', telefono: '', email: '', direccion: '', costo_en_mano: 0, mes_acuerdo: 'Agosto 2026' });
+      setFormData({ nombre: '', cuil: '', especialidad: '', telefono: '', email: '', direccion: '', costo_en_mano: 0, mes_acuerdo: 'Agosto 2026', estado: 'activo' });
     }
     setIsModalOpen(true);
   };
@@ -753,6 +761,10 @@ export default function Rrhh({
     return nombre.includes(query) || cuil.includes(query) || especialidad.includes(query);
   });
 
+  // Dividir empleados en Activos y De Baja
+  const personalActivo = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'activo');
+  const personalDeBaja = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'baja');
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -806,13 +818,13 @@ export default function Rrhh({
       </div>
 
       {activeTab === 'personal' && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
             <div className="relative w-full sm:w-80">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input 
                 type="text"
-                placeholder="Buscar por nombre, CUIL o especialidad..."
+                placeholder="Buscar por nombre, CUIL or especialidad..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs outline-none focus:border-amber-500"
@@ -820,48 +832,110 @@ export default function Rrhh({
             </div>
           </div>
 
-          <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-            {personalFiltrado.length === 0 ? (
-              <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
-                <Users className="w-10 h-10 text-slate-300" />
-                <span>No hay personal registrado.</span>
-              </div>
-            ) : (
-              <table className="w-full text-left text-xs">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                    <th className="px-6 py-4">Nombre</th>
-                    <th className="px-4 py-4">CUIL</th>
-                    <th className="px-4 py-4">Especialidad</th>
-                    <th className="px-4 py-4">Teléfono</th>
-                    <th className="px-4 py-4">Dirección</th>
-                    <th className="px-6 py-4 text-right">Acciones</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {personalFiltrado.map((p, index) => {
-                    const pId = p.id || p.ID;
-                    return (
-                      <tr key={pId || index} className="hover:bg-slate-50 transition-colors">
-                        <td className="px-6 py-4 font-bold text-slate-900">{p.nombre || p.Nombre || '---'}</td>
-                        <td className="px-4 py-4 font-mono text-slate-600">{p.cuil || p.Cuil || p.CUIL || '---'}</td>
-                        <td className="px-4 py-4">
-                          <span className="px-2.5 py-1 bg-amber-50 text-amber-800 rounded-full font-bold text-[10px]">
-                            {p.especialidad || p.Especialidad || 'General'}
-                          </span>
-                        </td>
-                        <td className="px-4 py-4 text-slate-600">{p.telefono || p.Telefono || '---'}</td>
-                        <td className="px-4 py-4 text-slate-600">{p.direccion || p.Direccion || '---'}</td>
-                        <td className="px-6 py-4 text-right space-x-2">
-                          <button onClick={() => handleOpenModal(p)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarPersonal(pId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
+          {/* LISTA DE PERSONAL ACTIVO */}
+          <div className="space-y-3">
+            <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Empleados Activos ({personalActivo.length})
+            </h3>
+            <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+              {personalActivo.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">No hay personal activo registrado.</div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                      <th className="px-6 py-4">Nombre</th>
+                      <th className="px-4 py-4">CUIL</th>
+                      <th className="px-4 py-4">Especialidad</th>
+                      <th className="px-4 py-4">Teléfono</th>
+                      <th className="px-4 py-4">Dirección</th>
+                      <th className="px-4 py-4 text-center">Estado</th>
+                      <th className="px-6 py-4 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {personalActivo.map((p, index) => {
+                      const pId = p.id || p.ID;
+                      return (
+                        <tr key={pId || index} className="hover:bg-slate-50 transition-colors">
+                          <td className="px-6 py-4 font-bold text-slate-900">{p.nombre || p.Nombre || '---'}</td>
+                          <td className="px-4 py-4 font-mono text-slate-600">{p.cuil || p.Cuil || p.CUIL || '---'}</td>
+                          <td className="px-4 py-4">
+                            <span className="px-2.5 py-1 bg-amber-50 text-amber-800 rounded-full font-bold text-[10px]">
+                              {p.especialidad || p.Especialidad || 'General'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-slate-600">{p.telefono || p.Telefono || '---'}</td>
+                          <td className="px-4 py-4 text-slate-600">{p.direccion || p.Direccion || '---'}</td>
+                          <td className="px-4 py-4 text-center">
+                            <span className="px-2.5 py-1 bg-emerald-100 text-emerald-800 rounded-full font-bold text-[10px] uppercase">
+                              Activo
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right space-x-2">
+                            <button onClick={() => handleOpenModal(p)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => handleEliminarPersonal(pId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+
+          {/* LISTA DE PERSONAL DE BAJA */}
+          <div className="space-y-3 pt-4">
+            <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> Empleados De Baja ({personalDeBaja.length})
+            </h3>
+            <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden opacity-90">
+              {personalDeBaja.length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">No hay personal de baja registrado.</div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                      <th className="px-6 py-4">Nombre</th>
+                      <th className="px-4 py-4">CUIL</th>
+                      <th className="px-4 py-4">Especialidad</th>
+                      <th className="px-4 py-4">Teléfono</th>
+                      <th className="px-4 py-4">Dirección</th>
+                      <th className="px-4 py-4 text-center">Estado</th>
+                      <th className="px-6 py-4 text-right">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {personalDeBaja.map((p, index) => {
+                      const pId = p.id || p.ID;
+                      return (
+                        <tr key={pId || index} className="hover:bg-slate-50 transition-colors bg-slate-50/50">
+                          <td className="px-6 py-4 font-bold text-slate-600">{p.nombre || p.Nombre || '---'}</td>
+                          <td className="px-4 py-4 font-mono text-slate-500">{p.cuil || p.Cuil || p.CUIL || '---'}</td>
+                          <td className="px-4 py-4">
+                            <span className="px-2.5 py-1 bg-slate-200 text-slate-700 rounded-full font-bold text-[10px]">
+                              {p.especialidad || p.Especialidad || 'General'}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4 text-slate-500">{p.telefono || p.Telefono || '---'}</td>
+                          <td className="px-4 py-4 text-slate-500">{p.direccion || p.Direccion || '---'}</td>
+                          <td className="px-4 py-4 text-center">
+                            <span className="px-2.5 py-1 bg-rose-100 text-rose-800 rounded-full font-bold text-[10px] uppercase">
+                              De Baja
+                            </span>
+                          </td>
+                          <td className="px-6 py-4 text-right space-x-2">
+                            <button onClick={() => handleOpenModal(p)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => handleEliminarPersonal(pId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -869,7 +943,7 @@ export default function Rrhh({
       {/* MÓDULO DE LEGAJOS */}
       {activeTab === 'legajos' && (
         <div className="space-y-6">
-          {/* Selector Superior de Empleado con Foto Cuadrada Estética */}
+          {/* Selector Superior de Empleado con Foto Cuadrada Estética y Etiqueta de Estado */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
             <div className="flex-1">
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Seleccionar Trabajador</h3>
@@ -886,9 +960,12 @@ export default function Rrhh({
                     const pId = String(p.id || p.ID);
                     const pNombre = p.nombre || p.Nombre || 'Personal';
                     const pEsp = p.especialidad || p.Especialidad || 'Operario';
+                    const pEstado = String(p.estado || 'activo').toLowerCase();
+                    const esBaja = pEstado === 'baja';
+
                     return (
                       <option key={pId} value={pId}>
-                        {pNombre} ({pEsp})
+                        {pNombre} ({pEsp}) — [{esBaja ? 'De Baja' : 'Activo'}]
                       </option>
                     );
                   })}
@@ -947,7 +1024,18 @@ export default function Rrhh({
                 </div>
 
                 <div className="flex flex-col gap-2">
-                  <span className="text-[10px] font-extrabold text-slate-600 uppercase">Foto Carnet / Perfil</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-extrabold text-slate-600 uppercase">Foto Carnet / Perfil</span>
+                    {(() => {
+                      const empActual = personalSalarios.find(p => String(p.id || p.ID) === String(legajoEmpleadoSeleccionado));
+                      const esBaja = String(empActual?.estado || '').toLowerCase() === 'baja';
+                      return (
+                        <span className={`px-2 py-0.5 rounded-full font-black text-[9px] uppercase ${esBaja ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                          {esBaja ? 'De Baja' : 'Activo'}
+                        </span>
+                      );
+                    })()}
+                  </div>
                   <div className="flex items-center gap-2">
                     <input 
                       type="file"
@@ -1099,7 +1187,7 @@ export default function Rrhh({
                   {/* Formulario de Subida (1 Columna) */}
                   <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4 h-fit">
                     <h4 className="text-xs font-extrabold text-slate-900 uppercase flex items-center gap-1.5">
-                      <Upload className="w-4 h-4 text-amber-500" /> Subir Nuevo Archivo
+                      <Upload className="w-4 h-4 text-amber-600" /> Subir Nuevo Archivo
                     </h4>
                     
                     <form onSubmit={handleSubirLegajoLibre} className="space-y-4">
@@ -1373,8 +1461,10 @@ export default function Rrhh({
 
               <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
                 <div className="flex justify-between items-center">
-                  <h4 className="text-xs font-extrabold text-slate-900 uppercase">Personal Disponible (Hacer clic en "Agregar" para sumar con el salario vigente)</h4>
-                  <span className="text-[11px] text-slate-500">{personalSalarios.length} trabajadores registrados</span>
+                  <h4 className="text-xs font-extrabold text-slate-900 uppercase">Personal Disponible (Solo Activos)</h4>
+                  <span className="text-[11px] text-slate-500">
+                    {personalSalarios.filter(p => String(p.estado || '').toLowerCase() === 'activo').length} trabajadores activos
+                  </span>
                 </div>
 
                 <div className="max-h-48 overflow-y-auto border border-slate-200 rounded-xl bg-white">
@@ -1388,24 +1478,26 @@ export default function Rrhh({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {personalSalarios.map((p, pIdx) => (
-                        <tr key={p.id || p.ID || pIdx} className="hover:bg-slate-50">
-                          <td className="px-4 py-2 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
-                          <td className="px-4 py-2 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
-                          <td className="px-4 py-2 text-right font-black text-blue-600">
-                            $ {Number(p.costo_en_mano || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-2 text-right">
-                            <button
-                              type="button"
-                              onClick={() => handleAgregarPersonalAQuadrilla(p)}
-                              className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer flex items-center gap-1 ml-auto"
-                            >
-                              <UserPlus className="w-3 h-3" /> Agregar
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {personalSalarios
+                        .filter(p => String(p.estado || '').toLowerCase() === 'activo') // 🔒 FILTRO: Solo personal activo disponible para cuadrillas
+                        .map((p, pIdx) => (
+                          <tr key={p.id || p.ID || pIdx} className="hover:bg-slate-50">
+                            <td className="px-4 py-2 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
+                            <td className="px-4 py-2 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
+                            <td className="px-4 py-2 text-right font-black text-blue-600">
+                              $ {Number(p.costo_en_mano || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                            <td className="px-4 py-2 text-right">
+                              <button
+                                type="button"
+                                onClick={() => handleAgregarPersonalAQuadrilla(p)}
+                                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer flex items-center gap-1 ml-auto"
+                              >
+                                <UserPlus className="w-3 h-3" /> Agregar
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
                     </tbody>
                   </table>
                 </div>
@@ -1826,6 +1918,17 @@ export default function Rrhh({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado</label>
+                  <select
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500"
+                    value={formData.estado}
+                    onChange={(e) => setFormData({...formData, estado: e.target.value})}
+                  >
+                    <option value="activo">Activo</option>
+                    <option value="baja">De Baja</option>
+                  </select>
+                </div>
+                <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Teléfono</label>
                   <input 
                     type="text" placeholder="Ej: +54 9 11..."
@@ -1833,6 +1936,9 @@ export default function Rrhh({
                     value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value})} 
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mail</label>
                   <input 
@@ -1841,15 +1947,14 @@ export default function Rrhh({
                     value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} 
                   />
                 </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Dirección</label>
-                <input 
-                  type="text" placeholder="Ej: Av. San Martín 1234, Benavidez"
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                  value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} 
-                />
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Dirección</label>
+                  <input 
+                    type="text" placeholder="Ej: Av. San Martín 1234"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
+                    value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} 
+                  />
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t">
