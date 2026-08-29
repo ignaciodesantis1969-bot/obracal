@@ -41,7 +41,7 @@ export default function Compras({
     tipo_gasto: 'Presupuesto', // 'Presupuesto', 'Gasto Corriente', 'Gasto Extra'
     presupuesto_id: '',
     rubro_presupuesto: '', 
-    tipo_insumo: 'Material', // 'Material', 'Subcontrato', 'Equipo / Herramienta', 'Gastos Generales'
+    tipo_insumo: 'Material', 
     detalle_gasto: '',
     fecha: new Date().toISOString().split('T')[0],
     vencimiento: '',
@@ -86,6 +86,8 @@ export default function Compras({
   });
 
   let rubrosDelPresupuesto = [];
+  let gastosGeneralesDelPresupuesto = [];
+
   if (presupuestoSeleccionadoObj) {
     const rawItemsDetalle = presupuestoSeleccionadoObj.items_detalle || presupuestoSeleccionadoObj.Items_detalle || presupuestoSeleccionadoObj.items || presupuestoSeleccionadoObj.detalle;
     
@@ -100,8 +102,21 @@ export default function Compras({
       } else if (Array.isArray(parsedData)) {
         rubrosDelPresupuesto = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
       }
+
+      // Extraer Gastos Generales del bloque comercial o campo directo
+      let rawGG = presupuestoSeleccionadoObj.gastos_generales_insumos || presupuestoSeleccionadoObj.Gastos_generales_insumos;
+      if (typeof rawGG === 'string') {
+        try { rawGG = JSON.parse(rawGG); } catch(e) {}
+      }
+      if (Array.isArray(rawGG)) {
+        gastosGeneralesDelPresupuesto = rawGG.map(item => item.concepto || item.nombre || item.descripcion).filter(Boolean);
+      }
+
+      if (gastosGeneralesDelPresupuesto.length === 0 && parsedData && parsedData.comercial && Array.isArray(parsedData.comercial.gastos_generales_insumos)) {
+        gastosGeneralesDelPresupuesto = parsedData.comercial.gastos_generales_insumos.map(item => item.concepto || item.nombre || item.descripcion).filter(Boolean);
+      }
     } catch (e) {
-      console.error("Error al parsear los rubros del presupuesto:", e);
+      console.error("Error al parsear los datos del presupuesto:", e);
     }
   }
 
@@ -935,14 +950,31 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* TIPO DE INSUMO (CORREGIDO CON GASTOS GENERALES) */}
+                {/* TIPO DE INSUMO (DINÁMICO SEGÚN SI ES GASTOS GENERALES O RUBRO NORMAL) */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo *</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.tipo_insumo} onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}>
-                    <option value="Material">Material</option>
-                    <option value="Subcontrato">Subcontrato</option>
-                    <option value="Equipo / Herramienta">Equipo / Herramienta</option>
-                    <option value="Gastos Generales">Gastos Generales</option>
+                  <select 
+                    disabled={isSaving} 
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                    value={formData.tipo_insumo} 
+                    onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}
+                  >
+                    {formData.rubro_presupuesto === 'Gastos Generales' ? (
+                      <>
+                        <option value="">Seleccionar gasto general...</option>
+                        {gastosGeneralesDelPresupuesto.map((item, idx) => (
+                          <option key={idx} value={item}>{item}</option>
+                        ))}
+                        <option value="Comisión de Venta">Comisión de Venta</option>
+                        <option value="Imprevistos">Imprevistos</option>
+                      </>
+                    ) : (
+                      <>
+                        <option value="Material">Material</option>
+                        <option value="Subcontrato">Subcontrato</option>
+                        <option value="Equipo / Herramienta">Equipo / Herramienta</option>
+                      </>
+                    )}
                   </select>
                 </div>
 
