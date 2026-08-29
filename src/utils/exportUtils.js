@@ -57,7 +57,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     doc.setTextColor(15, 23, 42);
     doc.text(presupuesto?.nombre || 'Cotización Obra', 60, currentY + 5);
 
-    // Carga del logo completo (símbolo + texto) desde la carpeta public (ej: /logo-sice.png)
+    // Carga del logo completo (símbolo + texto) desde la carpeta public (ej: /logo-07.png)
     try {
       const response = await fetch('/logo-07.png');
       if (response.ok) {
