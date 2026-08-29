@@ -11,23 +11,57 @@ export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = fal
       return;
     }
 
-    const datosFormateados = rubrosItems.flatMap(rubro => 
-      (rubro.tareas || []).map(t => {
+    const datosExcel = [];
+
+    // Encabezado superior idéntico al PDF
+    datosExcel.push([presupuesto?.nombre || 'COTIZACIÓN DE OBRA', '', '', '', '']);
+    datosExcel.push([`Código: ${presupuesto?.codigo || 'N/A'}`, '', '', `Fecha: ${presupuesto?.fecha || new Date().toLocaleDateString('es-AR')}`, '']);
+    datosExcel.push([]); // Espacio en blanco
+
+    let granTotal = 0;
+
+    // Estructurar rubro por rubro exactamente igual al formato visual
+    rubrosItems.forEach((rubroObj, index) => {
+      const tareas = rubroObj.tareas || [];
+      if (tareas.length === 0) return;
+
+      // Fila título del rubro
+      datosExcel.push([`N° ${index + 1} - ${rubroObj.rubro || 'RUBRO'}`, '', '', '', '']);
+      
+      // Cabecera de columnas de la tabla
+      datosExcel.push(["Tareas", "Unidades", "Cantidad", "Precio Unitario", "Precio Total"]);
+
+      let subtotalRubro = 0;
+
+      tareas.forEach(t => {
         const cant = Number(t.cantidad || 0);
         const cUnit = Number(t.costo_unitario || 0);
         const pUnit = esVenta ? cUnit * coeficiente : cUnit;
-        return {
-          Rubro: rubro.rubro,
-          Tareas: t.tarea || '---',
-          Unidades: (t.unidad || 'GL').toUpperCase(),
-          Cantidad: cant,
-          'Precio Unitario': pUnit,
-          'Precio Total': cant * pUnit
-        };
-      })
-    );
+        const subtotal = cant * pUnit;
+        subtotalRubro += subtotal;
 
-    const worksheet = XLSX.utils.json_to_sheet(datosFormateados);
+        datosExcel.push([
+          t.tarea || '---',
+          (t.unidad || 'GL').toUpperCase(),
+          cant,
+          pUnit,
+          subtotal
+        ]);
+      });
+
+      granTotal += subtotalRubro;
+
+      // Subtotal del Rubro
+      const labelSubtotal = esVenta ? "Subtotal Venta Rubro:" : "Subtotal Costo Rubro:";
+      datosExcel.push(['', '', '', labelSubtotal, subtotalRubro]);
+      datosExcel.push([]); // Línea en blanco separadora
+    });
+
+    // Fila de Total General al final
+    datosExcel.push([]);
+    datosExcel.push(['', '', '', 'TOTAL GENERAL:', granTotal]);
+
+    const worksheet = XLSX.utils.aoa_to_sheet(datosExcel);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, esVenta ? "Presupuesto Venta" : "Presupuesto Costos");
     
@@ -187,7 +221,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       { align: 'right' }
     );
 
-    const tipoSufijo = esVenta ? 'VENTA' : 'COSTOS';
+    const tipoSufijo = esVenta ? 'VENTY' : 'COSTOS';
     doc.save(`Presupuesto_${presupuesto?.codigo || 'Detalle'}_${tipoSufijo}.pdf`);
   } catch (error) {
     console.error("Error al exportar PDF:", error);
