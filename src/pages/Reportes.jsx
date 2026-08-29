@@ -281,7 +281,7 @@ export default function Reportes(props) {
 
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
-  // 🛡️ MOTOR DINÁMICO E INTELIGENTE DE GASTOS GENERALES E IMPREVISTOS
+  // 🛡️ MOTOR INTELIGENTE POR TOKENS CLAVE PARA GASTOS GENERALES
   let totalRealGGEspecifico = 0;
   let totalRealImprevistos = 0;
   const facturasAsignadasGG = new Set();
@@ -292,13 +292,30 @@ export default function Reportes(props) {
 
     if (!ggItem.esImprevistos) {
       facturasPresupuesto.forEach((fac, fIdx) => {
-        const tipoInsFac = limpiarTexto(fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || '');
+        const tipoInsFac = limpiarTexto(fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || fac.concepto || '');
         const rubroFac = limpiarTexto(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || '');
         const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
 
-        const match = tipoInsFac.includes(conceptoClean) || conceptoClean.includes(tipoInsFac) || rubroFac.includes(conceptoClean);
-        
-        if (match && !facturasAsignadasGG.has(fIdx)) {
+        let matches = false;
+        if (conceptoClean.includes('programa') || conceptoClean.includes('licenciado')) {
+          matches = tipoInsFac.includes('programa') || tipoInsFac.includes('licenciado') || (tipoInsFac.includes('seguridad') && !tipoInsFac.includes('visita') && !tipoInsFac.includes('tecnico'));
+        } else if (conceptoClean.includes('visita')) {
+          matches = tipoInsFac.includes('visita') || tipoInsFac.includes('obligatoria');
+        } else if (conceptoClean.includes('tecnico')) {
+          matches = tipoInsFac.includes('tecnico');
+        } else if (conceptoClean.includes('ropa')) {
+          matches = tipoInsFac.includes('ropa') || tipoInsFac.includes('pantalon') || tipoInsFac.includes('camisa') || tipoInsFac.includes('botines');
+        } else if (conceptoClean.includes('epp')) {
+          matches = tipoInsFac.includes('epp') || tipoInsFac.includes('casco') || tipoInsFac.includes('guantes');
+        } else if (conceptoClean.includes('examen')) {
+          matches = tipoInsFac.includes('examen') || tipoInsFac.includes('medico') || tipoInsFac.includes('aptitud');
+        } else if (conceptoClean.includes('revision') || conceptoClean.includes('ypf')) {
+          matches = tipoInsFac.includes('revision') || tipoInsFac.includes('ypf') || tipoInsFac.includes('gas');
+        } else {
+          matches = tipoInsFac.includes(conceptoClean) || conceptoClean.includes(tipoInsFac) || rubroFac.includes(conceptoClean);
+        }
+
+        if (matches && !facturasAsignadasGG.has(fIdx)) {
           realAsignado += montoFac;
           facturasAsignadasGG.add(fIdx);
         }
@@ -593,11 +610,15 @@ export default function Reportes(props) {
                   </thead>
                   <tbody className="divide-y">
                     {rubrosPresupuestoDetalle.map((rubro) => {
+                      const componentesEntradas = Object.entries(rubro.componentes);
+
                       const realFacturasRubro = facturasPresupuesto
                         .filter(fac => {
                           const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || '').trim();
                           if (rFac.toLowerCase().includes('gastos generales')) return false;
-                          return limpiarTexto(rFac) === limpiarTexto(rubro.nombre);
+                          const limpioRubroFac = limpiarTexto(rFac);
+                          const limpioRubroPres = limpiarTexto(rubro.nombre);
+                          return limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac);
                         })
                         .reduce((acc, fac) => acc + Number(fac.subtotal || fac.Subtotal || 0), 0);
 
@@ -607,13 +628,37 @@ export default function Reportes(props) {
                       const desvioRubro = rubro.total - totalRealRubroActual;
 
                       return (
-                        <tr key={`rub-${rubro.id}`} className="bg-slate-50 font-extrabold">
-                          <td className="px-4 py-3 uppercase text-amber-600">{rubro.nombre}</td>
-                          <td className="px-4 py-3 text-right">$ {rubro.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-3 text-right">$ {realFacturasRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-3 text-right text-amber-600">$ {realSalariosRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className={`px-4 py-3 text-right ${desvioRubro >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>$ {desvioRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                        </tr>
+                        <React.Fragment key={`rub-${rubro.id}`}>
+                          <tr className="bg-slate-50 font-extrabold">
+                            <td className="px-4 py-3 uppercase text-amber-600 flex items-center gap-2">
+                              <Layers className="w-4 h-4 text-amber-500" />
+                              {rubro.nombre}
+                            </td>
+                            <td className="px-4 py-3 text-right">$ {rubro.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-4 py-3 text-right">$ {realFacturasRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-4 py-3 text-right text-amber-600">$ {realSalariosRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className={`px-4 py-3 text-right ${desvioRubro >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>$ {desvioRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          </tr>
+
+                          {componentesEntradas.map(([compNombre, montoComp], cIdx) => {
+                            const esManoDeObra = limpiarTexto(compNombre).includes('mano') || limpiarTexto(compNombre).includes('obra');
+                            const realComp = esManoDeObra ? realSalariosRubro : 0;
+                            const desvioComp = montoComp - realComp;
+
+                            return (
+                              <tr key={cIdx} className="hover:bg-slate-50/80">
+                                <td className="px-4 py-2.5 pl-8 text-slate-600 font-medium flex items-center gap-2">
+                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                                  {compNombre}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-bold text-blue-600">$ {montoComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="px-4 py-2.5 text-right font-semibold text-slate-700">$ 0,00</td>
+                                <td className="px-4 py-2.5 text-right font-semibold text-amber-600">$ {realComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className={`px-4 py-2.5 text-right font-black ${desvioComp >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>$ {desvioComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              </tr>
+                            );
+                          })}
+                        </React.Fragment>
                       );
                     })}
 
