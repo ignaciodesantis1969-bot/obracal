@@ -29,9 +29,10 @@ export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = fal
 
     const worksheet = XLSX.utils.json_to_sheet(datosFormateados);
     const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Presupuesto");
+    XLSX.utils.book_append_sheet(workbook, worksheet, esVenta ? "Presupuesto Venta" : "Presupuesto Costos");
     
-    XLSX.writeFile(workbook, `Presupuesto_${presupuesto?.codigo || 'Detalle'}.xlsx`);
+    const tipoSufijo = esVenta ? 'VENTA' : 'COSTOS';
+    XLSX.writeFile(workbook, `Presupuesto_${presupuesto?.codigo || 'Detalle'}_${tipoSufijo}.xlsx`);
   } catch (error) {
     console.error("Error al exportar Excel:", error);
     alert("No se pudo generar el archivo Excel.");
@@ -44,7 +45,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     const pageWidth = doc.internal.pageSize.getWidth();
     let currentY = 14;
 
-    // Encabezado superior (Código y Título ajustado sin versión V1)
+    // 1) Encabezado superior (Código de presupuesto y Título)
     doc.setFillColor(254, 243, 199);
     doc.roundedRect(14, currentY, 42, 7, 1, 1, 'F');
     doc.setFont("helvetica", "bold");
@@ -57,7 +58,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     doc.setTextColor(15, 23, 42);
     doc.text(presupuesto?.nombre || 'Cotización Obra', 60, currentY + 5);
 
-    // Carga del logo completo (símbolo + texto) desde la carpeta public (ej: /logo-07.png)
+    // 2) Logo SICE S.A. desde la carpeta public (/logo-07.png)
     try {
       const response = await fetch('/logo-07.png');
       if (response.ok) {
@@ -65,7 +66,6 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
         const reader = new FileReader();
         await new Promise((resolve) => {
           reader.onloadend = () => {
-            // Proporción horizontal ajustada para el logo completo con texto (ancho 52, alto 18)
             doc.addImage(reader.result, 'PNG', pageWidth - 14 - 52, currentY - 1, 52, 18);
             resolve();
           };
@@ -79,13 +79,13 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       doc.text("SICE S.A.", pageWidth - 14, currentY + 12, { align: 'right' });
     }
 
-    // Línea de Obra y Cliente
+    // 3) Línea de Obra y Cliente
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
     doc.text(`Obra: ${presupuesto?.obra_nombre || 'Ampliacion Sala de Cargas Baterias'}   •   Cliente: ${cliente?.razon_social || cliente?.nombre || 'LDC ARGENTINA S.A.'}`, 14, currentY + 12);
 
-    // Línea de Fecha con la palabra "Fecha:"
+    // 4) Línea de Fecha con la etiqueta "Fecha:"
     const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
     doc.text(`Fecha: ${fechaTexto}`, 14, currentY + 18);
 
@@ -97,7 +97,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
 
     let granTotal = 0;
 
-    // Iterar rubro por rubro
+    // 5) Iteración rubro por rubro con diseño idéntico
     (rubrosItems || []).forEach((rubroObj, index) => {
       const tareas = rubroObj.tareas || [];
       if (tareas.length === 0) return;
@@ -142,6 +142,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
 
       currentY += 10;
 
+      // Tabla de ítems con encabezados en gris visible y formato unificado
       autoTable(doc, {
         startY: currentY,
         head: [["Tareas", "Unidades", "Cantidad", "Precio Unitario", "Precio Total"]],
@@ -168,7 +169,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       currentY = 20;
     }
 
-    // Cuadro negro para el Total General (1.5 veces más grande que los rubros: altura 14)
+    // 6) Cuadro negro para el Total General (1.5 veces más alto que los rubros: altura 14)
     doc.setFillColor(30, 41, 59);
     doc.roundedRect(14, currentY, pageWidth - 28, 14, 2, 2, 'F');
 
@@ -186,7 +187,8 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       { align: 'right' }
     );
 
-    doc.save(`Presupuesto_${presupuesto?.codigo || 'Detalle'}.pdf`);
+    const tipoSufijo = esVenta ? 'VENTA' : 'COSTOS';
+    doc.save(`Presupuesto_${presupuesto?.codigo || 'Detalle'}_${tipoSufijo}.pdf`);
   } catch (error) {
     console.error("Error al exportar PDF:", error);
     alert("No se pudo generar el archivo PDF.");
