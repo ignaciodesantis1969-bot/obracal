@@ -226,7 +226,66 @@ export default function Reportes(props) {
           tareasList.forEach(tareaItem => {
             const costoTareaTotal = (Number(tareaItem.cantidad) || 1) * (Number(tareaItem.costo_unitario) || 0);
             totalRubro += costoTareaTotal;
-            acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
+
+            let insumosDeLaTarea = tareaItem.insumos;
+            let listaInsumosParsed = [];
+            let esEstructuradoValido = false;
+
+            if (typeof insumosDeLaTarea === 'string' && insumosDeLaTarea.trim()) {
+              if (insumosDeLaTarea.trim().startsWith('[')) {
+                try {
+                  listaInsumosParsed = JSON.parse(insumosDeLaTarea);
+                  if (Array.isArray(listaInsumosParsed) && listaInsumosParsed.length > 0) {
+                    esEstructuradoValido = true;
+                  }
+                } catch { listaInsumosParsed = []; }
+              }
+            } else if (Array.isArray(insumosDeLaTarea) && insumosDeLaTarea.length > 0) {
+              listaInsumosParsed = insumosDeLaTarea;
+              esEstructuradoValido = true;
+            }
+
+            if (!esEstructuradoValido) {
+              listaInsumosParsed = buscarInsumosMaestro(tareaItem.tarea);
+              if (Array.isArray(listaInsumosParsed) && listaInsumosParsed.length > 0) {
+                esEstructuradoValido = true;
+              }
+            }
+
+            if (esEstructuradoValido) {
+              let subtotalesIns = [];
+              let sumaInsCosto = 0;
+
+              listaInsumosParsed.forEach(insumo => {
+                const tipoNorm = obtenerTipoInsumoInfalible(insumo);
+                const costoIns = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || Number(insumo.costo) || 0);
+                subtotalesIns.push({ tipo: tipoNorm, costo: costoIns });
+                sumaInsCosto += costoIns;
+              });
+
+              if (sumaInsCosto > 0) {
+                const ratio = costoTareaTotal / sumaInsCosto;
+                subtotalesIns.forEach(item => {
+                  acumuladorComponentes[item.tipo] = (acumuladorComponentes[item.tipo] || 0) + (item.costo * ratio);
+                });
+              } else {
+                acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
+              }
+            } else {
+              const textoPlano = typeof tareaItem.insumos === 'string' ? tareaItem.insumos : '';
+              const textoEvaluacion = (String(tareaItem.tarea || '') + " " + textoPlano).toLowerCase();
+              let tipoDef = 'Material';
+              
+              if (textoEvaluacion.includes('mano') || textoEvaluacion.includes('oficial') || textoEvaluacion.includes('ayudante') || textoEvaluacion.includes('demolicion') || textoEvaluacion.includes('salarios') || textoEvaluacion.includes('colocacion') || textoEvaluacion.includes('armado') || textoEvaluacion.includes('techista') || textoEvaluacion.includes('jornal')) {
+                tipoDef = 'Mano de Obra';
+              } else if (textoEvaluacion.includes('subcontrato') || textoEvaluacion.includes('volquete') || textoEvaluacion.includes('georadar') || textoEvaluacion.includes('flete') || textoEvaluacion.includes('alquiler') || textoEvaluacion.includes('servicio') || textoEvaluacion.includes('transporte')) {
+                tipoDef = 'Subcontrato';
+              } else if (textoEvaluacion.includes('equipo') || textoEvaluacion.includes('maquinaria') || textoEvaluacion.includes('andamio') || textoEvaluacion.includes('hormigonera') || textoEvaluacion.includes('herramienta')) {
+                tipoDef = 'Equipo/Maquinaria';
+              }
+
+              acumuladorComponentes[tipoDef] = (acumuladorComponentes[tipoDef] || 0) + costoTareaTotal;
+            }
           });
 
           totalPresupuestoRubros += totalRubro;
@@ -281,45 +340,47 @@ export default function Reportes(props) {
 
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
-  // 🛡️ MOTOR INTELIGENTE POR TOKENS CLAVE PARA GASTOS GENERALES
+  // 🛡️ MOTOR DE GASTOS GENERALES RESTAURADO CON ID DE PROVEEDOR + TEXT MATCHING
   let totalRealGGEspecifico = 0;
   let totalRealImprevistos = 0;
   const facturasAsignadasGG = new Set();
 
   const gastosGeneralesDetalle = gastosGeneralesBase.map(ggItem => {
     let realAsignado = 0;
-    const conceptoClean = limpiarTexto(ggItem.concepto);
+    const conceptoLower = ggItem.concepto.toLowerCase();
 
-    if (!ggItem.esImprevistos) {
-      facturasPresupuesto.forEach((fac, fIdx) => {
-        const tipoInsFac = limpiarTexto(fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || fac.concepto || '');
-        const rubroFac = limpiarTexto(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || '');
-        const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
+    facturasPresupuesto.forEach((fac, fIdx) => {
+      const provId = String(fac.proveedor_id || fac.Proveedor_id || '');
+      const tipoInsumoFac = String(fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || '').toLowerCase();
+      const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
 
-        let matches = false;
-        if (conceptoClean.includes('programa') || conceptoClean.includes('licenciado')) {
-          matches = tipoInsFac.includes('programa') || tipoInsFac.includes('licenciado') || (tipoInsFac.includes('seguridad') && !tipoInsFac.includes('visita') && !tipoInsFac.includes('tecnico'));
-        } else if (conceptoClean.includes('visita')) {
-          matches = tipoInsFac.includes('visita') || tipoInsFac.includes('obligatoria');
-        } else if (conceptoClean.includes('tecnico')) {
-          matches = tipoInsFac.includes('tecnico');
-        } else if (conceptoClean.includes('ropa')) {
-          matches = tipoInsFac.includes('ropa') || tipoInsFac.includes('pantalon') || tipoInsFac.includes('camisa') || tipoInsFac.includes('botines');
-        } else if (conceptoClean.includes('epp')) {
-          matches = tipoInsFac.includes('epp') || tipoInsFac.includes('casco') || tipoInsFac.includes('guantes');
-        } else if (conceptoClean.includes('examen')) {
-          matches = tipoInsFac.includes('examen') || tipoInsFac.includes('medico') || tipoInsFac.includes('aptitud');
-        } else if (conceptoClean.includes('revision') || conceptoClean.includes('ypf')) {
-          matches = tipoInsFac.includes('revision') || tipoInsFac.includes('ypf') || tipoInsFac.includes('gas');
-        } else {
-          matches = tipoInsFac.includes(conceptoClean) || conceptoClean.includes(tipoInsFac) || rubroFac.includes(conceptoClean);
-        }
+      const matchConcepto = tipoInsumoFac && (tipoInsumoFac.includes(conceptoLower) || conceptoLower.includes(tipoInsumoFac));
 
-        if (matches && !facturasAsignadasGG.has(fIdx)) {
+      const matchProveedor = (
+        ((conceptoLower.includes('licenciado') || conceptoLower.includes('programa')) && provId === '1') || 
+        (conceptoLower.includes('visita obligatoria') && provId === '2') || 
+        (conceptoLower.includes('técnico') && provId === '6') || 
+        (conceptoLower.includes('ropa') && provId === '11') || 
+        (conceptoLower.includes('epp') && provId === '14')
+      );
+
+      if ((matchConcepto || matchProveedor) && !facturasAsignadasGG.has(fIdx)) {
+        if (!ggItem.esImprevistos) {
           realAsignado += montoFac;
           facturasAsignadasGG.add(fIdx);
         }
-      });
+      } else if (ggItem.esImprevistos && !facturasAsignadasGG.has(fIdx)) {
+        const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || '').toLowerCase();
+        if (rubroFac.includes('gastos generales') && !['1', '2', '6', '11', '14'].includes(provId) && !tipoInsumoFac.includes('seguridad') && !tipoInsumoFac.includes('ropa') && !tipoInsumoFac.includes('epp')) {
+          realAsignado += montoFac;
+          facturasAsignadasGG.add(fIdx);
+        }
+      }
+    });
+
+    if (ggItem.esImprevistos) {
+      totalRealImprevistos += realAsignado;
+    } else {
       totalRealGGEspecifico += realAsignado;
     }
 
@@ -329,27 +390,6 @@ export default function Reportes(props) {
       desvio: ggItem.total - realAsignado
     };
   });
-
-  // Asignación residual automática para Imprevistos
-  const imprevistoItemIndex = gastosGeneralesDetalle.findIndex(g => g.esImprevistos);
-  if (imprevistoItemIndex !== -1) {
-    let realImprevistosCalc = 0;
-    facturasPresupuesto.forEach((fac, fIdx) => {
-      const rubroFac = limpiarTexto(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || '');
-      const tipoInsFac = limpiarTexto(fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || '');
-      const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
-
-      const esDeGG = rubroFac.includes('gastos generales') || tipoInsFac.includes('gasto general') || tipoInsFac.includes('imprevisto');
-      if (esDeGG && !facturasAsignadasGG.has(fIdx)) {
-        realImprevistosCalc += montoFac;
-        facturasAsignadasGG.add(fIdx);
-      }
-    });
-
-    totalRealImprevistos = realImprevistosCalc;
-    gastosGeneralesDetalle[imprevistoItemIndex].real = realImprevistosCalc;
-    gastosGeneralesDetalle[imprevistoItemIndex].desvio = gastosGeneralesDetalle[imprevistoItemIndex].total - realImprevistosCalc;
-  }
 
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
 
