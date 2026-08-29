@@ -97,7 +97,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
 
     // 2) Logo SICE S.A.
     try {
-      const response = await fetch('/logo-sice.png');
+      const response = await fetch('/logo-07.png');
       if (response.ok) {
         const blob = await response.blob();
         const reader = new FileReader();
