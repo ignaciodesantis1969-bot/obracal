@@ -359,7 +359,7 @@ export default function Compras({
       const otrosImpNum = Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno;
       const totalNum = Math.abs(Number(formData.total) || 0) * factorSigno;
 
-      // 🛡️ PAYLOAD ULTRA ROBUSTO
+      // 🛡️ PAYLOAD ULTRA ROBUSTO PARA FACTURAS
       const payloadData = {
         ...formData,
         subtotal: subtotalNum,
@@ -387,6 +387,7 @@ export default function Compras({
         archivo_url: formData.archivo_url || ''
       };
 
+      // 1. Guardar la factura/NC en la tabla Facturas
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -397,6 +398,29 @@ export default function Compras({
           data: payloadData
         })
       });
+
+      // 2. Si es Nota de Crédito nueva, registrarla automáticamente como movimiento en Tesorería para que aparezca en el listado visual
+      if (esNotaCredito && action === 'create') {
+        const provObj = proveedores.find(p => String(p.id || p.ID) === String(formData.proveedor_id));
+        const nombreProv = provObj ? (provObj.razon_social || provObj.nombre) : 'Proveedor';
+
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            tabla: 'Movimientos',
+            action: 'create',
+            data: {
+              fecha: formData.fecha,
+              tipo: 'CONTABILIZADO',
+              concepto: `Nota de Crédito ${formData.n_factura || codigoFinal} - ${nombreProv}`,
+              medio_pago: '---',
+              retenciones: '---',
+              monto: totalNum // Va con signo negativo para restar en los totales de tesorería
+            }
+          })
+        }).catch(err => console.error("Error al registrar movimiento automático en tesorería:", err));
+      }
 
       const textoRespuesta = await res.text();
       let data;
@@ -952,7 +976,7 @@ export default function Compras({
             <form onSubmit={handleGuardarFactura} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl flex items-center gap-2 text-xs">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación. Las notas de crédito restarán automáticamente en contabilidad, reportes y tesorería.</span>
+                <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación. Las notas de crédito se registrarán automáticamente en el listado de movimientos de tesorería y restarán en los totales.</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
