@@ -55,7 +55,6 @@ export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = fal
     datosExcel.push(['', '', '', 'TOTAL GENERAL:', granTotal]);
     datosExcel.push([]);
 
-    // Agregar notas y condiciones al final del Excel
     if (notas) {
       if (notas.impuestos) datosExcel.push(['IMPUESTOS:', notas.impuestos]);
       if (notas.plazo) datosExcel.push(['PLAZO DE EJECUCIÓN DE OBRA:', notas.plazo]);
@@ -82,7 +81,51 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     const pageWidth = doc.internal.pageSize.getWidth();
     let currentY = 14;
 
-    // 1) Encabezado superior
+    // 1) Logo SICE S.A. (Cargado primero para calcular proporciones originales reales)
+    let logoWidth = 45;
+    let logoHeight = 16;
+    let logoDataUrl = null;
+
+    try {
+      const response = await fetch('/logo-07.png');
+      if (response.ok) {
+        const blob = await response.blob();
+        logoDataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+
+        // Obtener dimensiones originales respetando aspecto
+        await new Promise((resolve) => {
+          const img = new Image();
+          img.onload = () => {
+            const aspect = img.width / img.height;
+            logoHeight = 15; // Altura fija de referencia
+            logoWidth = logoHeight * aspect; // Ancho proporcional automático
+            resolve();
+          };
+          img.onerror = () => resolve();
+          img.src = logoDataUrl;
+        });
+      }
+    } catch (e) {
+      console.error("No se pudo cargar el logo de forma dinámica:", e);
+    }
+
+    // Coordenada X derecha para alinear perfectamente el logo al margen (respetando los 14mm de margen derecho)
+    const logoX = pageWidth - 14 - logoWidth;
+
+    if (logoDataUrl) {
+      doc.addImage(logoDataUrl, 'PNG', logoX, currentY - 1, logoWidth, logoHeight);
+    } else {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(22);
+      doc.setTextColor(30, 41, 59);
+      doc.text("SICE S.A.", pageWidth - 14, currentY + 10, { align: 'right' });
+    }
+
+    // 2) Encabezado izquierdo (Badge de Código y Título con Flexbox emulado / limites de ancho para evitar choque con el logo)
     doc.setFillColor(254, 243, 199);
     doc.roundedRect(14, currentY, 42, 7, 1, 1, 'F');
     doc.setFont("helvetica", "bold");
@@ -93,44 +136,32 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     doc.setFont("helvetica", "bold");
     doc.setFontSize(10.5);
     doc.setTextColor(15, 23, 42);
-    doc.text(presupuesto?.nombre || 'Cotización Obra', 60, currentY + 5);
-
-    // 2) Logo SICE S.A.
-    try {
-      const response = await fetch('/logo-07.png');
-      if (response.ok) {
-        const blob = await response.blob();
-        const reader = new FileReader();
-        await new Promise((resolve) => {
-          reader.onloadend = () => {
-            doc.addImage(reader.result, 'PNG', pageWidth - 18 - 52, currentY - 1, 52, 18);
-            resolve();
-          };
-          reader.readAsDataURL(blob);
-        });
-      }
-    } catch (e) {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(22);
-      doc.setTextColor(30, 41, 59);
-      doc.text("SICE S.A.", pageWidth - 14, currentY + 12, { align: 'right' });
-    }
+    
+    // Ancho máximo disponible para el título para que nunca colisione con el logo de la derecha
+    const maxTituloWidth = logoX - 20; 
+    const tituloTexto = presupuesto?.nombre || 'Cotización Obra';
+    
+    // Dividir o truncar inteligentemente si es muy largo, o usar splitTextToSize limitado a 1 línea
+    const tituloLineas = doc.splitTextToSize(tituloTexto, maxTituloWidth);
+    doc.text(tituloLineas[0], 60, currentY + 5);
 
     // 3) Obra y Cliente
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
-    doc.text(`Obra: ${presupuesto?.obra_nombre || 'Ampliacion Sala de Cargas Baterias'}   •   Cliente: ${cliente?.razon_social || cliente?.nombre || 'LDC ARGENTINA S.A.'}`, 14, currentY + 12);
+    const infoObraCliente = `Obra: ${presupuesto?.obra_nombre || 'Ampliacion Sala de Cargas Baterias'}   •   Cliente: ${cliente?.razon_social || cliente?.nombre || 'LDC ARGENTINA S.A.'}`;
+    const infoObraClienteLineas = doc.splitTextToSize(infoObraCliente, pageWidth - 28);
+    doc.text(infoObraClienteLineas, 14, currentY + 12);
 
     // 4) Fecha
     const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
-    doc.text(`Fecha: ${fechaTexto}`, 14, currentY + 18);
+    doc.text(`Fecha: ${fechaTexto}`, 14, currentY + 19);
 
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
-    doc.line(14, currentY + 23, pageWidth - 14, currentY + 23);
+    doc.line(14, currentY + 24, pageWidth - 14, currentY + 24);
 
-    currentY += 29;
+    currentY += 30;
 
     let granTotal = 0;
 
@@ -158,7 +189,6 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
 
       granTotal += subtotalRubro;
 
-      // Estimación de espacio para mantener el rubro unido si es posible
       if (currentY + 20 + (tareas.length * 8) > 270) {
         doc.addPage();
         currentY = 20;
@@ -185,7 +215,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
         head: [["Tareas", "Unidades", "Cantidad", "Precio Unitario", "Precio Total"]],
         body: tableRows,
         theme: 'grid',
-        rowPageBreak: 'avoid', // Evita que una fila se parta feamente
+        rowPageBreak: 'avoid',
         headStyles: { fillColor: [203, 213, 225], textColor: [15, 23, 42], fontStyle: 'bold', fontSize: 8 },
         bodyStyles: { fontSize: 8, textColor: [51, 65, 85] },
         columnStyles: {
@@ -242,6 +272,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
     ];
 
     notasList.forEach(n => {
+      if (!n.text) return; // Si no hay texto en la nota, la omitimos para ahorrar espacio
       if (currentY > 275) {
         doc.addPage();
         currentY = 20;
@@ -254,7 +285,7 @@ export const exportarPresupuestoPDF = async (presupuesto, cliente, rubrosItems, 
       doc.setFont("helvetica", "normal");
       doc.setFontSize(7.5);
       doc.setTextColor(71, 85, 105);
-      const splitText = doc.splitTextToSize(n.text || '', pageWidth - 70);
+      const splitText = doc.splitTextToSize(n.text, pageWidth - 70);
       doc.text(splitText, 65, currentY);
 
       currentY += Math.max(6, splitText.length * 4) + 3;
