@@ -170,7 +170,7 @@ export default function Compras({
     return `OC-${String(maxNum + 1).padStart(4, '0')}`;
   };
 
-  // IA Factura
+  // IA Factura + Detección por nombre de archivo
   const handleArchivoSubido = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -181,6 +181,10 @@ export default function Compras({
     if (!archivo) return;
 
     setLocalLoading(true);
+
+    const nombreArchivo = archivo.name.toLowerCase();
+    const esNcArchivo = nombreArchivo.includes('nc') || nombreArchivo.includes('nota de credito') || nombreArchivo.includes('nota de crédito') || nombreArchivo.includes('credito');
+    const tipoNcSugerido = nombreArchivo.includes(' b') || nombreArchivo.includes('_b') || nombreArchivo.includes('-b') ? 'Nota de Crédito B' : 'Nota de Crédito A';
     
     try {
       const reader = new FileReader();
@@ -205,47 +209,65 @@ export default function Compras({
           try {
             data = JSON.parse(textoRespuesta);
           } catch (parseErr) {
-            throw new Error("El servidor devolvió HTML o un formato no válido.");
+            data = { success: false };
           }
           
-          if (data.success && !data.error) {
-            let proveedorEncontradoId = '';
-            if (data.proveedor && proveedores.length > 0) {
-              const provMatch = proveedores.find(p => 
-                (p.razon_social && p.razon_social.toLowerCase().includes(data.proveedor.toLowerCase())) ||
-                (p.nombre && p.nombre.toLowerCase().includes(data.proveedor.toLowerCase()))
-              );
-              if (provMatch) proveedorEncontradoId = provMatch.id || provMatch.ID || provMatch.Id;
-            }
-
-            const tipoCompLeido = data.comprobante_tipo || data.tipo_comprobante || data.tipo || 'Factura A';
-            const esNCLeida = tipoCompLeido.toLowerCase().includes('nota de crédito') || tipoCompLeido.toLowerCase().includes('nota de credito');
-
-            setFormData(prev => ({
-              ...prev,
-              comprobante_tipo: tipoCompLeido,
-              n_factura: data.n_factura || prev.n_factura,
-              proveedor_id: proveedorEncontradoId || prev.proveedor_id,
-              fecha: formatearFechaParaInput(data.fecha) || prev.fecha,
-              vencimiento: formatearFechaParaInput(data.vencimiento) || prev.vencimiento,
-              estado_pago: esNCLeida ? 'contabilizado' : prev.estado_pago,
-              subtotal: Math.abs(Number(data.subtotal) || 0),
-              iva_21: Math.abs(Number(data.iva_21) || 0),
-              iva_10_5: Math.abs(Number(data.iva_10_5) || 0),
-              persp_iibb_bs_as: Math.abs(Number(data.persp_iibb_bs_as || data.percepcion_iibb || 0)),
-              persp_iibb_caba: Math.abs(Number(data.persp_iibb_caba || 0)),
-              otros_impuestos: Math.abs(Number(data.otros_impuestos) || 0),
-              total: Math.abs(Number(data.total) || 0),
-              archivo_url: base64Data
-            }));
-            setIsUploadModalOpen(false);
-            setIsFacturaModalOpen(true);
-          } else {
-            alert("Error de IA: " + (data.error || "No se pudieron extraer los datos."));
+          let proveedorEncontradoId = '';
+          if (data && data.proveedor && proveedores.length > 0) {
+            const provMatch = proveedores.find(p => 
+              (p.razon_social && p.razon_social.toLowerCase().includes(data.proveedor.toLowerCase())) ||
+              (p.nombre && p.nombre.toLowerCase().includes(data.proveedor.toLowerCase()))
+            );
+            if (provMatch) proveedorEncontradoId = provMatch.id || provMatch.ID || provMatch.Id;
           }
+
+          const tipoCompIA = data && (data.comprobante_tipo || data.tipo_comprobante || data.tipo);
+          const esNcIA = tipoCompIA && (tipoCompIA.toLowerCase().includes('nota de crédito') || tipoCompIA.toLowerCase().includes('nota de credito'));
+          
+          const esNotaCreditoFinal = esNcArchivo || esNcIA;
+          let tipoComprobanteFinal = 'Factura A';
+          if (esNotaCreditoFinal) {
+            if (tipoCompIA && tipoCompIA.toLowerCase().includes('b')) {
+              tipoComprobanteFinal = 'Nota de Crédito B';
+            } else if (tipoCompIA && tipoCompIA.toLowerCase().includes('a')) {
+              tipoComprobanteFinal = 'Nota de Crédito A';
+            } else {
+              tipoComprobanteFinal = tipoNcSugerido;
+            }
+          } else if (tipoCompIA) {
+            tipoComprobanteFinal = tipoCompIA;
+          }
+
+          setFormData(prev => ({
+            ...prev,
+            comprobante_tipo: tipoComprobanteFinal,
+            n_factura: (data && data.n_factura) || prev.n_factura,
+            proveedor_id: proveedorEncontradoId || prev.proveedor_id,
+            fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
+            vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
+            estado_pago: esNotaCreditoFinal ? 'contabilizado' : prev.estado_pago,
+            subtotal: Math.abs(Number(data && data.subtotal) || prev.subtotal),
+            iva_21: Math.abs(Number(data && data.iva_21) || prev.iva_21),
+            iva_10_5: Math.abs(Number(data && data.iva_10_5) || prev.iva_10_5),
+            persp_iibb_bs_as: Math.abs(Number(data && (data.persp_iibb_bs_as || data.percepcion_iibb)) || prev.persp_iibb_bs_as),
+            persp_iibb_caba: Math.abs(Number(data && data.persp_iibb_caba) || prev.persp_iibb_caba),
+            otros_impuestos: Math.abs(Number(data && data.otros_impuestos) || prev.otros_impuestos),
+            total: Math.abs(Number(data && data.total) || prev.total),
+            archivo_url: base64Data
+          }));
+          setIsUploadModalOpen(false);
+          setIsFacturaModalOpen(true);
+
         } catch (fetchErr) {
           console.error("Error en el fetch:", fetchErr);
-          alert("Error de conexión con el servidor: " + fetchErr.message);
+          setFormData(prev => ({
+            ...prev,
+            comprobante_tipo: esNcArchivo ? tipoNcSugerido : prev.comprobante_tipo,
+            estado_pago: esNcArchivo ? 'contabilizado' : prev.estado_pago,
+            archivo_url: base64Data
+          }));
+          setIsUploadModalOpen(false);
+          setIsFacturaModalOpen(true);
         } finally {
           setLocalLoading(false);
           e.target.value = "";
@@ -325,7 +347,7 @@ export default function Compras({
       const action = editingId ? 'update' : 'create';
       const codigoFinal = editingId ? formData.codigo : generarSiguienteCodigoFactura();
 
-      // Determinar si es Nota de Crédito para aplicar signo negativo (restar en contabilidad e imputaciones)
+      // Determinar si es Nota de Crédito para aplicar signo negativo en contabilidad e imputaciones
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
 
