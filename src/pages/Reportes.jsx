@@ -522,29 +522,44 @@ export default function Reportes(props) {
 
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
 
-  // Helper para asignar facturas de un rubro al componente correspondiente
+  // 🛡️ Helper perfeccionado para asignar facturas sin desvíos incorrectos ni divisiones a mano de obra
   const obtenerFacturasParaComponente = (rubroObj, compNombre, facturasRubroTotal) => {
-    const compKeys = Object.keys(rubroObj.componentes);
-    if (compKeys.length === 1) {
-      return facturasRubroTotal.reduce((sum, f) => sum + Number(f.subtotal || f.Subtotal || 0), 0);
-    }
     const compNorm = limpiarTexto(compNombre);
+    
+    // La columna "Imputaciones Reales (facturas)" no lleva montos de mano de obra
+    if (compNorm.includes('mano') || compNorm.includes('obra')) {
+      return 0;
+    }
+
     const matchingFacturas = facturasRubroTotal.filter(fac => {
-      const tipoFac = limpiarTexto(fac.tipo_insumo || fac.renglon || fac.concepto || fac.detalle_gasto || '');
-      if (compNorm.includes('mano') && (tipoFac.includes('mano') || tipoFac.includes('salario'))) return true;
-      if (compNorm.includes('subcontrato') && (tipoFac.includes('subcontrato') || tipoFac.includes('georadar') || tipoFac.includes('alquiler') || tipoFac.includes('flete'))) return true;
-      if (compNorm.includes('equipo') && (tipoFac.includes('equipo') || tipoFac.includes('maquinaria') || tipoFac.includes('andamio'))) return true;
-      if (compNorm.includes('material') && (tipoFac.includes('material') || tipoFac.includes('cemento') || tipoFac.includes('ladrillo'))) return true;
+      const tipoFac = limpiarTexto(
+        fac.tipo_insumo || fac.Tipo_insumo || 
+        fac.renglon || fac.Renglon || 
+        fac.concepto || fac.Concepto || 
+        fac.descripcion || fac.Descripcion || 
+        fac.detalle_gasto || fac.Detalle_gasto || ''
+      );
+
+      // Si la factura es explícitamente de mano de obra o salarios, no va a materiales/equipos/subcontratos
+      if (tipoFac.includes('mano') || tipoFac.includes('salario')) {
+        return false;
+      }
+
+      if (compNorm.includes('subcontrato')) {
+        return tipoFac.includes('subcontrato') || tipoFac.includes('georadar') || tipoFac.includes('alquiler') || tipoFac.includes('flete') || tipoFac.includes('servicio');
+      }
+      if (compNorm.includes('equipo') || compNorm.includes('maquinaria')) {
+        return tipoFac.includes('equipo') || tipoFac.includes('maquinaria') || tipoFac.includes('andamio');
+      }
+      if (compNorm.includes('material')) {
+        // Materiales puros: evita que se divida erróneamente con otras categorías
+        return tipoFac.includes('material') || tipoFac.includes('cemento') || tipoFac.includes('ladrillo') || tipoFac.includes('ferreteria') ||
+               (!tipoFac.includes('subcontrato') && !tipoFac.includes('equipo') && !tipoFac.includes('maquinaria'));
+      }
       return false;
     });
-    const sumaMatching = matchingFacturas.reduce((sum, f) => sum + Number(f.subtotal || f.Subtotal || 0), 0);
-    if (sumaMatching > 0) return sumaMatching;
 
-    // Fallback: distribución proporcional por participación presupuestaria
-    const montoComp = rubroObj.componentes[compNombre] || 0;
-    const totalRubro = rubroObj.total || 1;
-    const totalRubroFacturasNum = facturasRubroTotal.reduce((sum, f) => sum + Number(f.subtotal || f.Subtotal || 0), 0);
-    return totalRubroFacturasNum * (montoComp / totalRubro);
+    return matchingFacturas.reduce((sum, f) => sum + Number(f.subtotal || f.Subtotal || 0), 0);
   };
 
   return (
@@ -961,6 +976,7 @@ export default function Reportes(props) {
                           {componentesEntradas.map(([compNombre, montoComp], cIdx) => {
                             const realFacComp = obtenerFacturasParaComponente(rubro, compNombre, realFacturasRubroTotal);
                             const esManoDeObra = limpiarTexto(compNombre).includes('mano') || limpiarTexto(compNombre).includes('obra');
+                            // 🛡️ REQUISITO: La columna "Salarios Semanales (RRHH)" solo lleva montos de mano de obra (los demás componentes quedan en 0,00)
                             const realSalariosComp = esManoDeObra ? realSalariosRubro : 0;
                             const totalRealComp = realFacComp + realSalariosComp;
                             totalRealRubrosCalculado += totalRealComp;
@@ -1003,7 +1019,12 @@ export default function Reportes(props) {
                               if (rFac.toLowerCase().includes('gastos generales')) return false;
                               const limpioRubroFac = limpiarTexto(rFac);
                               const limpioRubroPres = limpiarTexto(r.nombre);
-                              return limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac);
+                              if (!(limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac))) {
+                                return false;
+                              }
+                              const tipoFac = limpiarTexto(fac.tipo_insumo || fac.renglon || fac.concepto || '');
+                              if (tipoFac.includes('mano') || tipoFac.includes('salario')) return false;
+                              return true;
                             })
                             .reduce((sum, fac) => sum + Number(fac.subtotal || fac.Subtotal || 0), 0);
                           return acc + fRubro;
@@ -1016,7 +1037,6 @@ export default function Reportes(props) {
                     {/* SECCIÓN 2: GASTOS GENERALES E IMPREVISTOS */}
                     {gastosGeneralesDetalle.length > 0 && (
                       <React.Fragment>
-                        {/* Título sin totales numéricos */}
                         <tr className="bg-amber-50 font-extrabold text-slate-900 border-t-2 border-amber-200">
                           <td className="px-4 py-3 uppercase text-amber-800 flex items-center gap-2" colSpan={5}>
                             <ShieldCheck className="w-4 h-4 text-amber-600" />
@@ -1066,7 +1086,12 @@ export default function Reportes(props) {
                             if (rFac.toLowerCase().includes('gastos generales')) return false;
                             const limpioRubroFac = limpiarTexto(rFac);
                             const limpioRubroPres = limpiarTexto(r.nombre);
-                            return limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac);
+                            if (!(limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac))) {
+                              return false;
+                            }
+                            const tipoFac = limpiarTexto(fac.tipo_insumo || fac.renglon || fac.concepto || '');
+                            if (tipoFac.includes('mano') || tipoFac.includes('salario')) return false;
+                            return true;
                           })
                           .reduce((sum, fac) => sum + Number(fac.subtotal || fac.Subtotal || 0), 0);
                         return acc + fRubro;
@@ -1081,7 +1106,7 @@ export default function Reportes(props) {
                           <td className="px-4 py-4 text-right">$ {granTotalPresupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                           <td className="px-4 py-4 text-right">$ {(totalFacturasRubrosNeto + totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                           <td className="px-4 py-4 text-right">$ {movimientosRrhhPresupuesto.reduce((acc, m) => acc + Number(m.monto || m.Monto || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className={`px-4 py-4 text-right ${granTotalDesvio >= 0 ? 'text-text-emerald-400 text-emerald-400' : 'text-rose-400'}`}>
+                          <td className={`px-4 py-4 text-right ${granTotalDesvio >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                             $ {granTotalDesvio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                           </td>
                         </tr>
