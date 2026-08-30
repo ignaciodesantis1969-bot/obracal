@@ -81,9 +81,9 @@ export const exportarPresupuestoPDF = async (presupuesto, obra, cliente, rubrosI
     const pageWidth = doc.internal.pageSize.getWidth();
     let currentY = 14;
 
-    // 1) Cargar y calcular proporciones originales exactas del logo SICE S.A.
-    let logoWidth = 42;
-    let logoHeight = 14;
+    // 1) Cargar y calcular proporciones del logo SICE S.A. (Más grande)
+    let logoWidth = 60;
+    let logoHeight = 21;
     let logoDataUrl = null;
 
     try {
@@ -100,8 +100,8 @@ export const exportarPresupuestoPDF = async (presupuesto, obra, cliente, rubrosI
           const img = new Image();
           img.onload = () => {
             const aspect = img.width / img.height;
-            logoHeight = 13; // Altura fija controlada para el membrete
-            logoWidth = logoHeight * aspect; // Ancho proporcional automático manteniendo la relación original
+            logoHeight = 21; // Altura aumentada para un logo más prominente
+            logoWidth = logoHeight * aspect;
             resolve();
           };
           img.onerror = () => resolve();
@@ -114,35 +114,27 @@ export const exportarPresupuestoPDF = async (presupuesto, obra, cliente, rubrosI
 
     const logoX = pageWidth - 14 - logoWidth;
 
-    // Fila 1: Código del presupuesto a la izquierda y Logo a la derecha
-    doc.setFillColor(254, 243, 199);
-    doc.roundedRect(14, currentY, 45, 7, 1, 1, 'F');
+    // Fila superior: Título principal a la izquierda y Logo grande a la derecha
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(7.5);
-    doc.setTextColor(180, 83, 9);
-    doc.text(presupuesto?.codigo || 'CL004-OB002', 17, currentY + 5);
-
-    if (logoDataUrl) {
-      doc.addImage(logoDataUrl, 'PNG', logoX, currentY - 1, logoWidth, logoHeight);
-    } else {
-      doc.setFont("helvetica", "bold");
-      doc.setFontSize(22);
-      doc.setTextColor(30, 41, 59);
-      doc.text("SICE S.A.", pageWidth - 14, currentY + 8, { align: 'right' });
-    }
-
-    currentY += 10;
-
-    // Fila 2: Título real del presupuesto (evitando textos hardcodeados y superposiciones)
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(11);
+    doc.setFontSize(13);
     doc.setTextColor(15, 23, 42);
     const tituloTexto = presupuesto?.nombre || 'Cotización Obra';
-    const tituloLineas = doc.splitTextToSize(tituloTexto, pageWidth - 28);
-    doc.text(tituloLineas, 14, currentY);
-    currentY += (tituloLineas.length * 5) + 3;
+    const maxTituloWidth = logoX - 18;
+    const tituloLineas = doc.splitTextToSize(tituloTexto, maxTituloWidth);
+    doc.text(tituloLineas, 14, currentY + 5);
 
-    // Fila 3: Obra y Cliente reales
+    if (logoDataUrl) {
+      doc.addImage(logoDataUrl, 'PNG', logoX, currentY, logoWidth, logoHeight);
+    } else {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(26);
+      doc.setTextColor(30, 41, 59);
+      doc.text("SICE S.A.", pageWidth - 14, currentY + 12, { align: 'right' });
+    }
+
+    currentY += Math.max(tituloLineas.length * 6, logoHeight) + 6;
+
+    // Fila intermedia: Obra y Cliente
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
     doc.setTextColor(100, 116, 139);
@@ -151,12 +143,30 @@ export const exportarPresupuestoPDF = async (presupuesto, obra, cliente, rubrosI
     const infoObraCliente = `Obra: ${nombreObraStr}   •   Cliente: ${nombreClienteStr}`;
     const infoLines = doc.splitTextToSize(infoObraCliente, pageWidth - 28);
     doc.text(infoLines, 14, currentY);
-    currentY += (infoLines.length * 4.5) + 2;
+    currentY += (infoLines.length * 4.5) + 6;
 
-    // Fila 4: Fecha
+    // Fila inferior del encabezado: Fecha a la izquierda y Recuadro de Código a la extrema derecha
     const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
     doc.text(`Fecha: ${fechaTexto}`, 14, currentY);
-    currentY += 6;
+
+    const codigoTexto = presupuesto?.codigo || 'CL004-OB002';
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(7.5);
+    const textWidth = doc.getTextWidth(codigoTexto);
+    const badgeWidth = textWidth + 8;
+    const badgeHeight = 7;
+    const badgeX = pageWidth - 14 - badgeWidth;
+    const badgeY = currentY - 5;
+
+    doc.setFillColor(254, 243, 199);
+    doc.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 1, 1, 'F');
+    doc.setTextColor(180, 83, 9);
+    doc.text(codigoTexto, badgeX + 4, badgeY + 4.8);
+
+    currentY += 8;
 
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
