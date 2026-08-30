@@ -81,9 +81,9 @@ export const exportarPresupuestoPDF = async (presupuesto, obra, cliente, rubrosI
     const pageWidth = doc.internal.pageSize.getWidth();
     let currentY = 14;
 
-    // 1) Cargar y calcular proporciones del logo SICE S.A. (Más grande)
-    let logoWidth = 60;
-    let logoHeight = 21;
+    // 1) Logo SICE S.A. grande y proporcionado
+    let logoWidth = 48;
+    let logoHeight = 17;
     let logoDataUrl = null;
 
     try {
@@ -100,7 +100,7 @@ export const exportarPresupuestoPDF = async (presupuesto, obra, cliente, rubrosI
           const img = new Image();
           img.onload = () => {
             const aspect = img.width / img.height;
-            logoHeight = 21; // Altura aumentada para un logo más prominente
+            logoHeight = 17;
             logoWidth = logoHeight * aspect;
             resolve();
           };
@@ -114,41 +114,39 @@ export const exportarPresupuestoPDF = async (presupuesto, obra, cliente, rubrosI
 
     const logoX = pageWidth - 14 - logoWidth;
 
-    // Fila superior: Título principal a la izquierda y Logo grande a la derecha
+    // Título principal en una sola línea (fuente optimizada a 11 para que no rompa)
     doc.setFont("helvetica", "bold");
-    doc.setFontSize(13);
+    doc.setFontSize(11);
     doc.setTextColor(15, 23, 42);
     const tituloTexto = presupuesto?.nombre || 'Cotización Obra';
-    const maxTituloWidth = logoX - 18;
-    const tituloLineas = doc.splitTextToSize(tituloTexto, maxTituloWidth);
-    doc.text(tituloLineas, 14, currentY + 5);
+    doc.text(tituloTexto, 14, currentY + 6, { maxWidth: logoX - 18 });
 
     if (logoDataUrl) {
       doc.addImage(logoDataUrl, 'PNG', logoX, currentY, logoWidth, logoHeight);
     } else {
       doc.setFont("helvetica", "bold");
-      doc.setFontSize(26);
+      doc.setFontSize(22);
       doc.setTextColor(30, 41, 59);
-      doc.text("SICE S.A.", pageWidth - 14, currentY + 12, { align: 'right' });
+      doc.text("SICE S.A.", pageWidth - 14, currentY + 10, { align: 'right' });
     }
 
-    currentY += Math.max(tituloLineas.length * 6, logoHeight) + 6;
+    // Espaciado menor controlado entre el título y la línea de obra/cliente
+    currentY += 14;
 
-    // Fila intermedia: Obra y Cliente
+    // Obra y Cliente
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(100, 116, 139);
     const nombreObraStr = obra?.nombre || obra?.nombre_obra || presupuesto?.obra_nombre || 'Sin obra asignada';
     const nombreClienteStr = cliente?.razon_social || cliente?.nombre || 'Sin cliente asignado';
     const infoObraCliente = `Obra: ${nombreObraStr}   •   Cliente: ${nombreClienteStr}`;
-    const infoLines = doc.splitTextToSize(infoObraCliente, pageWidth - 28);
-    doc.text(infoLines, 14, currentY);
-    currentY += (infoLines.length * 4.5) + 6;
+    doc.text(infoObraCliente, 14, currentY);
+    currentY += 6;
 
-    // Fila inferior del encabezado: Fecha a la izquierda y Recuadro de Código a la extrema derecha
+    // Fecha a la izquierda y Recuadro de Código a la extrema derecha en la misma altura
     const fechaTexto = presupuesto?.fecha || new Date().toLocaleDateString('es-AR');
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(9);
+    doc.setFontSize(8.5);
     doc.setTextColor(100, 116, 139);
     doc.text(`Fecha: ${fechaTexto}`, 14, currentY);
 
@@ -157,16 +155,16 @@ export const exportarPresupuestoPDF = async (presupuesto, obra, cliente, rubrosI
     doc.setFontSize(7.5);
     const textWidth = doc.getTextWidth(codigoTexto);
     const badgeWidth = textWidth + 8;
-    const badgeHeight = 7;
+    const badgeHeight = 6.5;
     const badgeX = pageWidth - 14 - badgeWidth;
-    const badgeY = currentY - 5;
+    const badgeY = currentY - 4.5;
 
     doc.setFillColor(254, 243, 199);
     doc.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 1, 1, 'F');
     doc.setTextColor(180, 83, 9);
-    doc.text(codigoTexto, badgeX + 4, badgeY + 4.8);
+    doc.text(codigoTexto, badgeX + 4, badgeY + 4.5);
 
-    currentY += 8;
+    currentY += 6;
 
     doc.setDrawColor(226, 232, 240);
     doc.setLineWidth(0.5);
