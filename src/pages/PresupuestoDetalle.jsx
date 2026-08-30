@@ -340,7 +340,6 @@ export default function PresupuestoDetalle() {
     return `R${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  // 🛡️ FUNCIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES (RUBROS)
   const handleCrearRubro = async (e) => {
     e.preventDefault();
     if (isSavingRubro) return;
@@ -409,7 +408,6 @@ export default function PresupuestoDetalle() {
     }
   };
 
-  // 🛡️ FUNCIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES (TAREAS)
   const handleGuardarTarea = async (e) => {
     e.preventDefault();
     if (isSavingTarea) return;
@@ -1440,7 +1438,7 @@ export default function PresupuestoDetalle() {
                   if (exportFormato === 'excel') {
                     exportarPresupuestoExcel(presupuesto, itemsDetalle, false, 1, notasPresupuesto);
                   } else {
-                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (COSTOS)` }, cliente, itemsDetalle, false, 1, notasPresupuesto);
+                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (COSTOS)` }, obra, cliente, itemsDetalle, false, 1, notasPresupuesto);
                   }
                   setIsExportModalOpen(false);
                 }}
@@ -1455,7 +1453,7 @@ export default function PresupuestoDetalle() {
                   if (exportFormato === 'excel') {
                     exportarPresupuestoExcel({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, itemsDetalle, true, coeficientePase, notasPresupuesto);
                   } else {
-                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, cliente, itemsDetalle, true, coeficientePase, notasPresupuesto);
+                    exportarPresupuestoPDF({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, obra, cliente, itemsDetalle, true, coeficientePase, notasPresupuesto);
                   }
                   setIsExportModalOpen(false);
                 }}
