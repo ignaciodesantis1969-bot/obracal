@@ -218,12 +218,17 @@ export default function Compras({
               if (provMatch) proveedorEncontradoId = provMatch.id || provMatch.ID || provMatch.Id;
             }
 
+            const tipoCompLeido = data.comprobante_tipo || 'Factura A';
+            const esNCLeida = tipoCompLeido.toLowerCase().includes('nota de crédito');
+
             setFormData(prev => ({
               ...prev,
+              comprobante_tipo: tipoCompLeido,
               n_factura: data.n_factura || prev.n_factura,
               proveedor_id: proveedorEncontradoId || prev.proveedor_id,
               fecha: formatearFechaParaInput(data.fecha) || prev.fecha,
               vencimiento: formatearFechaParaInput(data.vencimiento) || prev.vencimiento,
+              estado_pago: esNCLeida ? 'contabilizado' : prev.estado_pago,
               subtotal: Number(data.subtotal) || prev.subtotal,
               iva_21: Number(data.iva_21) || prev.iva_21,
               iva_10_5: Number(data.iva_10_5) || prev.iva_10_5,
@@ -702,7 +707,7 @@ export default function Compras({
                       <td className="px-4 py-4 text-slate-600 font-medium">{detalleDisplay}</td>
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>{estadoPago}</span></td>
+                      <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : estadoPago === 'contabilizado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{estadoPago}</span></td>
                       <td className="px-4 py-4 text-center">
                         {archivoLink && archivoLink !== 'Comprobante_Adjunto' ? (
                           <button type="button" onClick={() => handleVerArchivo(f)} className="text-blue-600 hover:text-blue-800 p-1.5 bg-blue-50 rounded-lg shadow-sm" title="Ver comprobante en Google Drive"><Paperclip className="w-4 h-4" /></button>
@@ -907,7 +912,20 @@ export default function Compras({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo Comprobante</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.comprobante_tipo} onChange={(e) => setFormData({...formData, comprobante_tipo: e.target.value})}>
+                  <select 
+                    disabled={isSaving} 
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                    value={formData.comprobante_tipo} 
+                    onChange={(e) => {
+                      const tipoVal = e.target.value;
+                      const esNotaCredito = tipoVal.toLowerCase().includes('nota de crédito');
+                      setFormData({
+                        ...formData, 
+                        comprobante_tipo: tipoVal,
+                        estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago
+                      });
+                    }}
+                  >
                     <option value="Factura A">Factura A</option>
                     <option value="Factura B">Factura B</option>
                     <option value="Factura C">Factura C</option>
@@ -1024,6 +1042,7 @@ export default function Compras({
                   <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.estado_pago} onChange={(e) => setFormData({...formData, estado_pago: e.target.value})}>
                     <option value="pendiente">Pendiente</option>
                     <option value="pagado">Pagado</option>
+                    <option value="contabilizado">Contabilizado</option>
                   </select>
                 </div>
                 <div>
