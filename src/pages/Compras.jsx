@@ -218,8 +218,8 @@ export default function Compras({
               if (provMatch) proveedorEncontradoId = provMatch.id || provMatch.ID || provMatch.Id;
             }
 
-            const tipoCompLeido = data.comprobante_tipo || 'Factura A';
-            const esNCLeida = tipoCompLeido.toLowerCase().includes('nota de crédito');
+            const tipoCompLeido = data.comprobante_tipo || data.tipo_comprobante || data.tipo || 'Factura A';
+            const esNCLeida = tipoCompLeido.toLowerCase().includes('nota de crédito') || tipoCompLeido.toLowerCase().includes('nota de credito');
 
             setFormData(prev => ({
               ...prev,
@@ -229,13 +229,13 @@ export default function Compras({
               fecha: formatearFechaParaInput(data.fecha) || prev.fecha,
               vencimiento: formatearFechaParaInput(data.vencimiento) || prev.vencimiento,
               estado_pago: esNCLeida ? 'contabilizado' : prev.estado_pago,
-              subtotal: Number(data.subtotal) || prev.subtotal,
-              iva_21: Number(data.iva_21) || prev.iva_21,
-              iva_10_5: Number(data.iva_10_5) || prev.iva_10_5,
-              persp_iibb_bs_as: Number(data.persp_iibb_bs_as || data.percepcion_iibb || 0),
-              persp_iibb_caba: Number(data.persp_iibb_caba || 0),
-              otros_impuestos: Number(data.otros_impuestos) || prev.otros_impuestos,
-              total: Number(data.total) || prev.total,
+              subtotal: Math.abs(Number(data.subtotal) || 0),
+              iva_21: Math.abs(Number(data.iva_21) || 0),
+              iva_10_5: Math.abs(Number(data.iva_10_5) || 0),
+              persp_iibb_bs_as: Math.abs(Number(data.persp_iibb_bs_as || data.percepcion_iibb || 0)),
+              persp_iibb_caba: Math.abs(Number(data.persp_iibb_caba || 0)),
+              otros_impuestos: Math.abs(Number(data.otros_impuestos) || 0),
+              total: Math.abs(Number(data.total) || 0),
               archivo_url: base64Data
             }));
             setIsUploadModalOpen(false);
@@ -290,9 +290,12 @@ export default function Compras({
     const fechaCruda = f.fecha || f.Fecha || f.FECHA;
     const vencCrudo = f.vencimiento || f.Vencimiento || f.VENCIMIENTO;
     const renglonRecuperado = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || f.renglon || f.Renglon || f.detalle_gasto || 'Material';
+    const tipoComp = f.comprobante_tipo || f.Comprobante_tipo || 'Factura A';
+    const esNC = String(tipoComp).toLowerCase().includes('nota de crédito') || String(tipoComp).toLowerCase().includes('nota de credito');
 
     setFormData({ 
       ...f, 
+      comprobante_tipo: tipoComp,
       tipo_gasto: f.tipo_gasto || f.Tipo_gasto || 'Presupuesto',
       presupuesto_id: f.presupuesto_id || f.Presupuesto_id || '',
       rubro_presupuesto: f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '',
@@ -300,13 +303,14 @@ export default function Compras({
       detalle_gasto: f.detalle_gasto || f.Detalle_gasto || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
-      subtotal: Number(f.subtotal || f.Subtotal || 0),
-      iva_21: Number(f.iva_21 || f.Iva_21 || 0),
-      iva_10_5: Number(f.iva_10_5 || f.Iva_10_5 || 0),
-      persp_iibb_bs_as: Number(f.persp_iibb_bs_as || f.Persp_iibb_bs_as || 0),
-      persp_iibb_caba: Number(f.persp_iibb_caba || f.Persp_iibb_caba || 0),
-      otros_impuestos: Number(f.otros_impuestos || f.Otros_impuestos || 0),
-      total: Number(f.total || f.Total || 0),
+      estado_pago: f.estado_pago || f.Estado_pago || (esNC ? 'contabilizado' : 'pendiente'),
+      subtotal: Math.abs(Number(f.subtotal || f.Subtotal || 0)),
+      iva_21: Math.abs(Number(f.iva_21 || f.Iva_21 || 0)),
+      iva_10_5: Math.abs(Number(f.iva_10_5 || f.Iva_10_5 || 0)),
+      persp_iibb_bs_as: Math.abs(Number(f.persp_iibb_bs_as || f.Persp_iibb_bs_as || 0)),
+      persp_iibb_caba: Math.abs(Number(f.persp_iibb_caba || f.Persp_iibb_caba || 0)),
+      otros_impuestos: Math.abs(Number(f.otros_impuestos || f.Otros_impuestos || 0)),
+      total: Math.abs(Number(f.total || f.Total || 0)),
       archivo_url: f.archivo_url || f.Archivo_url || f.archivo || ''
     });
     setIsFacturaModalOpen(true);
@@ -321,9 +325,29 @@ export default function Compras({
       const action = editingId ? 'update' : 'create';
       const codigoFinal = editingId ? formData.codigo : generarSiguienteCodigoFactura();
 
-      // 🛡️ PAYLOAD ULTRA ROBUSTO: Duplicamos el valor del renglón en todas las variantes de nombres de columnas posibles
+      // Determinar si es Nota de Crédito para aplicar signo negativo (restar en contabilidad e imputaciones)
+      const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
+      const factorSigno = esNotaCredito ? -1 : 1;
+
+      const subtotalNum = Math.abs(Number(formData.subtotal) || 0) * factorSigno;
+      const iva21Num = Math.abs(Number(formData.iva_21) || 0) * factorSigno;
+      const iva105Num = Math.abs(Number(formData.iva_10_5) || 0) * factorSigno;
+      const iibbBsAsNum = Math.abs(Number(formData.persp_iibb_bs_as) || 0) * factorSigno;
+      const iibbCabaNum = Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno;
+      const otrosImpNum = Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno;
+      const totalNum = Math.abs(Number(formData.total) || 0) * factorSigno;
+
+      // 🛡️ PAYLOAD ULTRA ROBUSTO
       const payloadData = {
         ...formData,
+        subtotal: subtotalNum,
+        iva_21: iva21Num,
+        iva_10_5: iva105Num,
+        persp_iibb_bs_as: iibbBsAsNum,
+        persp_iibb_caba: iibbCabaNum,
+        otros_impuestos: otrosImpNum,
+        total: totalNum,
+        estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago,
         codigo: codigoFinal,
         rubro_presupuesto: formData.rubro_presupuesto,
         Rubro_presupuesto: formData.rubro_presupuesto,
@@ -879,10 +903,10 @@ export default function Compras({
               <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
             </div>
             <div className="p-8 text-center space-y-6">
-              <p className="text-xs text-slate-500">Sube el archivo de la factura. La IA leerá automáticamente los datos.</p>
+              <p className="text-xs text-slate-500">Sube el archivo de la factura o nota de crédito. La IA leerá automáticamente los datos.</p>
               <label className="border-2 border-dashed border-amber-300 bg-amber-50/50 hover:bg-amber-50 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors block">
                 {localLoading ? <Loader2 className="w-10 h-10 animate-spin text-amber-500 mb-3" /> : <Upload className="w-10 h-10 text-amber-500 mb-3" />}
-                <span className="font-bold text-sm text-slate-800">{localLoading ? "Procesando con IA..." : "Sube el archivo de la factura"}</span>
+                <span className="font-bold text-sm text-slate-800">{localLoading ? "Procesando con IA..." : "Sube el archivo del comprobante"}</span>
                 <span className="text-[11px] text-slate-500 mt-1">Extracción automática por Inteligencia Artificial</span>
                 <input type="file" className="hidden" onChange={handleArchivoSubido} disabled={localLoading} />
               </label>
@@ -900,13 +924,13 @@ export default function Compras({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
-              <h3 className="font-bold text-slate-900">Nueva Factura (Confirmación y Corrección de Datos)</h3>
+              <h3 className="font-bold text-slate-900">Nueva Factura / Nota de Crédito (Confirmación y Corrección de Datos)</h3>
               <button onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={handleGuardarFactura} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl flex items-center gap-2 text-xs">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación.</span>
+                <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación. Las notas de crédito restarán automáticamente en contabilidad, reportes y tesorería.</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -918,11 +942,11 @@ export default function Compras({
                     value={formData.comprobante_tipo} 
                     onChange={(e) => {
                       const tipoVal = e.target.value;
-                      const esNotaCredito = tipoVal.toLowerCase().includes('nota de crédito');
+                      const esNC = tipoVal.toLowerCase().includes('nota de crédito') || tipoVal.toLowerCase().includes('nota de credito');
                       setFormData({
                         ...formData, 
                         comprobante_tipo: tipoVal,
-                        estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago
+                        estado_pago: esNC ? 'contabilizado' : formData.estado_pago
                       });
                     }}
                   >
@@ -935,7 +959,7 @@ export default function Compras({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">N° Factura</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">N° Factura / NC</label>
                   <input type="text" required disabled={isSaving} placeholder="Ej: 0012-00031628" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.n_factura} onChange={(e) => setFormData({...formData, n_factura: e.target.value})} />
                 </div>
                 <div>
@@ -1085,7 +1109,7 @@ export default function Compras({
                 <button type="button" onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Cancelar</button>
                 <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
                   {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {isSaving ? 'Guardando...' : (editingId ? 'Actualizar Factura' : 'Crear Factura')}
+                  {isSaving ? 'Guardando...' : (editingId ? 'Actualizar Comprobante' : 'Crear Comprobante')}
                 </button>
               </div>
             </form>
