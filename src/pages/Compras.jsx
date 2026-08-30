@@ -911,6 +911,8 @@ export default function Compras({
                     <option value="Factura A">Factura A</option>
                     <option value="Factura B">Factura B</option>
                     <option value="Factura C">Factura C</option>
+                    <option value="Nota de Crédito A">Nota de Crédito A</option>
+                    <option value="Nota de Crédito B">Nota de Crédito B</option>
                     <option value="Ticket">Ticket</option>
                   </select>
                 </div>
