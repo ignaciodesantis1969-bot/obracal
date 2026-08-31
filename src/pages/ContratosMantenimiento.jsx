@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2 } from 'lucide-react';
+import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
@@ -12,6 +12,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [modalAbierto, setModalAbierto] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [contratoEditando, setContratoEditando] = useState(null);
+  const [contratoDetalle, setContratoDetalle] = useState(null); // Estado para la vista de detalles (el ojito)
 
   const [formData, setFormData] = useState({
     codigo: '',
@@ -24,7 +25,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     descripcion: ''
   });
 
-  // Función para recargar datos directamente desde Google Sheets
   const refrescarDatosLocales = async () => {
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -191,6 +191,120 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     return true;
   });
 
+  // Si estamos viendo el detalle de un contrato (el ojito)
+  if (contratoDetalle) {
+    const manoDeObra = [
+      { codigo: '4000011125', topico: 'Valor HH SUPERVISOR', ars: '$ 34.157,25' },
+      { codigo: '4000001424', topico: 'Valor HH TECNICO EHS', ars: '$ 19.369,70' },
+      { codigo: '4000011128', topico: 'Valor HH OFICIAL ESPECIALIZADO', ars: '$ 25.301,41' },
+      { codigo: '4000011131', topico: 'Valor HH Normal MEDIO OFICIAL', ars: '$ 22.282,63' },
+      { codigo: '-', topico: 'Valor HH TECNICO OFICINA TECNICA', ars: '$ 39.294,02' }
+    ];
+
+    const materiales = [
+      { codigo: '-', topico: 'Fee gestion materiales (%)', porcentaje: '49,5 %', obs: '% sobre el costo pagado del material, sin IVA' }
+    ];
+
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setContratoDetalle(null)}
+              className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors cursor-pointer"
+              title="Volver al listado"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-bold px-2.5 py-0.5 bg-amber-500/10 text-amber-600 rounded-full border border-amber-500/20">{contratoDetalle.codigo}</span>
+                <h1 className="text-xl font-black text-slate-800">{contratoDetalle.nombre_contrato || 'Contrato sin nombre'}</h1>
+              </div>
+              <p className="text-slate-500 text-xs mt-1">Cliente: <strong className="text-slate-700">{contratoDetalle.cliente}</strong> | Ubicación: <strong className="text-slate-700">{contratoDetalle.ubicacion}</strong> | Mes Base: <strong className="text-slate-700">{contratoDetalle.mes_base}</strong></p>
+            </div>
+          </div>
+          <div className="text-right">
+            <span className={cn(
+              'px-3 py-1 rounded-xl text-xs font-bold border',
+              contratoDetalle.estado === 'Activo' && 'bg-emerald-50 text-emerald-600 border-emerald-200',
+              contratoDetalle.estado === 'Entregado' && 'bg-amber-50 text-amber-600 border-amber-200',
+              contratoDetalle.estado === 'Borrador' && 'bg-slate-100 text-slate-600 border-slate-200',
+              contratoDetalle.estado === 'Finalizado' && 'bg-blue-50 text-blue-600 border-blue-200',
+              contratoDetalle.estado === 'Archivado' && 'bg-slate-200 text-slate-700 border-slate-300',
+            )}>
+              {contratoDetalle.estado}
+            </span>
+          </div>
+        </div>
+
+        {/* Descripción general si existe */}
+        {contratoDetalle.descripcion && (
+          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
+            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Descripción y Alcance del Servicio</h3>
+            <p className="text-slate-700 text-sm whitespace-pre-line">{contratoDetalle.descripcion}</p>
+          </div>
+        )}
+
+        {/* Tabla 1: Mano de Obra */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-slate-800 text-white px-6 py-3 font-bold text-sm">
+            1. MANO DE OBRA
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                  <th className="p-4 w-40">Codigo</th>
+                  <th className="p-4">Topico</th>
+                  <th className="p-4 w-48 text-right bg-amber-500/10 text-slate-800">ARS/HR</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {manoDeObra.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50">
+                    <td className="p-4 font-mono text-slate-600">{row.codigo}</td>
+                    <td className="p-4 font-semibold text-slate-700">{row.topico}</td>
+                    <td className="p-4 text-right font-bold text-slate-900 bg-amber-500/5">{row.ars}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Tabla 2: Materiales */}
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <div className="bg-slate-800 text-white px-6 py-3 font-bold text-sm">
+            2. MATERIALES
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse text-sm">
+              <thead>
+                <tr className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
+                  <th className="p-4 w-40">Codigo</th>
+                  <th className="p-4">Topico</th>
+                  <th className="p-4 w-32 text-center bg-amber-500/10 text-slate-800">%</th>
+                  <th className="p-4 w-80">Observaciones</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {materiales.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-slate-50">
+                    <td className="p-4 font-mono text-slate-600">{row.codigo}</td>
+                    <td className="p-4 font-semibold text-slate-700">{row.topico}</td>
+                    <td className="p-4 text-center font-bold text-slate-900 bg-amber-500/5">{row.porcentaje}</td>
+                    <td className="p-4 text-xs text-slate-500 italic">{row.obs}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
@@ -328,17 +442,24 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                         <option value="Archivado">Archivado</option>
                       </select>
                     </td>
-                    <td className="p-4 text-right space-x-2">
+                    <td className="p-4 text-right space-x-1">
+                      <button 
+                        onClick={() => setContratoDetalle(c)}
+                        className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
+                        title="Ver Detalles"
+                      >
+                        <Eye className="w-4 h-4" />
+                      </button>
                       <button 
                         onClick={() => abrirModalEditar(c)}
-                        className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors cursor-pointer"
+                        className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
                         title="Editar"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button 
                         onClick={() => eliminarContrato(c.id)}
-                        className="p-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-lg transition-colors cursor-pointer"
+                        className="p-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
                         title="Eliminar"
                       >
                         <Trash2 className="w-4 h-4" />
