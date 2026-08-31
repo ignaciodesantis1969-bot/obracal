@@ -589,41 +589,6 @@ export default function PresupuestoDetalle() {
   const coeficientePase = Number(presupuesto?.coeficiente_pase) || coeficientePaseCalculado;
   const precioVentaGeneral = costoDirectoBase * coeficientePase;
 
-  const certsPresupuesto = certificados.filter(c => String(c.presupuesto_id) === String(presupuestoId) || String(c.obra_id) === String(presupuesto?.obra_id));
-
-  let totalPresupuestadoVenta = 0;
-  let totalFacturadoGeneral = 0;
-
-  const rubrosResumen = itemsDetalle.map(rubroObj => {
-    let costoRubro = 0;
-    (rubroObj.tareas || []).forEach(t => {
-      costoRubro += (Number(t.cantidad) || 0) * (Number(t.costo_unitario) || 0);
-    });
-    const presupuestadoVentaRubro = costoRubro * coeficientePase;
-    totalPresupuestadoVenta += presupuestadoVentaRubro;
-
-    let facturadoRubro = 0;
-    certsPresupuesto.forEach(c => {
-      let cItems = [];
-      try { cItems = typeof c.items_detalle === 'string' ? JSON.parse(c.items_detalle) : (c.items_detalle || []); } catch (e) { cItems = []; }
-      if (Array.isArray(cItems) && cItems.length > 0) {
-        cItems.forEach(ci => {
-          if (String(ci.rubro || '').trim().toUpperCase() === String(rubroObj.rubro).trim().toUpperCase()) {
-            facturadoRubro += Number(ci.monto || ci.facturado || ci.total || 0);
-          }
-        });
-      } else if (c.rubro && String(c.rubro).trim().toUpperCase() === String(rubroObj.rubro).trim().toUpperCase()) {
-        facturadoRubro += Number(c.monto || c.total || 0);
-      }
-    });
-
-    totalFacturadoGeneral += facturadoRubro;
-    return { rubro: rubroObj.rubro, presupuestado: presupuestadoVentaRubro, facturado: facturadoRubro, diferencia: presupuestadoVentaRubro - facturadoRubro, ejecucion: presupuestadoVentaRubro > 0 ? (facturadoRubro / presupuestadoVentaRubro) * 100 : 0 };
-  });
-
-  const saldoDisponibleGeneral = totalPresupuestadoVenta - totalFacturadoGeneral;
-  const porcentajeEjecucionGeneral = totalPresupuestadoVenta > 0 ? (totalFacturadoGeneral / totalPresupuestadoVenta) * 100 : 0;
-
   const rubrosDisponiblesMaestro = [...new Set([
     ...rubrosList.map(r => String(r.nombre || r.Nombre || '').trim().toUpperCase()),
     ...maestroTareas.map(m => String(m.rubro || m.Rubro || m.RUBRO || '').trim().toUpperCase())
@@ -751,12 +716,6 @@ export default function PresupuestoDetalle() {
           className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all ${activeTab === 'costos' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
         >
           Presupuesto de Costos
-        </button>
-        <button 
-          onClick={() => setActiveTab('real_vs_presupuestado')}
-          className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all ${activeTab === 'real_vs_presupuestado' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-        >
-          Real vs Presupuestado
         </button>
         <button 
           onClick={() => setActiveTab('multiplicador')}
@@ -982,74 +941,6 @@ export default function PresupuestoDetalle() {
                 </button>
               </div>
             )}
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'real_vs_presupuestado' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white p-5 rounded-2xl border border-blue-200 shadow-sm">
-              <span className="text-xs font-bold text-slate-400 uppercase">Total Presupuestado</span>
-              <h3 className="text-2xl font-black text-slate-900 mt-1">$ {Math.round(totalPresupuestadoVenta).toLocaleString('es-AR')}</h3>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-amber-200 shadow-sm">
-              <span className="text-xs font-bold text-slate-400 uppercase">Total Facturado</span>
-              <h3 className="text-2xl font-black text-amber-600 mt-1">$ {Math.round(totalFacturadoGeneral).toLocaleString('es-AR')}</h3>
-              <p className="text-[11px] font-semibold text-amber-600 mt-1">{porcentajeEjecucionGeneral.toFixed(1)}% ejecutado</p>
-            </div>
-            <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-sm">
-              <span className="text-xs font-bold text-slate-400 uppercase">Saldo Disponible</span>
-              <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {Math.round(saldoDisponibleGeneral).toLocaleString('es-AR')}</h3>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="px-6 py-4">Rubro</th>
-                  <th className="px-4 py-4 text-right">Presupuestado</th>
-                  <th className="px-4 py-4 text-right">Facturado</th>
-                  <th className="px-4 py-4 text-right">Diferencia</th>
-                  <th className="px-6 py-4 text-center">Ejecución</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rubrosResumen.map((r, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50 transition-colors">
-                    <td className="px-6 py-4 font-extrabold text-slate-900 uppercase">{r.rubro}</td>
-                    <td className="px-4 py-4 text-right font-semibold text-slate-800">$ {Math.round(r.presupuestado).toLocaleString('es-AR')}</td>
-                    <td className="px-4 py-4 text-right font-bold text-amber-600">$ {Math.round(r.facturado).toLocaleString('es-AR')}</td>
-                    <td className="px-4 py-4 text-right font-medium text-emerald-600 flex items-center justify-end gap-1">
-                      <TrendingUp className="w-3 h-3" /> $ {Math.round(r.diferencia).toLocaleString('es-AR')}
-                    </td>
-                    <td className="px-6 py-4">
-                      <div className="flex items-center justify-center gap-3">
-                        <div className="w-24 bg-slate-100 h-2 rounded-full overflow-hidden">
-                          <div 
-                            className="bg-amber-500 h-full rounded-full transition-all duration-500" 
-                            style={{ width: `${Math.min(r.ejecucion, 100)}%` }}
-                          ></div>
-                        </div>
-                        <span className="font-bold text-slate-700 w-10 text-right">{r.ejecucion.toFixed(0)}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-                <tr className="bg-slate-50 font-black text-slate-900 border-t-2 border-slate-200">
-                  <td className="px-6 py-4 uppercase">Total</td>
-                  <td className="px-4 py-4 text-right">$ {Math.round(totalPresupuestadoVenta).toLocaleString('es-AR')}</td>
-                  <td className="px-4 py-4 text-right text-amber-600">$ {Math.round(totalFacturadoGeneral).toLocaleString('es-AR')}</td>
-                  <td className="px-4 py-4 text-right text-emerald-600">$ {Math.round(saldoDisponibleGeneral).toLocaleString('es-AR')}</td>
-                  <td className="px-6 py-4 text-center">
-                    <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full text-[11px]">
-                      {porcentajeEjecucionGeneral.toFixed(1)}%
-                    </span>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
           </div>
         </div>
       )}
