@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X } from 'lucide-react';
+import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
-export default function ContratosMantenimiento({ contratos = [], clientes: clientesProp = [], cargarDatos }) {
+export default function ContratosMantenimiento({ contratos: contratosProp = [], clientes: clientesProp = [], cargarDatos }) {
+  const [contratos, setContratos] = useState(contratosProp);
   const [clientes, setClientes] = useState(clientesProp);
   const [pestanaActiva, setPestanaActiva] = useState('trabajo');
   const [busqueda, setBusqueda] = useState('');
@@ -23,25 +24,31 @@ export default function ContratosMantenimiento({ contratos = [], clientes: clien
     descripcion: ''
   });
 
-  // Cargar clientes de respaldo si no vienen por props
-  useEffect(() => {
-    if (clientesProp && clientesProp.length > 0) {
-      setClientes(clientesProp);
-    } else {
-      fetch(GOOGLE_SCRIPT_URL, {
+  // Función para recargar datos directamente desde Google Sheets
+  const refrescarDatosLocales = async () => {
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Clientes', action: 'list' })
-      })
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) {
-          setClientes(data);
-        }
-      })
-      .catch(err => console.error("Error al cargar clientes:", err));
+        body: JSON.stringify({ action: 'cargarDetalleCompleto' })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.contratos_mantenimiento) setContratos(data.contratos_mantenimiento);
+        if (data.clientes) setClientes(data.clientes);
+      }
+    } catch (err) {
+      console.error("Error al refrescar datos:", err);
     }
-  }, [clientesProp]);
+  };
+
+  useEffect(() => {
+    if (contratosProp.length > 0) setContratos(contratosProp);
+    if (clientesProp.length > 0) setClientes(clientesProp);
+    if (contratosProp.length === 0 || clientesProp.length === 0) {
+      refrescarDatosLocales();
+    }
+  }, [contratosProp, clientesProp]);
 
   const totalBorrador = contratos.filter(c => String(c.estado || '').toLowerCase() === 'borrador').length;
   const totalEntregado = contratos.filter(c => String(c.estado || '').toLowerCase() === 'entregado').length;
@@ -64,7 +71,7 @@ export default function ContratosMantenimiento({ contratos = [], clientes: clien
     setFormData({
       codigo: generarNuevoCodigo(),
       nombre_contrato: '',
-      cliente: clientes[0]?.nombre || clientes[0]?.razon_social || clientes[0]?.cliente || '',
+      cliente: '',
       ubicacion: '',
       mes_base: new Date().toISOString().slice(0, 7),
       actualizacion: 'Polinómica',
@@ -110,6 +117,7 @@ export default function ContratosMantenimiento({ contratos = [], clientes: clien
 
       if (data.success) {
         setModalAbierto(false);
+        await refrescarDatosLocales();
         if (cargarDatos) cargarDatos();
       } else {
         alert("Error al guardar: " + (data.error || 'Desconocido'));
@@ -131,8 +139,9 @@ export default function ContratosMantenimiento({ contratos = [], clientes: clien
         body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'delete', id })
       });
       const data = await res.json();
-      if (data.success && cargarDatos) {
-        cargarDatos();
+      if (data.success) {
+        await refrescarDatosLocales();
+        if (cargarDatos) cargarDatos();
       }
     } catch (err) {
       console.error(err);
@@ -153,8 +162,9 @@ export default function ContratosMantenimiento({ contratos = [], clientes: clien
         })
       });
       const data = await res.json();
-      if (data.success && cargarDatos) {
-        cargarDatos();
+      if (data.success) {
+        await refrescarDatosLocales();
+        if (cargarDatos) cargarDatos();
       }
     } catch (err) {
       console.error(err);
@@ -471,9 +481,15 @@ export default function ContratosMantenimiento({ contratos = [], clientes: clien
                 <button 
                   type="submit" 
                   disabled={cargando}
-                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-sm shadow-md"
+                  className="flex items-center justify-center gap-2 px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-500/50 text-slate-950 font-bold rounded-xl text-sm shadow-md cursor-pointer"
                 >
-                  {cargando ? 'Guardando...' : 'Guardar Contrato'}
+                  {cargando ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" /> Guardando...
+                    </>
+                  ) : (
+                    'Guardar Contrato'
+                  )}
                 </button>
               </div>
             </form>
