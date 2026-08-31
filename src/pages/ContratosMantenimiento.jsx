@@ -14,15 +14,39 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [contratoEditando, setContratoEditando] = useState(null);
   
   const [contratoDetalle, setContratoDetalle] = useState(null);
-  const [subTabDetalle, setSubTabDetalle] = useState('fee'); // 'fee', 'horas', 'polinomica', 'general'
+  const [subTabDetalle, setSubTabDetalle] = useState('fee');
 
-  // Simulador de Fee Inverso
+  // Función para formatear el mes base a "Mes-AAAA" (Ej: "Agosto-2026")
+  const formatearMesBase = (val) => {
+    if (!val) return '---';
+    try {
+      let fecha = new Date(val);
+      if (!isNaN(fecha.getTime())) {
+        const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+        const mes = meses[fecha.getUTCMonth()];
+        const anio = fecha.getUTCFullYear();
+        return `${mes}-${anio}`;
+      }
+      if (val.includes('-')) {
+        const partes = val.split('-');
+        if (partes.length >= 2) {
+          const anio = partes[0];
+          const numMes = parseInt(partes[1], 10) - 1;
+          const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+          if (meses[numMes]) return `${meses[numMes]}-${anio}`;
+        }
+      }
+    } catch (e) {
+      // Ignorar error y retornar valor original
+    }
+    return val;
+  };
+
   const [costoMaterialBase, setCostoMaterialBase] = useState(100);
   const [porcentajeBeneficioDeseado, setPorcentajeBeneficioDeseado] = useState(4.61);
   const P = porcentajeBeneficioDeseado / 100;
   const porcentajeFee = Math.max(0, ((P + 0.2057) / 0.50874) * 100);
 
-  // Simulador de Carga Mes a Mes para Polinómica (UOCRA 80%, IPC 10%, Dólar BNA 10%)
   const [registrosMeses, setRegistrosMeses] = useState([
     { mes: 'Mes 1 (Base)', uocra: 0, ipc: 0, dolar: 0 },
     { mes: 'Mes 2', uocra: 3.2, ipc: 2.1, dolar: 1.5 },
@@ -236,7 +260,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     const impuestoDebitosCreditos = (totalCompra * 0.006) + (totalVenta * 0.006);
     const totalBeneficio = beneficioNetoConIVA - (impuestoGanancias + diferenciaIVA + ingresosBrutos + costoFinanciero + impuestoDebitosCreditos);
 
-    // Calcular acumulado polinómico total de los registros mes a mes
     let acumuladoUocra = 0;
     let acumuladoIpc = 0;
     let acumuladoDolar = 0;
@@ -265,7 +288,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 <h1 className="text-xl font-black text-slate-800">{contratoDetalle.nombre_contrato || 'Contrato sin nombre'}</h1>
                 <span className="text-xs font-semibold px-2.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg">{contratoDetalle.estado}</span>
               </div>
-              <p className="text-slate-500 text-xs mt-1">Cliente: <strong className="text-slate-700">{contratoDetalle.cliente}</strong> • Ubicación: <strong className="text-slate-700">{contratoDetalle.ubicacion}</strong> • Mes Base: <strong className="text-slate-700">{contratoDetalle.mes_base || 'No definido'}</strong></p>
+              <p className="text-slate-500 text-xs mt-1">Cliente: <strong className="text-slate-700">{contratoDetalle.cliente}</strong> • Ubicación: <strong className="text-slate-700">{contratoDetalle.ubicacion}</strong> • Mes Base: <strong className="text-slate-700">{formatearMesBase(contratoDetalle.mes_base)}</strong></p>
             </div>
           </div>
         </div>
@@ -273,7 +296,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Mes Base</p>
-            <p className="text-2xl font-black text-slate-800">{contratoDetalle.mes_base || '---'}</p>
+            <p className="text-2xl font-black text-slate-800">{formatearMesBase(contratoDetalle.mes_base)}</p>
           </div>
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Actualización</p>
@@ -291,7 +314,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </div>
         </div>
 
-        {/* Pestañas de Navegación Interna Actualizadas */}
         <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2 overflow-x-auto">
           <button 
             onClick={() => setSubTabDetalle('fee')}
@@ -331,7 +353,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </button>
         </div>
 
-        {/* PESTAÑA: CÁLCULO DE FEE Y MATERIALES */}
         {subTabDetalle === 'fee' && (
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
@@ -444,7 +465,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </div>
         )}
 
-        {/* PESTAÑA: CÁLCULO DE HORAS (HH) */}
         {subTabDetalle === 'horas' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden space-y-4 p-6">
             <div className="border-b border-slate-200 pb-4">
@@ -476,7 +496,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </div>
         )}
 
-        {/* PESTAÑA NUEVA: DETERMINACION DE POLINOMICA O INDICE */}
         {subTabDetalle === 'polinomica' && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
@@ -501,7 +520,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
               )}
 
-              {/* Formulario para agregar registro mensual */}
               <form onSubmit={agregarMesPolinomica} className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Periodo / Mes</label>
@@ -510,7 +528,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                     placeholder="Ej: Mes 4" 
                     required
                     value={nuevoMes.mes}
-                    onChange={(e) => setNewoMes({...nuevoMes, mes: e.target.value})}
+                    onChange={(e) => setNuevoMes({...nuevoMes, mes: e.target.value})}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -520,7 +538,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                     type="number" 
                     step="0.01"
                     value={nuevoMes.uocra}
-                    onChange={(e) => setNewoMes({...nuevoMes, uocra: Number(e.target.value)})}
+                    onChange={(e) => setNuevoMes({...nuevoMes, uocra: Number(e.target.value)})}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -530,7 +548,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                     type="number" 
                     step="0.01"
                     value={nuevoMes.ipc}
-                    onChange={(e) => setNewoMes({...nuevoMes, ipc: Number(e.target.value)})}
+                    onChange={(e) => setNuevoMes({...nuevoMes, ipc: Number(e.target.value)})}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -540,7 +558,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                     type="number" 
                     step="0.01"
                     value={nuevoMes.dolar}
-                    onChange={(e) => setNewoMes({...nuevoMes, dolar: Number(e.target.value)})}
+                    onChange={(e) => setNuevoMes({...nuevoMes, dolar: Number(e.target.value)})}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
@@ -552,7 +570,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </button>
               </form>
 
-              {/* Tabla de Seguimiento Mes a Mes */}
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
@@ -568,7 +585,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   <tbody className="divide-y divide-slate-100">
                     {registrosMeses.map((reg, idx) => {
                       const poliMes = (Number(reg.uocra) * 0.80) + (Number(reg.ipc) * 0.10) + (Number(reg.dolar) * 0.10);
-                      // Calcular acumulado hasta este mes
                       let acSub = 0;
                       for (let i = 0; i <= idx; i++) {
                         acSub += (Number(registrosMeses[i].uocra) * 0.80) + (Number(registrosMeses[i].ipc) * 0.10) + (Number(registrosMeses[i].dolar) * 0.10);
@@ -733,7 +749,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                       <MapPin className="w-4 h-4 text-slate-400 shrink-0" />
                       {c.ubicacion || '---'}
                     </td>
-                    <td className="p-4 text-slate-600">{c.mes_base || '---'}</td>
+                    <td className="p-4 text-slate-600">{formatearMesBase(c.mes_base)}</td>
                     <td className="p-4 text-slate-600">{c.actualizacion || 'Polinómica'}</td>
                     <td className="p-4">
                       <select 
@@ -887,7 +903,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                     value={formData.mes_base}
                     onChange={(e) => setFormData({...formData, mes_base: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-                    placeholder="Ej: Mar 2026"
+                    placeholder="Ej: Agosto-2026"
                   />
                 </div>
                 <div>
