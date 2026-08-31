@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft } from 'lucide-react';
+import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
@@ -12,18 +12,14 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [modalAbierto, setModalAbierto] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [contratoEditando, setContratoEditando] = useState(null);
-  const [contratoDetalle, setContratoDetalle] = useState(null); // Estado para la vista de detalles (el ojito)
+  
+  // Estado para la vista de detalles (el ojito) y sus pestañas internas
+  const [contratoDetalle, setContratoDetalle] = useState(null);
+  const [subTabDetalle, setSubTabDetalle] = useState('horas'); // 'horas', 'fee', 'general'
 
-  const [formData, setFormData] = useState({
-    codigo: '',
-    nombre_contrato: '',
-    cliente: '',
-    ubicacion: '',
-    mes_base: '',
-    actualizacion: 'Polinómica',
-    estado: 'Borrador',
-    descripcion: ''
-  });
+  // Simulador interactivo para el Cálculo de Fee (basado en la captura 2)
+  const [costoMaterialBase, setCostoMaterialBase] = useState(100);
+  const [porcentajeFee, setPorcentajeFee] = useState(49.5);
 
   const refrescarDatosLocales = async () => {
     try {
@@ -80,6 +76,17 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     });
     setModalAbierto(true);
   };
+
+  const [formData, setFormData] = useState({
+    codigo: '',
+    nombre_contrato: '',
+    cliente: '',
+    ubicacion: '',
+    mes_base: '',
+    actualizacion: 'Polinómica',
+    estado: 'Borrador',
+    descripcion: ''
+  });
 
   const abrirModalEditar = (c) => {
     setContratoEditando(c);
@@ -191,28 +198,39 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     return true;
   });
 
-  // Si estamos viendo el detalle de un contrato (el ojito)
+  // Vista de Detalle Estilo Presupuesto (al hacer clic en el ojito)
   if (contratoDetalle) {
     const manoDeObra = [
-      { codigo: '4000011125', topico: 'Valor HH SUPERVISOR', ars: '$ 34.157,25' },
-      { codigo: '4000001424', topico: 'Valor HH TECNICO EHS', ars: '$ 19.369,70' },
-      { codigo: '4000011128', topico: 'Valor HH OFICIAL ESPECIALIZADO', ars: '$ 25.301,41' },
-      { codigo: '4000011131', topico: 'Valor HH Normal MEDIO OFICIAL', ars: '$ 22.282,63' },
-      { codigo: '-', topico: 'Valor HH TECNICO OFICINA TECNICA', ars: '$ 39.294,02' }
+      { codigo: '4000011125', topico: 'Valor HH SUPERVISOR', ars: 34157.25 },
+      { codigo: '4000001424', topico: 'Valor HH TECNICO EHS', ars: 19369.70 },
+      { codigo: '4000011128', topico: 'Valor HH OFICIAL ESPECIALIZADO', ars: 25301.41 },
+      { codigo: '4000011131', topico: 'Valor HH Normal MEDIO OFICIAL', ars: 22282.63 },
+      { codigo: '-', topico: 'Valor HH TECNICO OFICINA TECNICA', ars: 39294.02 }
     ];
 
-    const materiales = [
-      { codigo: '-', topico: 'Fee gestion materiales (%)', porcentaje: '49,5 %', obs: '% sobre el costo pagado del material, sin IVA' }
-    ];
+    // Cálculos dinámicos basados en la captura 2
+    const precioVentaMaterial = costoMaterialBase * (1 + porcentajeFee / 100);
+    const ivaCompra = costoMaterialBase * 0.21;
+    const totalCompra = costoMaterialBase + ivaCompra;
+    const ivaVenta = precioVentaMaterial * 0.21;
+    const totalVenta = precioVentaMaterial + ivaVenta;
+    const beneficioNetoConIVA = precioVentaMaterial - costoMaterialBase;
+    const impuestoGanancias = beneficioNetoConIVA * 0.35;
+    const diferenciaIVA = ivaVenta - ivaCompra;
+    const ingresosBrutos = precioVentaMaterial * 0.05;
+    const costoFinanciero = precioVentaMaterial * 0.108;
+    const impuestoDebitosCreditos = (costoMaterialBase * 0.006) + (precioVentaMaterial * 0.006);
+    const totalBeneficio = beneficioNetoConIVA - (impuestoGanancias + diferenciaIVA + ingresosBrutos + costoFinanciero + impuestoDebitosCreditos);
 
     return (
       <div className="space-y-6">
+        {/* Barra superior de navegación en detalle */}
         <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center gap-4">
             <button 
               onClick={() => setContratoDetalle(null)}
               className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors cursor-pointer"
-              title="Volver al listado"
+              title="Volver a Contratos"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
@@ -220,87 +238,226 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold px-2.5 py-0.5 bg-amber-500/10 text-amber-600 rounded-full border border-amber-500/20">{contratoDetalle.codigo}</span>
                 <h1 className="text-xl font-black text-slate-800">{contratoDetalle.nombre_contrato || 'Contrato sin nombre'}</h1>
+                <span className="text-xs font-semibold px-2.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg">{contratoDetalle.estado}</span>
               </div>
-              <p className="text-slate-500 text-xs mt-1">Cliente: <strong className="text-slate-700">{contratoDetalle.cliente}</strong> | Ubicación: <strong className="text-slate-700">{contratoDetalle.ubicacion}</strong> | Mes Base: <strong className="text-slate-700">{contratoDetalle.mes_base}</strong></p>
+              <p className="text-slate-500 text-xs mt-1">Cliente: <strong className="text-slate-700">{contratoDetalle.cliente}</strong> • Ubicación: <strong className="text-slate-700">{contratoDetalle.ubicacion}</strong></p>
             </div>
-          </div>
-          <div className="text-right">
-            <span className={cn(
-              'px-3 py-1 rounded-xl text-xs font-bold border',
-              contratoDetalle.estado === 'Activo' && 'bg-emerald-50 text-emerald-600 border-emerald-200',
-              contratoDetalle.estado === 'Entregado' && 'bg-amber-50 text-amber-600 border-amber-200',
-              contratoDetalle.estado === 'Borrador' && 'bg-slate-100 text-slate-600 border-slate-200',
-              contratoDetalle.estado === 'Finalizado' && 'bg-blue-50 text-blue-600 border-blue-200',
-              contratoDetalle.estado === 'Archivado' && 'bg-slate-200 text-slate-700 border-slate-300',
-            )}>
-              {contratoDetalle.estado}
-            </span>
           </div>
         </div>
 
-        {/* Descripción general si existe */}
-        {contratoDetalle.descripcion && (
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-200">
-            <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Descripción y Alcance del Servicio</h3>
-            <p className="text-slate-700 text-sm whitespace-pre-line">{contratoDetalle.descripcion}</p>
+        {/* Tarjetas Resumen */}
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Mes Base</p>
+            <p className="text-2xl font-black text-slate-800">{contratoDetalle.mes_base || '---'}</p>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Actualización</p>
+            <p className="text-2xl font-black text-amber-600">{contratoDetalle.actualizacion || 'Polinómica'}</p>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Fee Materiales</p>
+            <p className="text-2xl font-black text-emerald-600">{porcentajeFee}%</p>
+          </div>
+          <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Estado</p>
+            <p className="text-2xl font-black text-blue-600">{contratoDetalle.estado}</p>
+          </div>
+        </div>
+
+        {/* Pestañas de Navegación Interna (Estilo Presupuesto) */}
+        <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2 overflow-x-auto">
+          <button 
+            onClick={() => setSubTabDetalle('horas')}
+            className={cn(
+              'px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2',
+              subTabDetalle === 'horas' ? 'bg-amber-500 text-slate-950 shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            )}
+          >
+            <Calculator className="w-4 h-4" /> Cálculo de Horas (HH)
+          </button>
+          <button 
+            onClick={() => setSubTabDetalle('fee')}
+            className={cn(
+              'px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2',
+              subTabDetalle === 'fee' ? 'bg-amber-500 text-slate-950 shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            )}
+          >
+            <DollarSign className="w-4 h-4" /> Cálculo de Fee y Materiales
+          </button>
+          <button 
+            onClick={() => setSubTabDetalle('general')}
+            className={cn(
+              'px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2',
+              subTabDetalle === 'general' ? 'bg-amber-500 text-slate-950 shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            )}
+          >
+            <FileText className="w-4 h-4" /> Descripción General
+          </button>
+        </div>
+
+        {/* Contenido de la Pestaña: Cálculo de Horas */}
+        {subTabDetalle === 'horas' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden space-y-4 p-6">
+            <div className="border-b border-slate-200 pb-4">
+              <h2 className="text-lg font-black text-slate-800">1. Mano de Obra — Valores por Hora (HH)</h2>
+              <p className="text-slate-500 text-sm">Valores de referencia aplicados para la facturación de servicios de mantenimiento.</p>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-sm">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                    <th className="p-4">Código</th>
+                    <th className="p-4">Tópico</th>
+                    <th className="p-4 text-right bg-amber-500/10 text-slate-900">ARS / HR</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {manoDeObra.map((item, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50">
+                      <td className="p-4 font-mono text-slate-600">{item.codigo}</td>
+                      <td className="p-4 font-semibold text-slate-800">{item.topico}</td>
+                      <td className="p-4 text-right font-bold text-slate-900 bg-amber-500/5">
+                        $ {item.ars.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
-        {/* Tabla 1: Mano de Obra */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="bg-slate-800 text-white px-6 py-3 font-bold text-sm">
-            1. MANO DE OBRA
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
-                  <th className="p-4 w-40">Codigo</th>
-                  <th className="p-4">Topico</th>
-                  <th className="p-4 w-48 text-right bg-amber-500/10 text-slate-800">ARS/HR</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {manoDeObra.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="p-4 font-mono text-slate-600">{row.codigo}</td>
-                    <td className="p-4 font-semibold text-slate-700">{row.topico}</td>
-                    <td className="p-4 text-right font-bold text-slate-900 bg-amber-500/5">{row.ars}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+        {/* Contenido de la Pestaña: Cálculo de Fee y Materiales */}
+        {subTabDetalle === 'fee' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+              <div className="border-b border-slate-200 pb-4">
+                <h2 className="text-lg font-black text-slate-800">2. Materiales — Cálculo de Fee de Gestión (%)</h2>
+                <p className="text-slate-500 text-sm">Simulador financiero basado en un costo de referencia de materiales ($100,00 ajustable) y el fee corporativo.</p>
+              </div>
 
-        {/* Tabla 2: Materiales */}
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-          <div className="bg-slate-800 text-white px-6 py-3 font-bold text-sm">
-            2. MATERIALES
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Costo Material Base ($ de prueba)</label>
+                  <input 
+                    type="number" 
+                    value={costoMaterialBase}
+                    onChange={(e) =>setCostoMaterialBase(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Fee Gestión Materiales (%)</label>
+                  <input 
+                    type="number" 
+                    step="0.1"
+                    value={porcentajeFee}
+                    onChange={(e) => setPorcentajeFee(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                {/* Bloque a y b */}
+                <div className="space-y-4">
+                  <div className="p-4 bg-slate-100 rounded-xl border border-slate-200">
+                    <p className="text-xs font-bold text-slate-700 uppercase mb-2">a) Compra a proveedor externo</p>
+                    <div className="flex justify-between text-sm py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Precio Neto:</span>
+                      <span className="font-semibold">$ {costoMaterialBase.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm py-1 border-b border-slate-200">
+                      <span className="text-slate-600">IVA (21%):</span>
+                      <span className="font-semibold">$ {ivaCompra.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm py-1 font-bold text-slate-800">
+                      <span>Total Compra:</span>
+                      <span>$ {totalCompra.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                    <p className="text-xs font-bold text-amber-800 uppercase mb-2">b) Facturación al Cliente</p>
+                    <div className="flex justify-between text-sm py-1 border-b border-amber-500/20">
+                      <span className="text-slate-700">Precio con Fee ({porcentajeFee}%):</span>
+                      <span className="font-bold text-slate-900">$ {precioVentaMaterial.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm py-1 border-b border-amber-500/20">
+                      <span className="text-slate-700">IVA (21%):</span>
+                      <span className="font-bold text-slate-900">$ {ivaVenta.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm py-1 font-black text-amber-900">
+                      <span>Total Facturado:</span>
+                      <span>$ {totalVenta.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bloque c y d (Desgloses y Beneficios) */}
+                <div className="space-y-4">
+                  <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+                    <p className="text-xs font-bold text-emerald-800 uppercase mb-2">c) Desglose de Beneficio Bruto</p>
+                    <div className="flex justify-between text-sm py-1 font-bold text-emerald-900">
+                      <span>Beneficio Neto (con IVA):</span>
+                      <span>$ {beneficioNetoConIVA.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-xs">
+                    <p className="font-bold text-slate-700 uppercase mb-1">d) Gastos, Impuestos y Costos Financieros</p>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Impuesto a las Ganancias (35%):</span>
+                      <span className="font-medium">$ {impuestoGanancias.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Diferencia I.V.A.:</span>
+                      <span className="font-medium">$ {diferenciaIVA.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Ingresos Brutos (5%):</span>
+                      <span className="font-medium">$ {ingresosBrutos.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Costo Financiero (10,8%):</span>
+                      <span className="font-medium">$ {costoFinanciero.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Imp. Débitos y Créditos (1,2%):</span>
+                      <span className="font-medium">$ {impuestoDebitosCreditos.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-2 font-black text-sm text-slate-900 bg-amber-500/20 px-2 rounded-lg mt-2">
+                      <span>TOTAL BENEFICIO REAL:</span>
+                      <span className="text-emerald-700">$ {totalBeneficio.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse text-sm">
-              <thead>
-                <tr className="bg-slate-100 text-slate-600 font-semibold border-b border-slate-200">
-                  <th className="p-4 w-40">Codigo</th>
-                  <th className="p-4">Topico</th>
-                  <th className="p-4 w-32 text-center bg-amber-500/10 text-slate-800">%</th>
-                  <th className="p-4 w-80">Observaciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {materiales.map((row, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="p-4 font-mono text-slate-600">{row.codigo}</td>
-                    <td className="p-4 font-semibold text-slate-700">{row.topico}</td>
-                    <td className="p-4 text-center font-bold text-slate-900 bg-amber-500/5">{row.porcentaje}</td>
-                    <td className="p-4 text-xs text-slate-500 italic">{row.obs}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        )}
+
+        {/* Contenido de la Pestaña: Descripción General */}
+        {subTabDetalle === 'general' && (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+            <h2 className="text-lg font-black text-slate-800">Detalles del Contrato</h2>
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div className="p-3 bg-slate-50 rounded-xl">
+                <span className="text-xs text-slate-400 block">Cliente</span>
+                <strong className="text-slate-800">{contratoDetalle.cliente}</strong>
+              </div>
+              <div className="p-3 bg-slate-50 rounded-xl">
+                <span className="text-xs text-slate-400 block">Ubicación / Planta</span>
+                <strong className="text-slate-800">{contratoDetalle.ubicacion}</strong>
+              </div>
+            </div>
+            <div className="p-4 bg-slate-50 rounded-xl">
+              <span className="text-xs text-slate-400 block mb-1">Descripción del Servicio</span>
+              <p className="text-slate-700 text-sm">{contratoDetalle.descripcion || 'Sin descripción adicional.'}</p>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     );
   }
@@ -446,7 +603,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                       <button 
                         onClick={() => setContratoDetalle(c)}
                         className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
-                        title="Ver Detalles"
+                        title="Ver Detalles y Cálculos"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
