@@ -35,19 +35,14 @@ const ROLES_PERMISOS = {
 
 /**
  * Valida si el usuario tiene permiso para ver un módulo.
- * El nombre de esta función DEBE ser 'tienePermiso' para que el Layout no falle.
  */
 export function tienePermiso(user, moduloId) {
-  // Si no hay usuario, bloqueamos el acceso
   if (!user) return false;
   
-  // Extraemos y normalizamos el rol a minúsculas para evitar problemas de mayúsculas/minúsculas
   const rolUsuario = String(user.role || user.rol || '').trim().toLowerCase();
   
-  // El admin o administrador siempre ve todo
   if (rolUsuario === 'admin' || rolUsuario === 'administrador') return true;
   
-  // Verificamos en la matriz
   const modulosPermitidos = ROLES_PERMISOS[rolUsuario] || [];
   return modulosPermitidos.includes(moduloId);
 }
