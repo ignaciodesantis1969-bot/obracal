@@ -16,7 +16,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [contratoDetalle, setContratoDetalle] = useState(null);
   const [subTabDetalle, setSubTabDetalle] = useState('fee');
 
-  // Función para formatear el mes base a "Mes-AAAA" (Ej: "Agosto-2026")
   const formatearMesBase = (val) => {
     if (!val) return '---';
     try {
@@ -36,9 +35,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           if (meses[numMes]) return `${meses[numMes]}-${anio}`;
         }
       }
-    } catch (e) {
-      // Ignorar error y retornar valor original
-    }
+    } catch (e) {}
     return val;
   };
 
@@ -47,11 +44,11 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const P = porcentajeBeneficioDeseado / 100;
   const porcentajeFee = Math.max(0, ((P + 0.2057) / 0.50874) * 100);
 
-  // REGISTROS CON VALORES ABSOLUTOS (Mes 1 Base = referencia, Meses siguientes = montos absolutos para cálculo automático de var %)
+  // Estados de los meses con nombres referenciales (Mes 1 base y meses siguientes)
   const [registrosMeses, setRegistrosMeses] = useState([
-    { mes: 'Mes 1 (Base)', uocra: 25301.41, ipc: 310.50, dolar: 1250.00 },
-    { mes: 'Mes 2', uocra: 26110.00, ipc: 317.00, dolar: 1270.00 },
-    { mes: 'Mes 3', uocra: 26840.00, ipc: 323.00, dolar: 1308.00 }
+    { mes: 'Mes 1 (Base) - Julio 2026', uocra: 5817, ipc: 0, dolar: 1489 },
+    { mes: 'Mes 2 - Agosto 2026', uocra: 6348, ipc: 2.1, dolar: 1485 },
+    { mes: 'Mes 3 - Septiembre 2026', uocra: 0, ipc: 0, dolar: 0 }
   ]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
@@ -247,16 +244,15 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     return true;
   });
 
-  // Funciones de cálculo para la fórmula polinómica basada en valores absolutos
+  // Cálculo: UOCRA y Dólar absolutos contra Mes 1. IPC directo como porcentaje.
   const calcularVariacionesMes = (reg, idx) => {
     if (idx === 0) return { varUocra: 0, varIpc: 0, varDolar: 0, poliMes: 0 };
     const baseU = Number(registrosMeses[0].uocra) || 1;
-    const baseI = Number(registrosMeses[0].ipc) || 1;
     const baseD = Number(registrosMeses[0].dolar) || 1;
 
     const varUocra = ((Number(reg.uocra) / baseU) - 1) * 100;
-    const varIpc = ((Number(reg.ipc) / baseI) - 1) * 100;
     const varDolar = ((Number(reg.dolar) / baseD) - 1) * 100;
+    const varIpc = Number(reg.ipc) || 0;
 
     const poliMes = (varUocra * 0.80) + (varIpc * 0.10) + (varDolar * 0.10);
     return { varUocra, varIpc, varDolar, poliMes };
@@ -527,7 +523,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <div className="border-b border-slate-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <h2 className="text-lg font-black text-slate-800">Determinación de Fórmula Polinómica (Mes a Mes)</h2>
-                  <p className="text-slate-500 text-sm">Carga mensual de montos absolutos (Mes 1 Base = referencia en 0%). Reajuste automático si acumula &gt; 5%.</p>
+                  <p className="text-slate-500 text-sm">Carga mensual con nombres de período detallados (Ej: Mes 1 (Base) - Julio 2026). Reajuste automático si acumula &gt; 5%.</p>
                 </div>
                 <div className={cn(
                   'px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border shadow-sm',
@@ -550,7 +546,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Periodo / Mes</label>
                   <input 
                     type="text" 
-                    placeholder="Ej: Mes 4" 
+                    placeholder="Ej: Mes 4 - Octubre 2026" 
                     required
                     value={nuevoMes.mes}
                     onChange={(e) => setNuevoMes({...nuevoMes, mes: e.target.value})}
@@ -568,7 +564,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">IPC Nac. (Índice)</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">IPC Nac. (%)</label>
                   <input 
                     type="number" 
                     step="0.01"
@@ -616,8 +612,23 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
                       return (
                         <tr key={idx} className="hover:bg-slate-50">
-                          <td className="p-4 font-bold text-slate-700 flex items-center gap-2">
-                            <Calendar className="w-4 h-4 text-slate-400" /> {reg.mes} {esBase && <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded">BASE</span>}
+                          <td className="p-4 font-bold text-slate-700">
+                            <div className="flex items-center gap-2">
+                              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                              <input 
+                                type="text"
+                                value={reg.mes}
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  const nuevos = [...registrosMeses];
+                                  nuevos[idx].mes = val;
+                                  setRegistrosMeses(nuevos);
+                                }}
+                                className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-amber-500 focus:outline-none font-bold text-slate-800 w-56 text-xs px-1 py-0.5"
+                                placeholder="Ej: Mes 2 - Agosto 2026"
+                              />
+                              {esBase && <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded shrink-0">BASE</span>}
+                            </div>
                           </td>
                           <td className="p-4 text-center">
                             <input 
@@ -653,7 +664,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                             />
                             {!esBase && (
                               <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
-                                ({varIpc >= 0 ? '+' : ''}{varIpc.toFixed(2)}%)
+                                (+{Number(reg.ipc).toFixed(2)}%)
                               </span>
                             )}
                           </td>
