@@ -31,6 +31,7 @@ import Tesoreria from '@/pages/Tesoreria';
 import Reportes from '@/pages/Reportes';
 import Usuarios from '@/pages/Usuarios';
 import TareasTemplate from '@/pages/TareasTemplate';
+import ContratosMantenimiento from '@/pages/ContratosMantenimiento'; // <--- Importado el nuevo módulo
 
 const AuthenticatedApp = () => {
   const { user, setUser } = useAuth();
@@ -49,7 +50,8 @@ const AuthenticatedApp = () => {
     personal: [],
     rubros: [],
     maestroTareasRubros: [],
-    legajos: [] // <--- Agregado para almacenar los legajos globales
+    legajos: [],
+    contratosMantenimiento: [] // <--- Agregado para almacenar los contratos globales
   });
 
   useEffect(() => {
@@ -127,7 +129,8 @@ const AuthenticatedApp = () => {
           personal: data.personal || [],
           rubros: data.rubros || [],
           maestroTareasRubros: data.maestro_tareas_rubros || data.maestroTareasRubros || [],
-          legajos: data.legajos || [] // <--- Agregado para recibir los legajos desde Google Sheets
+          legajos: data.legajos || [],
+          contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || [] // <--- Recibido desde Google Sheets
         });
       }
     } catch (error) {
@@ -266,6 +269,22 @@ const AuthenticatedApp = () => {
                 rubros={globalData.rubros}
                 facturas={globalData.facturas}
                 maestroTareasRubros={globalData.maestroTareasRubros}
+              />
+            </RequirePermiso>
+          } 
+        />
+
+        {/* --- NUEVA RUTA PARA CONTRATOS DE MANTENIMIENTO --- */}
+        <Route 
+          path="/contratos-mantenimiento" 
+          element={
+            <RequirePermiso modulo="contratos_mantenimiento">
+              <ContratosMantenimiento 
+                GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
+                contratos={globalData.contratosMantenimiento}
+                proveedores={globalData.proveedores}
+                obras={globalData.obras}
+                cargarDatos={cargarDatos}
               />
             </RequirePermiso>
           } 

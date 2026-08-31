@@ -4,7 +4,7 @@ import {
   LayoutDashboard, Users, Truck, Building2,
   Calculator, CalendarDays, ShoppingCart, Wallet, 
   BarChart3, ChevronLeft, ChevronRight, Menu,
-  ClipboardList, UserCog, LogOut, BookOpen, Loader2
+  ClipboardList, UserCog, LogOut, BookOpen, Loader2, ShieldCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -17,18 +17,19 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
 
 const allNavItems = [
-  { icon: LayoutDashboard, label: 'Dashboard',         path: '/',                     key: null },
-  { icon: Users,           label: 'Clientes',          path: '/clientes',     key: 'clientes' },
+  { icon: LayoutDashboard, label: 'Dashboard',         path: '/',                    key: null },
+  { icon: Users,           label: 'Clientes',          path: '/clientes',    key: 'clientes' },
   { icon: Truck,           label: 'Proveedores',     path: '/proveedores',    key: 'proveedores' },
-  { icon: Building2,       label: 'Obras',            path: '/obras',          key: 'obras' },
-  { icon: ClipboardList,   label: 'Insumos',          path: '/insumos',        key: 'insumos' },
+  { icon: Building2,       label: 'Obras',             path: '/obras',          key: 'obras' },
+  { icon: ClipboardList,   label: 'Insumos',           path: '/insumos',        key: 'insumos' },
   { icon: BookOpen,        label: 'Maestro de Tareas',path: '/tareas-template', key: 'presupuestos' },
   { icon: Calculator,      label: 'Presupuestos',     path: '/presupuestos',   key: 'presupuestos' },
   { icon: CalendarDays,    label: 'Planificación',    path: '/planificacion',  key: 'planificacion' },
   { icon: Users,           label: 'Recursos Humanos', path: '/rrhh',           key: 'rrhh' },
-  { icon: ShoppingCart,    label: 'Compras',          path: '/compras',        key: 'compras' },
-  { icon: Wallet,          label: 'Tesorería',        path: '/tesoreria',      key: 'tesoreria' },
+  { icon: ShoppingCart,    label: 'Compras',           path: '/compras',        key: 'compras' },
+  { icon: Wallet,          label: 'Tesorería',         path: '/tesoreria',      key: 'tesoreria' },
   { icon: BarChart3,       label: 'Control y Reportes', path: '/reportes',   key: 'reportes' },
+  { icon: ShieldCheck,     label: 'Contratos de Mantenimiento', path: '/contratos-mantenimiento', key: 'contratos_mantenimiento' },
 ];
 
 export default function Layout() {

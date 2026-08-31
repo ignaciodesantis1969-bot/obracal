@@ -6,6 +6,7 @@ export const MODULOS = [
   { id: 'insumos', nombre: 'Insumos', categoria: 'Operaciones' },
   { id: 'presupuestos', nombre: 'Presupuestos', categoria: 'Operaciones' },
   { id: 'planificacion', nombre: 'Planificación', categoria: 'Operaciones' },
+  { id: 'contratos_mantenimiento', nombre: 'Contratos de Mantenimiento', categoria: 'Operaciones' },
   { id: 'proveedores', nombre: 'Proveedores', categoria: 'Compras' },
   { id: 'compras', nombre: 'Compras', categoria: 'Compras' },
   { id: 'tesoreria', nombre: 'Tesorería', categoria: 'Finanzas' },
@@ -17,11 +18,11 @@ export const MODULOS = [
 const ROLES_PERMISOS = {
   admin: [
     'dashboard', 'clientes', 'obras', 'insumos', 'presupuestos', 'planificacion',
-    'proveedores', 'compras', 'tesoreria', 'usuarios', 'reportes'
+    'contratos_mantenimiento', 'proveedores', 'compras', 'tesoreria', 'usuarios', 'reportes'
   ],
   gestor: [
     'dashboard', 'clientes', 'obras', 'insumos', 'presupuestos', 'planificacion',
-    'proveedores', 'compras', 'reportes'
+    'contratos_mantenimiento', 'proveedores', 'compras', 'reportes'
   ],
   operador: [
     'dashboard', 'obras', 'insumos', 'compras'
