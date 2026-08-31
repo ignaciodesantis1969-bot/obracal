@@ -47,10 +47,11 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const P = porcentajeBeneficioDeseado / 100;
   const porcentajeFee = Math.max(0, ((P + 0.2057) / 0.50874) * 100);
 
+  // REGISTROS CON VALORES ABSOLUTOS (Mes 1 Base = referencia, Meses siguientes = montos absolutos para cálculo automático de var %)
   const [registrosMeses, setRegistrosMeses] = useState([
-    { mes: 'Mes 1 (Base)', uocra: 0, ipc: 0, dolar: 0 },
-    { mes: 'Mes 2', uocra: 3.2, ipc: 2.1, dolar: 1.5 },
-    { mes: 'Mes 3', uocra: 2.8, ipc: 1.9, dolar: 3.0 }
+    { mes: 'Mes 1 (Base)', uocra: 25301.41, ipc: 310.50, dolar: 1250.00 },
+    { mes: 'Mes 2', uocra: 26110.00, ipc: 317.00, dolar: 1270.00 },
+    { mes: 'Mes 3', uocra: 26840.00, ipc: 323.00, dolar: 1308.00 }
   ]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
@@ -59,6 +60,14 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     if (!nuevoMes.mes) return;
     setRegistrosMeses([...registrosMeses, { ...nuevoMes }]);
     setNuevoMes({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
+  };
+
+  const eliminarMesPolinomica = (idx) => {
+    if (idx === 0) {
+      alert("No se puede eliminar el Mes Base (Mes 1).");
+      return;
+    }
+    setRegistrosMeses(registrosMeses.filter((_, i) => i !== idx));
   };
 
   const [formData, setFormData] = useState({
@@ -238,6 +247,30 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     return true;
   });
 
+  // Funciones de cálculo para la fórmula polinómica basada en valores absolutos
+  const calcularVariacionesMes = (reg, idx) => {
+    if (idx === 0) return { varUocra: 0, varIpc: 0, varDolar: 0, poliMes: 0 };
+    const baseU = Number(registrosMeses[0].uocra) || 1;
+    const baseI = Number(registrosMeses[0].ipc) || 1;
+    const baseD = Number(registrosMeses[0].dolar) || 1;
+
+    const varUocra = ((Number(reg.uocra) / baseU) - 1) * 100;
+    const varIpc = ((Number(reg.ipc) / baseI) - 1) * 100;
+    const varDolar = ((Number(reg.dolar) / baseD) - 1) * 100;
+
+    const poliMes = (varUocra * 0.80) + (varIpc * 0.10) + (varDolar * 0.10);
+    return { varUocra, varIpc, varDolar, poliMes };
+  };
+
+  const calcularAcumuladoHasta = (idx) => {
+    let ac = 0;
+    for (let i = 1; i <= idx; i++) {
+      const { poliMes } = calcularVariacionesMes(registrosMeses[i], i);
+      ac += poliMes;
+    }
+    return ac;
+  };
+
   if (contratoDetalle) {
     const manoDeObra = [
       { codigo: '4000011125', topico: 'Valor HH SUPERVISOR', ars: 34157.25 },
@@ -260,15 +293,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     const impuestoDebitosCreditos = (totalCompra * 0.006) + (totalVenta * 0.006);
     const totalBeneficio = beneficioNetoConIVA - (impuestoGanancias + diferenciaIVA + ingresosBrutos + costoFinanciero + impuestoDebitosCreditos);
 
-    let acumuladoUocra = 0;
-    let acumuladoIpc = 0;
-    let acumuladoDolar = 0;
-    registrosMeses.forEach(r => {
-      acumuladoUocra += Number(r.uocra || 0);
-      acumuladoIpc += Number(r.ipc || 0);
-      acumuladoDolar += Number(r.dolar || 0);
-    });
-    const polinomioAcumuladoTotal = (acumuladoUocra * 0.80) + (acumuladoIpc * 0.10) + (acumuladoDolar * 0.10);
+    const polinomioAcumuladoTotal = calcularAcumuladoHasta(registrosMeses.length - 1);
     const superaUmbral = polinomioAcumuladoTotal > 5.0;
 
     return (
@@ -502,7 +527,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <div className="border-b border-slate-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <h2 className="text-lg font-black text-slate-800">Determinación de Fórmula Polinómica (Mes a Mes)</h2>
-                  <p className="text-slate-500 text-sm">Carga mensual de variaciones: U.O.C.R.A. (80%) + IPC Nacional (10%) + Dólar BNA (10%). Reajuste automático si acumula &gt; 5%.</p>
+                  <p className="text-slate-500 text-sm">Carga mensual de montos absolutos (Mes 1 Base = referencia en 0%). Reajuste automático si acumula &gt; 5%.</p>
                 </div>
                 <div className={cn(
                   'px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border shadow-sm',
@@ -533,7 +558,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Var. U.O.C.R.A. (80%)</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">U.O.C.R.A. (Salario $)</label>
                   <input 
                     type="number" 
                     step="0.01"
@@ -543,7 +568,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Var. IPC (10%)</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">IPC Nac. (Índice)</label>
                   <input 
                     type="number" 
                     step="0.01"
@@ -553,7 +578,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Var. Dólar BNA (10%)</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Dólar BNA ($/u$s)</label>
                   <input 
                     type="number" 
                     step="0.01"
@@ -580,26 +605,93 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                       <th className="p-4 text-center">Dólar BNA (10%)</th>
                       <th className="p-4 text-right bg-amber-500/10 text-slate-900">Polinómica del Mes</th>
                       <th className="p-4 text-right bg-slate-100 text-slate-900">Acumulado Total</th>
+                      <th className="p-4 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {registrosMeses.map((reg, idx) => {
-                      const poliMes = (Number(reg.uocra) * 0.80) + (Number(reg.ipc) * 0.10) + (Number(reg.dolar) * 0.10);
-                      let acSub = 0;
-                      for (let i = 0; i <= idx; i++) {
-                        acSub += (Number(registrosMeses[i].uocra) * 0.80) + (Number(registrosMeses[i].ipc) * 0.10) + (Number(registrosMeses[i].dolar) * 0.10);
-                      }
+                      const esBase = idx === 0;
+                      const { varUocra, varIpc, varDolar, poliMes } = calcularVariacionesMes(reg, idx);
+                      const acSub = calcularAcumuladoHasta(idx);
+
                       return (
                         <tr key={idx} className="hover:bg-slate-50">
                           <td className="p-4 font-bold text-slate-700 flex items-center gap-2">
-                            <Calendar className="w-4 h-4 text-slate-400" /> {reg.mes}
+                            <Calendar className="w-4 h-4 text-slate-400" /> {reg.mes} {esBase && <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded">BASE</span>}
                           </td>
-                          <td className="p-4 text-center text-slate-600">{reg.uocra}%</td>
-                          <td className="p-4 text-center text-slate-600">{reg.ipc}%</td>
-                          <td className="p-4 text-center text-slate-600">{reg.dolar}%</td>
-                          <td className="p-4 text-right font-semibold text-slate-800 bg-amber-500/5">+{poliMes.toFixed(2)}%</td>
+                          <td className="p-4 text-center">
+                            <input 
+                              type="number"
+                              step="0.01"
+                              value={reg.uocra}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                const nuevos = [...registrosMeses];
+                                nuevos[idx].uocra = val;
+                                setRegistrosMeses(nuevos);
+                              }}
+                              className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
+                            />
+                            {!esBase && (
+                              <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
+                                ({varUocra >= 0 ? '+' : ''}{varUocra.toFixed(2)}%)
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 text-center">
+                            <input 
+                              type="number"
+                              step="0.01"
+                              value={reg.ipc}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                const nuevos = [...registrosMeses];
+                                nuevos[idx].ipc = val;
+                                setRegistrosMeses(nuevos);
+                              }}
+                              className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
+                            />
+                            {!esBase && (
+                              <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
+                                ({varIpc >= 0 ? '+' : ''}{varIpc.toFixed(2)}%)
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 text-center">
+                            <input 
+                              type="number"
+                              step="0.01"
+                              value={reg.dolar}
+                              onChange={(e) => {
+                                const val = Number(e.target.value);
+                                const nuevos = [...registrosMeses];
+                                nuevos[idx].dolar = val;
+                                setRegistrosMeses(nuevos);
+                              }}
+                              className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
+                            />
+                            {!esBase && (
+                              <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
+                                ({varDolar >= 0 ? '+' : ''}{varDolar.toFixed(2)}%)
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4 text-right font-semibold text-slate-800 bg-amber-500/5">
+                            {esBase ? '0.00%' : `+${poliMes.toFixed(2)}%`}
+                          </td>
                           <td className={cn('p-4 text-right font-bold bg-slate-50', acSub > 5 ? 'text-red-600' : 'text-slate-900')}>
-                            +{acSub.toFixed(2)}%
+                            {esBase ? '0.00%' : `+${acSub.toFixed(2)}%`}
+                          </td>
+                          <td className="p-4 text-center">
+                            {!esBase && (
+                              <button 
+                                onClick={() => eliminarMesPolinomica(idx)}
+                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                title="Eliminar Mes"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );
