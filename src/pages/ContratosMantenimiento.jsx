@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
-export default function ContratosMantenimiento({ contratos = [], clientes = [], cargarDatos }) {
+export default function ContratosMantenimiento({ contratos = [], clientes: clientesProp = [], cargarDatos }) {
+  const [clientes, setClientes] = useState(clientesProp);
   const [pestanaActiva, setPestanaActiva] = useState('trabajo');
   const [busqueda, setBusqueda] = useState('');
   const [modalAbierto, setModalAbierto] = useState(false);
@@ -21,6 +22,26 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
     estado: 'Borrador',
     descripcion: ''
   });
+
+  // Cargar clientes de respaldo si no vienen por props
+  useEffect(() => {
+    if (clientesProp && clientesProp.length > 0) {
+      setClientes(clientesProp);
+    } else {
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'Clientes', action: 'list' })
+      })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) {
+          setClientes(data);
+        }
+      })
+      .catch(err => console.error("Error al cargar clientes:", err));
+    }
+  }, [clientesProp]);
 
   const totalBorrador = contratos.filter(c => String(c.estado || '').toLowerCase() === 'borrador').length;
   const totalEntregado = contratos.filter(c => String(c.estado || '').toLowerCase() === 'entregado').length;
@@ -43,7 +64,7 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
     setFormData({
       codigo: generarNuevoCodigo(),
       nombre_contrato: '',
-      cliente: clientes[0]?.nombre || clientes[0]?.razon_social || '',
+      cliente: clientes[0]?.nombre || clientes[0]?.razon_social || clientes[0]?.cliente || '',
       ubicacion: '',
       mes_base: new Date().toISOString().slice(0, 7),
       actualizacion: 'Polinómica',
@@ -379,6 +400,7 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
                     value={formData.cliente}
                     onChange={(e) => setFormData({...formData, cliente: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
+                    required
                   >
                     <option value="">Seleccionar cliente...</option>
                     {clientes.map((cli, idx) => {
@@ -421,7 +443,7 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
                     value={formData.mes_base}
                     onChange={(e) => setFormData({...formData, mes_base: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-                    placeholder="Ej: 2026-08 o Mar 2026"
+                    placeholder="Ej: Mar 2026"
                   />
                 </div>
                 <div>
