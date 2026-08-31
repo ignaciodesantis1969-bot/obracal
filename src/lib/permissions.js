@@ -20,6 +20,10 @@ const ROLES_PERMISOS = {
     'dashboard', 'clientes', 'obras', 'insumos', 'presupuestos', 'planificacion',
     'contratos_mantenimiento', 'proveedores', 'compras', 'tesoreria', 'usuarios', 'reportes'
   ],
+  administrador: [
+    'dashboard', 'clientes', 'obras', 'insumos', 'presupuestos', 'planificacion',
+    'contratos_mantenimiento', 'proveedores', 'compras', 'tesoreria', 'usuarios', 'reportes'
+  ],
   gestor: [
     'dashboard', 'clientes', 'obras', 'insumos', 'presupuestos', 'planificacion',
     'contratos_mantenimiento', 'proveedores', 'compras', 'reportes'
@@ -37,11 +41,11 @@ export function tienePermiso(user, moduloId) {
   // Si no hay usuario, bloqueamos el acceso
   if (!user) return false;
   
-  // Extraemos el rol (soportando ambas formas en las que puede estar escrito)
-  const rolUsuario = user.role || user.rol;
+  // Extraemos y normalizamos el rol a minúsculas para evitar problemas de mayúsculas/minúsculas
+  const rolUsuario = String(user.role || user.rol || '').trim().toLowerCase();
   
-  // El admin siempre ve todo
-  if (rolUsuario === 'admin') return true;
+  // El admin o administrador siempre ve todo
+  if (rolUsuario === 'admin' || rolUsuario === 'administrador') return true;
   
   // Verificamos en la matriz
   const modulosPermitidos = ROLES_PERMISOS[rolUsuario] || [];
