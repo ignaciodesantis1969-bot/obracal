@@ -1,11 +1,11 @@
 import { useState } from 'react';
-import { ShieldCheck, Plus, Search, Edit2, Trash2, Building2, MapPin, Calendar, DollarSign, X } from 'lucide-react';
+import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
 export default function ContratosMantenimiento({ contratos = [], clientes = [], cargarDatos }) {
-  const [pestanaActiva, setPestanaActiva] = useState('trabajo'); // 'trabajo', 'activos', 'archivados'
+  const [pestanaActiva, setPestanaActiva] = useState('trabajo');
   const [busqueda, setBusqueda] = useState('');
   const [modalAbierto, setModalAbierto] = useState(false);
   const [cargando, setCargando] = useState(false);
@@ -17,32 +17,38 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
     cliente: '',
     ubicacion: '',
     mes_base: '',
-    actualizacion: '',
+    actualizacion: 'Polinómica',
     estado: 'Borrador',
-    descripcion: '',
-    monto_mensual: ''
+    descripcion: ''
   });
 
-  // Conteo para las tarjetas superiores
   const totalBorrador = contratos.filter(c => String(c.estado || '').toLowerCase() === 'borrador').length;
   const totalEntregado = contratos.filter(c => String(c.estado || '').toLowerCase() === 'entregado').length;
   const totalActivo = contratos.filter(c => String(c.estado || '').toLowerCase() === 'activo').length;
   const totalFinalizado = contratos.filter(c => String(c.estado || '').toLowerCase() === 'finalizado').length;
   const totalArchivado = contratos.filter(c => String(c.estado || '').toLowerCase() === 'archivado').length;
 
+  const generarNuevoCodigo = () => {
+    if (!contratos || contratos.length === 0) return 'CM001';
+    const numeros = contratos.map(c => {
+      const match = String(c.codigo || '').match(/CM(\d+)/i);
+      return match ? parseInt(match[1], 10) : 0;
+    });
+    const maxNum = Math.max(...numeros, 0);
+    return `CM${String(maxNum + 1).padStart(3, '0')}`;
+  };
+
   const abrirModalNuevo = () => {
     setContratoEditando(null);
-    const randomNum = Math.floor(1000 + Math.random() * 9000);
     setFormData({
-      codigo: `CM-${randomNum}`,
+      codigo: generarNuevoCodigo(),
       nombre_contrato: '',
       cliente: clientes[0]?.nombre || clientes[0]?.razon_social || '',
       ubicacion: '',
-      mes_base: new Date().toISOString().slice(0, 7), // YYYY-MM
-      actualizacion: '',
+      mes_base: new Date().toISOString().slice(0, 7),
+      actualizacion: 'Polinómica',
       estado: 'Borrador',
-      descripcion: '',
-      monto_mensual: ''
+      descripcion: ''
     });
     setModalAbierto(true);
   };
@@ -50,15 +56,14 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
   const abrirModalEditar = (c) => {
     setContratoEditando(c);
     setFormData({
-      codigo: c.codigo || '',
+      codigo: c.codigo || generarNuevoCodigo(),
       nombre_contrato: c.nombre_contrato || '',
       cliente: c.cliente || '',
       ubicacion: c.ubicacion || '',
       mes_base: c.mes_base || '',
-      actualizacion: c.actualizacion || '',
+      actualizacion: c.actualizacion || 'Polinómica',
       estado: c.estado || 'Borrador',
-      descripcion: c.descripcion || '',
-      monto_mensual: c.monto_mensual || ''
+      descripcion: c.descripcion || ''
     });
     setModalAbierto(true);
   };
@@ -105,10 +110,8 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
         body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'delete', id })
       });
       const data = await res.json();
-      if (data.success) {
-        if (cargarDatos) cargarDatos();
-      } else {
-        alert("Error al eliminar: " + (data.error || 'Desconocido'));
+      if (data.success && cargarDatos) {
+        cargarDatos();
       }
     } catch (err) {
       console.error(err);
@@ -137,7 +140,6 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
     }
   };
 
-  // Filtrado según pestañas de Presupuestos
   const contratosFiltrados = contratos.filter(c => {
     const estado = String(c.estado || '').toLowerCase();
     const matchBusqueda = 
@@ -160,7 +162,6 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
 
   return (
     <div className="space-y-6">
-      {/* Cabecera */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
         <div>
           <h1 className="text-2xl font-black text-slate-800 flex items-center gap-2">
@@ -176,7 +177,6 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
         </button>
       </div>
 
-      {/* 5 Tarjetas Superiores Estilo Presupuestos */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Borrador</p>
@@ -200,7 +200,6 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
         </div>
       </div>
 
-      {/* Barra de Pestañas y Buscador estilo Presupuestos */}
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto">
           <button 
@@ -244,7 +243,6 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
         </div>
       </div>
 
-      {/* Listado de Contratos */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse text-sm">
@@ -323,7 +321,6 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
         </div>
       </div>
 
-      {/* Modal de Creación / Edición */}
       {modalAbierto && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-xl overflow-hidden border border-slate-200">
@@ -378,14 +375,19 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Cliente</label>
-                  <input 
-                    type="text" 
-                    required
-                    placeholder="Nombre del cliente..."
+                  <select 
                     value={formData.cliente}
                     onChange={(e) => setFormData({...formData, cliente: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-                  />
+                  >
+                    <option value="">Seleccionar cliente...</option>
+                    {clientes.map((cli, idx) => {
+                      const nombreCli = cli.nombre || cli.razon_social || cli.cliente || `Cliente #${idx + 1}`;
+                      return (
+                        <option key={idx} value={nombreCli}>{nombreCli}</option>
+                      );
+                    })}
+                  </select>
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Ubicación / Planta Industrial</label>
@@ -401,7 +403,7 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Descripción del Servicio</label>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Descripción del Servicio (Detalles)</label>
                 <textarea 
                   rows="2"
                   value={formData.descripcion}
@@ -411,18 +413,7 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
                 ></textarea>
               </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Monto Mensual ($)</label>
-                  <input 
-                    type="number" 
-                    step="0.01"
-                    value={formData.monto_mensual}
-                    onChange={(e) => setFormData({...formData, monto_mensual: e.target.value})}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-                    placeholder="0.00"
-                  />
-                </div>
+              <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Mes Base</label>
                   <input 
@@ -430,18 +421,20 @@ export default function ContratosMantenimiento({ contratos = [], clientes = [], 
                     value={formData.mes_base}
                     onChange={(e) => setFormData({...formData, mes_base: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-                    placeholder="Ej: Mar 2026"
+                    placeholder="Ej: 2026-08 o Mar 2026"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Actualización (Mes/Año)</label>
-                  <input 
-                    type="text" 
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Actualización</label>
+                  <select 
                     value={formData.actualizacion}
                     onChange={(e) => setFormData({...formData, actualizacion: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-                    placeholder="Ej: Cada 3 Meses"
-                  />
+                  >
+                    <option value="Polinómica">Polinómica</option>
+                    <option value="Índice">Índice</option>
+                    <option value="Fija">Fija</option>
+                  </select>
                 </div>
               </div>
 
