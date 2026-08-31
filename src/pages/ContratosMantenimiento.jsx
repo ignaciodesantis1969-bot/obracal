@@ -13,13 +13,28 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [cargando, setCargando] = useState(false);
   const [contratoEditando, setContratoEditando] = useState(null);
   
-  // Estado para la vista de detalles (el ojito) y sus pestañas internas
+  // Estado para la vista de detalles (el ojito) y pestañas internas
   const [contratoDetalle, setContratoDetalle] = useState(null);
-  const [subTabDetalle, setSubTabDetalle] = useState('horas'); // 'horas', 'fee', 'general'
+  const [subTabDetalle, setSubTabDetalle] = useState('fee'); // 'horas', 'fee', 'general'
 
-  // Simulador interactivo para el Cálculo de Fee (basado en la captura 2)
+  // Simulador inverso: A partir del % de Beneficio deseado, obtenemos el Fee (%)
   const [costoMaterialBase, setCostoMaterialBase] = useState(100);
-  const [porcentajeFee, setPorcentajeFee] = useState(49.5);
+  const [porcentajeBeneficioDeseado, setPorcentajeBeneficioDeseado] = useState(4.61); // % de beneficio objetivo
+
+  // Fórmula inversa exacta derivada del modelo financiero
+  const P = porcentajeBeneficioDeseado / 100;
+  const porcentajeFee = Math.max(0, ((P + 0.2057) / 0.50874) * 100);
+
+  const [formData, setFormData] = useState({
+    codigo: '',
+    nombre_contrato: '',
+    cliente: '',
+    ubicacion: '',
+    mes_base: '',
+    actualizacion: 'Polinómica',
+    estado: 'Borrador',
+    descripcion: ''
+  });
 
   const refrescarDatosLocales = async () => {
     try {
@@ -76,17 +91,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     });
     setModalAbierto(true);
   };
-
-  const [formData, setFormData] = useState({
-    codigo: '',
-    nombre_contrato: '',
-    cliente: '',
-    ubicacion: '',
-    mes_base: '',
-    actualizacion: 'Polinómica',
-    estado: 'Borrador',
-    descripcion: ''
-  });
 
   const abrirModalEditar = (c) => {
     setContratoEditando(c);
@@ -208,23 +212,22 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
       { codigo: '-', topico: 'Valor HH TECNICO OFICINA TECNICA', ars: 39294.02 }
     ];
 
-    // Cálculos dinámicos basados en la captura 2
+    // Cálculos financieros con Fee derivado
     const precioVentaMaterial = costoMaterialBase * (1 + porcentajeFee / 100);
     const ivaCompra = costoMaterialBase * 0.21;
     const totalCompra = costoMaterialBase + ivaCompra;
     const ivaVenta = precioVentaMaterial * 0.21;
     const totalVenta = precioVentaMaterial + ivaVenta;
-    const beneficioNetoConIVA = precioVentaMaterial - costoMaterialBase;
+    const beneficioNetoConIVA = totalVenta - totalCompra;
     const impuestoGanancias = beneficioNetoConIVA * 0.35;
-    const diferenciaIVA = ivaVenta - ivaCompra;
-    const ingresosBrutos = precioVentaMaterial * 0.05;
-    const costoFinanciero = precioVentaMaterial * 0.108;
-    const impuestoDebitosCreditos = (costoMaterialBase * 0.006) + (precioVentaMaterial * 0.006);
+    const diferenciaIVA = ivaVenta - ivaCompra; // Diferencia entre montos con IVA
+    const ingresosBrutos = totalVenta * 0.05;
+    const costoFinanciero = totalCompra * 0.108;
+    const impuestoDebitosCreditos = (totalCompra * 0.006) + (totalVenta * 0.006);
     const totalBeneficio = beneficioNetoConIVA - (impuestoGanancias + diferenciaIVA + ingresosBrutos + costoFinanciero + impuestoDebitosCreditos);
 
     return (
       <div className="space-y-6">
-        {/* Barra superior de navegación en detalle */}
         <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center gap-4">
             <button 
@@ -245,7 +248,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </div>
         </div>
 
-        {/* Tarjetas Resumen */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Mes Base</p>
@@ -256,8 +258,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
             <p className="text-2xl font-black text-amber-600">{contratoDetalle.actualizacion || 'Polinómica'}</p>
           </div>
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Fee Materiales</p>
-            <p className="text-2xl font-black text-emerald-600">{porcentajeFee}%</p>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Fee Materiales Derivado</p>
+            <p className="text-2xl font-black text-emerald-600">{porcentajeFee.toFixed(2)} %</p>
           </div>
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Estado</p>
@@ -265,17 +267,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </div>
         </div>
 
-        {/* Pestañas de Navegación Interna (Estilo Presupuesto) */}
         <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2 overflow-x-auto">
-          <button 
-            onClick={() => setSubTabDetalle('horas')}
-            className={cn(
-              'px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2',
-              subTabDetalle === 'horas' ? 'bg-amber-500 text-slate-950 shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-            )}
-          >
-            <Calculator className="w-4 h-4" /> Cálculo de Horas (HH)
-          </button>
           <button 
             onClick={() => setSubTabDetalle('fee')}
             className={cn(
@@ -284,6 +276,15 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
             )}
           >
             <DollarSign className="w-4 h-4" /> Cálculo de Fee y Materiales
+          </button>
+          <button 
+            onClick={() => setSubTabDetalle('horas')}
+            className={cn(
+              'px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2',
+              subTabDetalle === 'horas' ? 'bg-amber-500 text-slate-950 shadow-md' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+            )}
+          >
+            <Calculator className="w-4 h-4" /> Cálculo de Horas (HH)
           </button>
           <button 
             onClick={() => setSubTabDetalle('general')}
@@ -296,7 +297,118 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </button>
         </div>
 
-        {/* Contenido de la Pestaña: Cálculo de Horas */}
+        {subTabDetalle === 'fee' && (
+          <div className="space-y-6">
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+              <div className="border-b border-slate-200 pb-4">
+                <h2 className="text-lg font-black text-slate-800">2. Materiales — Cálculo Inverso de Fee (%)</h2>
+                <p className="text-slate-500 text-sm">Define el beneficio deseado y el sistema calculará automáticamente el Fee de Gestión necesario.</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Costo Material Base ($)</label>
+                  <input 
+                    type="number" 
+                    value={costoMaterialBase}
+                    onChange={(e) => setCostoMaterialBase(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Porcentaje de Beneficio Deseado (%)</label>
+                  <input 
+                    type="number" 
+                    step="0.01"
+                    value={porcentajeBeneficioDeseado}
+                    onChange={(e) => setPorcentajeBeneficioDeseado(Number(e.target.value))}
+                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:border-amber-500 text-emerald-700"
+                  />
+                </div>
+              </div>
+
+              <div className="p-3 bg-amber-500/10 rounded-xl border border-amber-500/20 text-center">
+                <p className="text-xs font-bold text-amber-800">Fee de Gestión Resultante:</p>
+                <p className="text-2xl font-black text-amber-900">{porcentajeFee.toFixed(2)} %</p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
+                <div className="space-y-4">
+                  <div className="p-4 bg-slate-100 rounded-xl border border-slate-200">
+                    <p className="text-xs font-bold text-slate-700 uppercase mb-2">a) Compra a proveedor externo</p>
+                    <div className="flex justify-between text-sm py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Precio Neto:</span>
+                      <span className="font-semibold">$ {costoMaterialBase.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm py-1 border-b border-slate-200">
+                      <span className="text-slate-600">IVA (21%):</span>
+                      <span className="font-semibold">$ {ivaCompra.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm py-1 font-bold text-slate-800">
+                      <span>Total Compra (con IVA):</span>
+                      <span>$ {totalCompra.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-amber-500/10 rounded-xl border border-amber-500/20">
+                    <p className="text-xs font-bold text-amber-800 uppercase mb-2">b) Facturación al Cliente</p>
+                    <div className="flex justify-between text-sm py-1 border-b border-amber-500/20">
+                      <span className="text-slate-700">Precio con Fee ({porcentajeFee.toFixed(2)}%):</span>
+                      <span className="font-bold text-slate-900">$ {precioVentaMaterial.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm py-1 border-b border-amber-500/20">
+                      <span className="text-slate-700">IVA (21%):</span>
+                      <span className="font-bold text-slate-900">$ {ivaVenta.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between text-sm py-1 font-black text-amber-900">
+                      <span>Total Facturado (con IVA):</span>
+                      <span>$ {totalVenta.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200">
+                    <p className="text-xs font-bold text-emerald-800 uppercase mb-2">c) Desglose de Beneficio Bruto</p>
+                    <div className="flex justify-between text-sm py-1 font-bold text-emerald-900">
+                      <span>Beneficio Neto (Total con IVA - Total Compra):</span>
+                      <span>$ {beneficioNetoConIVA.toFixed(2)}</span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-xs">
+                    <p className="font-bold text-slate-700 uppercase mb-1">d) Gastos, Impuestos y Costos Financieros</p>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Impuesto a las Ganancias (35%):</span>
+                      <span className="font-medium">$ {impuestoGanancias.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Diferencia I.V.A. (con IVA):</span>
+                      <span className="font-medium">$ {diferenciaIVA.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Ingresos Brutos (5%):</span>
+                      <span className="font-medium">$ {ingresosBrutos.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Costo Financiero (10,8%):</span>
+                      <span className="font-medium">$ {costoFinanciero.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-1 border-b border-slate-200">
+                      <span className="text-slate-600">Imp. Débitos y Créditos (1,2%):</span>
+                      <span className="font-medium">$ {impuestoDebitosCreditos.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between py-2 font-black text-sm text-slate-900 bg-amber-500/20 px-2 rounded-lg mt-2">
+                      <span>TOTAL BENEFICIO REAL:</span>
+                      <span className="text-emerald-700">$ {totalBeneficio.toFixed(2)}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {subTabDetalle === 'horas' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden space-y-4 p-6">
             <div className="border-b border-slate-200 pb-4">
@@ -328,117 +440,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </div>
         )}
 
-        {/* Contenido de la Pestaña: Cálculo de Fee y Materiales */}
-        {subTabDetalle === 'fee' && (
-          <div className="space-y-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
-              <div className="border-b border-slate-200 pb-4">
-                <h2 className="text-lg font-black text-slate-800">2. Materiales — Cálculo de Fee de Gestión (%)</h2>
-                <p className="text-slate-500 text-sm">Simulador financiero basado en un costo de referencia de materiales ($100,00 ajustable) y el fee corporativo.</p>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Costo Material Base ($ de prueba)</label>
-                  <input 
-                    type="number" 
-                    value={costoMaterialBase}
-                    onChange={(e) =>setCostoMaterialBase(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Fee Gestión Materiales (%)</label>
-                  <input 
-                    type="number" 
-                    step="0.1"
-                    value={porcentajeFee}
-                    onChange={(e) => setPorcentajeFee(Number(e.target.value))}
-                    className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:border-amber-500"
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                {/* Bloque a y b */}
-                <div className="space-y-4">
-                  <div className="p-4 bg-slate-100 rounded-xl border border-slate-200">
-                    <p className="text-xs font-bold text-slate-700 uppercase mb-2">a) Compra a proveedor externo</p>
-                    <div className="flex justify-between text-sm py-1 border-b border-slate-200">
-                      <span className="text-slate-600">Precio Neto:</span>
-                      <span className="font-semibold">$ {costoMaterialBase.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm py-1 border-b border-slate-200">
-                      <span className="text-slate-600">IVA (21%):</span>
-                      <span className="font-semibold">$ {ivaCompra.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm py-1 font-bold text-slate-800">
-                      <span>Total Compra:</span>
-                      <span>$ {totalCompra.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-amber-500/10 rounded-xl border border-amber-500/20">
-                    <p className="text-xs font-bold text-amber-800 uppercase mb-2">b) Facturación al Cliente</p>
-                    <div className="flex justify-between text-sm py-1 border-b border-amber-500/20">
-                      <span className="text-slate-700">Precio con Fee ({porcentajeFee}%):</span>
-                      <span className="font-bold text-slate-900">$ {precioVentaMaterial.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm py-1 border-b border-amber-500/20">
-                      <span className="text-slate-700">IVA (21%):</span>
-                      <span className="font-bold text-slate-900">$ {ivaVenta.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between text-sm py-1 font-black text-amber-900">
-                      <span>Total Facturado:</span>
-                      <span>$ {totalVenta.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Bloque c y d (Desgloses y Beneficios) */}
-                <div className="space-y-4">
-                  <div className="p-4 bg-emerald-50 rounded-xl border border-emerald-200">
-                    <p className="text-xs font-bold text-emerald-800 uppercase mb-2">c) Desglose de Beneficio Bruto</p>
-                    <div className="flex justify-between text-sm py-1 font-bold text-emerald-900">
-                      <span>Beneficio Neto (con IVA):</span>
-                      <span>$ {beneficioNetoConIVA.toFixed(2)}</span>
-                    </div>
-                  </div>
-
-                  <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-1.5 text-xs">
-                    <p className="font-bold text-slate-700 uppercase mb-1">d) Gastos, Impuestos y Costos Financieros</p>
-                    <div className="flex justify-between py-1 border-b border-slate-200">
-                      <span className="text-slate-600">Impuesto a las Ganancias (35%):</span>
-                      <span className="font-medium">$ {impuestoGanancias.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-200">
-                      <span className="text-slate-600">Diferencia I.V.A.:</span>
-                      <span className="font-medium">$ {diferenciaIVA.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-200">
-                      <span className="text-slate-600">Ingresos Brutos (5%):</span>
-                      <span className="font-medium">$ {ingresosBrutos.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-200">
-                      <span className="text-slate-600">Costo Financiero (10,8%):</span>
-                      <span className="font-medium">$ {costoFinanciero.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-1 border-b border-slate-200">
-                      <span className="text-slate-600">Imp. Débitos y Créditos (1,2%):</span>
-                      <span className="font-medium">$ {impuestoDebitosCreditos.toFixed(2)}</span>
-                    </div>
-                    <div className="flex justify-between py-2 font-black text-sm text-slate-900 bg-amber-500/20 px-2 rounded-lg mt-2">
-                      <span>TOTAL BENEFICIO REAL:</span>
-                      <span className="text-emerald-700">$ {totalBeneficio.toFixed(2)}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Contenido de la Pestaña: Descripción General */}
         {subTabDetalle === 'general' && (
           <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
             <h2 className="text-lg font-black text-slate-800">Detalles del Contrato</h2>
