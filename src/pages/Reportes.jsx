@@ -3,7 +3,6 @@ import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, 
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
-// Respaldo garantizado basado en tu Base de Datos de Google Sheets
 const CONTRATO_DEFAULT = [
   {
     id: "1",
@@ -11,7 +10,7 @@ const CONTRATO_DEFAULT = [
     nombre_contrato: "Mantenimiento Correctivo Edilicio",
     cliente: "LDC ARGENTINA S.A.",
     estado: "Activo",
-    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon\n---DATOS_SICE_INTEGRAL---\"proveedorKey\":\"JP4829\",\"clienteKey\":\"CG9012\""
+    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon\n---DATOS_SICE_INTEGRAL---\n{\"proveedorKey\":\"JP4829\",\"clienteKey\":\"CG9012\"}"
   }
 ];
 
@@ -27,7 +26,6 @@ export default function Reportes(props) {
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
 
-  // Sincronización robusta con la API y respaldo automático
   useEffect(() => {
     fetch(`${GOOGLE_SCRIPT_URL}?tabla=ContratosMantenimiento`)
       .then(res => res.json())
@@ -61,7 +59,6 @@ export default function Reportes(props) {
       });
   }, []);
 
-  // Consolidación de contratos priorizando props, servidor o respaldo por defecto
   const contratosList = useMemo(() => {
     const propsC = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento;
     if (Array.isArray(propsC) && propsC.length > 0) return propsC;
@@ -90,7 +87,6 @@ export default function Reportes(props) {
   const [sicePartesAprobados, setSicePartesAprobados] = useState([]);
   const [parteVisualizando, setParteVisualizando] = useState(null);
 
-  // Sincronizar y cargar partes aprobados del contrato seleccionado desde el backend
   useEffect(() => {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
@@ -98,7 +94,9 @@ export default function Reportes(props) {
         if (contrato.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
           try {
             const partes = contrato.descripcion.split('---DATOS_SICE_INTEGRAL---');
-            const json = JSON.parse(partes[1]);
+            let jsonStr = partes[1].trim();
+            if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
+            const json = JSON.parse(jsonStr);
             if (json.partesAprobados && Array.isArray(json.partesAprobados)) {
               setSicePartesAprobados(json.partesAprobados);
             } else {
@@ -134,19 +132,13 @@ export default function Reportes(props) {
         const partes = descActual.split('---DATOS_SICE_INTEGRAL---');
         descActual = partes[0].trim();
         try {
-          const json = JSON.parse(partes[1]);
+          let jsonStr = partes[1].trim();
+          if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
+          const json = JSON.parse(jsonStr);
           registrosActuales = json.registros || [];
           ajustesActuales = json.ajustes || [];
           if (json.proveedorKey) provKey = json.proveedorKey;
           if (json.clienteKey) cliKey = json.clienteKey;
-        } catch (e) {}
-      } else if (descActual.includes('---DATOS_POLINOMICA---')) {
-        const partes = descActual.split('---DATOS_POLINOMICA---');
-        descActual = partes[0].trim();
-        try {
-          const json = JSON.parse(partes[1]);
-          registrosActuales = json.registros || [];
-          ajustesActuales = json.ajustes || [];
         } catch (e) {}
       }
 
@@ -157,7 +149,7 @@ export default function Reportes(props) {
         clienteKey: cliKey,
         partesAprobados: nuevosPartes
       };
-      const nuevaDesc = `${descActual}\n---DATOS_SICE_INTEGRAL---${JSON.stringify(payloadData)}`;
+      const nuevaDesc = `${descActual}\n---DATOS_SICE_INTEGRAL---\n${JSON.stringify(payloadData)}`;
 
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -177,15 +169,35 @@ export default function Reportes(props) {
   const obtenerClavesContratoActual = () => {
     const contratoActivo = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
     if (contratoActivo && contratoActivo.descripcion) {
-      if (contratoActivo.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
+      const desc = String(contratoActivo.descripcion);
+      
+      if (desc.includes('---DATOS_SICE_INTEGRAL---')) {
         try {
-          const partesDesc = contratoActivo.descripcion.split('---DATOS_SICE_INTEGRAL---');
-          const keysJson = JSON.parse(partesDesc[1]);
-          return {
-            proveedorKey: keysJson.proveedorKey || 'JP4829',
-            clienteKey: keysJson.clienteKey || 'CG9012'
-          };
+          const partesDesc = desc.split('---DATOS_SICE_INTEGRAL---');
+          let jsonStr = partesDesc[1].trim();
+          if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
+          const keysJson = JSON.parse(jsonStr);
+          if (keysJson.proveedorKey || keysJson.clienteKey) {
+            return {
+              proveedorKey: keysJson.proveedorKey || 'JP4829',
+              clienteKey: keysJson.clienteKey || 'CG9012'
+            };
+          }
         } catch (e) {}
+      }
+
+      // Extracción automática por patrón de letras y números (ej: JP4829)
+      const matches = desc.match(/[A-Za-z]{2}\d{4}/g);
+      if (matches && matches.length >= 2) {
+        return {
+          proveedorKey: matches[0],
+          clienteKey: matches[1]
+        };
+      } else if (matches && matches.length === 1) {
+        return {
+          proveedorKey: matches[0],
+          clienteKey: 'CG9012'
+        };
       }
     }
     return { proveedorKey: 'JP4829', clienteKey: 'CG9012' };
@@ -240,11 +252,11 @@ export default function Reportes(props) {
     const { proveedorKey, clienteKey } = obtenerClavesContratoActual();
     
     if (siceRespProveedor.clave.toUpperCase() !== proveedorKey.toUpperCase()) {
-      alert("La clave ingresada para el Responsable Proveedor no coincide con la registrada en la Descripción General del contrato.");
+      alert(`La clave ingresada para el Responsable Proveedor no coincide con la registrada en el contrato (Esperada: ${proveedorKey}).`);
       return;
     }
     if (siceRespCliente.clave.toUpperCase() !== clienteKey.toUpperCase()) {
-      alert("La clave ingresada para el Responsable Cliente no coincide con la registrada en la Descripción General del contrato.");
+      alert(`La clave ingresada para el Responsable Cliente no coincide con la registrada en el contrato (Esperada: ${clienteKey}).`);
       return;
     }
 
