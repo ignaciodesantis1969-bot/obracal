@@ -1,8 +1,7 @@
 import React, { useState, useMemo } from 'react';
-import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp } from 'lucide-react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2 } from 'lucide-react';
 
 export default function Reportes(props) {
-  // Extracción segura de props soportando múltiples variaciones de nombres y mayúsculas
   const obras = props.obras || props.Obras || [];
   const presupuestos = props.presupuestos || props.Presupuestos || [];
   const certificados = props.certificados || props.Certificados || [];
@@ -15,19 +14,82 @@ export default function Reportes(props) {
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Certificaciones');
 
-  // Estados para el comparativo detallado
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
 
-  // 📝 Estados para la nueva Pestaña de Insumos Mejorada
   const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
   const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(false);
 
-  // 📝 Estados para Reportes Diarios
-  const [reportesDiarios, setReportesDiarios] = useState([]);
-  const [nuevoReporte, setNuevoReporte] = useState({ fecha: new Date().toISOString().slice(0, 10), obra: '', descripcion: '', personal: 0, clima: 'Bueno' });
+  // 📝 Estados para Reportes Diarios (Formato Oficial SICE S.A.)
+  const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [siceParteNro, setSiceParteNro] = useState('00001');
+  const [siceItems, setSiceItems] = useState([
+    { id: 1, ordenMantenimiento: '', descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
+  ]);
+  const [siceRespProveedor, setSiceRespProveedor] = useState({ cargo: '', nombre: '', clave: '' });
+  const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
+  const [sicePartesAprobados, setSicePartesAprobados] = useState([]);
 
-  // Filtrado general de métricas superiores (mantenido internamente si se requiere, pero sin tarjetas visuales)
+  const calcularTotalHorasSice = (inicio, fin) => {
+    if (!inicio || !fin) return 0;
+    const [hIni, mIni] = inicio.split(':').map(Number);
+    const [hFin, mFin] = fin.split(':').map(Number);
+    let diffMinutos = (hFin * 60 + mFin) - (hIni * 60 + mIni);
+    if (diffMinutos < 0) diffMinutos += 24 * 60;
+    const horasEfectivas = diffMinutos / 60;
+    if (horasEfectivas <= 0) return 0;
+    // Factor de compensación: 9 hs efectivas suman 2 hs extra (proporcional 11/9)
+    const horasConProporcional = horasEfectivas * (11 / 9);
+    return Number(horasConProporcional.toFixed(2));
+  };
+
+  const agregarFilaSice = () => {
+    if (siceItems.length >= 10) {
+      alert("El parte diario SICE permite un máximo de 10 ítems por documento.");
+      return;
+    }
+    setSiceItems([
+      ...siceItems,
+      { id: siceItems.length + 1, ordenMantenimiento: '', descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
+    ]);
+  };
+
+  const actualizarItemSice = (index, campo, valor) => {
+    const actualizados = [...siceItems];
+    actualizados[index][campo] = valor;
+    setSiceItems(actualizados);
+  };
+
+  const aprobarYArchivarParteSice = (e) => {
+    e.preventDefault();
+    const regexClave = /^[A-Za-z]{2}\d{4}$/;
+    if (!regexClave.test(siceRespProveedor.clave)) {
+      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: AB1234).");
+      return;
+    }
+    if (!regexClave.test(siceRespCliente.clave)) {
+      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: AB1234).");
+      return;
+    }
+
+    const nuevoParte = {
+      nro: siceParteNro,
+      fecha: siceFecha,
+      items: [...siceItems],
+      proveedor: { ...siceRespProveedor },
+      cliente: { ...siceRespCliente },
+      totalHorasSuma: siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0)
+    };
+
+    setSicePartesAprobados([nuevoParte, ...sicePartesAprobados]);
+    const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
+    setSiceParteNro(siguienteNro);
+    setSiceItems([{ id: 1, ordenMantenimiento: '', descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
+    setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
+    setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
+    alert("¡Parte Diario aprobado, firmado electrónicamente y archivado para el certificado mensual!");
+  };
+
   const presupuestosFiltrados = obraFiltro === 'todas' 
     ? presupuestos 
     : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(obraFiltro));
@@ -46,7 +108,6 @@ export default function Reportes(props) {
   const totalGastado = movimientosFiltrados.filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso').reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
   const resultadoNeto = totalCobrado - totalGastado;
 
-  // FILTRADO ESTRICTO DE PRESUPUESTOS APROBADOS (PARA COMPARATIVO)
   const presupuestosCompFiltrados = (compObraId === 'todas' 
     ? presupuestos 
     : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(compObraId))
@@ -56,10 +117,8 @@ export default function Reportes(props) {
     return estadoLimpio === 'aprobado' || estadoLimpio === 'aprobada';
   });
 
-  // Obtener presupuesto seleccionado para el comparativo
   const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
   
-  // 1. Diccionario oficial de Insumos (ID -> Tipo Normalizado)
   const insumosOficialMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
@@ -77,10 +136,8 @@ export default function Reportes(props) {
     });
   }
 
-  // Normalizador de textos avanzado para matching
   const limpiarTexto = (txt) => String(txt || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
 
-  // 2. Diccionario Maestro de Tareas
   const maestroTareasMap = {};
   if (Array.isArray(maestroTareasRubros)) {
     maestroTareasRubros.forEach(itemMaestro => {
@@ -114,7 +171,6 @@ export default function Reportes(props) {
     return [];
   };
 
-  // Motor de resolución de tipo de insumo
   const obtenerTipoInsumoInfalible = (insumoItem) => {
     const insId = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || '').trim();
     if (insId && insumosOficialMap[insId]) {
@@ -140,7 +196,6 @@ export default function Reportes(props) {
     return 'Material';
   };
 
-  // 📝 PROCESAMIENTO AVANZADO PARA LA PESTAÑA DE INSUMOS
   const presupuestoInsumosSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(insumoPresupuestoId));
 
   const { insumosPorRubro, insumosGenerales } = useMemo(() => {
@@ -252,7 +307,6 @@ export default function Reportes(props) {
 
   const ordenCategorias = ['MANO DE OBRA', 'MATERIALES', 'SUBCONTRATOS', 'EQUIPOS / HERRAMIENTAS', 'OTROS'];
 
-  // Filtrar movimientos de Tesorería provenientes de RRHH para el presupuesto seleccionado
   const movimientosRrhhPresupuesto = React.useMemo(() => {
     if (!compPresupuestoId) return [];
     return movimientos.filter(m => {
@@ -271,7 +325,6 @@ export default function Reportes(props) {
     });
   }, [movimientos, compPresupuestoId]);
 
-  // Obtener salarios acumulados por rubro desde Tesorería (RRHH)
   const obtenerSalariosPorRubro = (nombreRubro) => {
     let totalRubroRrhh = 0;
     movimientosRrhhPresupuesto.forEach(m => {
@@ -289,7 +342,6 @@ export default function Reportes(props) {
     return totalRubroRrhh;
   };
 
-  // Procesar rubros del presupuesto desde items_detalle
   let rubrosPresupuestoDetalle = [];
   let gastosGeneralesBase = [];
   let totalPresupuestoRubros = 0;
@@ -396,7 +448,6 @@ export default function Reportes(props) {
         });
       }
 
-      // Gastos Generales e Imprevistos
       if (parsedDetalle && parsedDetalle.comercial) {
         if (parsedDetalle.comercial.gastos_generales_insumos) {
           parsedDetalle.comercial.gastos_generales_insumos.forEach((gg, ggIdx) => {
@@ -436,7 +487,6 @@ export default function Reportes(props) {
     }
   }
 
-  // 🛡️ MOTOR DE GASTOS GENERALES CORREGIDO
   const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
   
   let totalRealGGEspecifico = 0;
@@ -499,7 +549,6 @@ export default function Reportes(props) {
     };
   });
 
-  // Asignación automática residual para Imprevistos
   const imprevistoItemIndex = gastosGeneralesDetalle.findIndex(g => g.esImprevistos);
   if (imprevistoItemIndex !== -1) {
     let realImprevistosCalc = 0;
@@ -526,11 +575,8 @@ export default function Reportes(props) {
 
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
 
-  // 🛡️ Helper perfeccionado para asignar facturas sin desvíos incorrectos ni divisiones a mano de obra
   const obtenerFacturasParaComponente = (rubroObj, compNombre, facturasRubroTotal) => {
     const compNorm = limpiarTexto(compNombre);
-    
-    // La columna "Imputaciones Reales (facturas)" no lleva montos de mano de obra
     if (compNorm.includes('mano') || compNorm.includes('obra')) {
       return 0;
     }
@@ -544,7 +590,6 @@ export default function Reportes(props) {
         fac.detalle_gasto || fac.Detalle_gasto || ''
       );
 
-      // Si la factura es explícitamente de mano de obra o salarios, no va a materiales/equipos/subcontratos
       if (tipoFac.includes('mano') || tipoFac.includes('salario')) {
         return false;
       }
@@ -556,7 +601,6 @@ export default function Reportes(props) {
         return tipoFac.includes('equipo') || tipoFac.includes('maquinaria') || tipoFac.includes('andamio');
       }
       if (compNorm.includes('material')) {
-        // Materiales puros: evita que se divida erróneamente con otras categorías
         return tipoFac.includes('material') || tipoFac.includes('cemento') || tipoFac.includes('ladrillo') || tipoFac.includes('ferreteria') ||
                (!tipoFac.includes('subcontrato') && !tipoFac.includes('equipo') && !tipoFac.includes('maquinaria'));
       }
@@ -568,8 +612,7 @@ export default function Reportes(props) {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* CABECERA Y FILTRO GENERAL */}
-      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes</h1>
           <p className="text-slate-500 text-sm mt-1">Dashboard, certificaciones y análisis financiero</p>
@@ -588,8 +631,7 @@ export default function Reportes(props) {
         </div>
       </div>
 
-      {/* PESTAÑAS (Menú modificado: sin Dashboard, Avance Porcentual cambiado a Reportes Diarios) */}
-      <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap">
+      <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
         {['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
           <button 
             key={tab} 
@@ -601,7 +643,6 @@ export default function Reportes(props) {
         ))}
       </div>
 
-      {/* CONTENIDO: CERTIFICACIONES */}
       {activeTab === 'Certificaciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden p-6 space-y-4">
           <h3 className="text-sm font-extrabold text-slate-900 uppercase">Detalle de Certificaciones</h3>
@@ -636,104 +677,280 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {/* CONTENIDO: REPORTES DIARIOS */}
+      {/* CONTENIDO: REPORTES DIARIOS (FORMATO OFICIAL SICE S.A.) */}
       {activeTab === 'Reportes Diarios' && (
         <div className="space-y-6">
-          <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
-            <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
-              <Calendar className="w-4 h-4 text-amber-500" /> Nuevo Reporte Diario de Obra
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+          <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
+            <div className="flex justify-between items-center pb-4 border-b border-slate-200 print:hidden">
               <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha</label>
-                <input 
-                  type="date"
-                  value={nuevoReporte.fecha}
-                  onChange={(e) => setNuevoReporte({...nuevoReporte, fecha: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500"
-                />
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
+                  <Calendar className="w-4 h-4 text-amber-500" /> Parte Diario de Actividades (SICE S.A.)
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Complete los ítems de mantenimiento y firme con clave alfanumérica para archivar.</p>
               </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Obra</label>
-                <select
-                  value={nuevoReporte.obra}
-                  onChange={(e) => setNuevoReporte({...nuevoReporte, obra: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer"
-                >
-                  <option value="">Seleccionar obra...</option>
-                  {obras.map(o => (
-                    <option key={o.id || o.ID} value={o.nombre || o.Nombre}>{o.nombre || o.Nombre}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Personal en Obra</label>
-                <input 
-                  type="number"
-                  value={nuevoReporte.personal}
-                  onChange={(e) => setNuevoReporte({...nuevoReporte, personal: Number(e.target.value)})}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-slate-600 mb-1">Condición Climática</label>
-                <select 
-                  value={nuevoReporte.clima}
-                  onChange={(e) => setNuevoReporte({...nuevoReporte, clima: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer"
-                >
-                  <option value="Bueno">Bueno</option>
-                  <option value="Regular">Regular</option>
-                  <option value="Malo / Lluvias">Malo / Lluvias</option>
-                </select>
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-600 mb-1">Descripción de Labores / Novedades</label>
-              <textarea 
-                rows="3"
-                value={nuevoReporte.descripcion}
-                onChange={(e) => setNuevoReporte({...nuevoReporte, descripcion: e.target.value})}
-                placeholder="Detalle de trabajos realizados, maquinarias en uso, observaciones..."
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:border-amber-500"
-              ></textarea>
-            </div>
-            <div className="flex justify-end">
               <button 
-                onClick={() => {
-                  if (!nuevoReporte.obra || !nuevoReporte.descripcion) {
-                    alert("Complete la obra y la descripción del reporte.");
-                    return;
-                  }
-                  setReportesDiarios([...reportesDiarios, nuevoReporte]);
-                  setNuevoReporte({ fecha: new Date().toISOString().slice(0, 10), obra: '', descripcion: '', personal: 0, clima: 'Bueno' });
-                }}
-                className="bg-amber-500 hover:bg-amber-600 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-2"
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm cursor-pointer"
               >
-                <Plus className="w-4 h-4" /> Registrar Reporte Diario
+                <Printer className="w-4 h-4" /> Imprimir / PDF
               </button>
+            </div>
+
+            {/* DOCUMENTO OFICIAL SICE S.A. */}
+            <div className="bg-white p-6 rounded-2xl border border-slate-400 space-y-6 text-slate-900">
+              <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center font-black text-white text-lg">S</div>
+                  <span className="text-xl font-black tracking-wider text-slate-900">SICE <span className="text-amber-600 font-normal">S.A.</span></span>
+                </div>
+                <h2 className="text-xl font-black text-slate-900 tracking-wide">PARTE DIARIO DE ACTIVIDADES</h2>
+              </div>
+
+              <div className="text-xs space-y-1 border-b border-slate-300 pb-4">
+                <p className="font-extrabold text-blue-900 text-sm">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
+                  <div><span className="text-slate-500 font-semibold">C.U.I.T. Nro.:</span> <span className="font-bold">30-71573431-8</span></div>
+                  <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
+                  <div>
+                    <span className="text-slate-500 font-semibold">Fecha:</span>{' '}
+                    <input 
+                      type="date" 
+                      value={siceFecha} 
+                      onChange={(e) => setSiceFecha(e.target.value)}
+                      className="bg-slate-50 border border-slate-300 rounded px-2 py-0.5 font-bold text-xs outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div><span className="text-slate-500 font-semibold">Número de Proveedor Nro.:</span> <span className="font-bold">1490175</span></div>
+                  <div><span className="text-slate-500 font-semibold">Contrato Nro.:</span> <span className="font-bold">5000002190</span></div>
+                  <div>
+                    <span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono text-sm">{siceParteNro}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto border border-slate-400 rounded-lg">
+                <table className="w-full text-left text-xs border-collapse">
+                  <thead>
+                    <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
+                      <th className="py-2.5 px-2 border-r border-slate-700 w-12 text-center">Item</th>
+                      <th className="py-2.5 px-3 border-r border-slate-700">Orden de Mantenimiento</th>
+                      <th className="py-2.5 px-3 border-r border-slate-700">Descripción del Servicio</th>
+                      <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Hora Comienzo</th>
+                      <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Hora Fin</th>
+                      <th className="py-2.5 px-2 border-r border-slate-700 text-center w-20">Total Horas</th>
+                      <th className="py-2.5 px-3 border-r border-slate-700">Observaciones</th>
+                      <th className="py-2.5 px-2 text-center w-24">Terminó Tarea</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-300">
+                    {siceItems.map((row, index) => {
+                      const totalHs = calcularTotalHorasSice(row.horaComienzo, row.horaFin);
+                      return (
+                        <tr key={index} className="bg-amber-50/60 hover:bg-amber-50 transition-colors">
+                          <td className="py-2 px-2 text-center font-bold border-r border-slate-300 text-slate-700">{row.id}</td>
+                          <td className="py-1.5 px-2 border-r border-slate-300">
+                            <input 
+                              type="text" 
+                              value={row.ordenMantenimiento}
+                              onChange={(e) => actualizarItemSice(index, 'ordenMantenimiento', e.target.value)}
+                              placeholder="Nro Orden..."
+                              className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2 border-r border-slate-300">
+                            <input 
+                              type="text" 
+                              value={row.descripcion}
+                              onChange={(e) => actualizarItemSice(index, 'descripcion', e.target.value)}
+                              placeholder="Descripción de labores..."
+                              className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2 border-r border-slate-300 text-center">
+                            <input 
+                              type="time" 
+                              value={row.horaComienzo}
+                              onChange={(e) => actualizarItemSice(index, 'horaComienzo', e.target.value)}
+                              className="bg-amber-100/50 border border-slate-300 rounded px-1 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2 border-r border-slate-300 text-center">
+                            <input 
+                              type="time" 
+                              value={row.horaFin}
+                              onChange={(e) => actualizarItemSice(index, 'horaFin', e.target.value)}
+                              className="bg-amber-100/50 border border-slate-300 rounded px-1 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2 border-r border-slate-300 text-center font-extrabold text-amber-900 bg-amber-100/80">
+                            {totalHs} hs
+                          </td>
+                          <td className="py-1.5 px-2 border-r border-slate-300">
+                            <input 
+                              type="text" 
+                              value={row.observaciones}
+                              onChange={(e) => actualizarItemSice(index, 'observaciones', e.target.value)}
+                              placeholder="Observaciones..."
+                              className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
+                            />
+                          </td>
+                          <td className="py-1.5 px-2 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => actualizarItemSice(index, 'terminoTarea', 'SI')}
+                                className={`px-2 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row.terminoTarea === 'SI' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
+                              >
+                                SI
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => actualizarItemSice(index, 'terminoTarea', 'NO')}
+                                className={`px-2 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row.terminoTarea === 'NO' ? 'bg-rose-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
+                              >
+                                NO
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-between items-center print:hidden">
+                <button 
+                  type="button" 
+                  onClick={agregarFilaSice}
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                >
+                  <Plus className="w-4 h-4" /> Agregar Ítem (Fila)
+                </button>
+                <span className="text-xs text-slate-500 font-semibold">Total filas: {siceItems.length} / 10</span>
+              </div>
+
+              {/* BLOQUE DE FIRMAS E INTERVINIENTES */}
+              <form onSubmit={aprobarYArchivarParteSice} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50">
+                <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+                  <div className="p-4 space-y-3">
+                    <h4 className="font-black text-xs text-slate-900 uppercase bg-slate-200 p-2 rounded">RESPONSABLE PROVEEDOR</h4>
+                    <div className="space-y-2 text-xs">
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">CARGO:</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={siceRespProveedor.cargo}
+                          onChange={(e) => setSiceRespProveedor({...siceRespProveedor, cargo: e.target.value})}
+                          placeholder="Ej: Jefe de Obra / Supervisor"
+                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO:</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={siceRespProveedor.nombre}
+                          onChange={(e) => setSiceRespProveedor({...siceRespProveedor, nombre: e.target.value})}
+                          placeholder="Ej: Juan Pérez"
+                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave Alfanumérica 2 letras + 4 números, Ej: AB1234):</label>
+                        <input 
+                          type="text" 
+                          required
+                          maxLength={6}
+                          placeholder="Ej: JP4829"
+                          value={siceRespProveedor.clave}
+                          onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
+                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-amber-700 uppercase focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="p-4 space-y-3">
+                    <h4 className="font-black text-xs text-slate-900 uppercase bg-slate-200 p-2 rounded">RESPONSABLE CLIENTE</h4>
+                    <div className="space-y-2 text-xs">
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">CARGO:</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={siceRespCliente.cargo}
+                          onChange={(e) => setSiceRespCliente({...siceRespCliente, cargo: e.target.value})}
+                          placeholder="Ej: Supervisor de Planta"
+                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO:</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={siceRespCliente.nombre}
+                          onChange={(e) => setSiceRespCliente({...siceRespCliente, nombre: e.target.value})}
+                          placeholder="Ej: Carlos Gómez"
+                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave Alfanumérica 2 letras + 4 números, Ej: AB1234):</label>
+                        <input 
+                          type="text" 
+                          required
+                          maxLength={6}
+                          placeholder="Ej: CG9012"
+                          value={siceRespCliente.clave}
+                          onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
+                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-amber-700 uppercase focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
+                  <p className="text-xs text-slate-500">Ingrese las claves alfanuméricas de ambos intervinientes para aprobar y archivar el parte.</p>
+                  <button 
+                    type="submit"
+                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
+                  >
+                    <ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Archivar Parte
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
 
+          {/* HISTORIAL DE PARTES DIARIOS APROBADOS Y ARCHIVADOS */}
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
-            <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Reportes Diarios</h3>
-            {reportesDiarios.length === 0 ? (
+            <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados y Archivados</h3>
+            {sicePartesAprobados.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-                No hay reportes diarios cargados en esta sesión.
+                No hay partes diarios aprobados ni archivados en esta sesión.
               </div>
             ) : (
               <div className="space-y-3">
-                {reportesDiarios.map((rep, idx) => (
+                {sicePartesAprobados.map((parte, idx) => (
                   <div key={idx} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">{rep.obra}</span>
-                        <span className="text-xs font-medium text-slate-500">{rep.fecha}</span>
-                        <span className="text-xs font-semibold px-2 py-0.5 bg-slate-200 text-slate-700 rounded">Clima: {rep.clima}</span>
-                        <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Personal: {rep.personal}</span>
+                        <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte.nro}</span>
+                        <span className="text-xs font-medium text-slate-500">Fecha: {parte.fecha}</span>
+                        <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas Acumuladas: {parte.totalHorasSuma} hs</span>
                       </div>
-                      <p className="text-slate-700 text-xs mt-2">{rep.descripcion}</p>
+                      <p className="text-slate-700 text-xs mt-2">
+                        Proveedor: <strong>{parte.proveedor.nombre}</strong> ({parte.proveedor.cargo}) | Cliente: <strong>{parte.cliente.nombre}</strong> ({parte.cliente.cargo})
+                      </p>
                     </div>
+                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
+                      Archivado para Certificado
+                    </span>
                   </div>
                 ))}
               </div>
@@ -742,7 +959,6 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {/* CONTENIDO: LISTADO DE INSUMOS */}
       {activeTab === 'Listado de Insumos' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
@@ -750,25 +966,22 @@ export default function Reportes(props) {
               <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
                 <Package className="w-4 h-4 text-amber-500" /> Listado de Insumos por Presupuesto
               </h3>
-              <p className="text-xs text-slate-500 mt-0.5">Selecciona un presupuesto (cualquier estado) para ver el desglose o consolidado de insumos.</p>
+              <p className="text-xs text-slate-500 mt-0.5">Selecciona un presupuesto para ver el desglose de insumos.</p>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <Filter className="w-4 h-4 text-amber-500 shrink-0" />
-                <select
-                  className="w-full sm:w-80 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer shadow-sm"
-                  value={insumoPresupuestoId}
-                  onChange={(e) => setInsumoPresupuestoId(e.target.value)}
-                >
-                  <option value="">-- Seleccionar Presupuesto (cualquier estado) --</option>
-                  {presupuestos.map(p => (
-                    <option key={p.id || p.ID} value={String(p.id || p.ID)}>
-                      [{p.codigo || 'S/C'}] {p.nombre || p.Nombre} — Estado: {p.estado_presupuesto || p.estado || 'borrador'}
-                    </option>
-                  ))}
-                </select>
-              </div>
+              <select
+                className="w-full sm:w-80 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer shadow-sm"
+                value={insumoPresupuestoId}
+                onChange={(e) => setInsumoPresupuestoId(e.target.value)}
+              >
+                <option value="">-- Seleccionar Presupuesto --</option>
+                {presupuestos.map(p => (
+                  <option key={p.id || p.ID} value={String(p.id || p.ID)}>
+                    [{p.codigo || 'S/C'}] {p.nombre || p.Nombre} — Estado: {p.estado_presupuesto || p.estado || 'borrador'}
+                  </option>
+                ))}
+              </select>
 
               {presupuestoInsumosSeleccionado && (
                 <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 w-full sm:w-auto justify-center">
@@ -795,16 +1008,10 @@ export default function Reportes(props) {
             </div>
           ) : vistaGeneralInsumos ? (
             <div className="space-y-6">
-              <div className="border-b pb-2">
-                <h4 className="font-extrabold text-slate-900 text-xs uppercase">Listado General Consolidado de Insumos</h4>
-                <p className="text-[11px] text-slate-500">Agrupado por categoría (Mano de obra, Materiales, Subcontratos, Equipos/Herramientas) en todo el presupuesto.</p>
-              </div>
-
               <div className="space-y-6">
                 {ordenCategorias.map(cat => {
                   const lista = insumosGenerales[cat];
                   if (!lista || lista.length === 0) return null;
-
                   const totalCat = lista.reduce((acc, item) => acc + item.total, 0);
 
                   return (
@@ -817,7 +1024,6 @@ export default function Reportes(props) {
                           Total: $ {Math.round(totalCat).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </span>
                       </div>
-                      
                       <div className="overflow-x-auto border border-slate-200 rounded-xl">
                         <table className="w-full text-left text-xs">
                           <thead>
@@ -854,34 +1060,27 @@ export default function Reportes(props) {
           ) : (
             <div className="space-y-6">
               {Object.keys(insumosPorRubro).length === 0 ? (
-                <div className="p-8 text-center text-slate-500 text-xs">
-                  Este presupuesto no contiene tareas ni insumos cargados.
-                </div>
+                <div className="p-8 text-center text-slate-500 text-xs">Este presupuesto no contiene tareas ni insumos cargados.</div>
               ) : (
                 Object.entries(insumosPorRubro).map(([nombreRubro, categorias]) => (
                   <div key={nombreRubro} className="border border-slate-300 rounded-2xl overflow-hidden shadow-sm">
-                    <div className="bg-slate-800 text-white px-6 py-3 font-extrabold text-xs uppercase tracking-wide flex items-center justify-between">
+                    <div className="bg-slate-800 text-white px-6 py-3 font-extrabold text-xs uppercase tracking-wide">
                       <span>Rubro: {nombreRubro}</span>
                     </div>
-                    
                     <div className="p-6 space-y-6 bg-white">
                       {ordenCategorias.map(cat => {
                         const listaInsumos = categorias[cat];
                         if (!listaInsumos || listaInsumos.length === 0) return null;
-
                         const totalCatRubro = listaInsumos.reduce((acc, item) => acc + item.total, 0);
 
                         return (
                           <div key={cat} className="space-y-2">
                             <div className="flex justify-between items-center border-b border-slate-200 pb-1">
-                              <h5 className="text-xs font-black text-amber-600 uppercase tracking-wider">
-                                {cat}
-                              </h5>
+                              <h5 className="text-xs font-black text-amber-600 uppercase tracking-wider">{cat}</h5>
                               <span className="text-[11px] font-bold text-slate-600">
                                 Subtotal: $ {Math.round(totalCatRubro).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                               </span>
                             </div>
-                            
                             <div className="overflow-x-auto border border-slate-200 rounded-xl">
                               <table className="w-full text-left text-xs">
                                 <thead>
@@ -920,7 +1119,6 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {/* CONTENIDO: COMPARATIVO DETALLADO */}
       {activeTab === 'Comparativo' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
@@ -974,7 +1172,6 @@ export default function Reportes(props) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {/* SECCIÓN 1: RUBROS CON SUS COMPONENTES Y SALARIOS DE RRHH */}
                     {rubrosPresupuestoDetalle.map((rubro) => {
                       const componentesEntradas = Object.entries(rubro.componentes);
 
@@ -1031,7 +1228,6 @@ export default function Reportes(props) {
                       );
                     })}
 
-                    {/* TOTAL RUBROS */}
                     <tr className="bg-amber-200 text-amber-950 font-extrabold">
                       <td className="px-4 py-3 uppercase">TOTAL RUBROS</td>
                       <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
@@ -1058,7 +1254,6 @@ export default function Reportes(props) {
                       <td className="px-4 py-3 text-right">$ {(totalPresupuestoRubros - totalRealRubrosCalculado).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                     </tr>
 
-                    {/* SECCIÓN 2: GASTOS GENERALES E IMPREVISTOS */}
                     {gastosGeneralesDetalle.length > 0 && (
                       <React.Fragment>
                         <tr className="bg-amber-50 font-extrabold text-slate-900 border-t-2 border-amber-200">
