@@ -5,8 +5,7 @@ import { queryClientInstance } from '@/lib/query-client';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
-
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
 // Layout y Auth
 import Layout from '@/components/Layout';
@@ -159,7 +158,6 @@ const AuthenticatedApp = () => {
     return <Login GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // 🔐 VALIDACIÓN DE ROL OPERADOR: Restringe rutas exclusivamente al Reportes Diarios
   const userRole = String(user.role || user.rol || '').toLowerCase();
   const esOperador = userRole.includes('operador') || userRole === 'operator';
 
