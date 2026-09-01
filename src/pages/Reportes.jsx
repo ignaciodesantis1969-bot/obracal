@@ -2,7 +2,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { GOOGLE_SCRIPT_URL } from '@/api';
- 
 
 const CONTRATO_DEFAULT = [
   {
@@ -159,10 +158,10 @@ export default function Reportes(props) {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
       if (contrato) {
-        let pCargo = contrato.proveedorCargo || contrato.proveedor_cargo || contrato.ProveedorCargo || '';
-        let pNombre = contrato.proveedorNombre || contrato.proveedor_nombre || contrato.ProveedorNombre || '';
-        let cCargo = contrato.clienteCargo || contrato.cliente_cargo || contrato.ClienteCargo || '';
-        let cNombre = contrato.clienteNombre || contrato.cliente_nombre || contrato.ClienteNombre || '';
+        let pCargo = contrato.proveedorCargo || contrato.proveedor_cargo || contrato.ProveedorCargo || contrato.cargo_proveedor || '';
+        let pNombre = contrato.proveedorNombre || contrato.proveedor_nombre || contrato.ProveedorNombre || contrato.proveedor || '';
+        let cCargo = contrato.clienteCargo || contrato.cliente_cargo || contrato.ClienteCargo || contrato.cargo_cliente || '';
+        let cNombre = contrato.clienteNombre || contrato.cliente_nombre || contrato.ClienteNombre || contrato.cliente || '';
 
         setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
         setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
@@ -171,7 +170,6 @@ export default function Reportes(props) {
         setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
       }
 
-      // Sincronizar con localStorage para persistencia inmediata al salir y volver a entrar
       const localKey = `obracal_sice_partes_${contratoSeleccionadoId}`;
       let localPartes = [];
       try {
@@ -321,6 +319,7 @@ export default function Reportes(props) {
     try {
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
+        tabla: 'ReportesSice', // <--- ¡Añadido para que el backend sepa dónde guardar!
         contratoId: contratoSeleccionadoId,
         fecha: siceFecha,
         nro: siceParteNro,
@@ -902,7 +901,6 @@ export default function Reportes(props) {
         <p className="text-slate-500 text-sm mt-1">(Certificacion - Reportes - Listado de Insumos - Comparativas)</p>
       </div>
 
-      {/* 🔐 PESTAÑAS: Se ocultan por completo si el usuario es Operador */}
       {!esOperador && (
         <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
           {['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
@@ -951,7 +949,6 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {/* CONTENIDO: REPORTES DIARIOS (FORMATO OFICIAL SICE S.A.) */}
       {activeTab === 'Reportes Diarios' && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
@@ -990,7 +987,6 @@ export default function Reportes(props) {
               </div>
             </div>
 
-            {/* DOCUMENTO OFICIAL SICE S.A. */}
             <div className="bg-white p-6 rounded-2xl border border-slate-400 space-y-6 text-slate-900">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
                 <div className="flex items-center gap-3">
@@ -1113,7 +1109,6 @@ export default function Reportes(props) {
                 <span className="text-xs text-slate-500 font-semibold">Total filas: {siceItems.length} / 10</span>
               </div>
 
-              {/* BLOQUE DE FIRMAS E INTERVINIENTES */}
               <form onSubmit={aprobarYArchivarParteSice} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50">
                 <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
                   <div className="p-4 space-y-3">
@@ -1215,7 +1210,6 @@ export default function Reportes(props) {
             </div>
           </div>
 
-          {/* HISTORIAL DE PARTES DIARIOS APROBADOS */}
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
             <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados</h3>
             {sicePartesAprobados.length === 0 ? (
