@@ -12,7 +12,7 @@ export default function Reportes(props) {
   const rubros = props.rubros || props.Rubros || [];
   const facturas = props.facturas || props.Facturas || [];
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
-  const contratos = props.contratos || props.Contratos || [];
+  const contratos = props.contratos || props.Contratos || props.contratosMantenimiento || [];
 
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Certificaciones');
@@ -38,7 +38,7 @@ export default function Reportes(props) {
   // Sincronizar y cargar partes aprobados del contrato seleccionado desde el backend
   useEffect(() => {
     if (contratoSeleccionadoId) {
-      const contrato = contratos.find(c => String(c.id) === String(contratoSeleccionadoId));
+      const contrato = contratos.find(c => String(c.id || c.ID) === String(contratoSeleccionadoId));
       if (contrato && contrato.descripcion) {
         if (contrato.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
           try {
@@ -65,7 +65,7 @@ export default function Reportes(props) {
 
   const guardarPartesEnServidor = async (nuevosPartes) => {
     if (!contratoSeleccionadoId) return;
-    const contrato = contratos.find(c => String(c.id) === String(contratoSeleccionadoId));
+    const contrato = contratos.find(c => String(c.id || c.ID) === String(contratoSeleccionadoId));
     if (!contrato) return;
 
     try {
@@ -110,7 +110,7 @@ export default function Reportes(props) {
         body: JSON.stringify({
           tabla: 'ContratosMantenimiento',
           action: 'update',
-          id: contrato.id,
+          id: contrato.id || contrato.ID,
           data: { ...contrato, descripcion: nuevaDesc }
         })
       });
@@ -120,7 +120,7 @@ export default function Reportes(props) {
   };
 
   const obtenerClavesContratoActual = () => {
-    const contratoActivo = contratos.find(c => String(c.id) === String(contratoSeleccionadoId));
+    const contratoActivo = contratos.find(c => String(c.id || c.ID) === String(contratoSeleccionadoId));
     if (contratoActivo && contratoActivo.descripcion) {
       if (contratoActivo.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
         try {
@@ -226,12 +226,6 @@ export default function Reportes(props) {
   const movimientosFiltrados = obraFiltro === 'todas' 
     ? movimientos 
     : movimientos.filter(m => String(m.obra_id || m.Obra_id || m.obraId) === String(obraFiltro));
-
-  const totalPresupuestado = presupuestosFiltrados.reduce((acc, p) => acc + (Number(p.total || p.Total || p.monto || p.precio_venta || 0) || 0), 0);
-  const totalCertificado = certificadosFiltrados.reduce((acc, c) => acc + (Number(c.monto || c.Monto || c.total || 0) || 0), 0);
-  const totalCobrado = movimientosFiltrados.filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'ingreso').reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
-  const totalGastado = movimientosFiltrados.filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso').reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
-  const resultadoNeto = totalCobrado - totalGastado;
 
   const presupuestosCompFiltrados = (compObraId === 'todas' 
     ? presupuestos 
@@ -806,11 +800,17 @@ export default function Reportes(props) {
                   className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
                 >
                   <option value="">-- Seleccionar Contrato / Claves --</option>
-                  {contratos.map(c => (
-                    <option key={c.id} value={c.id}>
-                      [{c.codigo}] {c.nombre_contrato || c.cliente} ({c.estado || 'Borrador'})
-                    </option>
-                  ))}
+                  {contratos.map((c, i) => {
+                    const cId = c.id || c.ID || i;
+                    const cCod = c.codigo || c.Codigo || 'S/C';
+                    const cNom = c.nombre_contrato || c.Nombre_contrato || c.cliente || c.Cliente || c.nombre || 'Contrato';
+                    const cEst = c.estado || c.Estado || 'Activo';
+                    return (
+                      <option key={cId} value={cId}>
+                        [{cCod}] {cNom} ({cEst})
+                      </option>
+                    );
+                  })}
                 </select>
                 <button 
                   onClick={() => window.print()}
@@ -825,7 +825,7 @@ export default function Reportes(props) {
             <div className="bg-white p-6 rounded-2xl border border-slate-400 space-y-6 text-slate-900">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
                 <div className="flex items-center gap-3">
-                  <img src="/logo-07.png" alt="SICE S.A." className="h-16 object-contain" />
+                  <img src="/logo-07.png" alt="SICE S.A." className="h-26 object-contain" />
                 </div>
                 <h2 className="text-xl font-black text-slate-900 tracking-wide">PARTE DIARIO DE ACTIVIDADES</h2>
               </div>
@@ -1107,7 +1107,7 @@ export default function Reportes(props) {
                 </div>
                 <div className="p-6 overflow-y-auto space-y-6 text-slate-900 text-xs">
                   <div className="flex justify-between items-center border-b-2 border-slate-800 pb-4">
-                    <img src="/logo-07.png" alt="SICE S.A." className="h-16 object-contain" />
+                    <img src="/logo-07.png" alt="SICE S.A." className="h-26 object-contain" />
                     <h2 className="text-lg font-black text-slate-900">PARTE DIARIO DE ACTIVIDADES</h2>
                   </div>
                   <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
