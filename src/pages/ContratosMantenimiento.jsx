@@ -52,19 +52,24 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [ajustesAplicados, setAjustesAplicados] = useState([]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
+  // Sincronizar y parsear registros polinómicos desde la descripción del contrato para garantizar persistencia sin modificar base de datos
   useEffect(() => {
     if (contratoDetalle) {
-      if (contratoDetalle.registros_meses) {
+      const desc = contratoDetalle.descripcion || '';
+      if (desc.includes('---DATOS_POLINOMICA---')) {
         try {
-          const parsed = JSON.parse(contratoDetalle.registros_meses);
-          if (Array.isArray(parsed) && parsed.length > 0) setRegistrosMeses(parsed);
+          const partes = desc.split('---DATOS_POLINOMICA---');
+          const jsonData = JSON.parse(partes[1]);
+          if (jsonData.registros && Array.isArray(jsonData.registros)) setRegistrosMeses(jsonData.registros);
+          if (jsonData.ajustes && Array.isArray(jsonData.ajustes)) setAjustesAplicados(jsonData.ajustes);
         } catch (e) {}
-      }
-      if (contratoDetalle.ajustes_aplicados) {
-        try {
-          const parsedAjustes = JSON.parse(contratoDetalle.ajustes_aplicados);
-          if (Array.isArray(parsedAjustes)) setAjustesAplicados(parsedAjustes);
-        } catch (e) {}
+      } else {
+        setRegistrosMeses([
+          { mes: 'Mes 1 (Base) - Julio 2026', uocra: 5817, ipc: 0, dolar: 1489 },
+          { mes: 'Mes 2 - Agosto 2026', uocra: 6348, ipc: 2.1, dolar: 1485 },
+          { mes: 'Mes 3 - Septiembre 2026', uocra: 7049, ipc: 1.9, dolar: 1520 }
+        ]);
+        setAjustesAplicados([]);
       }
     }
   }, [contratoDetalle]);
@@ -72,14 +77,20 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const guardarCambiosPolinomicaEnServidor = async (nuevosRegistros, nuevosAjustes) => {
     if (!contratoDetalle) return;
     try {
+      let descActual = contratoDetalle.descripcion || '';
+      if (descActual.includes('---DATOS_POLINOMICA---')) {
+        descActual = descActual.split('---DATOS_POLINOMICA---')[0].trim();
+      }
+      const payloadDataJson = JSON.stringify({ registros: nuevosRegistros, ajustes: nuevosAjustes || ajustesAplicados });
+      const nuevaDescripcionCompleta = `${descActual}\n---DATOS_POLINOMICA---${payloadDataJson}`;
+
       const payload = {
         tabla: 'ContratosMantenimiento',
         action: 'update',
         id: contratoDetalle.id,
         data: {
           ...contratoDetalle,
-          registros_meses: JSON.stringify(nuevosRegistros),
-          ajustes_aplicados: JSON.stringify(nuevosAjustes || ajustesAplicados)
+          descripcion: nuevaDescripcionCompleta
         }
       };
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -205,7 +216,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
       mes_base: c.mes_base || '',
       actualizacion: c.actualizacion || 'Polinómica',
       estado: c.estado || 'Borrador',
-      descripcion: c.descripcion || ''
+      descripcion: c.descripcion ? c.descripcion.split('---DATOS_POLINOMICA---')[0].trim() : ''
     });
     setModalAbierto(true);
   };
@@ -907,7 +918,9 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
             </div>
             <div className="p-4 bg-slate-50 rounded-xl">
               <span className="text-xs text-slate-400 block mb-1">Descripción del Servicio</span>
-              <p className="text-slate-700 text-sm">{contratoDetalle.descripcion || 'Sin descripción adicional.'}</p>
+              <p className="text-slate-700 text-sm">
+                {contratoDetalle.descripcion ? contratoDetalle.descripcion.split('---DATOS_POLINOMICA---')[0].trim() || 'Sin descripción adicional.' : 'Sin descripción adicional.'}
+              </p>
             </div>
           </div>
         )}
