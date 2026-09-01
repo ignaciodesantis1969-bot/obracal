@@ -3,7 +3,7 @@ import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, 
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
-// Contrato por defecto basado en su Base de Datos para asegurar disponibilidad inmediata
+// Respaldo garantizado basado en tu Base de Datos de Google Sheets
 const CONTRATO_DEFAULT = [
   {
     id: "1",
@@ -25,21 +25,10 @@ export default function Reportes(props) {
   const facturas = props.facturas || props.Facturas || [];
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
 
-  const [contratosList, setContratosList] = useState(() => {
-    const propsC = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento;
-    if (Array.isArray(propsC) && propsC.length > 0) return propsC;
-    return CONTRATO_DEFAULT;
-  });
+  const [fetchedContratos, setFetchedContratos] = useState([]);
 
-  // Carga ultra-robusta con respaldo automático
+  // Sincronización robusta con la API y respaldo automático
   useEffect(() => {
-    const propsContratos = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento || [];
-    if (Array.isArray(propsContratos) && propsContratos.length > 0) {
-      setContratosList(propsContratos);
-      return;
-    }
-
-    // Intentar obtener de la API de Google Apps Script
     fetch(`${GOOGLE_SCRIPT_URL}?tabla=ContratosMantenimiento`)
       .then(res => res.json())
       .then(data => {
@@ -52,10 +41,7 @@ export default function Reportes(props) {
           const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
           if (foundKey) lista = data[foundKey];
         }
-        
-        if (lista.length > 0) {
-          setContratosList(lista);
-        }
+        if (lista.length > 0) setFetchedContratos(lista);
       })
       .catch(() => {
         fetch(GOOGLE_SCRIPT_URL, {
@@ -69,14 +55,19 @@ export default function Reportes(props) {
             if (Array.isArray(data)) lista = data;
             else if (data && Array.isArray(data.data)) lista = data.data;
             else if (data && Array.isArray(data.ContratosMantenimiento)) lista = data.ContratosMantenimiento;
-            
-            if (lista.length > 0) {
-              setContratosList(lista);
-            }
+            if (lista.length > 0) setFetchedContratos(lista);
           })
           .catch(() => {});
       });
-  }, [props.contratos, props.Contratos, props.contratosMantenimiento]);
+  }, []);
+
+  // Consolidación de contratos priorizando props, servidor o respaldo por defecto
+  const contratosList = useMemo(() => {
+    const propsC = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento;
+    if (Array.isArray(propsC) && propsC.length > 0) return propsC;
+    if (fetchedContratos.length > 0) return fetchedContratos;
+    return CONTRATO_DEFAULT;
+  }, [props.contratos, props.Contratos, props.contratosMantenimiento, props.ContratosMantenimiento, props.contratos_mantenimiento, fetchedContratos]);
 
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Certificaciones');
