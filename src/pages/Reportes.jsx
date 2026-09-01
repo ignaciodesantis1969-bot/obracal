@@ -35,7 +35,6 @@ export default function Reportes(props) {
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
 
   useEffect(() => {
-    // Carga robusta de Contratos Mantenimiento
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -63,7 +62,6 @@ export default function Reportes(props) {
           .catch(() => {});
       });
 
-    // Carga robusta de Reportes Sice
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -159,8 +157,17 @@ export default function Reportes(props) {
         setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
       }
 
-      // Filtrado ultra robusto para asegurar que coincida con el contrato seleccionado
-      const filtrados = allReportesSice.filter(r => {
+      // Sincronizar con localStorage para persistencia inmediata al salir y volver a entrar
+      const localKey = `obracal_sice_partes_${contratoSeleccionadoId}`;
+      let localPartes = [];
+      try {
+        const cached = localStorage.getItem(localKey);
+        if (cached) localPartes = JSON.parse(cached);
+      } catch (e) {
+        localPartes = [];
+      }
+
+      const filtradosServer = allReportesSice.filter(r => {
         if (!r) return false;
         const rContratoId = String(
           r.contratoid || r.contratoId || r.contrato_id || r.ContratoId || 
@@ -169,38 +176,42 @@ export default function Reportes(props) {
 
         if (rContratoId === String(contratoSeleccionadoId).trim()) return true;
 
-        // Fallback buscando en todas las propiedades del objeto row
         const valores = Object.values(r).map(v => String(v).trim());
         return valores.includes(String(contratoSeleccionadoId).trim());
       });
 
-      const normalizados = filtrados.map(r => {
-        let itemsParsed = r.items;
-        if (typeof itemsParsed === 'string') {
-          try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
+      const combinedMap = new Map();
+      [...localPartes, ...filtradosServer].forEach(r => {
+        const key = r.id || r.nro;
+        if (key && !combinedMap.has(key)) {
+          let itemsParsed = r.items;
+          if (typeof itemsParsed === 'string') {
+            try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
+          }
+          let provParsed = r.proveedor;
+          if (typeof provParsed === 'string') {
+            try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: '', cargo: '' }; }
+          }
+          let cliParsed = r.cliente;
+          if (typeof cliParsed === 'string') {
+            try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: '', cargo: '' }; }
+          }
+          combinedMap.set(key, {
+            id: r.id || r.ID || `sice-${Math.random()}`,
+            nro: r.nro || r.numero || '00001',
+            fecha: r.fecha || '',
+            contratoId: contratoSeleccionadoId,
+            items: Array.isArray(itemsParsed) ? itemsParsed : [],
+            proveedor: provParsed,
+            cliente: cliParsed,
+            totalHorasSuma: Number(r.totalhorassuma || r.totalHorasSuma || 0),
+            pdfUrl: r.pdf_url || r.pdfUrl || ''
+          });
         }
-        let provParsed = r.proveedor;
-        if (typeof provParsed === 'string') {
-          try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: '', cargo: '' }; }
-        }
-        let cliParsed = r.cliente;
-        if (typeof cliParsed === 'string') {
-          try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: '', cargo: '' }; }
-        }
-        return {
-          id: r.id || r.ID,
-          nro: r.nro || r.numero || '00001',
-          fecha: r.fecha || '',
-          contratoId: r.contratoid || r.contratoId || r.contrato_id || r.ContratoId,
-          items: Array.isArray(itemsParsed) ? itemsParsed : [],
-          proveedor: provParsed,
-          cliente: cliParsed,
-          totalHorasSuma: Number(r.totalhorassuma || r.totalHorasSuma || 0),
-          pdfUrl: r.pdf_url || r.pdfUrl || ''
-        };
       });
 
-      setSicePartesAprobados(normalizados);
+      const finalLista = Array.from(combinedMap.values());
+      setSicePartesAprobados(finalLista);
     } else {
       setSicePartesAprobados([]);
       setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
@@ -220,8 +231,13 @@ export default function Reportes(props) {
           id: idParte
         })
       });
-      setSicePartesAprobados(prev => prev.filter(p => String(p.id) !== String(idParte)));
+      const filtrados = sicePartesAprobados.filter(p => String(p.id) !== String(idParte));
+      setSicePartesAprobados(filtrados);
       setFetchedReportesSice(prev => prev.filter(p => String(p.id) !== String(idParte)));
+      try {
+        const localKey = `obracal_sice_partes_${contratoSeleccionadoId}`;
+        localStorage.setItem(localKey, JSON.stringify(filtrados));
+      } catch (e) {}
       alert("Parte diario eliminado exitosamente.");
     } catch (err) {
       console.error("Error al eliminar parte:", err);
@@ -325,8 +341,14 @@ export default function Reportes(props) {
         pdfUrl: resultado.pdfUrl 
       };
 
-      setSicePartesAprobados(prev => [nuevoParte, ...prev]);
+      const actualizados = [nuevoParte, ...sicePartesAprobados];
+      setSicePartesAprobados(actualizados);
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
+
+      try {
+        const localKey = `obracal_sice_partes_${contratoSeleccionadoId}`;
+        localStorage.setItem(localKey, JSON.stringify(actualizados));
+      } catch (e) {}
 
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
@@ -1103,12 +1125,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: AB1234):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: XX0000):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder="Ej: AB1234"
+                          placeholder="Ej: XX0000"
                           value={siceRespProveedor.clave}
                           onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
@@ -1143,12 +1165,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: CD5678):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: YY9999):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder="Ej: CD5678"
+                          placeholder="Ej: YY9999"
                           value={siceRespCliente.clave}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
