@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink } from 'lucide-react';
+import { useAuth } from '@/hooks/useAuth';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
@@ -22,6 +23,13 @@ const CONTRATO_DEFAULT = [
 ];
 
 export default function Reportes(props) {
+  const { user } = useAuth();
+
+  const userRole = String(
+    props.role || props.userRole || user?.role || user?.rol || props.user?.role || ''
+  ).toLowerCase();
+  const esOperador = userRole.includes('operador') || userRole === 'operator';
+
   const obras = props.obras || props.Obras || [];
   const presupuestos = props.presupuestos || props.Presupuestos || [];
   const certificados = props.certificados || props.Certificados || [];
@@ -106,7 +114,13 @@ export default function Reportes(props) {
   }, [reportesSiceListProps, fetchedReportesSice]);
 
   const [obraFiltro, setObraFiltro] = useState('todas');
-  const [activeTab, setActiveTab] = useState('Certificaciones');
+  const [activeTab, setActiveTab] = useState(esOperador ? 'Reportes Diarios' : 'Certificaciones');
+
+  useEffect(() => {
+    if (esOperador) {
+      setActiveTab('Reportes Diarios');
+    }
+  }, [esOperador]);
 
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
@@ -888,19 +902,22 @@ export default function Reportes(props) {
         <p className="text-slate-500 text-sm mt-1">(Certificacion - Reportes - Listado de Insumos - Comparativas)</p>
       </div>
 
-      <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
-        {['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
-          <button 
-            key={tab} 
-            onClick={() => setActiveTab(tab)} 
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === tab ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
-          >
-            {tab}
-          </button>
-        ))}
-      </div>
+      {/* 🔐 PESTAÑAS: Se ocultan por completo si el usuario es Operador */}
+      {!esOperador && (
+        <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
+          {['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
+            <button 
+              key={tab} 
+              onClick={() => setActiveTab(tab)} 
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === tab ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+            >
+              {tab}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {activeTab === 'Certificaciones' && (
+      {!esOperador && activeTab === 'Certificaciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden p-6 space-y-4">
           <h3 className="text-sm font-extrabold text-slate-900 uppercase">Detalle de Certificaciones</h3>
           {certificados.length === 0 ? (
@@ -1256,7 +1273,7 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {activeTab === 'Listado de Insumos' && (
+      {!esOperador && activeTab === 'Listado de Insumos' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
             <div>
@@ -1416,7 +1433,7 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {activeTab === 'Comparativo' && (
+      {!esOperador && activeTab === 'Comparativo' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
             <div>

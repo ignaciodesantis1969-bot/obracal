@@ -17,13 +17,13 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
 
 const allNavItems = [
-  { icon: LayoutDashboard, label: 'Dashboard',         path: '/',                    key: null },
-  { icon: Users,           label: 'Clientes',          path: '/clientes',    key: 'clientes' },
+  { icon: LayoutDashboard, label: 'Dashboard',         path: '/',                     key: null },
+  { icon: Users,           label: 'Clientes',          path: '/clientes',     key: 'clientes' },
   { icon: Truck,           label: 'Proveedores',     path: '/proveedores',    key: 'proveedores' },
   { icon: Building2,       label: 'Obras',             path: '/obras',          key: 'obras' },
   { icon: ClipboardList,   label: 'Insumos',           path: '/insumos',        key: 'insumos' },
   { icon: BookOpen,        label: 'Maestro de Tareas',path: '/tareas-template', key: 'presupuestos' },
-  { icon: Calculator,      label: 'Presupuestos',     path: '/presupuestos',   key: 'presupuestos' },
+  { icon: Calculator,      label: 'Presupuestos',    path: '/presupuestos',   key: 'presupuestos' },
   { icon: ShieldCheck,     label: 'Contratos de Mantenimiento', path: '/contratos-mantenimiento', key: 'contratos_mantenimiento' },
   { icon: Users,           label: 'Recursos Humanos', path: '/rrhh',           key: 'rrhh' },
   { icon: ShoppingCart,    label: 'Compras',           path: '/compras',        key: 'compras' },
@@ -45,6 +45,10 @@ export default function Layout() {
   const { user, logout, login } = useAuth();
 
   const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
+
+  // Verificamos si el usuario actual tiene rol de operador
+  const userRole = String(user?.role || user?.rol || '').toLowerCase();
+  const esOperador = userRole.includes('operador') || userRole === 'operator';
 
   if (!user) {
     const handleLogin = async (e) => {
@@ -153,7 +157,10 @@ export default function Layout() {
     );
   }
 
-  const navItems = allNavItems.filter(item => item.key === null || tienePermiso(user, item.key));
+  // 🔐 Si es operador, filtramos estrictamente el menú para que solo tenga Control y Reportes (/reportes)
+  const navItems = esOperador 
+    ? allNavItems.filter(item => item.path === '/reportes')
+    : allNavItems.filter(item => item.key === null || tienePermiso(user, item.key));
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -191,7 +198,8 @@ export default function Layout() {
         })}
       </nav>
 
-      {(user?.role === 'admin' || user?.rol === 'admin' || true) && (
+      {/* 🔐 Ocultamos la opción de configuración de Usuarios en el menú lateral si el usuario es operador */}
+      {!esOperador && (
         <div className="px-2 pb-1">
           <Link
             to="/usuarios"
@@ -214,7 +222,7 @@ export default function Layout() {
           <div className="px-2 py-2 bg-slate-900/50 rounded-lg">
             <p className="text-white text-sm font-bold truncate">{user?.nombre || user?.email}</p>
             <p className="text-amber-500 text-xs font-medium truncate uppercase tracking-wide">
-              {(user?.role === 'admin' || user?.rol === 'admin') ? 'Administrador' : (user?.role || user?.rol || 'Usuario')}
+              {esOperador ? 'Operador' : ((user?.role === 'admin' || user?.rol === 'admin') ? 'Administrador' : (user?.role || user?.rol || 'Usuario'))}
             </p>
           </div>
         )}
