@@ -737,23 +737,9 @@ export default function Reportes(props) {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes (Certificacion - Reportes - Listado de Insumos - Comparativas)</h1>
-          <p className="text-slate-500 text-sm mt-1">Dashboard, certificaciones y análisis financiero</p>
-        </div>
-        <div className="w-full md:w-64">
-          <select 
-            className="w-full bg-white border border-slate-300 rounded-xl px-4 py-2.5 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
-            value={obraFiltro}
-            onChange={(e) => setObraFiltro(e.target.value)}
-          >
-            <option value="todas">Todas las obras</option>
-            {obras.map(o => (
-              <option key={o.id || o.ID} value={String(o.id || o.ID)}>{o.nombre || o.Nombre || 'Obra'}</option>
-            ))}
-          </select>
-        </div>
+      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:hidden">
+        <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes</h1>
+        <p className="text-slate-500 text-sm mt-1">(Certificacion - Reportes - Listado de Insumos - Comparativas)</p>
       </div>
 
       <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
@@ -821,7 +807,9 @@ export default function Reportes(props) {
                 >
                   <option value="">-- Seleccionar Contrato / Claves --</option>
                   {contratos.map(c => (
-                    <option key={c.id} value={c.id}>[{c.codigo}] {c.nombre_contrato || c.cliente}</option>
+                    <option key={c.id} value={c.id}>
+                      [{c.codigo}] {c.nombre_contrato || c.cliente} ({c.estado || 'Borrador'})
+                    </option>
                   ))}
                 </select>
                 <button 
@@ -837,7 +825,7 @@ export default function Reportes(props) {
             <div className="bg-white p-6 rounded-2xl border border-slate-400 space-y-6 text-slate-900">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
                 <div className="flex items-center gap-3">
-                  <img src="/logo-07.png" alt="SICE S.A." className="h-10 object-contain" />
+                  <img src="/logo-07.png" alt="SICE S.A." className="h-16 object-contain" />
                 </div>
                 <h2 className="text-xl font-black text-slate-900 tracking-wide">PARTE DIARIO DE ACTIVIDADES</h2>
               </div>
@@ -1119,7 +1107,7 @@ export default function Reportes(props) {
                 </div>
                 <div className="p-6 overflow-y-auto space-y-6 text-slate-900 text-xs">
                   <div className="flex justify-between items-center border-b-2 border-slate-800 pb-4">
-                    <img src="/logo-07.png" alt="SICE S.A." className="h-10 object-contain" />
+                    <img src="/logo-07.png" alt="SICE S.A." className="h-16 object-contain" />
                     <h2 className="text-lg font-black text-slate-900">PARTE DIARIO DE ACTIVIDADES</h2>
                   </div>
                   <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
