@@ -243,7 +243,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     return true;
   });
 
-  // Lógica con cálculo mes a mes respecto al mes anterior y reseteo de ciclo al superar el 5%
   const procesarMesesPolinomica = () => {
     let acumuladoTotal = 0;
     let cicloAcumulado = 0;
@@ -288,7 +287,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         });
 
         if (supera) {
-          cicloAcumulado = 0; // Se reinicia el acumulado del ciclo para el próximo mes tras aplicar el reajuste
+          cicloAcumulado = 0;
         }
       }
     });
@@ -516,32 +515,96 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         )}
 
         {subTabDetalle === 'horas' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden space-y-4 p-6">
-            <div className="border-b border-slate-200 pb-4">
-              <h2 className="text-lg font-black text-slate-800">1. Mano de Obra — Valores por Hora (HH)</h2>
-              <p className="text-slate-500 text-sm">Valores de referencia base aplicados para la facturación de servicios de mantenimiento.</p>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-sm">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                    <th className="p-4">Código</th>
-                    <th className="p-4">Tópico</th>
-                    <th className="p-4 text-right bg-amber-500/10 text-slate-900">ARS / HR (Base)</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {manoDeObra.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-slate-50">
-                      <td className="p-4 font-mono text-slate-600">{item.codigo}</td>
-                      <td className="p-4 font-semibold text-slate-800">{item.topico}</td>
-                      <td className="p-4 text-right font-bold text-slate-900 bg-amber-500/5">
-                        $ {item.ars.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                      </td>
+          <div className="space-y-6">
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
+              <div className="border-b border-slate-200 pb-4">
+                <h2 className="text-lg font-black text-slate-800">1. Mano de Obra — Valores por Hora (HH) Base</h2>
+                <p className="text-slate-500 text-sm">Valores de referencia base aplicados para la facturación de servicios de mantenimiento.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <th className="p-4">Código</th>
+                      <th className="p-4">Tópico</th>
+                      <th className="p-4 text-right bg-amber-500/10 text-slate-900">ARS / HR (Base)</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {manoDeObra.map((item, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="p-4 font-mono text-slate-600">{item.codigo}</td>
+                        <td className="p-4 font-semibold text-slate-800">{item.topico}</td>
+                        <td className="p-4 text-right font-bold text-slate-900 bg-amber-500/5">
+                          $ {item.ars.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
+              <div className="border-b border-slate-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                <div>
+                  <h2 className="text-lg font-black text-slate-800">2. Valores Actualizados por Índice Polinómico</h2>
+                  <p className="text-slate-500 text-sm">Aplicación automática del índice de reajuste cuando el acumulado supera el 5%.</p>
+                </div>
+                <div className={cn(
+                  'px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border shadow-sm',
+                  superaUmbral ? 'bg-red-50 text-red-600 border-red-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                )}>
+                  <TrendingUp className="w-4 h-4" />
+                  <span>Índice Acumulado Total: +{polinomioAcumuladoTotal.toFixed(2)}%</span>
+                </div>
+              </div>
+
+              {superaUmbral ? (
+                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-700 text-sm flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 shrink-0 text-red-600" />
+                  <span><strong>Reajuste activo:</strong> El acumulado actual es de +{polinomioAcumuladoTotal.toFixed(2)}% (supera el umbral del 5%). Los valores de las horas hombre han sido actualizados con el índice correspondiente.</span>
+                </div>
+              ) : (
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-sm flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 shrink-0 text-slate-400" />
+                  <span>El acumulado actual es de +{polinomioAcumuladoTotal.toFixed(2)}% (menor o igual al 5%). Se muestran valores actualizados proyectados.</span>
+                </div>
+              )}
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
+                      <th className="p-4">Código</th>
+                      <th className="p-4">Tópico</th>
+                      <th className="p-4 text-right">Valor Base (ARS)</th>
+                      <th className="p-4 text-center">Índice Aplicado</th>
+                      <th className="p-4 text-right bg-emerald-500/10 text-slate-900">Valor Actualizado (ARS)</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {manoDeObra.map((item, idx) => {
+                      const valorActualizado = item.ars * (1 + polinomioAcumuladoTotal / 100);
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50">
+                          <td className="p-4 font-mono text-slate-600">{item.codigo}</td>
+                          <td className="p-4 font-semibold text-slate-800">{item.topico}</td>
+                          <td className="p-4 text-right font-medium text-slate-600">
+                            $ {item.ars.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                          <td className="p-4 text-center font-bold text-amber-600">
+                            +{polinomioAcumuladoTotal.toFixed(2)}%
+                          </td>
+                          <td className="p-4 text-right font-black text-emerald-700 bg-emerald-500/5">
+                            $ {valorActualizado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
