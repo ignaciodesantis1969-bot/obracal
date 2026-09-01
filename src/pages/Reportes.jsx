@@ -10,7 +10,9 @@ const CONTRATO_DEFAULT = [
     nombre_contrato: "Mantenimiento Correctivo Edilicio",
     cliente: "LDC ARGENTINA S.A.",
     estado: "Activo",
-    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon\n---DATOS_SICE_INTEGRAL---\n{\"proveedorKey\":\"JP4829\",\"clienteKey\":\"CG9012\"}"
+    proveedorKey: "AT1020",
+    clienteKey: "CM7030",
+    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon\n---DATOS_SICE_INTEGRAL---\n{\"proveedorKey\":\"AT1020\",\"clienteKey\":\"CM7030\"}"
   }
 ];
 
@@ -125,8 +127,8 @@ export default function Reportes(props) {
       let descActual = contrato.descripcion || '';
       let registrosActuales = [];
       let ajustesActuales = [];
-      let provKey = 'JP4829';
-      let cliKey = 'CG9012';
+      let provKey = contrato.proveedorKey || contrato.proveedor_key || 'JP4829';
+      let cliKey = contrato.clienteKey || contrato.cliente_key || 'CG9012';
 
       if (descActual.includes('---DATOS_SICE_INTEGRAL---')) {
         const partes = descActual.split('---DATOS_SICE_INTEGRAL---');
@@ -168,35 +170,51 @@ export default function Reportes(props) {
 
   const obtenerClavesContratoActual = () => {
     const contratoActivo = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
-    if (contratoActivo && contratoActivo.descripcion) {
-      const desc = String(contratoActivo.descripcion);
-      
-      if (desc.includes('---DATOS_SICE_INTEGRAL---')) {
-        try {
-          const partesDesc = desc.split('---DATOS_SICE_INTEGRAL---');
-          let jsonStr = partesDesc[1].trim();
-          if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
-          const keysJson = JSON.parse(jsonStr);
-          if (keysJson.proveedorKey || keysJson.clienteKey) {
-            return {
-              proveedorKey: keysJson.proveedorKey || 'JP4829',
-              clienteKey: keysJson.clienteKey || 'CG9012'
-            };
-          }
-        } catch (e) {}
+    if (contratoActivo) {
+      // 1. Prioridad máxima: Propiedades directas del objeto contrato (proveedorKey, clienteKey, etc.)
+      const pDirect = contratoActivo.proveedorKey || contratoActivo.proveedor_key || contratoActivo.claveProveedor || contratoActivo.clave_proveedor;
+      const cDirect = contratoActivo.clienteKey || contratoActivo.cliente_key || contratoActivo.claveCliente || contratoActivo.clave_cliente;
+      if (pDirect && cDirect) {
+        return { proveedorKey: String(pDirect).trim(), clienteKey: String(cDirect).trim() };
       }
 
-      // Extracción automática por patrón de letras y números (ej: JP4829)
-      const matches = desc.match(/[A-Za-z]{2}\d{4}/g);
-      if (matches && matches.length >= 2) {
+      // 2. Segunda prioridad: Buscar en la descripción JSON
+      if (contratoActivo.descripcion) {
+        const desc = String(contratoActivo.descripcion);
+        if (desc.includes('---DATOS_SICE_INTEGRAL---')) {
+          try {
+            const partesDesc = desc.split('---DATOS_SICE_INTEGRAL---');
+            let jsonStr = partesDesc[1].trim();
+            if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
+            const keysJson = JSON.parse(jsonStr);
+            if (keysJson.proveedorKey || keysJson.clienteKey) {
+              return {
+                proveedorKey: keysJson.proveedorKey || pDirect || 'JP4829',
+                clienteKey: keysJson.clienteKey || cDirect || 'CG9012'
+              };
+            }
+          } catch (e) {}
+        }
+
+        // 3. Tercera prioridad: Patrón de letras y números (Ej: AT1020)
+        const matches = desc.match(/[A-Za-z]{2}\d{4}/g);
+        if (matches && matches.length >= 2) {
+          return {
+            proveedorKey: matches[0],
+            clienteKey: matches[1]
+          };
+        } else if (matches && matches.length === 1) {
+          return {
+            proveedorKey: matches[0],
+            clienteKey: cDirect || 'CG9012'
+          };
+        }
+      }
+
+      if (pDirect || cDirect) {
         return {
-          proveedorKey: matches[0],
-          clienteKey: matches[1]
-        };
-      } else if (matches && matches.length === 1) {
-        return {
-          proveedorKey: matches[0],
-          clienteKey: 'CG9012'
+          proveedorKey: pDirect || 'JP4829',
+          clienteKey: cDirect || 'CG9012'
         };
       }
     }
@@ -783,7 +801,7 @@ export default function Reportes(props) {
       if (compNorm.includes('subcontrato')) {
         return tipoFac.includes('subcontrato') || tipoFac.includes('georadar') || tipoFac.includes('alquiler') || tipoFac.includes('flete') || tipoFac.includes('servicio');
       }
-      if (compNorm.includes('equipo') || compNorm.includes('maquinaria')) {
+      if (compNorm.includes('equipo') || tipoFac.includes('maquinaria')) {
         return tipoFac.includes('equipo') || tipoFac.includes('maquinaria') || tipoFac.includes('andamio');
       }
       if (compNorm.includes('material')) {
