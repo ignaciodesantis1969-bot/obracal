@@ -12,7 +12,7 @@ const CONTRATO_DEFAULT = [
     estado: "Activo",
     proveedorKey: "AT1020",
     clienteKey: "CM7030",
-    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon\n---DATOS_SICE_INTEGRAL---\n{\"proveedorKey\":\"AT1020\",\"clienteKey\":\"CM7030\"}"
+    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon"
   }
 ];
 
@@ -27,8 +27,10 @@ export default function Reportes(props) {
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
+  const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
 
   useEffect(() => {
+    // Cargar Contratos
     fetch(`${GOOGLE_SCRIPT_URL}?tabla=ContratosMantenimiento`)
       .then(res => res.json())
       .then(data => {
@@ -59,6 +61,38 @@ export default function Reportes(props) {
           })
           .catch(() => {});
       });
+
+    // Cargar Partes Diarios SICE desde su propia tabla/hoja dedicada
+    fetch(`${GOOGLE_SCRIPT_URL}?tabla=ReportesSice`)
+      .then(res => res.json())
+      .then(data => {
+        let lista = [];
+        if (Array.isArray(data)) lista = data;
+        else if (data && Array.isArray(data.data)) lista = data.data;
+        else if (data && Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
+        else if (data && Array.isArray(data.reportes)) lista = data.reportes;
+        else if (data && typeof data === 'object') {
+          const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+          if (foundKey) lista = data[foundKey];
+        }
+        if (lista.length > 0) setFetchedReportesSice(lista);
+      })
+      .catch(() => {
+        fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' })
+        })
+          .then(res => res.json())
+          .then(data => {
+            let lista = [];
+            if (Array.isArray(data)) lista = data;
+            else if (data && Array.isArray(data.data)) lista = data.data;
+            else if (data && Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
+            if (lista.length > 0) setFetchedReportesSice(lista);
+          })
+          .catch(() => {});
+      });
   }, []);
 
   const contratosList = useMemo(() => {
@@ -77,137 +111,77 @@ export default function Reportes(props) {
   const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
   const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(false);
 
-  // 📝 Estados para Reportes Diarios (Formato Oficial SICE S.A.)
+  // 📝 Estados para Reportes Diarios (Formato Oficial SICE S.A. sin Orden de Mantenimiento)
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   const [siceParteNro, setSiceParteNro] = useState('00001');
   const [siceItems, setSiceItems] = useState([
-    { id: 1, ordenMantenimiento: '', descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
+    { id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
   ]);
   const [siceRespProveedor, setSiceRespProveedor] = useState({ cargo: '', nombre: '', clave: '' });
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
-  const [sicePartesAprobados, setSicePartesAprobados] = useState([]);
   const [parteVisualizando, setParteVisualizando] = useState(null);
 
-  useEffect(() => {
-    if (contratoSeleccionadoId) {
-      const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
-      if (contrato && contrato.descripcion) {
-        if (contrato.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
-          try {
-            const partes = contrato.descripcion.split('---DATOS_SICE_INTEGRAL---');
-            let jsonStr = partes[1].trim();
-            if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
-            const json = JSON.parse(jsonStr);
-            if (json.partesAprobados && Array.isArray(json.partesAprobados)) {
-              setSicePartesAprobados(json.partesAprobados);
-            } else {
-              setSicePartesAprobados([]);
-            }
-          } catch (e) {
-            setSicePartesAprobados([]);
-          }
-        } else {
-          setSicePartesAprobados([]);
-        }
-      } else {
-        setSicePartesAprobados([]);
-      }
-    } else {
-      setSicePartesAprobados([]);
-    }
-  }, [contratoSeleccionadoId, contratosList]);
+  // Filtrar partes aprobados del contrato seleccionado
+  const sicePartesAprobados = useMemo(() => {
+    if (!contratoSeleccionadoId) return [];
+    return fetchedReportesSice.filter(p => String(p.contratoId || p.contrato_id) === String(contratoSeleccionadoId));
+  }, [fetchedReportesSice, contratoSeleccionadoId]);
 
-  const guardarPartesEnServidor = async (nuevosPartes) => {
-    if (!contratoSeleccionadoId) return;
-    const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
-    if (!contrato) return;
-
+  const guardarParteEnServidor = async (nuevoParte) => {
     try {
-      let descActual = contrato.descripcion || '';
-      let registrosActuales = [];
-      let ajustesActuales = [];
-      let provKey = contrato.proveedorKey || contrato.proveedor_key || 'JP4829';
-      let cliKey = contrato.clienteKey || contrato.cliente_key || 'CG9012';
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'ReportesSice',
+          action: 'create',
+          data: nuevoParte
+        })
+      });
+      setFetchedReportesSice(prev => [nuevoParte, ...prev]);
+    } catch (err) {
+      console.error("Error al guardar parte diario en servidor:", err);
+    }
+  };
 
-      if (descActual.includes('---DATOS_SICE_INTEGRAL---')) {
-        const partes = descActual.split('---DATOS_SICE_INTEGRAL---');
-        descActual = partes[0].trim();
-        try {
-          let jsonStr = partes[1].trim();
-          if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
-          const json = JSON.parse(jsonStr);
-          registrosActuales = json.registros || [];
-          ajustesActuales = json.ajustes || [];
-          if (json.proveedorKey) provKey = json.proveedorKey;
-          if (json.clienteKey) cliKey = json.clienteKey;
-        } catch (e) {}
-      }
-
-      const payloadData = {
-        registros: registrosActuales,
-        ajustes: ajustesActuales,
-        proveedorKey: provKey,
-        clienteKey: cliKey,
-        partesAprobados: nuevosPartes
-      };
-      const nuevaDesc = `${descActual}\n---DATOS_SICE_INTEGRAL---\n${JSON.stringify(payloadData)}`;
-
+  const eliminarParteServidor = async (idParte) => {
+    if (!window.confirm("¿Está seguro de eliminar este parte diario SICE?")) return;
+    try {
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
-          tabla: 'ContratosMantenimiento',
-          action: 'update',
-          id: contrato.id || contrato.ID || contrato.codigo,
-          data: { ...contrato, descripcion: nuevaDesc }
+          tabla: 'ReportesSice',
+          action: 'delete',
+          id: idParte
         })
       });
+      setFetchedReportesSice(prev => prev.filter(p => String(p.id || p.ID || p.nro) !== String(idParte)));
+      alert("Parte diario eliminado correctamente.");
     } catch (err) {
-      console.error("Error al guardar partes aprobados en servidor:", err);
+      console.error("Error al eliminar parte diario:", err);
+      // Fallback local
+      setFetchedReportesSice(prev => prev.filter(p => String(p.id || p.ID || p.nro) !== String(idParte)));
     }
   };
 
   const obtenerClavesContratoActual = () => {
     const contratoActivo = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
     if (contratoActivo) {
-      // 1. Prioridad máxima: Propiedades directas del objeto contrato (proveedorKey, clienteKey, etc.)
       const pDirect = contratoActivo.proveedorKey || contratoActivo.proveedor_key || contratoActivo.claveProveedor || contratoActivo.clave_proveedor;
       const cDirect = contratoActivo.clienteKey || contratoActivo.cliente_key || contratoActivo.claveCliente || contratoActivo.clave_cliente;
       if (pDirect && cDirect) {
         return { proveedorKey: String(pDirect).trim(), clienteKey: String(cDirect).trim() };
       }
 
-      // 2. Segunda prioridad: Buscar en la descripción JSON
       if (contratoActivo.descripcion) {
         const desc = String(contratoActivo.descripcion);
-        if (desc.includes('---DATOS_SICE_INTEGRAL---')) {
-          try {
-            const partesDesc = desc.split('---DATOS_SICE_INTEGRAL---');
-            let jsonStr = partesDesc[1].trim();
-            if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
-            const keysJson = JSON.parse(jsonStr);
-            if (keysJson.proveedorKey || keysJson.clienteKey) {
-              return {
-                proveedorKey: keysJson.proveedorKey || pDirect || 'JP4829',
-                clienteKey: keysJson.clienteKey || cDirect || 'CG9012'
-              };
-            }
-          } catch (e) {}
-        }
-
-        // 3. Tercera prioridad: Patrón de letras y números (Ej: AT1020)
         const matches = desc.match(/[A-Za-z]{2}\d{4}/g);
         if (matches && matches.length >= 2) {
-          return {
-            proveedorKey: matches[0],
-            clienteKey: matches[1]
-          };
+          return { proveedorKey: matches[0], clienteKey: matches[1] };
         } else if (matches && matches.length === 1) {
-          return {
-            proveedorKey: matches[0],
-            clienteKey: cDirect || 'CG9012'
-          };
+          return { proveedorKey: matches[0], clienteKey: cDirect || 'CG9012' };
         }
       }
 
@@ -240,7 +214,7 @@ export default function Reportes(props) {
     }
     setSiceItems([
       ...siceItems,
-      { id: siceItems.length + 1, ordenMantenimiento: '', descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
+      { id: siceItems.length + 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
     ]);
   };
 
@@ -279,6 +253,7 @@ export default function Reportes(props) {
     }
 
     const nuevoParte = {
+      id: `sice-${Date.now()}`,
       nro: siceParteNro,
       fecha: siceFecha,
       contratoId: contratoSeleccionadoId,
@@ -288,16 +263,14 @@ export default function Reportes(props) {
       totalHorasSuma: siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0)
     };
 
-    const actualizados = [nuevoParte, ...sicePartesAprobados];
-    setSicePartesAprobados(actualizados);
-    guardarPartesEnServidor(actualizados);
+    guardarParteEnServidor(nuevoParte);
 
     const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
     setSiceParteNro(siguienteNro);
-    setSiceItems([{ id: 1, ordenMantenimiento: '', descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
+    setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
     setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
     setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
-    alert("¡Parte Diario aprobado, firmado, archivado en PDF y guardado exitosamente en el servidor!");
+    alert("¡Parte Diario aprobado, firmado, archivado en PDF y guardado en la hoja ReportesSice!");
   };
 
   const presupuestosFiltrados = obraFiltro === 'todas' 
@@ -942,13 +915,12 @@ export default function Reportes(props) {
                   <thead>
                     <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
                       <th className="py-2.5 px-2 border-r border-slate-700 w-12 text-center">Item</th>
-                      <th className="py-2.5 px-3 border-r border-slate-700">Orden de Mantenimiento</th>
                       <th className="py-2.5 px-3 border-r border-slate-700">Descripción del Servicio</th>
-                      <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Hora Comienzo</th>
-                      <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Hora Fin</th>
-                      <th className="py-2.5 px-2 border-r border-slate-700 text-center w-20">Total Horas</th>
+                      <th className="py-2.5 px-2 border-r border-slate-700 text-center w-28">Hora Comienzo</th>
+                      <th className="py-2.5 px-2 border-r border-slate-700 text-center w-28">Hora Fin</th>
+                      <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Total Horas</th>
                       <th className="py-2.5 px-3 border-r border-slate-700">Observaciones</th>
-                      <th className="py-2.5 px-2 text-center w-24">Terminó Tarea</th>
+                      <th className="py-2.5 px-2 text-center w-28">Terminó Tarea</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-300">
@@ -957,15 +929,6 @@ export default function Reportes(props) {
                       return (
                         <tr key={index} className="bg-amber-50/60 hover:bg-amber-50 transition-colors">
                           <td className="py-2 px-2 text-center font-bold border-r border-slate-300 text-slate-700">{row.id}</td>
-                          <td className="py-1.5 px-2 border-r border-slate-300">
-                            <input 
-                              type="text" 
-                              value={row.ordenMantenimiento}
-                              onChange={(e) => actualizarItemSice(index, 'ordenMantenimiento', e.target.value)}
-                              placeholder="Nro Orden..."
-                              className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
-                            />
-                          </td>
                           <td className="py-1.5 px-2 border-r border-slate-300">
                             <input 
                               type="text" 
@@ -980,7 +943,7 @@ export default function Reportes(props) {
                               type="time" 
                               value={row.horaComienzo}
                               onChange={(e) => actualizarItemSice(index, 'horaComienzo', e.target.value)}
-                              className="bg-amber-100/50 border border-slate-300 rounded px-1 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
+                              className="bg-amber-100/50 border border-slate-300 rounded px-1.5 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
                             />
                           </td>
                           <td className="py-1.5 px-2 border-r border-slate-300 text-center">
@@ -988,7 +951,7 @@ export default function Reportes(props) {
                               type="time" 
                               value={row.horaFin}
                               onChange={(e) => actualizarItemSice(index, 'horaFin', e.target.value)}
-                              className="bg-amber-100/50 border border-slate-300 rounded px-1 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
+                              className="bg-amber-100/50 border border-slate-300 rounded px-1.5 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
                             />
                           </td>
                           <td className="py-1.5 px-2 border-r border-slate-300 text-center font-extrabold text-amber-900 bg-amber-100/80">
@@ -1008,14 +971,14 @@ export default function Reportes(props) {
                               <button
                                 type="button"
                                 onClick={() => actualizarItemSice(index, 'terminoTarea', 'SI')}
-                                className={`px-2 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row.terminoTarea === 'SI' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
+                                className={`px-2.5 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row.terminoTarea === 'SI' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
                               >
                                 SI
                               </button>
                               <button
                                 type="button"
                                 onClick={() => actualizarItemSice(index, 'terminoTarea', 'NO')}
-                                className={`px-2 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row.terminoTarea === 'NO' ? 'bg-rose-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
+                                className={`px-2.5 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row.terminoTarea === 'NO' ? 'bg-rose-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
                               >
                                 NO
                               </button>
@@ -1068,12 +1031,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: JP4829):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: AT1020):</label>
                         <input 
                           type="text" 
                           required
                           maxLength={6}
-                          placeholder="Ej: JP4829"
+                          placeholder="Ej: AT1020"
                           value={siceRespProveedor.clave}
                           onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-amber-700 uppercase focus:outline-none focus:border-amber-500"
@@ -1108,12 +1071,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: CG9012):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: CM7030):</label>
                         <input 
                           type="text" 
                           required
                           maxLength={6}
-                          placeholder="Ej: CG9012"
+                          placeholder="Ej: CM7030"
                           value={siceRespCliente.clave}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-amber-700 uppercase focus:outline-none focus:border-amber-500"
@@ -1124,52 +1087,59 @@ export default function Reportes(props) {
                 </div>
 
                 <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
-                  <p className="text-xs text-slate-500">Se corroborarán las claves con la sección "Descripción General" del contrato seleccionado.</p>
+                  <p className="text-xs text-slate-500">Se corroborarán las claves con la configuración del contrato seleccionado y se guardará en la hoja ReportesSice.</p>
                   <button 
                     type="submit"
                     className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
                   >
-                    <ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Archivar PDF
+                    <ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Guardar Reporte
                   </button>
                 </div>
               </form>
             </div>
           </div>
 
-          {/* HISTORIAL DE PARTES DIARIOS APROBADOS Y ARCHIVADOS EN PDF */}
+          {/* HISTORIAL DE PARTES DIARIOS APROBADOS Y ARCHIVADOS (CON OPCIÓN DE BORRAR) */}
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
-            <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados (Almacenados como PDF)</h3>
+            <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados (Google Sheet: ReportesSice)</h3>
             {sicePartesAprobados.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
                 No hay partes diarios aprobados ni archivados en este contrato. Seleccione el contrato correcto arriba.
               </div>
             ) : (
               <div className="space-y-3">
-                {sicePartesAprobados.map((parte, idx) => (
-                  <div key={idx} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                    <div>
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte.nro}</span>
-                        <span className="text-xs font-medium text-slate-500">Fecha: {parte.fecha}</span>
-                        <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte.totalHorasSuma} hs</span>
+                {sicePartesAprobados.map((parte, idx) => {
+                  const parteId = parte.id || parte.ID || parte.nro || idx;
+                  return (
+                    <div key={parteId} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                      <div>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte.nro}</span>
+                          <span className="text-xs font-medium text-slate-500">Fecha: {parte.fecha}</span>
+                          <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte.totalHorasSuma} hs</span>
+                        </div>
+                        <p className="text-slate-700 text-xs mt-2">
+                          Proveedor: <strong>{parte.proveedor?.nombre}</strong> | Cliente: <strong>{parte.cliente?.nombre}</strong>
+                        </p>
                       </div>
-                      <p className="text-slate-700 text-xs mt-2">
-                        Proveedor: <strong>{parte.proveedor.nombre}</strong> | Cliente: <strong>{parte.cliente.nombre}</strong>
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <button 
+                          onClick={() => setParteVisualizando(parte)}
+                          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                        >
+                          <Eye className="w-4 h-4" /> Visualizar PDF
+                        </button>
+                        <button 
+                          onClick={() => eliminarParteServidor(parteId)}
+                          className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
+                          title="Eliminar reporte"
+                        >
+                          <Trash2 className="w-4 h-4" /> Borrar
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <button 
-                        onClick={() => setParteVisualizando(parte)}
-                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
-                      >
-                        <Eye className="w-4 h-4" /> Visualizar PDF
-                      </button>
-                      <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
-                        PDF Archivado
-                      </span>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1205,7 +1175,6 @@ export default function Reportes(props) {
                     <thead>
                       <tr className="bg-slate-800 text-white font-bold text-[10px]">
                         <th className="p-2 border">Item</th>
-                        <th className="p-2 border">Orden Mantenimiento</th>
                         <th className="p-2 border">Descripción</th>
                         <th className="p-2 border text-center">Horario</th>
                         <th className="p-2 border text-center">Total Horas</th>
@@ -1216,7 +1185,6 @@ export default function Reportes(props) {
                       {parteVisualizando.items.map((it, i) => (
                         <tr key={i} className="border-b">
                           <td className="p-2 border text-center">{it.id}</td>
-                          <td className="p-2 border">{it.ordenMantenimiento || '---'}</td>
                           <td className="p-2 border">{it.descripcion || '---'}</td>
                           <td className="p-2 border text-center">{it.horaComienzo} a {it.horaFin}</td>
                           <td className="p-2 border text-center font-bold text-amber-900">{calcularTotalHorasSice(it.horaComienzo, it.horaFin)} hs</td>
@@ -1227,11 +1195,11 @@ export default function Reportes(props) {
                   </table>
                   <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
                     <div className="p-3 bg-slate-50 rounded-xl border">
-                      <p className="font-bold text-slate-700">Responsable Proveedor: {parteVisualizando.proveedor.nombre} ({parteVisualizando.proveedor.cargo})</p>
+                      <p className="font-bold text-slate-700">Responsable Proveedor: {parteVisualizando.proveedor?.nombre} ({parteVisualizando.proveedor?.cargo})</p>
                       <p className="text-[11px] text-emerald-700 font-mono mt-1">✓ Firma Electrónica Verificada (Clave OK)</p>
                     </div>
                     <div className="p-3 bg-slate-50 rounded-xl border">
-                      <p className="font-bold text-slate-700">Responsable Cliente: {parteVisualizando.cliente.nombre} ({parteVisualizando.cliente.cargo})</p>
+                      <p className="font-bold text-slate-700">Responsable Cliente: {parteVisualizando.cliente?.nombre} ({parteVisualizando.cliente?.cargo})</p>
                       <p className="text-[11px] text-emerald-700 font-mono mt-1">✓ Firma Electrónica Verificada (Clave OK)</p>
                     </div>
                   </div>
