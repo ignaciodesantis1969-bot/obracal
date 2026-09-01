@@ -7,12 +7,17 @@ const CONTRATO_DEFAULT = [
   {
     id: "1",
     codigo: "CM001",
+    nombre: "Mantenimiento Correctivo Edilicio",
     nombre_contrato: "Mantenimiento Correctivo Edilicio",
     cliente: "LDC ARGENTINA S.A.",
     estado: "Activo",
     proveedorKey: "AT1020",
     clienteKey: "CM7030",
-    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon\n---DATOS_SICE_INTEGRAL---\n{\"proveedorKey\":\"AT1020\",\"clienteKey\":\"CM7030\",\"proveedorCargo\":\"Jefe de Obra\",\"proveedorNombre\":\"Juan Pérez\",\"clienteCargo\":\"Supervisor de Planta\",\"clienteNombre\":\"Carlos Gómez\"}"
+    proveedorCargo: "Oficial a cargo del Site",
+    proveedorNombre: "Alexander Torres Lopez",
+    clienteCargo: "Gerente de Planta",
+    clienteNombre: "Cristian Matei",
+    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon\n---DATOS_SICE_INTEGRAL---\n{\"proveedorKey\":\"AT1020\",\"clienteKey\":\"CM7030\",\"proveedorCargo\":\"Oficial a cargo del Site\",\"proveedorNombre\":\"Alexander Torres Lopez\",\"clienteCargo\":\"Gerente de Planta\",\"clienteNombre\":\"Cristian Matei\"}"
   }
 ];
 
@@ -93,16 +98,17 @@ export default function Reportes(props) {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
       if (contrato) {
-        let pKey = contrato.proveedorKey || contrato.proveedor_key || 'AT1020';
-        let cKey = contrato.clienteKey || contrato.cliente_key || 'CM7030';
-        let pCargo = contrato.proveedorCargo || '';
-        let pNombre = contrato.proveedorNombre || '';
-        let cCargo = contrato.clienteCargo || '';
-        let cNombre = contrato.clienteNombre || '';
+        let pKey = contrato.proveedorKey || contrato.proveedor_key || contrato.claveProveedor || contrato.clave_proveedor || 'AT1020';
+        let cKey = contrato.clienteKey || contrato.cliente_key || contrato.claveCliente || contrato.clave_cliente || 'CM7030';
+        
+        let pCargo = contrato.proveedorCargo || contrato.proveedor_cargo || contrato.ProveedorCargo || '';
+        let pNombre = contrato.proveedorNombre || contrato.proveedor_nombre || contrato.ProveedorNombre || '';
+        let cCargo = contrato.clienteCargo || contrato.cliente_cargo || contrato.ClienteCargo || '';
+        let cNombre = contrato.clienteNombre || contrato.cliente_nombre || contrato.ClienteNombre || '';
 
-        if (contrato.descripcion && contrato.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
+        if (contrato.descripcion && String(contrato.descripcion).includes('---DATOS_SICE_INTEGRAL---')) {
           try {
-            const partes = contrato.descripcion.split('---DATOS_SICE_INTEGRAL---');
+            const partes = String(contrato.descripcion).split('---DATOS_SICE_INTEGRAL---');
             let jsonStr = partes[1].trim();
             if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
             const json = JSON.parse(jsonStr);
@@ -914,7 +920,7 @@ export default function Reportes(props) {
                   {contratosList.map((c, i) => {
                     const cId = String(c.id || c.ID || c.codigo || c.Codigo || i);
                     const cCod = c.codigo || c.Codigo || 'S/C';
-                    const cNom = c.nombre_contrato || c.Nombre_contrato || c.cliente || c.Cliente || c.nombre || 'Contrato';
+                    const cNom = c.nombre || c.nombre_contrato || c.Nombre_contrato || c.nombreContrato || c.cliente || c.Cliente || 'Contrato';
                     const cEst = c.estado || c.Estado || 'Activo';
                     return (
                       <option key={cId} value={cId}>
