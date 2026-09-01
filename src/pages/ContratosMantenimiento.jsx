@@ -52,7 +52,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [ajustesAplicados, setAjustesAplicados] = useState([]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
-  // CORREGIDO: Se usa [contratoDetalle?.id] para evitar que se reseteen los cambios al refrescar
+  // Sincronizar y parsear registros polinómicos con dependencia segura [contratoDetalle?.id]
   useEffect(() => {
     if (contratoDetalle) {
       const desc = contratoDetalle.descripcion || '';
@@ -131,6 +131,32 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     actualizados[idx][campo] = valor;
     setRegistrosMeses(actualizados);
     guardarCambiosPolinomicaEnServidor(actualizados, ajustesAplicados);
+  };
+
+  // Función para descargar en JPG o PNG
+  const descargarImagen = async (formato) => {
+    try {
+      if (!window.html2canvas) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement('script');
+          script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js';
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+      const elemento = document.getElementById('documento-contrato-imprimible');
+      if (!elemento) return;
+      const canvas = await window.html2canvas(elemento, { scale: 2, backgroundColor: '#ffffff' });
+      const imageType = formato === 'png' ? 'image/png' : 'image/jpeg';
+      const link = document.createElement('a');
+      link.download = `Contrato_${contratoDetalle.codigo}.${formato}`;
+      link.href = canvas.toDataURL(imageType, 0.95);
+      link.click();
+    } catch (err) {
+      console.error("Error al generar la imagen:", err);
+      alert("No se pudo generar la imagen del contrato.");
+    }
   };
 
   const [formData, setFormData] = useState({
@@ -904,23 +930,93 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         )}
 
         {subTabDetalle === 'general' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
-            <h2 className="text-lg font-black text-slate-800">Detalles del Contrato</h2>
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-xs text-slate-400 block">Cliente</span>
-                <strong className="text-slate-800">{contratoDetalle.cliente}</strong>
+          <div className="space-y-6">
+            {/* Barra de Acciones de Exportación */}
+            <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+              <div>
+                <h3 className="text-sm font-black text-slate-800 uppercase">Exportar Contrato</h3>
+                <p className="text-xs text-slate-500">Guarde el contrato oficial en PDF, JPG o PNG.</p>
               </div>
-              <div className="p-3 bg-slate-50 rounded-xl">
-                <span className="text-xs text-slate-400 block">Ubicación / Planta</span>
-                <strong className="text-slate-800">{contratoDetalle.ubicacion}</strong>
+              <div className="flex items-center gap-2">
+                <button 
+                  onClick={() => window.print()}
+                  className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold rounded-xl text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4" /> Guardar como PDF
+                </button>
+                <button 
+                  onClick={() => descargarImagen('jpg')}
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-extrabold rounded-xl text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-2"
+                >
+                  <DollarSign className="w-4 h-4" /> Descargar JPG
+                </button>
+                <button 
+                  onClick={() => descargarImagen('png')}
+                  className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold rounded-xl text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-2"
+                >
+                  <FileText className="w-4 h-4" /> Descargar PNG
+                </button>
               </div>
             </div>
-            <div className="p-4 bg-slate-50 rounded-xl">
-              <span className="text-xs text-slate-400 block mb-1">Descripción del Servicio</span>
-              <p className="text-slate-700 text-sm">
-                {contratoDetalle.descripcion ? contratoDetalle.descripcion.split('---DATOS_POLINOMICA---')[0].trim() || 'Sin descripción adicional.' : 'Sin descripción adicional.'}
-              </p>
+
+            {/* Contenido Imprimible y Exportable */}
+            <div id="documento-contrato-imprimible" className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6 max-w-4xl mx-auto text-slate-800">
+              <div className="flex justify-between items-start border-b border-slate-200 pb-6">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900">CONTRATO DE SERVICIOS DE MANTENIMIENTO</h2>
+                  <p className="text-xs text-slate-500 mt-1">Código de Referencia: <strong className="text-amber-600">{contratoDetalle.codigo}</strong></p>
+                </div>
+                <div className="text-right">
+                  <span className="text-xs font-bold px-3 py-1 bg-amber-500/10 text-amber-700 rounded-full border border-amber-500/20 uppercase">{contratoDetalle.estado}</span>
+                  <p className="text-xs text-slate-400 mt-2">Mes Base: {formatearMesBase(contratoDetalle.mes_base)}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-6 text-xs bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-slate-400 uppercase font-bold block mb-1">Cliente / Contratante</span>
+                  <strong className="text-slate-900 text-sm">{contratoDetalle.cliente || '---'}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase font-bold block mb-1">Ubicación / Planta</span>
+                  <strong className="text-slate-900 text-sm">{contratoDetalle.ubicacion || '---'}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase font-bold block mb-1">Modalidad de Actualización</span>
+                  <strong className="text-slate-900 text-sm">{contratoDetalle.actualizacion || 'Polinómica'}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-400 uppercase font-bold block mb-1">Fecha de Emisión</span>
+                  <strong className="text-slate-900 text-sm">{new Date().toLocaleDateString('es-AR')}</strong>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">Alcance y Descripción del Servicio</h4>
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
+                  {contratoDetalle.descripcion ? contratoDetalle.descripcion.split('---DATOS_POLINOMICA---')[0].trim() || 'Sin descripción detallada registrada.' : 'Sin descripción detallada registrada.'}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">Condiciones Generales y Económicas</h4>
+                <ul className="list-disc list-inside text-xs space-y-1.5 text-slate-600 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <li>Los servicios de mantenimiento se regirán bajo los estándares de calidad y seguridad acordados en planta.</li>
+                  <li>La actualización de valores por fórmula polinómica se aplicará de acuerdo con los umbrales establecidos en el contrato (&gt; 5%).</li>
+                  <li>La facturación de materiales incluye el porcentaje de gestión (Fee) correspondiente calculado en el sistema.</li>
+                </ul>
+              </div>
+
+              <div className="grid grid-cols-2 gap-12 pt-16 mt-8 border-t border-slate-200 text-center text-xs">
+                <div>
+                  <div className="border-b border-slate-400 pb-12 mb-2"></div>
+                  <p className="font-bold text-slate-800">Firma y Sello - Cliente</p>
+                </div>
+                <div>
+                  <div className="border-b border-slate-400 pb-12 mb-2"></div>
+                  <p className="font-bold text-slate-800">Firma y Sello - Prestador (GI-MO)</p>
+                </div>
+              </div>
             </div>
           </div>
         )}
