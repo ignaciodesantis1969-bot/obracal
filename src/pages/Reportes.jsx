@@ -35,14 +35,18 @@ export default function Reportes(props) {
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
 
   useEffect(() => {
-    fetch(`${GOOGLE_SCRIPT_URL}?tabla=ContratosMantenimiento`)
+    // Carga robusta de Contratos Mantenimiento
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' })
+    })
       .then(res => res.json())
       .then(data => {
         let lista = [];
         if (Array.isArray(data)) lista = data;
         else if (data && Array.isArray(data.data)) lista = data.data;
         else if (data && Array.isArray(data.ContratosMantenimiento)) lista = data.ContratosMantenimiento;
-        else if (data && Array.isArray(data.contratos)) lista = data.contratos;
         else if (data && typeof data === 'object') {
           const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
           if (foundKey) lista = data[foundKey];
@@ -50,23 +54,21 @@ export default function Reportes(props) {
         if (lista.length > 0) setFetchedContratos(lista);
       })
       .catch(() => {
-        fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' })
-        })
+        fetch(`${GOOGLE_SCRIPT_URL}?tabla=ContratosMantenimiento`)
           .then(res => res.json())
           .then(data => {
-            let lista = [];
-            if (Array.isArray(data)) lista = data;
-            else if (data && Array.isArray(data.data)) lista = data.data;
-            else if (data && Array.isArray(data.ContratosMantenimiento)) lista = data.ContratosMantenimiento;
+            let lista = Array.isArray(data) ? data : (data?.data || []);
             if (lista.length > 0) setFetchedContratos(lista);
           })
           .catch(() => {});
       });
 
-    fetch(`${GOOGLE_SCRIPT_URL}?tabla=ReportesSice`)
+    // Carga robusta de Reportes Sice
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' })
+    })
       .then(res => res.json())
       .then(data => {
         let lista = [];
@@ -81,22 +83,10 @@ export default function Reportes(props) {
         if (lista.length > 0) setFetchedReportesSice(lista);
       })
       .catch(() => {
-        fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' })
-        })
+        fetch(`${GOOGLE_SCRIPT_URL}?tabla=ReportesSice`)
           .then(res => res.json())
           .then(data => {
-            let lista = [];
-            if (Array.isArray(data)) lista = data;
-            else if (data && Array.isArray(data.data)) lista = data.data;
-            else if (data && Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
-            else if (data && Array.isArray(data.reportes_sice)) lista = data.reportes_sice;
-            else if (data && typeof data === 'object') {
-              const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
-              if (foundKey) lista = data[foundKey];
-            }
+            let lista = Array.isArray(data) ? data : (data?.data || data?.ReportesSice || []);
             if (lista.length > 0) setFetchedReportesSice(lista);
           })
           .catch(() => {});
@@ -169,9 +159,19 @@ export default function Reportes(props) {
         setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
       }
 
+      // Filtrado ultra robusto para asegurar que coincida con el contrato seleccionado
       const filtrados = allReportesSice.filter(r => {
-        const rContratoId = String(r.contratoid || r.contratoId || r.contrato_id || r.ContratoId || '');
-        return rContratoId === String(contratoSeleccionadoId);
+        if (!r) return false;
+        const rContratoId = String(
+          r.contratoid || r.contratoId || r.contrato_id || r.ContratoId || 
+          r.id_contrato || r.IdContrato || ''
+        ).trim();
+
+        if (rContratoId === String(contratoSeleccionadoId).trim()) return true;
+
+        // Fallback buscando en todas las propiedades del objeto row
+        const valores = Object.values(r).map(v => String(v).trim());
+        return valores.includes(String(contratoSeleccionadoId).trim());
       });
 
       const normalizados = filtrados.map(r => {
@@ -188,10 +188,10 @@ export default function Reportes(props) {
           try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: '', cargo: '' }; }
         }
         return {
-          id: r.id,
+          id: r.id || r.ID,
           nro: r.nro || r.numero || '00001',
           fecha: r.fecha || '',
-          contratoId: r.contratoid || r.contratoId || r.contrato_id,
+          contratoId: r.contratoid || r.contratoId || r.contrato_id || r.ContratoId,
           items: Array.isArray(itemsParsed) ? itemsParsed : [],
           proveedor: provParsed,
           cliente: cliParsed,
@@ -267,20 +267,20 @@ export default function Reportes(props) {
 
     const regexClave = /^[A-Za-z]{2}\d{4}$/;
     if (!regexClave.test(siceRespProveedor.clave)) {
-      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: AT1020).");
+      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: AB1234).");
       return;
     }
     if (!regexClave.test(siceRespCliente.clave)) {
-      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: CM7030).");
+      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: CD5678).");
       return;
     }
 
     if (siceRespProveedor.clave.toUpperCase() !== clavesContratoActual.proveedorKey.toUpperCase()) {
-      alert(`La clave ingresada para el Responsable Proveedor no coincide con la registrada en el contrato (Esperada: ${clavesContratoActual.proveedorKey}).`);
+      alert("La clave ingresada para el Responsable Proveedor no coincide con la registrada en el contrato.");
       return;
     }
     if (siceRespCliente.clave.toUpperCase() !== clavesContratoActual.clienteKey.toUpperCase()) {
-      alert(`La clave ingresada para el Responsable Cliente no coincide con la registrada en el contrato (Esperada: ${clavesContratoActual.clienteKey}).`);
+      alert("La clave ingresada para el Responsable Cliente no coincide con la registrada en el contrato.");
       return;
     }
 
@@ -317,7 +317,7 @@ export default function Reportes(props) {
         id: `sice-${Date.now()}`,
         nro: siceParteNro,
         fecha: siceFecha,
-        contratoId: contratoSeleccionadoId,
+        contratoid: contratoSeleccionadoId,
         items: [...siceItems],
         proveedor: { cargo: siceRespProveedor.cargo, nombre: siceRespProveedor.nombre },
         cliente: { cargo: siceRespCliente.cargo, nombre: siceRespCliente.nombre },
@@ -1103,12 +1103,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: {clavesContratoActual.proveedorKey}):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: AB1234):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder={`Ej: ${clavesContratoActual.proveedorKey}`}
+                          placeholder="Ej: AB1234"
                           value={siceRespProveedor.clave}
                           onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
@@ -1143,12 +1143,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: {clavesContratoActual.clienteKey}):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: CD5678):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder={`Ej: ${clavesContratoActual.clienteKey}`}
+                          placeholder="Ej: CD5678"
                           value={siceRespCliente.clave}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
