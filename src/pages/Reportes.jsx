@@ -12,7 +12,7 @@ const CONTRATO_DEFAULT = [
     estado: "Activo",
     proveedorKey: "AT1020",
     clienteKey: "CM7030",
-    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon"
+    descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon\n---DATOS_SICE_INTEGRAL---\n{\"proveedorKey\":\"AT1020\",\"clienteKey\":\"CM7030\",\"proveedorCargo\":\"Jefe de Obra\",\"proveedorNombre\":\"Juan Pérez\",\"clienteCargo\":\"Supervisor de Planta\",\"clienteNombre\":\"Carlos Gómez\"}"
   }
 ];
 
@@ -27,10 +27,8 @@ export default function Reportes(props) {
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
-  const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
 
   useEffect(() => {
-    // Cargar Contratos
     fetch(`${GOOGLE_SCRIPT_URL}?tabla=ContratosMantenimiento`)
       .then(res => res.json())
       .then(data => {
@@ -61,38 +59,6 @@ export default function Reportes(props) {
           })
           .catch(() => {});
       });
-
-    // Cargar Partes Diarios SICE desde su propia tabla/hoja dedicada
-    fetch(`${GOOGLE_SCRIPT_URL}?tabla=ReportesSice`)
-      .then(res => res.json())
-      .then(data => {
-        let lista = [];
-        if (Array.isArray(data)) lista = data;
-        else if (data && Array.isArray(data.data)) lista = data.data;
-        else if (data && Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
-        else if (data && Array.isArray(data.reportes)) lista = data.reportes;
-        else if (data && typeof data === 'object') {
-          const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
-          if (foundKey) lista = data[foundKey];
-        }
-        if (lista.length > 0) setFetchedReportesSice(lista);
-      })
-      .catch(() => {
-        fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' })
-        })
-          .then(res => res.json())
-          .then(data => {
-            let lista = [];
-            if (Array.isArray(data)) lista = data;
-            else if (data && Array.isArray(data.data)) lista = data.data;
-            else if (data && Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
-            if (lista.length > 0) setFetchedReportesSice(lista);
-          })
-          .catch(() => {});
-      });
   }, []);
 
   const contratosList = useMemo(() => {
@@ -120,50 +86,118 @@ export default function Reportes(props) {
   ]);
   const [siceRespProveedor, setSiceRespProveedor] = useState({ cargo: '', nombre: '', clave: '' });
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
+  const [sicePartesAprobados, setSicePartesAprobados] = useState([]);
   const [parteVisualizando, setParteVisualizando] = useState(null);
 
-  // Filtrar partes aprobados del contrato seleccionado
-  const sicePartesAprobados = useMemo(() => {
-    if (!contratoSeleccionadoId) return [];
-    return fetchedReportesSice.filter(p => String(p.contratoId || p.contrato_id) === String(contratoSeleccionadoId));
-  }, [fetchedReportesSice, contratoSeleccionadoId]);
+  useEffect(() => {
+    if (contratoSeleccionadoId) {
+      const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
+      if (contrato) {
+        let pKey = contrato.proveedorKey || contrato.proveedor_key || 'AT1020';
+        let cKey = contrato.clienteKey || contrato.cliente_key || 'CM7030';
+        let pCargo = contrato.proveedorCargo || '';
+        let pNombre = contrato.proveedorNombre || '';
+        let cCargo = contrato.clienteCargo || '';
+        let cNombre = contrato.clienteNombre || '';
 
-  const guardarParteEnServidor = async (nuevoParte) => {
-    try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'ReportesSice',
-          action: 'create',
-          data: nuevoParte
-        })
-      });
-      setFetchedReportesSice(prev => [nuevoParte, ...prev]);
-    } catch (err) {
-      console.error("Error al guardar parte diario en servidor:", err);
+        if (contrato.descripcion && contrato.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
+          try {
+            const partes = contrato.descripcion.split('---DATOS_SICE_INTEGRAL---');
+            let jsonStr = partes[1].trim();
+            if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
+            const json = JSON.parse(jsonStr);
+            if (json.proveedorKey) pKey = json.proveedorKey;
+            if (json.clienteKey) cKey = json.clienteKey;
+            if (json.proveedorCargo) pCargo = json.proveedorCargo;
+            if (json.proveedorNombre) pNombre = json.proveedorNombre;
+            if (json.clienteCargo) cCargo = json.clienteCargo;
+            if (json.clienteNombre) cNombre = json.clienteNombre;
+
+            if (json.partesAprobados && Array.isArray(json.partesAprobados)) {
+              setSicePartesAprobados(json.partesAprobados);
+            } else {
+              setSicePartesAprobados([]);
+            }
+          } catch (e) {
+            setSicePartesAprobados([]);
+          }
+        } else {
+          setSicePartesAprobados([]);
+        }
+
+        setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: pKey });
+        setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: cKey });
+      } else {
+        setSicePartesAprobados([]);
+        setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
+        setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
+      }
+    } else {
+      setSicePartesAprobados([]);
+      setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
+      setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
     }
-  };
+  }, [contratoSeleccionadoId, contratosList]);
 
-  const eliminarParteServidor = async (idParte) => {
-    if (!window.confirm("¿Está seguro de eliminar este parte diario SICE?")) return;
+  const guardarPartesEnServidor = async (nuevosPartes) => {
+    if (!contratoSeleccionadoId) return;
+    const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
+    if (!contrato) return;
+
     try {
+      let descActual = contrato.descripcion || '';
+      let provKey = siceRespProveedor.clave || 'AT1020';
+      let cliKey = siceRespCliente.clave || 'CM7030';
+      let provCargo = siceRespProveedor.cargo || '';
+      let provNombre = siceRespProveedor.nombre || '';
+      let cliCargo = siceRespCliente.cargo || '';
+      let cliNombre = siceRespCliente.nombre || '';
+
+      if (descActual.includes('---DATOS_SICE_INTEGRAL---')) {
+        const partes = descActual.split('---DATOS_SICE_INTEGRAL---');
+        descActual = partes[0].trim();
+        try {
+          let jsonStr = partes[1].trim();
+          if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
+          const json = JSON.parse(jsonStr);
+          if (json.proveedorKey) provKey = json.proveedorKey;
+          if (json.clienteKey) cliKey = json.clienteKey;
+        } catch (e) {}
+      }
+
+      const payloadData = {
+        proveedorKey: provKey,
+        clienteKey: cliKey,
+        proveedorCargo: provCargo,
+        proveedorNombre: provNombre,
+        clienteCargo: cliCargo,
+        clienteNombre: cliNombre,
+        partesAprobados: nuevosPartes
+      };
+      const nuevaDesc = `${descActual}\n---DATOS_SICE_INTEGRAL---\n${JSON.stringify(payloadData)}`;
+      const contratoActualizado = { ...contrato, descripcion: nuevaDesc };
+
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
-          tabla: 'ReportesSice',
-          action: 'delete',
-          id: idParte
+          tabla: 'ContratosMantenimiento',
+          action: 'update',
+          id: contrato.id || contrato.ID || contrato.codigo,
+          data: contratoActualizado
         })
       });
-      setFetchedReportesSice(prev => prev.filter(p => String(p.id || p.ID || p.nro) !== String(idParte)));
-      alert("Parte diario eliminado correctamente.");
     } catch (err) {
-      console.error("Error al eliminar parte diario:", err);
-      // Fallback local
-      setFetchedReportesSice(prev => prev.filter(p => String(p.id || p.ID || p.nro) !== String(idParte)));
+      console.error("Error al guardar partes aprobados en servidor:", err);
     }
+  };
+
+  const eliminarParteServidor = (idParte) => {
+    if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
+    const actualizados = sicePartesAprobados.filter(p => String(p.id || p.nro) !== String(idParte));
+    setSicePartesAprobados(actualizados);
+    guardarPartesEnServidor(actualizados);
+    alert("Parte diario eliminado exitosamente.");
   };
 
   const obtenerClavesContratoActual = () => {
@@ -177,22 +211,37 @@ export default function Reportes(props) {
 
       if (contratoActivo.descripcion) {
         const desc = String(contratoActivo.descripcion);
+        if (desc.includes('---DATOS_SICE_INTEGRAL---')) {
+          try {
+            const partesDesc = desc.split('---DATOS_SICE_INTEGRAL---');
+            let jsonStr = partesDesc[1].trim();
+            if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
+            const keysJson = JSON.parse(jsonStr);
+            if (keysJson.proveedorKey || keysJson.clienteKey) {
+              return {
+                proveedorKey: keysJson.proveedorKey || pDirect || 'AT1020',
+                clienteKey: keysJson.clienteKey || cDirect || 'CM7030'
+              };
+            }
+          } catch (e) {}
+        }
+
         const matches = desc.match(/[A-Za-z]{2}\d{4}/g);
         if (matches && matches.length >= 2) {
           return { proveedorKey: matches[0], clienteKey: matches[1] };
         } else if (matches && matches.length === 1) {
-          return { proveedorKey: matches[0], clienteKey: cDirect || 'CG9012' };
+          return { proveedorKey: matches[0], clienteKey: cDirect || 'CM7030' };
         }
       }
 
       if (pDirect || cDirect) {
         return {
-          proveedorKey: pDirect || 'JP4829',
-          clienteKey: cDirect || 'CG9012'
+          proveedorKey: pDirect || 'AT1020',
+          clienteKey: cDirect || 'CM7030'
         };
       }
     }
-    return { proveedorKey: 'JP4829', clienteKey: 'CG9012' };
+    return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
   };
 
   const calcularTotalHorasSice = (inicio, fin) => {
@@ -233,11 +282,11 @@ export default function Reportes(props) {
 
     const regexClave = /^[A-Za-z]{2}\d{4}$/;
     if (!regexClave.test(siceRespProveedor.clave)) {
-      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: JP4829).");
+      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: AT1020).");
       return;
     }
     if (!regexClave.test(siceRespCliente.clave)) {
-      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: CG9012).");
+      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: CM7030).");
       return;
     }
 
@@ -263,14 +312,14 @@ export default function Reportes(props) {
       totalHorasSuma: siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0)
     };
 
-    guardarParteEnServidor(nuevoParte);
+    const actualizados = [nuevoParte, ...sicePartesAprobados];
+    setSicePartesAprobados(actualizados);
+    guardarPartesEnServidor(actualizados);
 
     const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
     setSiceParteNro(siguienteNro);
     setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
-    setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
-    setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
-    alert("¡Parte Diario aprobado, firmado, archivado en PDF y guardado en la hoja ReportesSice!");
+    alert("¡Parte Diario aprobado, firmado y guardado exitosamente en el servidor!");
   };
 
   const presupuestosFiltrados = obraFiltro === 'todas' 
@@ -1002,7 +1051,7 @@ export default function Reportes(props) {
                 <span className="text-xs text-slate-500 font-semibold">Total filas: {siceItems.length} / 10</span>
               </div>
 
-              {/* BLOQUE DE FIRMAS E INTERVINIENTES */}
+              {/* BLOQUE DE FIRMAS E INTERVINIENTES (PRECARGADOS DESDE CONTRATO Y CLAVES TIPO PASSWORD) */}
               <form onSubmit={aprobarYArchivarParteSice} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50">
                 <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
                   <div className="p-4 space-y-3">
@@ -1033,13 +1082,13 @@ export default function Reportes(props) {
                       <div>
                         <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: AT1020):</label>
                         <input 
-                          type="text" 
+                          type="password" 
                           required
                           maxLength={6}
                           placeholder="Ej: AT1020"
                           value={siceRespProveedor.clave}
                           onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
-                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-amber-700 uppercase focus:outline-none focus:border-amber-500"
+                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
                         />
                       </div>
                     </div>
@@ -1073,13 +1122,13 @@ export default function Reportes(props) {
                       <div>
                         <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: CM7030):</label>
                         <input 
-                          type="text" 
+                          type="password" 
                           required
                           maxLength={6}
                           placeholder="Ej: CM7030"
                           value={siceRespCliente.clave}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
-                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-amber-700 uppercase focus:outline-none focus:border-amber-500"
+                          className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
                         />
                       </div>
                     </div>
@@ -1087,7 +1136,7 @@ export default function Reportes(props) {
                 </div>
 
                 <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
-                  <p className="text-xs text-slate-500">Se corroborarán las claves con la configuración del contrato seleccionado y se guardará en la hoja ReportesSice.</p>
+                  <p className="text-xs text-slate-500">Los datos se cargan por defecto desde el contrato seleccionado y se pueden editar antes de firmar.</p>
                   <button 
                     type="submit"
                     className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
@@ -1099,9 +1148,9 @@ export default function Reportes(props) {
             </div>
           </div>
 
-          {/* HISTORIAL DE PARTES DIARIOS APROBADOS Y ARCHIVADOS (CON OPCIÓN DE BORRAR) */}
+          {/* HISTORIAL DE PARTES DIARIOS APROBADOS (CON OPCIÓN DE BORRAR) */}
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
-            <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados (Google Sheet: ReportesSice)</h3>
+            <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados</h3>
             {sicePartesAprobados.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
                 No hay partes diarios aprobados ni archivados en este contrato. Seleccione el contrato correcto arriba.
@@ -1109,7 +1158,7 @@ export default function Reportes(props) {
             ) : (
               <div className="space-y-3">
                 {sicePartesAprobados.map((parte, idx) => {
-                  const parteId = parte.id || parte.ID || parte.nro || idx;
+                  const parteId = parte.id || parte.nro || idx;
                   return (
                     <div key={parteId} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                       <div>
@@ -1119,7 +1168,7 @@ export default function Reportes(props) {
                           <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte.totalHorasSuma} hs</span>
                         </div>
                         <p className="text-slate-700 text-xs mt-2">
-                          Proveedor: <strong>{parte.proveedor?.nombre}</strong> | Cliente: <strong>{parte.cliente?.nombre}</strong>
+                          Proveedor: <strong>{parte.proveedor?.nombre}</strong> ({parte.proveedor?.cargo}) | Cliente: <strong>{parte.cliente?.nombre}</strong> ({parte.cliente?.cargo})
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
