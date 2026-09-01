@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText } from 'lucide-react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink } from 'lucide-react';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
@@ -82,7 +82,7 @@ export default function Reportes(props) {
   const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
   const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(false);
 
-  // 📝 Estados para Reportes Diarios (Formato Oficial SICE S.A. sin Orden de Mantenimiento)
+  // 📝 Estados para Reportes Diarios (Formato Oficial SICE S.A.)
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   const [siceParteNro, setSiceParteNro] = useState('00001');
@@ -283,7 +283,7 @@ export default function Reportes(props) {
     setSiceItems(actualizados);
   };
 
-  const aprobarYArchivarParteSice = (e) => {
+  const aprobarYArchivarParteSice = async (e) => {
     e.preventDefault();
     if (!contratoSeleccionadoId) {
       alert("Por favor seleccione un Contrato de Mantenimiento asociado para corroborar las claves y guardar el parte.");
@@ -311,25 +311,58 @@ export default function Reportes(props) {
       return;
     }
 
-    const nuevoParte = {
-      id: `sice-${Date.now()}`,
-      nro: siceParteNro,
-      fecha: siceFecha,
-      contratoId: contratoSeleccionadoId,
-      items: [...siceItems],
-      proveedor: { ...siceRespProveedor },
-      cliente: { ...siceRespCliente },
-      totalHorasSuma: siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0)
-    };
+    const totalHsSuma = siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0);
 
-    const actualizados = [nuevoParte, ...sicePartesAprobados];
-    setSicePartesAprobados(actualizados);
-    guardarPartesEnServidor(actualizados);
+    try {
+      // Solicitud al Apps Script para generar el PDF en Drive y retornar su URL
+      const payloadPdf = {
+        action: 'guardarYGenerarPDF',
+        contratoId: contratoSeleccionadoId,
+        fecha: siceFecha,
+        nro: siceParteNro,
+        items: siceItems,
+        proveedor: siceRespProveedor,
+        cliente: siceRespCliente,
+        totalHorasSuma: totalHsSuma
+      };
 
-    const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
-    setSiceParteNro(siguienteNro);
-    setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
-    alert("¡Parte Diario aprobado, firmado y guardado exitosamente en el servidor!");
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payloadPdf)
+      });
+      const resultado = await res.json();
+
+      if (!resultado.success) {
+        alert("Error al generar el PDF en Google Drive: " + (resultado.error || 'Desconocido'));
+        return;
+      }
+
+      const nuevoParte = {
+        id: `sice-${Date.now()}`,
+        nro: siceParteNro,
+        fecha: siceFecha,
+        contratoId: contratoSeleccionadoId,
+        items: [...siceItems],
+        proveedor: { ...siceRespProveedor },
+        cliente: { ...siceRespCliente },
+        totalHorasSuma: totalHsSuma,
+        pdfUrl: resultado.pdfUrl // Guardamos la URL generada en Google Drive
+      };
+
+      const actualizados = [nuevoParte, ...sicePartesAprobados];
+      setSicePartesAprobados(actualizados);
+      await guardarPartesEnServidor(actualizados);
+
+      const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
+      setSiceParteNro(siguienteNro);
+      setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
+      alert("¡Parte Diario aprobado, PDF generado en Drive y URL guardada con éxito!");
+
+    } catch (err) {
+      console.error("Error al generar PDF:", err);
+      alert("Ocurrió un error de conexión al generar el PDF.");
+    }
   };
 
   const presupuestosFiltrados = obraFiltro === 'todas' 
@@ -1158,7 +1191,7 @@ export default function Reportes(props) {
             </div>
           </div>
 
-          {/* HISTORIAL DE PARTES DIARIOS APROBADOS (CON OPCIÓN DE BORRAR) */}
+          {/* HISTORIAL DE PARTES DIARIOS APROBADOS (CON OPCIÓN DE VER PDF EN DRIVE Y BORRAR) */}
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
             <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados</h3>
             {sicePartesAprobados.length === 0 ? (
@@ -1182,12 +1215,23 @@ export default function Reportes(props) {
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        <button 
-                          onClick={() => setParteVisualizando(parte)}
-                          className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
-                        >
-                          <Eye className="w-4 h-4" /> Visualizar PDF
-                        </button>
+                        {parte.pdfUrl ? (
+                          <a 
+                            href={parte.pdfUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                          >
+                            <ExternalLink className="w-4 h-4" /> Ver PDF en Drive
+                          </a>
+                        ) : (
+                          <button 
+                            onClick={() => setParteVisualizando(parte)}
+                            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                          >
+                            <Eye className="w-4 h-4" /> Visualizar
+                          </button>
+                        )}
                         <button 
                           onClick={() => eliminarParteServidor(parteId)}
                           className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
@@ -1202,70 +1246,6 @@ export default function Reportes(props) {
               </div>
             )}
           </div>
-
-          {/* MODAL PARA VISUALIZAR EL PARTE EN FORMATO PDF OFICIAL */}
-          {parteVisualizando && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-              <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden border border-slate-300 max-h-[90vh] flex flex-col">
-                <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200 bg-slate-50">
-                  <h3 className="font-bold text-slate-900 text-sm">Visualizador de Parte Diario (PDF Archivado) - Nro: {parteVisualizando.nro}</h3>
-                  <div className="flex items-center gap-2">
-                    <button 
-                      onClick={() => window.print()}
-                      className="px-3 py-1.5 bg-slate-900 text-white font-bold rounded-lg text-xs flex items-center gap-1 cursor-pointer"
-                    >
-                      <Printer className="w-3.5 h-3.5" /> Imprimir
-                    </button>
-                    <button onClick={() => setParteVisualizando(null)} className="text-slate-400 hover:text-slate-600 font-bold text-lg px-2 cursor-pointer">×</button>
-                  </div>
-                </div>
-                <div className="p-6 overflow-y-auto space-y-6 text-slate-900 text-xs">
-                  <div className="flex justify-between items-center border-b-2 border-slate-800 pb-4">
-                    <img src="/logo-07.png" alt="SICE S.A." className="h-24 object-contain" />
-                    <h2 className="text-lg font-black text-slate-900">PARTE DIARIO DE ACTIVIDADES</h2>
-                  </div>
-                  <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                    <div><strong>Fecha:</strong> {parteVisualizando.fecha}</div>
-                    <div><strong>Parte Nro:</strong> {parteVisualizando.nro}</div>
-                    <div><strong>C.U.I.T. Nro.:</strong> 30-71573431-8</div>
-                    <div><strong>Cliente:</strong> LDC Argentina S.A.</div>
-                  </div>
-                  <table className="w-full text-left border-collapse border border-slate-300">
-                    <thead>
-                      <tr className="bg-slate-800 text-white font-bold text-[10px]">
-                        <th className="p-2 border">Item</th>
-                        <th className="p-2 border">Descripción</th>
-                        <th className="p-2 border text-center">Horario</th>
-                        <th className="p-2 border text-center">Total Horas</th>
-                        <th className="p-2 border text-center">Terminó</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {parteVisualizando.items.map((it, i) => (
-                        <tr key={i} className="border-b">
-                          <td className="p-2 border text-center">{it.id}</td>
-                          <td className="p-2 border">{it.descripcion || '---'}</td>
-                          <td className="p-2 border text-center">{it.horaComienzo} a {it.horaFin}</td>
-                          <td className="p-2 border text-center font-bold text-amber-900">{calcularTotalHorasSice(it.horaComienzo, it.horaFin)} hs</td>
-                          <td className="p-2 border text-center font-bold">{it.terminoTarea}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
-                    <div className="p-3 bg-slate-50 rounded-xl border">
-                      <p className="font-bold text-slate-700">Responsable Proveedor: {parteVisualizando.proveedor?.nombre} ({parteVisualizando.proveedor?.cargo})</p>
-                      <p className="text-[11px] text-emerald-700 font-mono mt-1">✓ Firma Electrónica Verificada (Clave OK)</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-xl border">
-                      <p className="font-bold text-slate-700">Responsable Cliente: {parteVisualizando.cliente?.nombre} ({parteVisualizando.cliente?.cargo})</p>
-                      <p className="text-[11px] text-emerald-700 font-mono mt-1">✓ Firma Electrónica Verificada (Clave OK)</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
