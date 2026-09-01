@@ -44,11 +44,10 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const P = porcentajeBeneficioDeseado / 100;
   const porcentajeFee = Math.max(0, ((P + 0.2057) / 0.50874) * 100);
 
-  // Estados de los meses con nombres referenciales (Mes 1 base y meses siguientes)
   const [registrosMeses, setRegistrosMeses] = useState([
     { mes: 'Mes 1 (Base) - Julio 2026', uocra: 5817, ipc: 0, dolar: 1489 },
     { mes: 'Mes 2 - Agosto 2026', uocra: 6348, ipc: 2.1, dolar: 1485 },
-    { mes: 'Mes 3 - Septiembre 2026', uocra: 0, ipc: 0, dolar: 0 }
+    { mes: 'Mes 3 - Septiembre 2026', uocra: 7049, ipc: 1.9, dolar: 1520 }
   ]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
@@ -244,28 +243,61 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     return true;
   });
 
-  // Cálculo: UOCRA y Dólar absolutos contra Mes 1. IPC directo como porcentaje.
-  const calcularVariacionesMes = (reg, idx) => {
-    if (idx === 0) return { varUocra: 0, varIpc: 0, varDolar: 0, poliMes: 0 };
-    const baseU = Number(registrosMeses[0].uocra) || 1;
-    const baseD = Number(registrosMeses[0].dolar) || 1;
+  // Lógica con cálculo mes a mes respecto al mes anterior y reseteo de ciclo al superar el 5%
+  const procesarMesesPolinomica = () => {
+    let acumuladoTotal = 0;
+    let cicloAcumulado = 0;
+    let resultados = [];
 
-    const varUocra = ((Number(reg.uocra) / baseU) - 1) * 100;
-    const varDolar = ((Number(reg.dolar) / baseD) - 1) * 100;
-    const varIpc = Number(reg.ipc) || 0;
+    registrosMeses.forEach((reg, idx) => {
+      if (idx === 0) {
+        resultados.push({
+          ...reg,
+          varUocra: 0,
+          varIpc: 0,
+          varDolar: 0,
+          poliMes: 0,
+          cicloAcumulado: 0,
+          acumuladoTotal: 0,
+          reajusteAplicado: false
+        });
+      } else {
+        const prevU = Number(registrosMeses[idx - 1].uocra) || 1;
+        const prevD = Number(registrosMeses[idx - 1].dolar) || 1;
 
-    const poliMes = (varUocra * 0.80) + (varIpc * 0.10) + (varDolar * 0.10);
-    return { varUocra, varIpc, varDolar, poliMes };
+        const varUocra = ((Number(reg.uocra) / prevU) - 1) * 100;
+        const varIpc = Number(reg.ipc) || 0;
+        const varDolar = ((Number(reg.dolar) / prevD) - 1) * 100;
+
+        const poliMes = (varUocra * 0.80) + (varIpc * 0.10) + (varDolar * 0.10);
+
+        cicloAcumulado += poliMes;
+        acumuladoTotal += poliMes;
+
+        const supera = cicloAcumulado > 5.0;
+
+        resultados.push({
+          ...reg,
+          varUocra,
+          varIpc,
+          varDolar,
+          poliMes,
+          cicloAcumulado,
+          acumuladoTotal,
+          reajusteAplicado: supera
+        });
+
+        if (supera) {
+          cicloAcumulado = 0; // Se reinicia el acumulado del ciclo para el próximo mes tras aplicar el reajuste
+        }
+      }
+    });
+    return resultados;
   };
 
-  const calcularAcumuladoHasta = (idx) => {
-    let ac = 0;
-    for (let i = 1; i <= idx; i++) {
-      const { poliMes } = calcularVariacionesMes(registrosMeses[i], i);
-      ac += poliMes;
-    }
-    return ac;
-  };
+  const mesesProcesados = procesarMesesPolinomica();
+  const polinomioAcumuladoTotal = mesesProcesados.length > 0 ? mesesProcesados[mesesProcesados.length - 1].acumuladoTotal : 0;
+  const superaUmbral = mesesProcesados.some(m => m.cicloAcumulado > 5.0 || m.reajusteAplicado);
 
   if (contratoDetalle) {
     const manoDeObra = [
@@ -288,9 +320,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     const costoFinanciero = totalCompra * 0.108;
     const impuestoDebitosCreditos = (totalCompra * 0.006) + (totalVenta * 0.006);
     const totalBeneficio = beneficioNetoConIVA - (impuestoGanancias + diferenciaIVA + ingresosBrutos + costoFinanciero + impuestoDebitosCreditos);
-
-    const polinomioAcumuladoTotal = calcularAcumuladoHasta(registrosMeses.length - 1);
-    const superaUmbral = polinomioAcumuladoTotal > 5.0;
 
     return (
       <div className="space-y-6">
@@ -523,21 +552,21 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <div className="border-b border-slate-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                   <h2 className="text-lg font-black text-slate-800">Determinación de Fórmula Polinómica (Mes a Mes)</h2>
-                  <p className="text-slate-500 text-sm">Carga mensual con nombres de período detallados (Ej: Mes 1 (Base) - Julio 2026). Reajuste automático si acumula &gt; 5%.</p>
+                  <p className="text-slate-500 text-sm">Variación respecto al mes anterior. Al superar el 5% acumulado en el ciclo, se aplica el índice, se traza línea y el acumulado del ciclo vuelve a 0.</p>
                 </div>
                 <div className={cn(
                   'px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border shadow-sm',
                   superaUmbral ? 'bg-red-50 text-red-600 border-red-200 animate-pulse' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
                 )}>
                   {superaUmbral ? <AlertCircle className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
-                  <span>Variación Acumulada: {polinomioAcumuladoTotal.toFixed(2)}%</span>
+                  <span>Variación Total: {polinomioAcumuladoTotal.toFixed(2)}%</span>
                 </div>
               </div>
 
               {superaUmbral && (
                 <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-700 text-sm flex items-center gap-3">
                   <AlertCircle className="w-5 h-5 shrink-0 text-red-600" />
-                  <span><strong>¡Umbral del 5% superado!</strong> El acumulado actual es de {polinomioAcumuladoTotal.toFixed(2)}%. Corresponde ejecutar la actualización automática de precios en las horas hombre.</span>
+                  <span><strong>¡Umbral del 5% superado!</strong> Se alcanzó el límite del ciclo. Corresponde aplicar el índice de reajuste y reiniciar la acumulación parcial del próximo mes.</span>
                 </div>
               )}
 
@@ -600,111 +629,118 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                       <th className="p-4 text-center">IPC Nac. (10%)</th>
                       <th className="p-4 text-center">Dólar BNA (10%)</th>
                       <th className="p-4 text-right bg-amber-500/10 text-slate-900">Polinómica del Mes</th>
-                      <th className="p-4 text-right bg-slate-100 text-slate-900">Acumulado Total</th>
+                      <th className="p-4 text-right bg-slate-100 text-slate-900">Acumulado Ciclo</th>
                       <th className="p-4 text-center">Acciones</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {registrosMeses.map((reg, idx) => {
+                    {mesesProcesados.map((reg, idx) => {
                       const esBase = idx === 0;
-                      const { varUocra, varIpc, varDolar, poliMes } = calcularVariacionesMes(reg, idx);
-                      const acSub = calcularAcumuladoHasta(idx);
 
                       return (
-                        <tr key={idx} className="hover:bg-slate-50">
-                          <td className="p-4 font-bold text-slate-700">
-                            <div className="flex items-center gap-2">
-                              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                        <>
+                          <tr key={idx} className={cn("hover:bg-slate-50", reg.reajusteAplicado && "bg-red-50/40")}>
+                            <td className="p-4 font-bold text-slate-700">
+                              <div className="flex items-center gap-2">
+                                <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+                                <input 
+                                  type="text"
+                                  value={reg.mes}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const nuevos = [...registrosMeses];
+                                    nuevos[idx].mes = val;
+                                    setRegistrosMeses(nuevos);
+                                  }}
+                                  className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-amber-500 focus:outline-none font-bold text-slate-800 w-56 text-xs px-1 py-0.5"
+                                  placeholder="Ej: Mes 2 - Agosto 2026"
+                                />
+                                {esBase && <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded shrink-0">BASE</span>}
+                              </div>
+                            </td>
+                            <td className="p-4 text-center">
                               <input 
-                                type="text"
-                                value={reg.mes}
+                                type="number"
+                                step="0.01"
+                                value={reg.uocra}
                                 onChange={(e) => {
-                                  const val = e.target.value;
+                                  const val = Number(e.target.value);
                                   const nuevos = [...registrosMeses];
-                                  nuevos[idx].mes = val;
+                                  nuevos[idx].uocra = val;
                                   setRegistrosMeses(nuevos);
                                 }}
-                                className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-amber-500 focus:outline-none font-bold text-slate-800 w-56 text-xs px-1 py-0.5"
-                                placeholder="Ej: Mes 2 - Agosto 2026"
+                                className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
                               />
-                              {esBase && <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded shrink-0">BASE</span>}
-                            </div>
-                          </td>
-                          <td className="p-4 text-center">
-                            <input 
-                              type="number"
-                              step="0.01"
-                              value={reg.uocra}
-                              onChange={(e) => {
-                                const val = Number(e.target.value);
-                                const nuevos = [...registrosMeses];
-                                nuevos[idx].uocra = val;
-                                setRegistrosMeses(nuevos);
-                              }}
-                              className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
-                            />
-                            {!esBase && (
-                              <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
-                                ({varUocra >= 0 ? '+' : ''}{varUocra.toFixed(2)}%)
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-4 text-center">
-                            <input 
-                              type="number"
-                              step="0.01"
-                              value={reg.ipc}
-                              onChange={(e) => {
-                                const val = Number(e.target.value);
-                                const nuevos = [...registrosMeses];
-                                nuevos[idx].ipc = val;
-                                setRegistrosMeses(nuevos);
-                              }}
-                              className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
-                            />
-                            {!esBase && (
-                              <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
-                                (+{Number(reg.ipc).toFixed(2)}%)
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-4 text-center">
-                            <input 
-                              type="number"
-                              step="0.01"
-                              value={reg.dolar}
-                              onChange={(e) => {
-                                const val = Number(e.target.value);
-                                const nuevos = [...registrosMeses];
-                                nuevos[idx].dolar = val;
-                                setRegistrosMeses(nuevos);
-                              }}
-                              className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
-                            />
-                            {!esBase && (
-                              <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
-                                ({varDolar >= 0 ? '+' : ''}{varDolar.toFixed(2)}%)
-                              </span>
-                            )}
-                          </td>
-                          <td className="p-4 text-right font-semibold text-slate-800 bg-amber-500/5">
-                            {esBase ? '0.00%' : `+${poliMes.toFixed(2)}%`}
-                          </td>
-                          <td className={cn('p-4 text-right font-bold bg-slate-50', acSub > 5 ? 'text-red-600' : 'text-slate-900')}>
-                            {esBase ? '0.00%' : `+${acSub.toFixed(2)}%`}
-                          </td>
-                          <td className="p-4 text-center">
-                            {!esBase && (
-                              <button 
-                                onClick={() => eliminarMesPolinomica(idx)}
-                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                title="Eliminar Mes"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </td>
-                        </tr>
+                              {!esBase && (
+                                <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
+                                  ({reg.varUocra >= 0 ? '+' : ''}{reg.varUocra.toFixed(2)}%)
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-4 text-center">
+                              <input 
+                                type="number"
+                                step="0.01"
+                                value={reg.ipc}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  const nuevos = [...registrosMeses];
+                                  nuevos[idx].ipc = val;
+                                  setRegistrosMeses(nuevos);
+                                }}
+                                className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
+                              />
+                              {!esBase && (
+                                <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
+                                  (+{Number(reg.ipc).toFixed(2)}%)
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-4 text-center">
+                              <input 
+                                type="number"
+                                step="0.01"
+                                value={reg.dolar}
+                                onChange={(e) => {
+                                  const val = Number(e.target.value);
+                                  const nuevos = [...registrosMeses];
+                                  nuevos[idx].dolar = val;
+                                  setRegistrosMeses(nuevos);
+                                }}
+                                className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
+                              />
+                              {!esBase && (
+                                <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
+                                  ({reg.varDolar >= 0 ? '+' : ''}{reg.varDolar.toFixed(2)}%)
+                                </span>
+                              )}
+                            </td>
+                            <td className="p-4 text-right font-semibold text-slate-800 bg-amber-500/5">
+                              {esBase ? '0.00%' : `+${reg.poliMes.toFixed(2)}%`}
+                            </td>
+                            <td className={cn('p-4 text-right font-bold bg-slate-50', reg.cicloAcumulado > 5 ? 'text-red-600' : 'text-slate-900')}>
+                              {esBase ? '0.00%' : `+${reg.cicloAcumulado.toFixed(2)}%`}
+                            </td>
+                            <td className="p-4 text-center">
+                              {!esBase && (
+                                <button 
+                                  onClick={() => eliminarMesPolinomica(idx)}
+                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Eliminar Mes"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                          {reg.reajusteAplicado && (
+                            <tr key={`reajuste-${idx}`} className="bg-red-500/10 border-t-2 border-b-2 border-red-500">
+                              <td colSpan="7" className="py-2 px-4 text-center text-red-700 font-black text-xs tracking-wide">
+                                ⚡ REAJUSTE APLICADO (> 5%): Se aplica índice de actualización y el acumulado del ciclo vuelve a 0% para el próximo mes. (Acumulado Total Global: +{reg.acumuladoTotal.toFixed(2)}%)
+                              </td>
+                            </tr>
+                          )}
+                        </>
                       );
                     })}
                   </tbody>
