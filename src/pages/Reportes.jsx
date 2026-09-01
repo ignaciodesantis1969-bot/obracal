@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText } from 'lucide-react';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
@@ -184,7 +184,6 @@ export default function Reportes(props) {
 
     const { proveedorKey, clienteKey } = obtenerClavesContratoActual();
     
-    // Corroborar contraseñas configuradas en contratos de mantenimiento
     if (siceRespProveedor.clave.toUpperCase() !== proveedorKey.toUpperCase()) {
       alert("La clave ingresada para el Responsable Proveedor no coincide con la registrada en la Descripción General del contrato.");
       return;
