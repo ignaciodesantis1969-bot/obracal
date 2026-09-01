@@ -1,3 +1,38 @@
+import { useState, useEffect } from 'react';
+import { Toaster } from "@/components/ui/toaster";
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClientInstance } from '@/lib/query-client';
+import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "./firebase";
+
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
+
+// Layout y Auth
+import Layout from '@/components/Layout';
+import RequirePermiso from '@/components/RequirePermiso';
+import PageNotFound from './lib/PageNotFound';
+import { AuthProvider } from '@/lib/AuthContext';
+import { useAuth } from '@/hooks/useAuth';
+
+// Pages
+import Login from '@/pages/Login';
+import Dashboard from '@/pages/Dashboard';
+import Clientes from '@/pages/Clientes';
+import Proveedores from '@/pages/Proveedores';
+import Obras from '@/pages/Obras';
+import Insumos from '@/pages/Insumos';
+import Presupuestos from '@/pages/Presupuestos';
+import PresupuestoDetalle from '@/pages/PresupuestoDetalle';
+import Planificacion from '@/pages/Planificacion';
+import Rrhh from '@/pages/Rrhh';
+import Compras from '@/pages/Compras';
+import Tesoreria from '@/pages/Tesoreria';
+import Reportes from '@/pages/Reportes';
+import Usuarios from '@/pages/Usuarios';
+import TareasTemplate from '@/pages/TareasTemplate';
+import ContratosMantenimiento from '@/pages/ContratosMantenimiento';
+
 const AuthenticatedApp = () => {
   const { user, setUser } = useAuth();
   const [loadingSession, setLoadingSession] = useState(true);
@@ -124,7 +159,7 @@ const AuthenticatedApp = () => {
     return <Login GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} onLoginSuccess={handleLoginSuccess} />;
   }
 
-  // 🔐 VALIDACIÓN DE ROL OPERADOR: Si es operador, restringimos las rutas exclusivamente a Reportes Diarios
+  // 🔐 VALIDACIÓN DE ROL OPERADOR: Restringe rutas exclusivamente al Reportes Diarios
   const userRole = String(user.role || user.rol || '').toLowerCase();
   const esOperador = userRole.includes('operador') || userRole === 'operator';
 
@@ -132,7 +167,6 @@ const AuthenticatedApp = () => {
     return (
       <Routes>
         <Route element={<Layout />}>
-          {/* Al entrar a la raíz o a cualquier ruta no permitida, cargamos directo el módulo de Reportes */}
           <Route 
             path="*" 
             element={
@@ -154,7 +188,6 @@ const AuthenticatedApp = () => {
     );
   }
 
-  // Rutas normales para Administradores, Gestores, Jefes de Obra, etc.
   return (
     <Routes>
       <Route element={<Layout />}>
@@ -292,3 +325,16 @@ const AuthenticatedApp = () => {
     </Routes>
   );
 };
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <QueryClientProvider client={queryClientInstance}>
+        <Router>
+          <AuthenticatedApp />
+        </Router>
+        <Toaster />
+      </QueryClientProvider>
+    </AuthProvider>
+  );
+}
