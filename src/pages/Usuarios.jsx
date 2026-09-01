@@ -99,7 +99,7 @@ export default function Usuarios() {
         alert("El usuario se creó en Firebase pero hubo un error al guardar en la hoja: " + res.error);
       }
     } catch (err) {
-      console.error(err);
+      console.error("Detalle Firebase:", err);
       let mensajeError = err.message || "Verifica los datos.";
       if (err.code === 'auth/email-already-in-use' || mensajeError.includes('email-already-in-use')) {
         mensajeError = "El correo electrónico ya se encuentra registrado en Firebase Authentication.";
