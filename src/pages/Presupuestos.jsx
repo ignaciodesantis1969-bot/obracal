@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Trash2, Search, Loader2, Eye, X, RefreshCw, FileText, CheckCircle2, Archive, Clock } from 'lucide-react';
+import { GOOGLE_SCRIPT_URL } from '@/api'; 
 
 export default function Presupuestos() {
   const [presupuestos, setPresupuestos] = useState([]);
@@ -26,8 +27,7 @@ export default function Presupuestos() {
     version: 'v1'
   });
 
-  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
-
+ 
   const fetchData = async () => {
     setIsLoading(true);
     try {

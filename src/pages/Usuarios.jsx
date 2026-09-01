@@ -3,6 +3,7 @@ import { UserPlus, UserX, Shield, Mail, Loader2 } from 'lucide-react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/firebase';
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function Usuarios() {
   const [usuarios, setUsuarios] = useState([]);
@@ -10,7 +11,6 @@ export default function Usuarios() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
   const cargarUsuarios = async () => {
     setIsLoading(true);

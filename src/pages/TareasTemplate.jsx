@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Copy, Search, Download, Loader2, FolderPlus, Clock, ChevronDown, ChevronUp, X, Filter } from 'lucide-react';
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function TareasTemplate() {
   const [items, setItems] = useState([]);
@@ -30,8 +31,7 @@ export default function TareasTemplate() {
 
   const [busquedaInsumo, setBusquedaInsumo] = useState('');
 
-  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
-
+  
   const cargarDatos = async () => {
     setIsLoading(true);
     try {

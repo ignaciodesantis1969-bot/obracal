@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { exportarPresupuestoExcel, exportarPresupuestoPDF } from '../utils/exportUtils';
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function PresupuestoDetalle() {
   const { id: presupuestoId } = useParams();
@@ -70,7 +71,7 @@ export default function PresupuestoDetalle() {
   const [rubrosColapsados, setRubrosColapsados] = useState({});
   const [rubrosConOrden, setRubrosConOrden] = useState([]);
 
-  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
+  
 
   const cargarDatosDetalle = async () => {
     setIsLoading(true);

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Search, Download, Loader2 } from 'lucide-react';
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function Clientes() {
   const [clientes, setClientes] = useState([]);
@@ -26,7 +27,6 @@ export default function Clientes() {
     estado: 'activo'
   });
 
-  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
   const cargarClientes = async () => {
     setIsLoading(true);

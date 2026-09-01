@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2, X, Filter } from 'lucide-react';
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function Proveedores() {
   const [proveedores, setProveedores] = useState([]);
@@ -24,7 +25,7 @@ export default function Proveedores() {
     contacto: ''
   });
 
-  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
+ 
 
   const fetchData = async () => {
     setIsLoading(true);

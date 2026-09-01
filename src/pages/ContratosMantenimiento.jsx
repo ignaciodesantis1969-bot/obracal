@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload, Key } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function ContratosMantenimiento({ contratos: contratosProp = [], clientes: clientesProp = [], cargarDatos }) {
   const [contratos, setContratos] = useState(contratosProp);

@@ -15,6 +15,8 @@ import logoLogin from '@/assets/LogoSICESA.jpg';
 
 import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
+import { GOOGLE_SCRIPT_URL } from '@/api';
+
 
 const allNavItems = [
   { icon: LayoutDashboard, label: 'Dashboard',         path: '/',                     key: null },
@@ -44,8 +46,7 @@ export default function Layout() {
   const location = useLocation();
   const { user, logout, login } = useAuth();
 
-  const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
-
+  
   // Verificamos si el usuario actual tiene rol de operador
   const userRole = String(user?.role || user?.rol || '').toLowerCase();
   const esOperador = userRole.includes('operador') || userRole === 'operator';
