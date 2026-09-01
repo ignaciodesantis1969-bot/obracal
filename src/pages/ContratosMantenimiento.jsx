@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar } from 'lucide-react';
+import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
@@ -44,18 +44,67 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const P = porcentajeBeneficioDeseado / 100;
   const porcentajeFee = Math.max(0, ((P + 0.2057) / 0.50874) * 100);
 
+  // Estados locales para registros polinómicos y ajustes aplicados en el detalle del contrato actual
   const [registrosMeses, setRegistrosMeses] = useState([
     { mes: 'Mes 1 (Base) - Julio 2026', uocra: 5817, ipc: 0, dolar: 1489 },
     { mes: 'Mes 2 - Agosto 2026', uocra: 6348, ipc: 2.1, dolar: 1485 },
     { mes: 'Mes 3 - Septiembre 2026', uocra: 7049, ipc: 1.9, dolar: 1520 }
   ]);
+  const [ajustesAplicados, setAjustesAplicados] = useState([]); // [{ mes: 'Mes 2 - Agosto 2026', acumulado: 7.49, indice: 1.0749 }]
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
+
+  // Sincronizar registros al abrir el detalle de un contrato
+  useEffect(() => {
+    if (contratoDetalle) {
+      if (contratoDetalle.registros_meses) {
+        try {
+          const parsed = JSON.parse(contratoDetalle.registros_meses);
+          if (Array.isArray(parsed) && parsed.length > 0) setRegistrosMeses(parsed);
+        } catch (e) {}
+      }
+      if (contratoDetalle.ajustes_aplicados) {
+        try {
+          const parsedAjustes = JSON.parse(contratoDetalle.ajustes_aplicados);
+          if (Array.isArray(parsedAjustes)) setAjustesAplicados(parsedAjustes);
+        } catch (e) {}
+      }
+    }
+  }, [contratoDetalle]);
+
+  const guardarCambiosPolinomicaEnServidor = async (nuevosRegistros, nuevosAjustes) => {
+    if (!contratoDetalle) return;
+    try {
+      const payload = {
+        tabla: 'ContratosMantenimiento',
+        action: 'update',
+        id: contratoDetalle.id,
+        data: {
+          ...contratoDetalle,
+          registros_meses: JSON.stringify(nuevosRegistros),
+          ajustes_aplicados: JSON.stringify(nuevosAjustes || ajustesAplicados)
+        }
+      };
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (data.success) {
+        await refrescarDatosLocales();
+      }
+    } catch (err) {
+      console.error("Error al guardar cambios polinómicos:", err);
+    }
+  };
 
   const agregarMesPolinomica = (e) => {
     e.preventDefault();
     if (!nuevoMes.mes) return;
-    setRegistrosMeses([...registrosMeses, { ...nuevoMes }]);
+    const actualizados = [...registrosMeses, { ...nuevoMes }];
+    setRegistrosMeses(actualizados);
     setNuevoMes({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
+    guardarCambiosPolinomicaEnServidor(actualizados, ajustesAplicados);
   };
 
   const eliminarMesPolinomica = (idx) => {
@@ -63,7 +112,16 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
       alert("No se puede eliminar el Mes Base (Mes 1).");
       return;
     }
-    setRegistrosMeses(registrosMeses.filter((_, i) => i !== idx));
+    const actualizados = registrosMeses.filter((_, i) => i !== idx);
+    setRegistrosMeses(actualizados);
+    guardarCambiosPolinomicaEnServidor(actualizados, ajustesAplicados);
+  };
+
+  const actualizarCeldaMes = (idx, campo, valor) => {
+    const actualizados = [...registrosMeses];
+    actualizados[idx][campo] = valor;
+    setRegistrosMeses(actualizados);
+    guardarCambiosPolinomicaEnServidor(actualizados, ajustesAplicados);
   };
 
   const [formData, setFormData] = useState({
@@ -86,7 +144,13 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
       });
       const data = await res.json();
       if (data.success) {
-        if (data.contratos_mantenimiento) setContratos(data.contratos_mantenimiento);
+        if (data.contratos_mantenimiento) {
+          setContratos(data.contratos_mantenimiento);
+          if (contratoDetalle) {
+            const actualizado = data.contratos_mantenimiento.find(c => c.id === contratoDetalle.id);
+            if (actualizado) setContratoDetalle(actualizado);
+          }
+        }
         if (data.clientes) setClientes(data.clientes);
       }
     } catch (err) {
@@ -296,10 +360,30 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
   const mesesProcesados = procesarMesesPolinomica();
   const polinomioAcumuladoTotal = mesesProcesados.length > 0 ? mesesProcesados[mesesProcesados.length - 1].acumuladoTotal : 0;
-  const superaUmbral = mesesProcesados.some(m => m.cicloAcumulado > 5.0 || m.reajusteAplicado);
+  
+  // Detectar si hay algún mes que superó el 5% y aún no ha sido aplicado en ajustesAplicados
+  const mesPendienteAplicar = mesesProcesados.find(m => m.reajusteAplicado && !ajustesAplicados.some(a => a.mes === m.mes));
+
+  const aplicarAjustePendiente = (mesObj) => {
+    const nuevoAjuste = {
+      mes: mesObj.mes,
+      cicloAcumulado: mesObj.cicloAcumulado,
+      acumuladoTotal: mesObj.acumuladoTotal,
+      indice: 1 + (mesObj.cicloAcumulado / 100)
+    };
+    const nuevosAjustes = [...ajustesAplicados, nuevoAjuste];
+    setAjustesAplicados(nuevosAjustes);
+    guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes);
+  };
+
+  const eliminarAjusteAplicado = (indexAjuste) => {
+    const nuevosAjustes = ajustesAplicados.filter((_, i) => i !== indexAjuste);
+    setAjustesAplicados(nuevosAjustes);
+    guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes);
+  };
 
   if (contratoDetalle) {
-    const manoDeObra = [
+    const manoDeObraBase = [
       { codigo: '4000011125', topico: 'Valor HH SUPERVISOR', ars: 34157.25 },
       { codigo: '4000001424', topico: 'Valor HH TECNICO EHS', ars: 19369.70 },
       { codigo: '4000011128', topico: 'Valor HH OFICIAL ESPECIALIZADO', ars: 25301.41 },
@@ -357,7 +441,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </div>
           <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">Estado Polinómica</p>
-            <p className={cn('text-2xl font-black', superaUmbral ? 'text-red-600' : 'text-slate-700')}>
+            <p className={cn('text-2xl font-black', polinomioAcumuladoTotal > 5 ? 'text-red-600' : 'text-slate-700')}>
               {polinomioAcumuladoTotal.toFixed(2)}%
             </p>
           </div>
@@ -517,27 +601,49 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         {subTabDetalle === 'horas' && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
-              <div className="border-b border-slate-200 pb-4">
-                <h2 className="text-lg font-black text-slate-800">1. Mano de Obra — Valores por Hora (HH) Base</h2>
-                <p className="text-slate-500 text-sm">Valores de referencia base aplicados para la facturación de servicios de mantenimiento.</p>
+              <div className="border-b border-slate-200 pb-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div>
+                  <h2 className="text-lg font-black text-slate-800">1. Mano de Obra — Valores por Hora (HH) y Ajustes Aplicados</h2>
+                  <p className="text-slate-500 text-sm">Valores base iniciales y columnas sucesivas por cada mes en que se aplicó el reajuste polinómico.</p>
+                </div>
+                {ajustesAplicados.length > 0 && (
+                  <div className="px-3 py-1.5 bg-emerald-50 border border-emerald-200 rounded-xl text-emerald-700 text-xs font-bold flex items-center gap-1.5">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                    <span>{ajustesAplicados.length} Ajuste(s) Aplicado(s)</span>
+                  </div>
+                )}
               </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                       <th className="p-4">Código</th>
                       <th className="p-4">Tópico</th>
-                      <th className="p-4 text-right bg-amber-500/10 text-slate-900">ARS / HR (Base)</th>
+                      <th className="p-4 text-right bg-slate-100 text-slate-800">ARS / HR (Base)</th>
+                      {ajustesAplicados.map((aj, aIdx) => (
+                        <th key={aIdx} className="p-4 text-right bg-amber-500/10 text-slate-900 border-l border-amber-200">
+                          ARS/HR - {aj.mes} <span className="block text-[10px] text-amber-700 font-bold">(+{aj.cicloAcumulado.toFixed(2)}%)</span>
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {manoDeObra.map((item, idx) => (
+                    {manoDeObraBase.map((item, idx) => (
                       <tr key={idx} className="hover:bg-slate-50">
                         <td className="p-4 font-mono text-slate-600">{item.codigo}</td>
                         <td className="p-4 font-semibold text-slate-800">{item.topico}</td>
-                        <td className="p-4 text-right font-bold text-slate-900 bg-amber-500/5">
+                        <td className="p-4 text-right font-medium text-slate-600 bg-slate-50/50">
                           $ {item.ars.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
+                        {ajustesAplicados.map((aj, aIdx) => {
+                          const valorAjustado = item.ars * aj.indice;
+                          return (
+                            <td key={aIdx} className="p-4 text-right font-bold text-slate-900 bg-amber-500/5 border-l border-amber-200">
+                              $ {valorAjustado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
@@ -548,63 +654,66 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden p-6 space-y-4">
               <div className="border-b border-slate-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
-                  <h2 className="text-lg font-black text-slate-800">2. Valores Actualizados por Índice Polinómico</h2>
-                  <p className="text-slate-500 text-sm">Aplicación automática del índice de reajuste cuando el acumulado supera el 5%.</p>
-                </div>
-                <div className={cn(
-                  'px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border shadow-sm',
-                  superaUmbral ? 'bg-red-50 text-red-600 border-red-200' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
-                )}>
-                  <TrendingUp className="w-4 h-4" />
-                  <span>Índice Acumulado Total: +{polinomioAcumuladoTotal.toFixed(2)}%</span>
+                  <h2 className="text-lg font-black text-slate-800">2. Aplicación de Reajuste por Umbral (&gt; 5%)</h2>
+                  <p className="text-slate-500 text-sm">Cuando un periodo supera el 5% acumulado, active el botón Aplicar para oficializar los nuevos valores en el certificado mensual.</p>
                 </div>
               </div>
 
-              {superaUmbral ? (
-                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-700 text-sm flex items-center gap-3">
-                  <AlertCircle className="w-5 h-5 shrink-0 text-red-600" />
-                  <span><strong>Reajuste activo:</strong> El acumulado actual es de +{polinomioAcumuladoTotal.toFixed(2)}% (supera el umbral del 5%). Los valores de las horas hombre han sido actualizados con el índice correspondiente.</span>
+              {mesPendienteAplicar ? (
+                <div className="p-5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <AlertCircle className="w-6 h-6 text-amber-600 shrink-0" />
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">Ajuste pendiente para el período: {mesPendienteAplicar.mes}</h4>
+                      <p className="text-xs text-slate-600 mt-0.5">El ciclo acumulado alcanzó <strong>+{mesPendienteAplicar.cicloAcumulado.toFixed(2)}%</strong>. Haga clic en aplicar para actualizar las horas hombre del certificado.</p>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => aplicarAjustePendiente(mesPendienteAplicar)}
+                    className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs transition-all shadow-md cursor-pointer flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <CheckCircle2 className="w-4 h-4" /> Aplicar Ajuste
+                  </button>
+                </div>
+              ) : ajustesAplicados.length > 0 ? (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-emerald-800 text-sm">
+                  <div className="flex items-center gap-3">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span>Todos los reajustes requeridos han sido aplicados correctamente. Hay <strong>{ajustesAplicados.length}</strong> ajuste(s) registrado(s).</span>
+                  </div>
                 </div>
               ) : (
-                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-sm flex items-center gap-3">
-                  <AlertCircle className="w-5 h-5 shrink-0 text-slate-400" />
-                  <span>El acumulado actual es de +{polinomioAcumuladoTotal.toFixed(2)}% (menor o igual al 5%). Se muestran valores actualizados proyectados.</span>
+                <div className="p-4 bg-slate-50 border border-slate-200 rounded-2xl text-slate-500 text-sm flex items-center gap-3">
+                  <AlertCircle className="w-5 h-5 text-slate-400 shrink-0" />
+                  <span>No hay umbrales pendientes de aplicar (&gt; 5%). Cuando se supere el 5% en la pestaña de fórmula polinómica, aparecerá el botón de aplicación aquí.</span>
                 </div>
               )}
 
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-sm">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
-                      <th className="p-4">Código</th>
-                      <th className="p-4">Tópico</th>
-                      <th className="p-4 text-right">Valor Base (ARS)</th>
-                      <th className="p-4 text-center">Índice Aplicado</th>
-                      <th className="p-4 text-right bg-emerald-500/10 text-slate-900">Valor Actualizado (ARS)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {manoDeObra.map((item, idx) => {
-                      const valorActualizado = item.ars * (1 + polinomioAcumuladoTotal / 100);
-                      return (
-                        <tr key={idx} className="hover:bg-slate-50">
-                          <td className="p-4 font-mono text-slate-600">{item.codigo}</td>
-                          <td className="p-4 font-semibold text-slate-800">{item.topico}</td>
-                          <td className="p-4 text-right font-medium text-slate-600">
-                            $ {item.ars.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="p-4 text-center font-bold text-amber-600">
-                            +{polinomioAcumuladoTotal.toFixed(2)}%
-                          </td>
-                          <td className="p-4 text-right font-black text-emerald-700 bg-emerald-500/5">
-                            $ {valorActualizado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+              {ajustesAplicados.length > 0 && (
+                <div className="space-y-3 pt-2">
+                  <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Historial de Ajustes Aplicados</h3>
+                  <div className="space-y-2">
+                    {ajustesAplicados.map((aj, aIdx) => (
+                      <div key={aIdx} className="flex items-center justify-between p-3.5 bg-slate-50 rounded-xl border border-slate-200 text-sm">
+                        <div className="flex items-center gap-3">
+                          <span className="w-6 h-6 rounded-full bg-emerald-500/10 text-emerald-700 font-bold flex items-center justify-center text-xs">{aIdx + 1}</span>
+                          <div>
+                            <strong className="text-slate-800">{aj.mes}</strong>
+                            <span className="text-xs text-slate-500 ml-2">(Índice de reajuste: <strong className="text-amber-600 font-mono">+{aj.cicloAcumulado.toFixed(2)}%</strong>)</span>
+                          </div>
+                        </div>
+                        <button 
+                          onClick={() => eliminarAjusteAplicado(aIdx)}
+                          className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
+                          title="Eliminar Ajuste Aplicado"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -619,19 +728,12 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
                 <div className={cn(
                   'px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 border shadow-sm',
-                  superaUmbral ? 'bg-red-50 text-red-600 border-red-200 animate-pulse' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
+                  polinomioAcumuladoTotal > 5 ? 'bg-red-50 text-red-600 border-red-200 animate-pulse' : 'bg-emerald-50 text-emerald-600 border-emerald-200'
                 )}>
-                  {superaUmbral ? <AlertCircle className="w-4 h-4" /> : <TrendingUp className="w-4 h-4" />}
+                  <TrendingUp className="w-4 h-4" />
                   <span>Variación Total: {polinomioAcumuladoTotal.toFixed(2)}%</span>
                 </div>
               </div>
-
-              {superaUmbral && (
-                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-700 text-sm flex items-center gap-3">
-                  <AlertCircle className="w-5 h-5 shrink-0 text-red-600" />
-                  <span><strong>¡Umbral del 5% superado!</strong> Se alcanzó el límite del ciclo. Corresponde aplicar el índice de reajuste y reiniciar la acumulación parcial del próximo mes.</span>
-                </div>
-              )}
 
               <form onSubmit={agregarMesPolinomica} className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
                 <div>
@@ -709,12 +811,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                                 <input 
                                   type="text"
                                   value={reg.mes}
-                                  onChange={(e) => {
-                                    const val = e.target.value;
-                                    const nuevos = [...registrosMeses];
-                                    nuevos[idx].mes = val;
-                                    setRegistrosMeses(nuevos);
-                                  }}
+                                  onChange={(e) => actualizarCeldaMes(idx, 'mes', e.target.value)}
                                   className="bg-transparent border-b border-transparent hover:border-slate-300 focus:border-amber-500 focus:outline-none font-bold text-slate-800 w-56 text-xs px-1 py-0.5"
                                   placeholder="Ej: Mes 2 - Agosto 2026"
                                 />
@@ -726,12 +823,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                                 type="number"
                                 step="0.01"
                                 value={reg.uocra}
-                                onChange={(e) => {
-                                  const val = Number(e.target.value);
-                                  const nuevos = [...registrosMeses];
-                                  nuevos[idx].uocra = val;
-                                  setRegistrosMeses(nuevos);
-                                }}
+                                onChange={(e) => actualizarCeldaMes(idx, 'uocra', Number(e.target.value))}
                                 className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
                               />
                               {!esBase && (
@@ -745,12 +837,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                                 type="number"
                                 step="0.01"
                                 value={reg.ipc}
-                                onChange={(e) => {
-                                  const val = Number(e.target.value);
-                                  const nuevos = [...registrosMeses];
-                                  nuevos[idx].ipc = val;
-                                  setRegistrosMeses(nuevos);
-                                }}
+                                onChange={(e) => actualizarCeldaMes(idx, 'ipc', Number(e.target.value))}
                                 className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
                               />
                               {!esBase && (
@@ -764,12 +851,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                                 type="number"
                                 step="0.01"
                                 value={reg.dolar}
-                                onChange={(e) => {
-                                  const val = Number(e.target.value);
-                                  const nuevos = [...registrosMeses];
-                                  nuevos[idx].dolar = val;
-                                  setRegistrosMeses(nuevos);
-                                }}
+                                onChange={(e) => actualizarCeldaMes(idx, 'dolar', Number(e.target.value))}
                                 className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs text-center font-semibold focus:outline-none focus:border-amber-500 mx-auto"
                               />
                               {!esBase && (
@@ -788,7 +870,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                               {!esBase && (
                                 <button 
                                   onClick={() => eliminarMesPolinomica(idx)}
-                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                                   title="Eliminar Mes"
                                 >
                                   <Trash2 className="w-4 h-4" />
@@ -799,7 +881,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                           {reg.reajusteAplicado && (
                             <tr key={`reajuste-${idx}`} className="bg-red-500/10 border-t-2 border-b-2 border-red-500">
                               <td colSpan="7" className="py-2 px-4 text-center text-red-700 font-black text-xs tracking-wide">
-                                ⚡ REAJUSTE APLICADO (> 5%): Se aplica índice de actualización y el acumulado del ciclo vuelve a 0% para el próximo mes. (Acumulado Total Global: +{reg.acumuladoTotal.toFixed(2)}%)
+                                ⚡ REAJUSTE APLICADO (> 5%): Se alcanza umbral. Vaya a "Cálculo de Horas (HH)" para aplicar el reajuste oficial. (Acumulado Total: +{reg.acumuladoTotal.toFixed(2)}%)
                               </td>
                             </tr>
                           )}
