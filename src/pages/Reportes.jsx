@@ -162,6 +162,10 @@ export default function Reportes(props) {
           const json = JSON.parse(jsonStr);
           if (json.proveedorKey) provKey = json.proveedorKey;
           if (json.clienteKey) cliKey = json.clienteKey;
+          if (json.proveedorCargo) provCargo = json.proveedorCargo;
+          if (json.proveedorNombre) provNombre = json.proveedorNombre;
+          if (json.clienteCargo) cliCargo = json.clienteCargo;
+          if (json.clienteNombre) cliNombre = json.clienteNombre;
         } catch (e) {}
       }
 
