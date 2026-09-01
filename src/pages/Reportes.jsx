@@ -15,18 +15,24 @@ export default function Reportes(props) {
 
   const [contratosList, setContratosList] = useState([]);
 
-  // Cargar contratos desde props o directamente desde el servidor si las props vienen vacías
+  // Carga ultra-robusta de contratos adaptada a cualquier formato que devuelva Google Apps Script
   useEffect(() => {
     const propsContratos = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento || [];
-    if (propsContratos.length > 0) {
+    if (Array.isArray(propsContratos) && propsContratos.length > 0) {
       setContratosList(propsContratos);
     } else {
       fetch(`${GOOGLE_SCRIPT_URL}?tabla=ContratosMantenimiento`)
         .then(res => res.json())
         .then(data => {
-          if (Array.isArray(data)) setContratosList(data);
-          else if (data && Array.isArray(data.data)) setContratosList(data.data);
-          else if (data && Array.isArray(data.contratos)) setContratosList(data.contratos);
+          let lista = [];
+          if (Array.isArray(data)) lista = data;
+          else if (data && Array.isArray(data.data)) lista = data.data;
+          else if (data && Array.isArray(data.ContratosMantenimiento)) lista = data.ContratosMantenimiento;
+          else if (data && typeof data === 'object') {
+            const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+            if (foundKey) lista = data[foundKey];
+          }
+          setContratosList(lista);
         })
         .catch(() => {
           fetch(GOOGLE_SCRIPT_URL, {
@@ -36,8 +42,15 @@ export default function Reportes(props) {
           })
             .then(res => res.json())
             .then(data => {
-              if (Array.isArray(data)) setContratosList(data);
-              else if (data && Array.isArray(data.data)) setContratosList(data.data);
+              let lista = [];
+              if (Array.isArray(data)) lista = data;
+              else if (data && Array.isArray(data.data)) lista = data.data;
+              else if (data && Array.isArray(data.ContratosMantenimiento)) lista = data.ContratosMantenimiento;
+              else if (data && typeof data === 'object') {
+                const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+                if (foundKey) lista = data[foundKey];
+              }
+              setContratosList(lista);
             })
             .catch(e => console.error("Error al obtener contratos:", e));
         });
@@ -68,7 +81,7 @@ export default function Reportes(props) {
   // Sincronizar y cargar partes aprobados del contrato seleccionado desde el backend
   useEffect(() => {
     if (contratoSeleccionadoId) {
-      const contrato = contratosList.find(c => String(c.id || c.ID) === String(contratoSeleccionadoId));
+      const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo) === String(contratoSeleccionadoId));
       if (contrato && contrato.descripcion) {
         if (contrato.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
           try {
@@ -95,7 +108,7 @@ export default function Reportes(props) {
 
   const guardarPartesEnServidor = async (nuevosPartes) => {
     if (!contratoSeleccionadoId) return;
-    const contrato = contratosList.find(c => String(c.id || c.ID) === String(contratoSeleccionadoId));
+    const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo) === String(contratoSeleccionadoId));
     if (!contrato) return;
 
     try {
@@ -140,7 +153,7 @@ export default function Reportes(props) {
         body: JSON.stringify({
           tabla: 'ContratosMantenimiento',
           action: 'update',
-          id: contrato.id || contrato.ID,
+          id: contrato.id || contrato.ID || contrato.codigo,
           data: { ...contrato, descripcion: nuevaDesc }
         })
       });
@@ -150,7 +163,7 @@ export default function Reportes(props) {
   };
 
   const obtenerClavesContratoActual = () => {
-    const contratoActivo = contratosList.find(c => String(c.id || c.ID) === String(contratoSeleccionadoId));
+    const contratoActivo = contratosList.find(c => String(c.id || c.ID || c.codigo) === String(contratoSeleccionadoId));
     if (contratoActivo && contratoActivo.descripcion) {
       if (contratoActivo.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
         try {
@@ -829,9 +842,9 @@ export default function Reportes(props) {
                   onChange={(e) => setContratoSeleccionadoId(e.target.value)}
                   className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
                 >
-                  <option value="">-- Seleccionar Contrato / Claves --</option>
+                  <option value="">-- Seleccionar Contrato ({contratosList.length} disponibles) --</option>
                   {contratosList.map((c, i) => {
-                    const cId = c.id || c.ID || i;
+                    const cId = String(c.id || c.ID || c.codigo || i);
                     const cCod = c.codigo || c.Codigo || 'S/C';
                     const cNom = c.nombre_contrato || c.Nombre_contrato || c.cliente || c.Cliente || c.nombre || 'Contrato';
                     const cEst = c.estado || c.Estado || 'Activo';
