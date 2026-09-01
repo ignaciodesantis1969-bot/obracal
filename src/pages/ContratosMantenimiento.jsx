@@ -44,16 +44,14 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const P = porcentajeBeneficioDeseado / 100;
   const porcentajeFee = Math.max(0, ((P + 0.2057) / 0.50874) * 100);
 
-  // Estados locales para registros polinómicos y ajustes aplicados en el detalle del contrato actual
   const [registrosMeses, setRegistrosMeses] = useState([
     { mes: 'Mes 1 (Base) - Julio 2026', uocra: 5817, ipc: 0, dolar: 1489 },
     { mes: 'Mes 2 - Agosto 2026', uocra: 6348, ipc: 2.1, dolar: 1485 },
     { mes: 'Mes 3 - Septiembre 2026', uocra: 7049, ipc: 1.9, dolar: 1520 }
   ]);
-  const [ajustesAplicados, setAjustesAplicados] = useState([]); // [{ mes: 'Mes 2 - Agosto 2026', acumulado: 7.49, indice: 1.0749 }]
+  const [ajustesAplicados, setAjustesAplicados] = useState([]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
-  // Sincronizar registros al abrir el detalle de un contrato
   useEffect(() => {
     if (contratoDetalle) {
       if (contratoDetalle.registros_meses) {
@@ -361,7 +359,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const mesesProcesados = procesarMesesPolinomica();
   const polinomioAcumuladoTotal = mesesProcesados.length > 0 ? mesesProcesados[mesesProcesados.length - 1].acumuladoTotal : 0;
   
-  // Detectar si hay algún mes que superó el 5% y aún no ha sido aplicado en ajustesAplicados
   const mesPendienteAplicar = mesesProcesados.find(m => m.reajusteAplicado && !ajustesAplicados.some(a => a.mes === m.mes));
 
   const aplicarAjustePendiente = (mesObj) => {
@@ -881,7 +878,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                           {reg.reajusteAplicado && (
                             <tr key={`reajuste-${idx}`} className="bg-red-500/10 border-t-2 border-b-2 border-red-500">
                               <td colSpan="7" className="py-2 px-4 text-center text-red-700 font-black text-xs tracking-wide">
-                                ⚡ REAJUSTE APLICADO (> 5%): Se alcanza umbral. Vaya a "Cálculo de Horas (HH)" para aplicar el reajuste oficial. (Acumulado Total: +{reg.acumuladoTotal.toFixed(2)}%)
+                                ⚡ REAJUSTE APLICADO (&gt; 5%): Se alcanza umbral. Vaya a "Cálculo de Horas (HH)" para aplicar el reajuste oficial. (Acumulado Total: +{reg.acumuladoTotal.toFixed(2)}%)
                               </td>
                             </tr>
                           )}
