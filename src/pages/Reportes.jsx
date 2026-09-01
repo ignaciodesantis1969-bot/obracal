@@ -93,6 +93,9 @@ export default function Reportes(props) {
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
   const [sicePartesAprobados, setSicePartesAprobados] = useState([]);
   const [parteVisualizando, setParteVisualizando] = useState(null);
+  
+  // Nuevo estado para evitar el doble envío
+  const [isSavingSice, setIsSavingSice] = useState(false);
 
   useEffect(() => {
     if (contratoSeleccionadoId) {
@@ -131,8 +134,9 @@ export default function Reportes(props) {
           setSicePartesAprobados([]);
         }
 
-        setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: pKey });
-        setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: cKey });
+        // Se precargan cargo y nombre, pero las CLAVES SIEMPRE EN BLANCO
+        setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
+        setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
       } else {
         setSicePartesAprobados([]);
         setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
@@ -152,8 +156,11 @@ export default function Reportes(props) {
 
     try {
       let descActual = contrato.descripcion || '';
-      let provKey = siceRespProveedor.clave || 'AT1020';
-      let cliKey = siceRespCliente.clave || 'CM7030';
+      // Recuperar las claves reales del contrato (ya que en el estado están vacías o tipeadas por el user)
+      const clavesActuales = obtenerClavesContratoActual();
+      let provKey = clavesActuales.proveedorKey || 'AT1020';
+      let cliKey = clavesActuales.clienteKey || 'CM7030';
+      
       let provCargo = siceRespProveedor.cargo || '';
       let provNombre = siceRespProveedor.nombre || '';
       let cliCargo = siceRespCliente.cargo || '';
@@ -162,17 +169,6 @@ export default function Reportes(props) {
       if (descActual.includes('---DATOS_SICE_INTEGRAL---')) {
         const partes = descActual.split('---DATOS_SICE_INTEGRAL---');
         descActual = partes[0].trim();
-        try {
-          let jsonStr = partes[1].trim();
-          if (!jsonStr.startsWith('{')) jsonStr = `{${jsonStr}}`;
-          const json = JSON.parse(jsonStr);
-          if (json.proveedorKey) provKey = json.proveedorKey;
-          if (json.clienteKey) cliKey = json.clienteKey;
-          if (json.proveedorCargo) provCargo = json.proveedorCargo;
-          if (json.proveedorNombre) provNombre = json.proveedorNombre;
-          if (json.clienteCargo) cliCargo = json.clienteCargo;
-          if (json.clienteNombre) cliNombre = json.clienteNombre;
-        } catch (e) {}
       }
 
       const payloadData = {
@@ -313,8 +309,10 @@ export default function Reportes(props) {
 
     const totalHsSuma = siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0);
 
+    // Activamos el estado de carga justo antes de iniciar la solicitud
+    setIsSavingSice(true);
+
     try {
-      // Solicitud al Apps Script para generar el PDF en Drive y retornar su URL
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
         contratoId: contratoSeleccionadoId,
@@ -335,6 +333,7 @@ export default function Reportes(props) {
 
       if (!resultado.success) {
         alert("Error al generar el PDF en Google Drive: " + (resultado.error || 'Desconocido'));
+        setIsSavingSice(false);
         return;
       }
 
@@ -344,10 +343,10 @@ export default function Reportes(props) {
         fecha: siceFecha,
         contratoId: contratoSeleccionadoId,
         items: [...siceItems],
-        proveedor: { ...siceRespProveedor },
-        cliente: { ...siceRespCliente },
+        proveedor: { ...siceRespProveedor, clave: '' }, // Limpiamos clave antes de guardar
+        cliente: { ...siceRespCliente, clave: '' },     // Limpiamos clave antes de guardar
         totalHorasSuma: totalHsSuma,
-        pdfUrl: resultado.pdfUrl // Guardamos la URL generada en Google Drive
+        pdfUrl: resultado.pdfUrl 
       };
 
       const actualizados = [nuevoParte, ...sicePartesAprobados];
@@ -357,11 +356,19 @@ export default function Reportes(props) {
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
       setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
-      alert("¡Parte Diario aprobado, PDF generado en Drive y URL guardada con éxito!");
+      
+      // Limpiamos las contraseñas para el próximo parte
+      setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
+      setSiceRespCliente(prev => ({ ...prev, clave: '' }));
+
+      alert("¡Parte Diario aprobado, PDF generado en Drive y guardado con éxito!");
 
     } catch (err) {
       console.error("Error al generar PDF:", err);
       alert("Ocurrió un error de conexión al generar el PDF.");
+    } finally {
+      // Pase lo que pase (éxito o error), desactivamos el spinner
+      setIsSavingSice(false);
     }
   };
 
@@ -1094,7 +1101,7 @@ export default function Reportes(props) {
                 <span className="text-xs text-slate-500 font-semibold">Total filas: {siceItems.length} / 10</span>
               </div>
 
-              {/* BLOQUE DE FIRMAS E INTERVINIENTES (PRECARGADOS DESDE CONTRATO Y CLAVES TIPO PASSWORD) */}
+              {/* BLOQUE DE FIRMAS E INTERVINIENTES */}
               <form onSubmit={aprobarYArchivarParteSice} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50">
                 <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
                   <div className="p-4 space-y-3">
@@ -1182,16 +1189,21 @@ export default function Reportes(props) {
                   <p className="text-xs text-slate-500">Los datos se cargan por defecto desde el contrato seleccionado y se pueden editar antes de firmar.</p>
                   <button 
                     type="submit"
-                    className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
+                    disabled={isSavingSice}
+                    className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2 ${isSavingSice ? 'opacity-70 cursor-not-allowed' : ''}`}
                   >
-                    <ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Guardar Reporte
+                    {isSavingSice ? (
+                      <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Procesando...</>
+                    ) : (
+                      <><ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Guardar Reporte</>
+                    )}
                   </button>
                 </div>
               </form>
             </div>
           </div>
 
-          {/* HISTORIAL DE PARTES DIARIOS APROBADOS (CON OPCIÓN DE VER PDF EN DRIVE Y BORRAR) */}
+          {/* HISTORIAL DE PARTES DIARIOS APROBADOS */}
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
             <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados</h3>
             {sicePartesAprobados.length === 0 ? (
