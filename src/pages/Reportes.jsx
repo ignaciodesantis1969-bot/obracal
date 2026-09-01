@@ -74,9 +74,33 @@ export default function Reportes(props) {
         else if (data && Array.isArray(data.data)) lista = data.data;
         else if (data && Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
         else if (data && Array.isArray(data.reportes_sice)) lista = data.reportes_sice;
+        else if (data && typeof data === 'object') {
+          const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+          if (foundKey) lista = data[foundKey];
+        }
         if (lista.length > 0) setFetchedReportesSice(lista);
       })
-      .catch(() => {});
+      .catch(() => {
+        fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' })
+        })
+          .then(res => res.json())
+          .then(data => {
+            let lista = [];
+            if (Array.isArray(data)) lista = data;
+            else if (data && Array.isArray(data.data)) lista = data.data;
+            else if (data && Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
+            else if (data && Array.isArray(data.reportes_sice)) lista = data.reportes_sice;
+            else if (data && typeof data === 'object') {
+              const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+              if (foundKey) lista = data[foundKey];
+            }
+            if (lista.length > 0) setFetchedReportesSice(lista);
+          })
+          .catch(() => {});
+      });
   }, []);
 
   const contratosList = useMemo(() => {
@@ -116,6 +140,19 @@ export default function Reportes(props) {
   
   const [isSavingSice, setIsSavingSice] = useState(false);
 
+  const clavesContratoActual = useMemo(() => {
+    const contratoActivo = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
+    if (contratoActivo) {
+      const pDirect = contratoActivo.proveedorKey || contratoActivo.proveedor_key || contratoActivo.claveProveedor || contratoActivo.clave_proveedor;
+      const cDirect = contratoActivo.clienteKey || contratoActivo.cliente_key || contratoActivo.claveCliente || contratoActivo.clave_cliente;
+      return {
+        proveedorKey: pDirect ? String(pDirect).trim() : 'AT1020',
+        clienteKey: cDirect ? String(cDirect).trim() : 'CM7030'
+      };
+    }
+    return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
+  }, [contratosList, contratoSeleccionadoId]);
+
   useEffect(() => {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
@@ -132,9 +169,10 @@ export default function Reportes(props) {
         setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
       }
 
-      const filtrados = allReportesSice.filter(r => 
-        String(r.contratoid || r.contratoId || r.contrato_id || '') === String(contratoSeleccionadoId)
-      );
+      const filtrados = allReportesSice.filter(r => {
+        const rContratoId = String(r.contratoid || r.contratoId || r.contrato_id || r.ContratoId || '');
+        return rContratoId === String(contratoSeleccionadoId);
+      });
 
       const normalizados = filtrados.map(r => {
         let itemsParsed = r.items;
@@ -153,7 +191,7 @@ export default function Reportes(props) {
           id: r.id,
           nro: r.nro || r.numero || '00001',
           fecha: r.fecha || '',
-          contratoId: r.contratoid || r.contratoId,
+          contratoId: r.contratoid || r.contratoId || r.contrato_id,
           items: Array.isArray(itemsParsed) ? itemsParsed : [],
           proveedor: provParsed,
           cliente: cliParsed,
@@ -189,19 +227,6 @@ export default function Reportes(props) {
       console.error("Error al eliminar parte:", err);
       alert("Ocurrió un error al intentar eliminar el parte.");
     }
-  };
-
-  const obtenerClavesContratoActual = () => {
-    const contratoActivo = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
-    if (contratoActivo) {
-      const pDirect = contratoActivo.proveedorKey || contratoActivo.proveedor_key || contratoActivo.claveProveedor || contratoActivo.clave_proveedor;
-      const cDirect = contratoActivo.clienteKey || contratoActivo.cliente_key || contratoActivo.claveCliente || contratoActivo.clave_cliente;
-      if (pDirect && cDirect) {
-        return { proveedorKey: String(pDirect).trim(), clienteKey: String(cDirect).trim() };
-      }
-      return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
-    }
-    return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
   };
 
   const calcularTotalHorasSice = (inicio, fin) => {
@@ -250,14 +275,12 @@ export default function Reportes(props) {
       return;
     }
 
-    const { proveedorKey, clienteKey } = obtenerClavesContratoActual();
-    
-    if (siceRespProveedor.clave.toUpperCase() !== proveedorKey.toUpperCase()) {
-      alert(`La clave ingresada para el Responsable Proveedor no coincide con la registrada en el contrato (Esperada: ${proveedorKey}).`);
+    if (siceRespProveedor.clave.toUpperCase() !== clavesContratoActual.proveedorKey.toUpperCase()) {
+      alert(`La clave ingresada para el Responsable Proveedor no coincide con la registrada en el contrato (Esperada: ${clavesContratoActual.proveedorKey}).`);
       return;
     }
-    if (siceRespCliente.clave.toUpperCase() !== clienteKey.toUpperCase()) {
-      alert(`La clave ingresada para el Responsable Cliente no coincide con la registrada en el contrato (Esperada: ${clienteKey}).`);
+    if (siceRespCliente.clave.toUpperCase() !== clavesContratoActual.clienteKey.toUpperCase()) {
+      alert(`La clave ingresada para el Responsable Cliente no coincide con la registrada en el contrato (Esperada: ${clavesContratoActual.clienteKey}).`);
       return;
     }
 
@@ -1080,12 +1103,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: AT1020):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: {clavesContratoActual.proveedorKey}):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder="Ej: AT1020"
+                          placeholder={`Ej: ${clavesContratoActual.proveedorKey}`}
                           value={siceRespProveedor.clave}
                           onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
@@ -1120,12 +1143,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: CM7030):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: {clavesContratoActual.clienteKey}):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder="Ej: CM7030"
+                          placeholder={`Ej: ${clavesContratoActual.clienteKey}`}
                           value={siceRespCliente.clave}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
