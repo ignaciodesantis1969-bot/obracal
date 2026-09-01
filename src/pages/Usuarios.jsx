@@ -62,7 +62,6 @@ export default function Usuarios() {
 
     setIsSubmitting(true);
     try {
-      // 1. Crear instancia secundaria usando las opciones de la app principal (evita errores de importación)
       const secondaryAppName = "SecondaryUserCreationApp";
       let secondaryApp = getApps().find(app => app.name === secondaryAppName);
       
@@ -71,10 +70,8 @@ export default function Usuarios() {
       }
       const secondaryAuth = getAuth(secondaryApp);
 
-      // 2. Crear el usuario en Firebase Authentication de manera aislada sin desloguear al Admin
       await createUserWithEmailAndPassword(secondaryAuth, nuevoUsuario.email, nuevoUsuario.password);
 
-      // 3. Registrar el usuario en Google Sheets y enviar la contraseña para el correo automático
       const response = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -103,7 +100,11 @@ export default function Usuarios() {
       }
     } catch (err) {
       console.error(err);
-      alert("Error al registrar usuario: " + (err.message || "Verifica los datos."));
+      let mensajeError = err.message || "Verifica los datos.";
+      if (err.code === 'auth/email-already-in-use' || mensajeError.includes('email-already-in-use')) {
+        mensajeError = "El correo electrónico ya se encuentra registrado en Firebase Authentication.";
+      }
+      alert("Error al registrar usuario: " + mensajeError);
     } finally {
       setIsSubmitting(false);
     }
