@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Building2, Layers, ShieldCheck, Filter, List, Package } from 'lucide-react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp } from 'lucide-react';
 
 export default function Reportes(props) {
   // Extracción segura de props soportando múltiples variaciones de nombres y mayúsculas
@@ -13,7 +13,7 @@ export default function Reportes(props) {
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
 
   const [obraFiltro, setObraFiltro] = useState('todas');
-  const [activeTab, setActiveTab] = useState('Dashboard');
+  const [activeTab, setActiveTab] = useState('Certificaciones');
 
   // Estados para el comparativo detallado
   const [compObraId, setCompObraId] = useState('todas');
@@ -23,7 +23,11 @@ export default function Reportes(props) {
   const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
   const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(false);
 
-  // Filtrado general de métricas superiores
+  // 📝 Estados para Reportes Diarios
+  const [reportesDiarios, setReportesDiarios] = useState([]);
+  const [nuevoReporte, setNuevoReporte] = useState({ fecha: new Date().toISOString().slice(0, 10), obra: '', descripcion: '', personal: 0, clima: 'Bueno' });
+
+  // Filtrado general de métricas superiores (mantenido internamente si se requiere, pero sin tarjetas visuales)
   const presupuestosFiltrados = obraFiltro === 'todas' 
     ? presupuestos 
     : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(obraFiltro));
@@ -584,29 +588,9 @@ export default function Reportes(props) {
         </div>
       </div>
 
-      {/* TARJETAS DE MÉTRICAS SUPERIORES */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm border-l-4 border-l-blue-600">
-          <p className="text-xs font-bold text-slate-500 uppercase">Total Presupuestado</p>
-          <h3 className="text-2xl font-black text-blue-600 mt-2">$ {totalPresupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm border-l-4 border-l-amber-500">
-          <p className="text-xs font-bold text-slate-500 uppercase">Total Certificado</p>
-          <h3 className="text-2xl font-black text-amber-600 mt-2">$ {totalCertificado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm border-l-4 border-l-emerald-600">
-          <p className="text-xs font-bold text-slate-500 uppercase">Total Cobrado</p>
-          <h3 className="text-2xl font-black text-emerald-600 mt-2">$ {totalCobrado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-        </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm border-l-4 border-l-rose-600">
-          <p className="text-xs font-bold text-slate-500 uppercase">Total Gastado</p>
-          <h3 className="text-2xl font-black text-rose-600 mt-2">$ {totalGastado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-        </div>
-      </div>
-
-      {/* PESTAÑAS */}
+      {/* PESTAÑAS (Menú modificado: sin Dashboard, Avance Porcentual cambiado a Reportes Diarios) */}
       <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap">
-        {['Dashboard', 'Certificaciones', 'Avance Porcentual', 'Listado de Insumos', 'Comparativo'].map((tab) => (
+        {['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
           <button 
             key={tab} 
             onClick={() => setActiveTab(tab)} 
@@ -616,46 +600,6 @@ export default function Reportes(props) {
           </button>
         ))}
       </div>
-
-      {/* CONTENIDO: DASHBOARD */}
-      {activeTab === 'Dashboard' && (
-        <div className="space-y-6">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Estado de Obras</h3>
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-8 py-6">
-                <div className="relative w-44 h-44 rounded-full bg-amber-500 flex items-center justify-center shadow-inner border-4 border-white">
-                  <div className="w-28 h-28 rounded-full bg-white flex items-center justify-center shadow">
-                    <Building2 className="w-8 h-8 text-amber-500" />
-                  </div>
-                </div>
-                <div className="space-y-2 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full bg-amber-500 inline-block"></span>
-                    <span className="font-bold text-slate-700">En presupuesto: {obras.length} obras</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Resumen Financiero</h3>
-              <div className="grid grid-cols-2 gap-4 py-6">
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
-                  <h4 className="text-2xl font-black text-blue-600">{obras.length}</h4>
-                  <p className="text-xs font-bold text-slate-500 uppercase mt-1">Total Obras</p>
-                </div>
-                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 text-center">
-                  <h4 className={`text-2xl font-black ${resultadoNeto >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
-                    $ {resultadoNeto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                  </h4>
-                  <p className="text-xs font-bold text-slate-500 uppercase mt-1">Resultado Neto</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* CONTENIDO: CERTIFICACIONES */}
       {activeTab === 'Certificaciones' && (
@@ -692,25 +636,107 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {/* CONTENIDO: AVANCE PORCENTUAL */}
-      {activeTab === 'Avance Porcentual' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-          <h3 className="text-sm font-extrabold text-slate-900 uppercase">Avance Porcentual por Obra</h3>
-          <div className="space-y-6">
-            {obras.length === 0 ? (
-              <div className="text-center text-slate-400 text-xs py-8">No hay obras registradas.</div>
+      {/* CONTENIDO: REPORTES DIARIOS */}
+      {activeTab === 'Reportes Diarios' && (
+        <div className="space-y-6">
+          <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
+            <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-amber-500" /> Nuevo Reporte Diario de Obra
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Fecha</label>
+                <input 
+                  type="date"
+                  value={nuevoReporte.fecha}
+                  onChange={(e) => setNuevoReporte({...nuevoReporte, fecha: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Obra</label>
+                <select
+                  value={nuevoReporte.obra}
+                  onChange={(e) => setNuevoReporte({...nuevoReporte, obra: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="">Seleccionar obra...</option>
+                  {obras.map(o => (
+                    <option key={o.id || o.ID} value={o.nombre || o.Nombre}>{o.nombre || o.Nombre}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Personal en Obra</label>
+                <input 
+                  type="number"
+                  value={nuevoReporte.personal}
+                  onChange={(e) => setNuevoReporte({...nuevoReporte, personal: Number(e.target.value)})}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Condición Climática</label>
+                <select 
+                  value={nuevoReporte.clima}
+                  onChange={(e) => setNuevoReporte({...nuevoReporte, clima: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="Bueno">Bueno</option>
+                  <option value="Regular">Regular</option>
+                  <option value="Malo / Lluvias">Malo / Lluvias</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Descripción de Labores / Novedades</label>
+              <textarea 
+                rows="3"
+                value={nuevoReporte.descripcion}
+                onChange={(e) => setNuevoReporte({...nuevoReporte, descripcion: e.target.value})}
+                placeholder="Detalle de trabajos realizados, maquinarias en uso, observaciones..."
+                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-medium text-slate-800 focus:outline-none focus:border-amber-500"
+              ></textarea>
+            </div>
+            <div className="flex justify-end">
+              <button 
+                onClick={() => {
+                  if (!nuevoReporte.obra || !nuevoReporte.descripcion) {
+                    alert("Complete la obra y la descripción del reporte.");
+                    return;
+                  }
+                  setReportesDiarios([...reportesDiarios, nuevoReporte]);
+                  setNuevoReporte({ fecha: new Date().toISOString().slice(0, 10), obra: '', descripcion: '', personal: 0, clima: 'Bueno' });
+                }}
+                className="bg-amber-500 hover:bg-amber-600 text-white font-extrabold px-5 py-2.5 rounded-xl text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Registrar Reporte Diario
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
+            <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Reportes Diarios</h3>
+            {reportesDiarios.length === 0 ? (
+              <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
+                No hay reportes diarios cargados en esta sesión.
+              </div>
             ) : (
-              obras.map((o, idx) => (
-                <div key={idx} className="space-y-2 border-b pb-4 last:border-b-0">
-                  <div className="flex justify-between items-center text-xs font-bold text-slate-800">
-                    <span className="text-sm font-extrabold">{o.nombre || o.Nombre}</span>
-                    <span className="text-amber-600 text-sm font-black">65% Completado</span>
+              <div className="space-y-3">
+                {reportesDiarios.map((rep, idx) => (
+                  <div key={idx} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">{rep.obra}</span>
+                        <span className="text-xs font-medium text-slate-500">{rep.fecha}</span>
+                        <span className="text-xs font-semibold px-2 py-0.5 bg-slate-200 text-slate-700 rounded">Clima: {rep.clima}</span>
+                        <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Personal: {rep.personal}</span>
+                      </div>
+                      <p className="text-slate-700 text-xs mt-2">{rep.descripcion}</p>
+                    </div>
                   </div>
-                  <div className="w-full bg-slate-100 h-4 rounded-full overflow-hidden border border-slate-200">
-                    <div className="bg-amber-500 h-full rounded-full transition-all duration-500" style={{ width: '65%' }}></div>
-                  </div>
-                </div>
-              ))
+                ))}
+              </div>
             )}
           </div>
         </div>
@@ -965,7 +991,6 @@ export default function Reportes(props) {
 
                       return (
                         <React.Fragment key={`rub-${rubro.id}`}>
-                          {/* Fila Cabecera del Rubro (Sin totales numéricos, solo título limpio) */}
                           <tr className="bg-slate-50 font-extrabold text-slate-900 border-t border-slate-200">
                             <td className="px-4 py-3 uppercase text-amber-600 flex items-center gap-2" colSpan={5}>
                               <Layers className="w-4 h-4 text-amber-500" />
@@ -976,7 +1001,6 @@ export default function Reportes(props) {
                           {componentesEntradas.map(([compNombre, montoComp], cIdx) => {
                             const realFacComp = obtenerFacturasParaComponente(rubro, compNombre, realFacturasRubroTotal);
                             const esManoDeObra = limpiarTexto(compNombre).includes('mano') || limpiarTexto(compNombre).includes('obra');
-                            // 🛡️ REQUISITO: La columna "Salarios Semanales (RRHH)" solo lleva montos de mano de obra (los demás componentes quedan en 0,00)
                             const realSalariosComp = esManoDeObra ? realSalariosRubro : 0;
                             const totalRealComp = realFacComp + realSalariosComp;
                             totalRealRubrosCalculado += totalRealComp;
@@ -1007,7 +1031,7 @@ export default function Reportes(props) {
                       );
                     })}
 
-                    {/* TOTAL RUBROS (ESTILO AMARILLO) */}
+                    {/* TOTAL RUBROS */}
                     <tr className="bg-amber-200 text-amber-950 font-extrabold">
                       <td className="px-4 py-3 uppercase">TOTAL RUBROS</td>
                       <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
