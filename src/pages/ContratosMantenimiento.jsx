@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
@@ -15,6 +15,10 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   
   const [contratoDetalle, setContratoDetalle] = useState(null);
   const [subTabDetalle, setSubTabDetalle] = useState('fee');
+
+  // Estados para los archivos subidos en la pestaña Descripción General
+  const [contratoGeneralFile, setContratoGeneralFile] = useState(null);
+  const [acuerdoEconomicoFile, setAcuerdoEconomicoFile] = useState(null);
 
   const formatearMesBase = (val) => {
     if (!val) return '---';
@@ -52,7 +56,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [ajustesAplicados, setAjustesAplicados] = useState([]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
-  // Sincronizar y parsear registros polinómicos con dependencia segura [contratoDetalle?.id]
   useEffect(() => {
     if (contratoDetalle) {
       const desc = contratoDetalle.descripcion || '';
@@ -71,6 +74,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         ]);
         setAjustesAplicados([]);
       }
+      setContratoGeneralFile(null);
+      setAcuerdoEconomicoFile(null);
     }
   }, [contratoDetalle?.id]);
 
@@ -133,7 +138,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     guardarCambiosPolinomicaEnServidor(actualizados, ajustesAplicados);
   };
 
-  // Función para descargar en JPG o PNG
   const descargarImagen = async (formato) => {
     try {
       if (!window.html2canvas) {
@@ -998,23 +1002,36 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
               </div>
 
-              <div className="space-y-3">
-                <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">Condiciones Generales y Económicas</h4>
-                <ul className="list-disc list-inside text-xs space-y-1.5 text-slate-600 bg-slate-50 p-4 rounded-xl border border-slate-200">
-                  <li>Los servicios de mantenimiento se regirán bajo los estándares de calidad y seguridad acordados en planta.</li>
-                  <li>La actualización de valores por fórmula polinómica se aplicará de acuerdo con los umbrales establecidos en el contrato (&gt; 5%).</li>
-                  <li>La facturación de materiales incluye el porcentaje de gestión (Fee) correspondiente calculado en el sistema.</li>
-                </ul>
-              </div>
-
-              <div className="grid grid-cols-2 gap-12 pt-16 mt-8 border-t border-slate-200 text-center text-xs">
-                <div>
-                  <div className="border-b border-slate-400 pb-12 mb-2"></div>
-                  <p className="font-bold text-slate-800">Firma y Sello - Cliente</p>
+              {/* Botones para Subir Contrato General y Acuerdo Económico */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col items-center text-center space-y-3">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">Contrato General</h4>
+                  <p className="text-xs text-slate-500">
+                    {contratoGeneralFile ? `Archivo: ${contratoGeneralFile.name}` : 'Ningún archivo seleccionado'}
+                  </p>
+                  <label className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer inline-flex items-center gap-2 shadow-sm">
+                    <Upload className="w-4 h-4" /> Subir contrato general
+                    <input 
+                      type="file" 
+                      className="hidden" 
+                      onChange={(e) => setContratoGeneralFile(e.target.files[0])}
+                    />
+                  </label>
                 </div>
-                <div>
-                  <div className="border-b border-slate-400 pb-12 mb-2"></div>
-                  <p className="font-bold text-slate-800">Firma y Sello - Prestador (GI-MO)</p>
+
+                <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col items-center text-center space-y-3">
+                  <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">Acuerdo Económico</h4>
+                  <p className="text-xs text-slate-500">
+                    {acuerdoEconomicoFile ? `Archivo: ${acuerdoEconomicoFile.name}` : 'Ningún archivo seleccionado'}
+                  </p>
+                  <label className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer inline-flex items-center gap-2 shadow-sm">
+                    <Upload className="w-4 h-4" /> Subir el acuerdo económico
+                    <input 
+                      type="file" 
+                      className="hidden" 
+                      onChange={(e) => setAcuerdoEconomicoFile(e.target.files[0])}
+                    />
+                  </label>
                 </div>
               </div>
             </div>
