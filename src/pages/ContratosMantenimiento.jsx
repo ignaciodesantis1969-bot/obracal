@@ -52,7 +52,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [ajustesAplicados, setAjustesAplicados] = useState([]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
-  // Sincronizar y parsear registros polinómicos desde la descripción del contrato para garantizar persistencia sin modificar base de datos
+  // CORREGIDO: Se usa [contratoDetalle?.id] para evitar que se reseteen los cambios al refrescar
   useEffect(() => {
     if (contratoDetalle) {
       const desc = contratoDetalle.descripcion || '';
@@ -72,7 +72,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         setAjustesAplicados([]);
       }
     }
-  }, [contratoDetalle]);
+  }, [contratoDetalle?.id]);
 
   const guardarCambiosPolinomicaEnServidor = async (nuevosRegistros, nuevosAjustes) => {
     if (!contratoDetalle) return;
