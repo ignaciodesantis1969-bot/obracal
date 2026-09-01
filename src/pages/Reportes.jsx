@@ -15,7 +15,7 @@ export default function Reportes(props) {
 
   const [contratosList, setContratosList] = useState([]);
 
-  // Carga ultra-robusta de contratos adaptada a cualquier formato que devuelva Google Apps Script
+  // Carga ultra-robusta con logs de diagnóstico para asegurar la lectura de contratos
   useEffect(() => {
     const propsContratos = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento || [];
     if (Array.isArray(propsContratos) && propsContratos.length > 0) {
@@ -24,17 +24,20 @@ export default function Reportes(props) {
       fetch(`${GOOGLE_SCRIPT_URL}?tabla=ContratosMantenimiento`)
         .then(res => res.json())
         .then(data => {
+          console.log("Respuesta GET Contratos:", data);
           let lista = [];
           if (Array.isArray(data)) lista = data;
           else if (data && Array.isArray(data.data)) lista = data.data;
           else if (data && Array.isArray(data.ContratosMantenimiento)) lista = data.ContratosMantenimiento;
+          else if (data && Array.isArray(data.contratos)) lista = data.contratos;
           else if (data && typeof data === 'object') {
             const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
             if (foundKey) lista = data[foundKey];
           }
           setContratosList(lista);
         })
-        .catch(() => {
+        .catch(err => {
+          console.warn("Fallo GET, intentando POST para ContratosMantenimiento:", err);
           fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -42,17 +45,19 @@ export default function Reportes(props) {
           })
             .then(res => res.json())
             .then(data => {
+              console.log("Respuesta POST Contratos:", data);
               let lista = [];
               if (Array.isArray(data)) lista = data;
               else if (data && Array.isArray(data.data)) lista = data.data;
               else if (data && Array.isArray(data.ContratosMantenimiento)) lista = data.ContratosMantenimiento;
+              else if (data && Array.isArray(data.contratos)) lista = data.contratos;
               else if (data && typeof data === 'object') {
                 const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
                 if (foundKey) lista = data[foundKey];
               }
               setContratosList(lista);
             })
-            .catch(e => console.error("Error al obtener contratos:", e));
+            .catch(e => console.error("Error crítico al obtener contratos:", e));
         });
     }
   }, [props.contratos, props.Contratos, props.contratosMantenimiento]);
@@ -81,7 +86,7 @@ export default function Reportes(props) {
   // Sincronizar y cargar partes aprobados del contrato seleccionado desde el backend
   useEffect(() => {
     if (contratoSeleccionadoId) {
-      const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo) === String(contratoSeleccionadoId));
+      const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
       if (contrato && contrato.descripcion) {
         if (contrato.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
           try {
@@ -108,7 +113,7 @@ export default function Reportes(props) {
 
   const guardarPartesEnServidor = async (nuevosPartes) => {
     if (!contratoSeleccionadoId) return;
-    const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo) === String(contratoSeleccionadoId));
+    const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
     if (!contrato) return;
 
     try {
@@ -163,7 +168,7 @@ export default function Reportes(props) {
   };
 
   const obtenerClavesContratoActual = () => {
-    const contratoActivo = contratosList.find(c => String(c.id || c.ID || c.codigo) === String(contratoSeleccionadoId));
+    const contratoActivo = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
     if (contratoActivo && contratoActivo.descripcion) {
       if (contratoActivo.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
         try {
@@ -844,7 +849,7 @@ export default function Reportes(props) {
                 >
                   <option value="">-- Seleccionar Contrato ({contratosList.length} disponibles) --</option>
                   {contratosList.map((c, i) => {
-                    const cId = String(c.id || c.ID || c.codigo || i);
+                    const cId = String(c.id || c.ID || c.codigo || c.Codigo || i);
                     const cCod = c.codigo || c.Codigo || 'S/C';
                     const cNom = c.nombre_contrato || c.Nombre_contrato || c.cliente || c.Cliente || c.nombre || 'Contrato';
                     const cEst = c.estado || c.Estado || 'Activo';
