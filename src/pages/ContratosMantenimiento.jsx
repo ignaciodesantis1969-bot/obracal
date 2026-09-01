@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload } from 'lucide-react';
+import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload, Key } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
@@ -16,9 +16,11 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [contratoDetalle, setContratoDetalle] = useState(null);
   const [subTabDetalle, setSubTabDetalle] = useState('fee');
 
-  // Estados para los archivos subidos en la pestaña Descripción General
+  // Estados para archivos y Claves Alfanuméricas de Seguridad
   const [contratoGeneralFile, setContratoGeneralFile] = useState(null);
   const [acuerdoEconomicoFile, setAcuerdoEconomicoFile] = useState(null);
+  const [claveProveedor, setClaveProveedor] = useState('JP4829');
+  const [claveCliente, setClaveCliente] = useState('CG9012');
 
   const formatearMesBase = (val) => {
     if (!val) return '---';
@@ -59,7 +61,16 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   useEffect(() => {
     if (contratoDetalle) {
       const desc = contratoDetalle.descripcion || '';
-      if (desc.includes('---DATOS_POLINOMICA---')) {
+      if (desc.includes('---DATOS_SICE_INTEGRAL---')) {
+        try {
+          const partes = desc.split('---DATOS_SICE_INTEGRAL---');
+          const jsonData = JSON.parse(partes[1]);
+          if (jsonData.registros && Array.isArray(jsonData.registros)) setRegistrosMeses(jsonData.registros);
+          if (jsonData.ajustes && Array.isArray(jsonData.ajustes)) setAjustesAplicados(jsonData.ajustes);
+          if (jsonData.proveedorKey) setClaveProveedor(jsonData.proveedorKey);
+          if (jsonData.clienteKey) setClaveCliente(jsonData.clienteKey);
+        } catch (e) {}
+      } else if (desc.includes('---DATOS_POLINOMICA---')) {
         try {
           const partes = desc.split('---DATOS_POLINOMICA---');
           const jsonData = JSON.parse(partes[1]);
@@ -73,21 +84,69 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           { mes: 'Mes 3 - Septiembre 2026', uocra: 7049, ipc: 1.9, dolar: 1520 }
         ]);
         setAjustesAplicados([]);
+        setClaveProveedor('JP4829');
+        setClaveCliente('CG9012');
       }
       setContratoGeneralFile(null);
       setAcuerdoEconomicoFile(null);
     }
   }, [contratoDetalle?.id]);
 
+  const guardarClavesEnServidor = async (newProvKey, newCliKey) => {
+    if (!contratoDetalle) return;
+    try {
+      let descActual = contratoDetalle.descripcion || '';
+      if (descActual.includes('---DATOS_SICE_INTEGRAL---')) {
+        descActual = descActual.split('---DATOS_SICE_INTEGRAL---')[0].trim();
+      } else if (descActual.includes('---DATOS_POLINOMICA---')) {
+        descActual = descActual.split('---DATOS_POLINOMICA---')[0].trim();
+      }
+
+      const payloadDataJson = JSON.stringify({ 
+        registros: registrosMeses, 
+        ajustes: ajustesAplicados,
+        proveedorKey: newProvKey,
+        clienteKey: newCliKey
+      });
+      const nuevaDescripcionCompleta = `${descActual}\n---DATOS_SICE_INTEGRAL---${payloadDataJson}`;
+
+      const payload = {
+        tabla: 'ContratosMantenimiento',
+        action: 'update',
+        id: contratoDetalle.id,
+        data: {
+          ...contratoDetalle,
+          descripcion: nuevaDescripcionCompleta
+        }
+      };
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      await refrescarDatosLocales();
+    } catch (err) {
+      console.error("Error al guardar claves en servidor:", err);
+    }
+  };
+
   const guardarCambiosPolinomicaEnServidor = async (nuevosRegistros, nuevosAjustes) => {
     if (!contratoDetalle) return;
     try {
       let descActual = contratoDetalle.descripcion || '';
-      if (descActual.includes('---DATOS_POLINOMICA---')) {
+      if (descActual.includes('---DATOS_SICE_INTEGRAL---')) {
+        descActual = descActual.split('---DATOS_SICE_INTEGRAL---')[0].trim();
+      } else if (descActual.includes('---DATOS_POLINOMICA---')) {
         descActual = descActual.split('---DATOS_POLINOMICA---')[0].trim();
       }
-      const payloadDataJson = JSON.stringify({ registros: nuevosRegistros, ajustes: nuevosAjustes || ajustesAplicados });
-      const nuevaDescripcionCompleta = `${descActual}\n---DATOS_POLINOMICA---${payloadDataJson}`;
+
+      const payloadDataJson = JSON.stringify({ 
+        registros: nuevosRegistros, 
+        ajustes: nuevosAjustes || ajustesAplicados,
+        proveedorKey: claveProveedor,
+        clienteKey: claveCliente
+      });
+      const nuevaDescripcionCompleta = `${descActual}\n---DATOS_SICE_INTEGRAL---${payloadDataJson}`;
 
       const payload = {
         tabla: 'ContratosMantenimiento',
@@ -238,6 +297,12 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
   const abrirModalEditar = (c) => {
     setContratoEditando(c);
+    let descClean = c.descripcion || '';
+    if (descClean.includes('---DATOS_SICE_INTEGRAL---')) {
+      descClean = descClean.split('---DATOS_SICE_INTEGRAL---')[0].trim();
+    } else if (descClean.includes('---DATOS_POLINOMICA---')) {
+      descClean = descClean.split('---DATOS_POLINOMICA---')[0].trim();
+    }
     setFormData({
       codigo: c.codigo || generarNuevoCodigo(),
       nombre_contrato: c.nombre_contrato || '',
@@ -246,7 +311,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
       mes_base: c.mes_base || '',
       actualizacion: c.actualizacion || 'Polinómica',
       estado: c.estado || 'Borrador',
-      descripcion: c.descripcion ? c.descripcion.split('---DATOS_POLINOMICA---')[0].trim() : ''
+      descripcion: descClean
     });
     setModalAbierto(true);
   };
@@ -963,6 +1028,47 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               </div>
             </div>
 
+            {/* Configuración de Claves de Seguridad y Archivos */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
+              <h3 className="text-sm font-black text-slate-800 uppercase flex items-center gap-2">
+                <Key className="w-4 h-4 text-amber-500" /> Claves Alfanuméricas para Reportes Diarios (Firma Electrónica)
+              </h3>
+              <p className="text-xs text-slate-500">Defina las claves requeridas (2 letras y 4 números) para aprobar los partes diarios de este contrato.</p>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Clave Responsable Proveedor (Ej: JP4829)</label>
+                  <input 
+                    type="text" 
+                    maxLength={6}
+                    value={claveProveedor}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      setClaveProveedor(val);
+                      guardarClavesEnServidor(val, claveCliente);
+                    }}
+                    placeholder="JP4829"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-mono font-bold text-amber-700 uppercase focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Clave Responsable Cliente (Ej: CG9012)</label>
+                  <input 
+                    type="text" 
+                    maxLength={6}
+                    value={claveCliente}
+                    onChange={(e) => {
+                      const val = e.target.value.toUpperCase();
+                      setClaveCliente(val);
+                      guardarClavesEnServidor(claveProveedor, val);
+                    }}
+                    placeholder="CG9012"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm font-mono font-bold text-amber-700 uppercase focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Contenido Imprimible y Exportable */}
             <div id="documento-contrato-imprimible" className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6 max-w-4xl mx-auto text-slate-800">
               <div className="flex justify-between items-start border-b border-slate-200 pb-6">
@@ -998,7 +1104,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <div className="space-y-3">
                 <h4 className="text-xs font-black uppercase tracking-wider text-slate-500">Alcance y Descripción del Servicio</h4>
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 text-sm leading-relaxed text-slate-700 whitespace-pre-wrap">
-                  {contratoDetalle.descripcion ? contratoDetalle.descripcion.split('---DATOS_POLINOMICA---')[0].trim() || 'Sin descripción detallada registrada.' : 'Sin descripción detallada registrada.'}
+                  {contratoDetalle.descripcion ? contratoDetalle.descripcion.split('---DATOS_SICE_INTEGRAL---')[0].split('---DATOS_POLINOMICA---')[0].trim() || 'Sin descripción detallada registrada.' : 'Sin descripción detallada registrada.'}
                 </div>
               </div>
 

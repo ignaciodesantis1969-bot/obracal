@@ -1,5 +1,7 @@
-import React, { useState, useMemo } from 'react';
-import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2 } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText } from 'lucide-react';
+
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzvnfSYgSqwv9pwMH1GQ-WUAzTTsX2yC1My4ebEVjKaQMvrPU3FC6UBHunEiULNV8cJfQ/exec";
 
 export default function Reportes(props) {
   const obras = props.obras || props.Obras || [];
@@ -10,6 +12,7 @@ export default function Reportes(props) {
   const rubros = props.rubros || props.Rubros || [];
   const facturas = props.facturas || props.Facturas || [];
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
+  const contratos = props.contratos || props.Contratos || [];
 
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Certificaciones');
@@ -21,6 +24,7 @@ export default function Reportes(props) {
   const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(false);
 
   // 📝 Estados para Reportes Diarios (Formato Oficial SICE S.A.)
+  const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   const [siceParteNro, setSiceParteNro] = useState('00001');
   const [siceItems, setSiceItems] = useState([
@@ -29,6 +33,108 @@ export default function Reportes(props) {
   const [siceRespProveedor, setSiceRespProveedor] = useState({ cargo: '', nombre: '', clave: '' });
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
   const [sicePartesAprobados, setSicePartesAprobados] = useState([]);
+  const [parteVisualizando, setParteVisualizando] = useState(null);
+
+  // Sincronizar y cargar partes aprobados del contrato seleccionado desde el backend
+  useEffect(() => {
+    if (contratoSeleccionadoId) {
+      const contrato = contratos.find(c => String(c.id) === String(contratoSeleccionadoId));
+      if (contrato && contrato.descripcion) {
+        if (contrato.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
+          try {
+            const partes = contrato.descripcion.split('---DATOS_SICE_INTEGRAL---');
+            const json = JSON.parse(partes[1]);
+            if (json.partesAprobados && Array.isArray(json.partesAprobados)) {
+              setSicePartesAprobados(json.partesAprobados);
+            } else {
+              setSicePartesAprobados([]);
+            }
+          } catch (e) {
+            setSicePartesAprobados([]);
+          }
+        } else {
+          setSicePartesAprobados([]);
+        }
+      } else {
+        setSicePartesAprobados([]);
+      }
+    } else {
+      setSicePartesAprobados([]);
+    }
+  }, [contratoSeleccionadoId, contratos]);
+
+  const guardarPartesEnServidor = async (nuevosPartes) => {
+    if (!contratoSeleccionadoId) return;
+    const contrato = contratos.find(c => String(c.id) === String(contratoSeleccionadoId));
+    if (!contrato) return;
+
+    try {
+      let descActual = contrato.descripcion || '';
+      let registrosActuales = [];
+      let ajustesActuales = [];
+      let provKey = 'JP4829';
+      let cliKey = 'CG9012';
+
+      if (descActual.includes('---DATOS_SICE_INTEGRAL---')) {
+        const partes = descActual.split('---DATOS_SICE_INTEGRAL---');
+        descActual = partes[0].trim();
+        try {
+          const json = JSON.parse(partes[1]);
+          registrosActuales = json.registros || [];
+          ajustesActuales = json.ajustes || [];
+          if (json.proveedorKey) provKey = json.proveedorKey;
+          if (json.clienteKey) cliKey = json.clienteKey;
+        } catch (e) {}
+      } else if (descActual.includes('---DATOS_POLINOMICA---')) {
+        const partes = descActual.split('---DATOS_POLINOMICA---');
+        descActual = partes[0].trim();
+        try {
+          const json = JSON.parse(partes[1]);
+          registrosActuales = json.registros || [];
+          ajustesActuales = json.ajustes || [];
+        } catch (e) {}
+      }
+
+      const payloadData = {
+        registros: registrosActuales,
+        ajustes: ajustesActuales,
+        proveedorKey: provKey,
+        clienteKey: cliKey,
+        partesAprobados: nuevosPartes
+      };
+      const nuevaDesc = `${descActual}\n---DATOS_SICE_INTEGRAL---${JSON.stringify(payloadData)}`;
+
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'ContratosMantenimiento',
+          action: 'update',
+          id: contrato.id,
+          data: { ...contrato, descripcion: nuevaDesc }
+        })
+      });
+    } catch (err) {
+      console.error("Error al guardar partes aprobados en servidor:", err);
+    }
+  };
+
+  const obtenerClavesContratoActual = () => {
+    const contratoActivo = contratos.find(c => String(c.id) === String(contratoSeleccionadoId));
+    if (contratoActivo && contratoActivo.descripcion) {
+      if (contratoActivo.descripcion.includes('---DATOS_SICE_INTEGRAL---')) {
+        try {
+          const partesDesc = contratoActivo.descripcion.split('---DATOS_SICE_INTEGRAL---');
+          const keysJson = JSON.parse(partesDesc[1]);
+          return {
+            proveedorKey: keysJson.proveedorKey || 'JP4829',
+            clienteKey: keysJson.clienteKey || 'CG9012'
+          };
+        } catch (e) {}
+      }
+    }
+    return { proveedorKey: 'JP4829', clienteKey: 'CG9012' };
+  };
 
   const calcularTotalHorasSice = (inicio, fin) => {
     if (!inicio || !fin) return 0;
@@ -38,7 +144,6 @@ export default function Reportes(props) {
     if (diffMinutos < 0) diffMinutos += 24 * 60;
     const horasEfectivas = diffMinutos / 60;
     if (horasEfectivas <= 0) return 0;
-    // Factor de compensación: 9 hs efectivas suman 2 hs extra (proporcional 11/9)
     const horasConProporcional = horasEfectivas * (11 / 9);
     return Number(horasConProporcional.toFixed(2));
   };
@@ -62,32 +167,53 @@ export default function Reportes(props) {
 
   const aprobarYArchivarParteSice = (e) => {
     e.preventDefault();
+    if (!contratoSeleccionadoId) {
+      alert("Por favor seleccione un Contrato de Mantenimiento asociado para corroborar las claves y guardar el parte.");
+      return;
+    }
+
     const regexClave = /^[A-Za-z]{2}\d{4}$/;
     if (!regexClave.test(siceRespProveedor.clave)) {
-      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: AB1234).");
+      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: JP4829).");
       return;
     }
     if (!regexClave.test(siceRespCliente.clave)) {
-      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: AB1234).");
+      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: CG9012).");
+      return;
+    }
+
+    const { proveedorKey, clienteKey } = obtenerClavesContratoActual();
+    
+    // Corroborar contraseñas configuradas en contratos de mantenimiento
+    if (siceRespProveedor.clave.toUpperCase() !== proveedorKey.toUpperCase()) {
+      alert("La clave ingresada para el Responsable Proveedor no coincide con la registrada en la Descripción General del contrato.");
+      return;
+    }
+    if (siceRespCliente.clave.toUpperCase() !== clienteKey.toUpperCase()) {
+      alert("La clave ingresada para el Responsable Cliente no coincide con la registrada en la Descripción General del contrato.");
       return;
     }
 
     const nuevoParte = {
       nro: siceParteNro,
       fecha: siceFecha,
+      contratoId: contratoSeleccionadoId,
       items: [...siceItems],
       proveedor: { ...siceRespProveedor },
       cliente: { ...siceRespCliente },
       totalHorasSuma: siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0)
     };
 
-    setSicePartesAprobados([nuevoParte, ...sicePartesAprobados]);
+    const actualizados = [nuevoParte, ...sicePartesAprobados];
+    setSicePartesAprobados(actualizados);
+    guardarPartesEnServidor(actualizados);
+
     const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
     setSiceParteNro(siguienteNro);
     setSiceItems([{ id: 1, ordenMantenimiento: '', descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
     setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
     setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
-    alert("¡Parte Diario aprobado, firmado electrónicamente y archivado para el certificado mensual!");
+    alert("¡Parte Diario aprobado, firmado, archivado en PDF y guardado exitosamente en el servidor!");
   };
 
   const presupuestosFiltrados = obraFiltro === 'todas' 
@@ -614,7 +740,7 @@ export default function Reportes(props) {
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 print:hidden">
         <div>
-          <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes</h1>
+          <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes (Certificacion - Reportes - Listado de Insumos - Comparativas)</h1>
           <p className="text-slate-500 text-sm mt-1">Dashboard, certificaciones y análisis financiero</p>
         </div>
         <div className="w-full md:w-64">
@@ -681,27 +807,38 @@ export default function Reportes(props) {
       {activeTab === 'Reportes Diarios' && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-            <div className="flex justify-between items-center pb-4 border-b border-slate-200 print:hidden">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
               <div>
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-amber-500" /> Parte Diario de Actividades (SICE S.A.)
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">Complete los ítems de mantenimiento y firme con clave alfanumérica para archivar.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Asocie un contrato, complete los ítems y corrobore las claves para aprobar y archivar.</p>
               </div>
-              <button 
-                onClick={() => window.print()}
-                className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm cursor-pointer"
-              >
-                <Printer className="w-4 h-4" /> Imprimir / PDF
-              </button>
+              <div className="flex items-center gap-2 w-full sm:w-auto">
+                <select
+                  value={contratoSeleccionadoId}
+                  onChange={(e) => setContratoSeleccionadoId(e.target.value)}
+                  className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="">-- Seleccionar Contrato / Claves --</option>
+                  {contratos.map(c => (
+                    <option key={c.id} value={c.id}>[{c.codigo}] {c.nombre_contrato || c.cliente}</option>
+                  ))}
+                </select>
+                <button 
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm cursor-pointer whitespace-nowrap"
+                >
+                  <Printer className="w-4 h-4" /> Imprimir / PDF
+                </button>
+              </div>
             </div>
 
             {/* DOCUMENTO OFICIAL SICE S.A. */}
             <div className="bg-white p-6 rounded-2xl border border-slate-400 space-y-6 text-slate-900">
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 bg-amber-500 rounded-lg flex items-center justify-center font-black text-white text-lg">S</div>
-                  <span className="text-xl font-black tracking-wider text-slate-900">SICE <span className="text-amber-600 font-normal">S.A.</span></span>
+                  <img src="/logo-07.png" alt="SICE S.A." className="h-10 object-contain" />
                 </div>
                 <h2 className="text-xl font-black text-slate-900 tracking-wide">PARTE DIARIO DE ACTIVIDADES</h2>
               </div>
@@ -859,7 +996,7 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave Alfanumérica 2 letras + 4 números, Ej: AB1234):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: JP4829):</label>
                         <input 
                           type="text" 
                           required
@@ -899,7 +1036,7 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave Alfanumérica 2 letras + 4 números, Ej: AB1234):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave configurada en Contrato, Ej: CG9012):</label>
                         <input 
                           type="text" 
                           required
@@ -915,24 +1052,24 @@ export default function Reportes(props) {
                 </div>
 
                 <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
-                  <p className="text-xs text-slate-500">Ingrese las claves alfanuméricas de ambos intervinientes para aprobar y archivar el parte.</p>
+                  <p className="text-xs text-slate-500">Se corroborarán las claves con la sección "Descripción General" del contrato seleccionado.</p>
                   <button 
                     type="submit"
                     className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
                   >
-                    <ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Archivar Parte
+                    <ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Archivar PDF
                   </button>
                 </div>
               </form>
             </div>
           </div>
 
-          {/* HISTORIAL DE PARTES DIARIOS APROBADOS Y ARCHIVADOS */}
+          {/* HISTORIAL DE PARTES DIARIOS APROBADOS Y ARCHIVADOS EN PDF */}
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
-            <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados y Archivados</h3>
+            <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados (Almacenados como PDF)</h3>
             {sicePartesAprobados.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-                No hay partes diarios aprobados ni archivados en esta sesión.
+                No hay partes diarios aprobados ni archivados en este contrato. Seleccione el contrato correcto arriba.
               </div>
             ) : (
               <div className="space-y-3">
@@ -942,20 +1079,94 @@ export default function Reportes(props) {
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte.nro}</span>
                         <span className="text-xs font-medium text-slate-500">Fecha: {parte.fecha}</span>
-                        <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas Acumuladas: {parte.totalHorasSuma} hs</span>
+                        <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte.totalHorasSuma} hs</span>
                       </div>
                       <p className="text-slate-700 text-xs mt-2">
-                        Proveedor: <strong>{parte.proveedor.nombre}</strong> ({parte.proveedor.cargo}) | Cliente: <strong>{parte.cliente.nombre}</strong> ({parte.cliente.cargo})
+                        Proveedor: <strong>{parte.proveedor.nombre}</strong> | Cliente: <strong>{parte.cliente.nombre}</strong>
                       </p>
                     </div>
-                    <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg border border-emerald-200">
-                      Archivado para Certificado
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => setParteVisualizando(parte)}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                      >
+                        <Eye className="w-4 h-4" /> Visualizar PDF
+                      </button>
+                      <span className="text-xs font-bold text-emerald-600 bg-emerald-50 px-3 py-1.5 rounded-xl border border-emerald-200">
+                        PDF Archivado
+                      </span>
+                    </div>
                   </div>
                 ))}
               </div>
             )}
           </div>
+
+          {/* MODAL PARA VISUALIZAR EL PARTE EN FORMATO PDF OFICIAL */}
+          {parteVisualizando && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+              <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden border border-slate-300 max-h-[90vh] flex flex-col">
+                <div className="flex justify-between items-center px-6 py-4 border-b border-slate-200 bg-slate-50">
+                  <h3 className="font-bold text-slate-900 text-sm">Visualizador de Parte Diario (PDF Archivado) - Nro: {parteVisualizando.nro}</h3>
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={() => window.print()}
+                      className="px-3 py-1.5 bg-slate-900 text-white font-bold rounded-lg text-xs flex items-center gap-1 cursor-pointer"
+                    >
+                      <Printer className="w-3.5 h-3.5" /> Imprimir
+                    </button>
+                    <button onClick={() => setParteVisualizando(null)} className="text-slate-400 hover:text-slate-600 font-bold text-lg px-2 cursor-pointer">×</button>
+                  </div>
+                </div>
+                <div className="p-6 overflow-y-auto space-y-6 text-slate-900 text-xs">
+                  <div className="flex justify-between items-center border-b-2 border-slate-800 pb-4">
+                    <img src="/logo-07.png" alt="SICE S.A." className="h-10 object-contain" />
+                    <h2 className="text-lg font-black text-slate-900">PARTE DIARIO DE ACTIVIDADES</h2>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
+                    <div><strong>Fecha:</strong> {parteVisualizando.fecha}</div>
+                    <div><strong>Parte Nro:</strong> {parteVisualizando.nro}</div>
+                    <div><strong>C.U.I.T. Nro.:</strong> 30-71573431-8</div>
+                    <div><strong>Cliente:</strong> LDC Argentina S.A.</div>
+                  </div>
+                  <table className="w-full text-left border-collapse border border-slate-300">
+                    <thead>
+                      <tr className="bg-slate-800 text-white font-bold text-[10px]">
+                        <th className="p-2 border">Item</th>
+                        <th className="p-2 border">Orden Mantenimiento</th>
+                        <th className="p-2 border">Descripción</th>
+                        <th className="p-2 border text-center">Horario</th>
+                        <th className="p-2 border text-center">Total Horas</th>
+                        <th className="p-2 border text-center">Terminó</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {parteVisualizando.items.map((it, i) => (
+                        <tr key={i} className="border-b">
+                          <td className="p-2 border text-center">{it.id}</td>
+                          <td className="p-2 border">{it.ordenMantenimiento || '---'}</td>
+                          <td className="p-2 border">{it.descripcion || '---'}</td>
+                          <td className="p-2 border text-center">{it.horaComienzo} a {it.horaFin}</td>
+                          <td className="p-2 border text-center font-bold text-amber-900">{calcularTotalHorasSice(it.horaComienzo, it.horaFin)} hs</td>
+                          <td className="p-2 border text-center font-bold">{it.terminoTarea}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+                    <div className="p-3 bg-slate-50 rounded-xl border">
+                      <p className="font-bold text-slate-700">Responsable Proveedor: {parteVisualizando.proveedor.nombre} ({parteVisualizando.proveedor.cargo})</p>
+                      <p className="text-[11px] text-emerald-700 font-mono mt-1">✓ Firma Electrónica Verificada (Clave OK)</p>
+                    </div>
+                    <div className="p-3 bg-slate-50 rounded-xl border">
+                      <p className="font-bold text-slate-700">Responsable Cliente: {parteVisualizando.cliente.nombre} ({parteVisualizando.cliente.cargo})</p>
+                      <p className="text-[11px] text-emerald-700 font-mono mt-1">✓ Firma Electrónica Verificada (Clave OK)</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
