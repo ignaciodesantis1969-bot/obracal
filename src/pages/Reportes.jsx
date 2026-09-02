@@ -60,6 +60,7 @@ export default function Reportes(props) {
       })
       .catch(() => {});
 
+    // CARGA ESTRICTA Y SEGURA DE REPORTES SICE DESDE GOOGLE SHEETS
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -67,29 +68,27 @@ export default function Reportes(props) {
     })
       .then(res => res.json())
       .then(data => {
-        let lista = [];
+        let listaCruda = [];
         if (Array.isArray(data)) {
-          lista = data;
+          listaCruda = data;
         } else if (data && typeof data === 'object') {
-          if (Array.isArray(data.data)) lista = data.data;
-          else if (Array.isArray(data.records)) lista = data.records;
-          else if (Array.isArray(data.items)) lista = data.items;
-          else if (Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
-          else if (Array.isArray(data.reportesSice)) lista = data.reportesSice;
-          else {
-            const foundArrayKey = Object.keys(data).find(k => Array.isArray(data[k]));
-            if (foundArrayKey) {
-              lista = data[foundArrayKey];
-            } else {
-              const values = Object.values(data);
-              if (values.length > 0) {
-                lista = values.filter(v => v && typeof v === 'object' && !Array.isArray(v));
-              }
-            }
+          const possibleArray = data.ReportesSice || data.reportesSice || data.data || data.records || data.items;
+          if (Array.isArray(possibleArray)) {
+            listaCruda = possibleArray;
           }
         }
-        if (lista.length > 0) {
-          setFetchedReportesSice(lista);
+
+        // Filtro estricto: solo objetos que tengan propiedades clave de un parte SICE real
+        const reportesValidos = listaCruda.filter(item => {
+          if (!item || typeof item !== 'object') return false;
+          const tieneNro = item.nro !== undefined && item.nro !== null && String(item.nro).trim() !== '';
+          const tieneFecha = item.fecha !== undefined && item.fecha !== null && String(item.fecha).trim() !== '';
+          const tieneId = item.id !== undefined && item.id !== null && String(item.id).trim() !== '';
+          return tieneNro || tieneFecha || tieneId;
+        });
+
+        if (reportesValidos.length > 0) {
+          setFetchedReportesSice(reportesValidos);
         }
       })
       .catch((err) => console.error("Error al obtener ReportesSice:", err));
