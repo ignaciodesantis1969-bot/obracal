@@ -46,6 +46,7 @@ export default function Reportes(props) {
   const [fetchedContratos, setFetchedContratos] = useState([]);
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
   const [fetchedEmpleados, setFetchedEmpleados] = useState([]);
+  const [fetchedCertificados, setFetchedCertificados] = useState([]);
 
   useEffect(() => {
     if (!propsContratos || propsContratos.length === 0) {
@@ -92,6 +93,23 @@ export default function Reportes(props) {
         })
         .catch((err) => console.error("Error al obtener ReportesSice:", err));
     }
+
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'Certificaciones', action: 'get' })
+    })
+      .then(res => res.json())
+      .then(data => {
+        let lista = [];
+        if (Array.isArray(data)) lista = data;
+        else if (data && typeof data === 'object') {
+          const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+          if (foundKey) lista = data[foundKey];
+        }
+        if (lista.length > 0) setFetchedCertificados(lista);
+      })
+      .catch(() => {});
 
     if (!propsEmpleados || propsEmpleados.length === 0) {
       fetch(GOOGLE_SCRIPT_URL, {
@@ -161,13 +179,17 @@ export default function Reportes(props) {
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
 
   const [avanceActualMap, setAvanceActualMap] = useState({});
-  const [desacopioMonto, setDesacopioMonto] = useState(0);
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
+  
+  const [certificadoNro, setCertificadoNro] = useState('0');
+  const [adelantoPct, setAdelantoPct] = useState(10);
+  const [adelantoMonto, setAdelantoMonto] = useState(0);
+  const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
-  const [certificadoNro, setCertificadoNro] = useState('0');
-  const [adelantoPct, setAdelantoPct] = useState(20);
-  const [adelantoMonto, setAdelantoMonto] = useState(0);
+  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: '', cargo: 'Jefe de Obra' });
+  const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: 'Gerente de Proyecto' });
+  const [isSavingCert, setIsSavingCert] = useState(false);
 
   useEffect(() => {
     if (esOperador) {
@@ -1006,12 +1028,12 @@ export default function Reportes(props) {
         const totalItem = cant * pUnit;
         totalRubro += totalItem;
 
-        const pctAnterior = 50; // 50%
+        const pctAnterior = 50;
         const impAnterior = totalItem * (pctAnterior / 100);
         rubroAnterior += impAnterior;
 
         const keyMap = `${rIdx}-${tIdx}`;
-        const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : 30; // 30% por defecto
+        const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : 30;
         const impActual = totalItem * (pctActual / 100);
         rubroActual += impActual;
 
@@ -1054,6 +1076,76 @@ export default function Reportes(props) {
 
     return { filasRender, sumaTotalPresupuesto, sumaTotalAnterior, sumaTotalActual, sumaTotalAcumulado, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap]);
+
+  const aprobarYGuardarCertificado = async (e) => {
+    e.preventDefault();
+    if (!certificadoPresupuestoObj) {
+      alert("Seleccione un presupuesto aprobado.");
+      return;
+    }
+    if (!certRespProveedor.nombre.trim() || !certRespCliente.nombre.trim()) {
+      alert("Por favor complete los nombres de los responsables.");
+      return;
+    }
+
+    setIsSavingCert(true);
+    try {
+      const totalPresupuestoBase = certificadoCalculos.totalPresupuestoCalc || 1;
+      const totalCertificadoPeriodo = certificadoNro === '0' ? 0 : certificadoCalculos.totalActualCalc;
+      let montoAdelantoCalculado = adelantoMonto;
+      if (certificadoNro === '0') {
+        montoAdelantoCalculado = totalPresupuestoBase * (adelantoPct / 100);
+      }
+      const descuentoAdelantoCert = certificadoNro !== '0' ? totalCertificadoPeriodo * (adelantoPct / 100) : 0;
+      const netoACertificar = totalCertificadoPeriodo - (certificadoNro === '0' ? 0 : descuentoAdelantoCert) + Number(adicionalesMonto);
+      
+      let montoRedetCalculado = redeterminacionMonto;
+      if (redeterminacionPct > 0) {
+        montoRedetCalculado = netoACertificar * (redeterminacionPct / 100);
+      }
+      const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
+
+      const payloadCert = {
+        action: 'guardarYGenerarPDF',
+        tabla: 'Certificaciones',
+        presupuestoId: certPresupuestoId,
+        certificadoNro: certificadoNro,
+        fecha: new Date().toISOString().slice(0, 10),
+        cliente: certificadoPresupuestoObj.cliente || '',
+        obra: certificadoPresupuestoObj.nombre || certificadoPresupuestoObj.nombre_obra || '',
+        ordenCompra: certificadoPresupuestoObj.orden_compra || certificadoPresupuestoObj.ordenCompra || certificadoPresupuestoObj.oc || '',
+        totalPeriodo: totalCertificadoPeriodo,
+        adelantoDescuento: descuentoAdelantoCert,
+        adicionales: Number(adicionalesMonto) || 0,
+        redeterminacion: montoRedetCalculado,
+        totalGeneral: totalFinalLiquidacion,
+        proveedor: { nombre: certRespProveedor.nombre, cargo: certRespProveedor.cargo },
+        clienteResp: { nombre: certRespCliente.nombre, cargo: certRespCliente.cargo }
+      };
+
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payloadCert)
+      });
+      const resultado = await res.json();
+
+      const pdfUrlFinal = resultado.pdfUrl || resultado.pdf_url || resultado.url || resultado.link || '';
+      if (resultado.success === false || (resultado.error && !pdfUrlFinal)) {
+        alert("Error al generar el certificado en Google Drive: " + (resultado.error || 'Desconocido'));
+        setIsSavingCert(false);
+        return;
+      }
+
+      setFetchedCertificados(prev => [{ ...payloadCert, id: `cert-${Date.now()}`, pdfUrl: pdfUrlFinal }, ...prev]);
+      alert("¡Certificado aprobado, PDF generado en Google Drive y guardado con éxito!");
+    } catch (err) {
+      console.error("Error al guardar certificado:", err);
+      alert("Ocurrió un error al guardar el certificado.");
+    } finally {
+      setIsSavingCert(false);
+    }
+  };
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -1187,19 +1279,19 @@ export default function Reportes(props) {
                       <p className="font-extrabold text-blue-900 text-xs">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
                     </div>
                     <div className="text-right">
-                      <h2 className="text-xl font-black text-blue-600 tracking-wide uppercase">
-                        CERTIFICADO Nro. {certificadoNro}
+                      <h2 className="text-2xl font-black text-slate-900 tracking-wide uppercase">
+                        CERTIFICADO POR AVANCE DE OBRA
                       </h2>
-                      {certificadoNro === '0' && (
-                        <p className="text-xs font-bold text-amber-700 mt-0.5">Adelanto Financiero</p>
-                      )}
+                      <p className={`text-sm font-bold mt-1 ${certificadoNro === '0' ? 'text-blue-600' : 'text-slate-700'}`}>
+                        Certificado Nro.: {certificadoNro} {certificadoNro === '0' ? '(Adelanto Financiero)' : ''}
+                      </p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
                     <div className="col-span-2">
                       <span className="text-slate-500 font-semibold block">Cliente:</span>
-                      <strong className="text-slate-900">{certificadoPresupuestoObj.cliente || 'Familia Baca Castex'}</strong>
+                      <strong className="text-slate-900">{certificadoPresupuestoObj.cliente || '---'}</strong>
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Presupuesto Nro:</span>
@@ -1215,7 +1307,7 @@ export default function Reportes(props) {
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Orden de Compra:</span>
-                      <strong className="text-slate-900">{certificadoPresupuestoObj.orden_compra || certificadoPresupuestoObj.ordenCompra || certificadoPresupuestoObj.oc || '00004'}</strong>
+                      <strong className="text-slate-900">{certificadoPresupuestoObj.orden_compra || certificadoPresupuestoObj.ordenCompra || certificadoPresupuestoObj.oc || '---'}</strong>
                     </div>
                   </div>
 
@@ -1223,22 +1315,22 @@ export default function Reportes(props) {
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
                         <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
-                          <th className="py-2.5 px-2 border-r border-slate-700 w-12 text-center" rowSpan="2">Ítem</th>
+                          <th className="py-2.5 px-2 border-r border-slate-700 w-10 text-center" rowSpan="2">Ítem</th>
                           <th className="py-2.5 px-3 border-r border-slate-700" rowSpan="2">Descripción del Rubro / Tarea</th>
-                          <th className="py-2.5 px-2 border-r border-slate-700 text-center w-14" rowSpan="2">Und</th>
-                          <th className="py-2.5 px-1 border-r border-slate-700 text-right w-12" rowSpan="2">Cant.</th>
-                          <th className="py-2.5 px-2 border-r border-slate-700 text-right w-24" rowSpan="2">Total Cotizado</th>
-                          <th className="py-2.5 px-2 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ANTERIOR</th>
-                          <th className="py-2.5 px-2 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ACTUAL (PERÍODO)</th>
-                          <th className="py-2.5 px-2 text-center bg-slate-700" colSpan="2">ACUMULADO</th>
+                          <th className="py-2.5 px-1 border-r border-slate-700 text-center w-10" rowSpan="2">Und</th>
+                          <th className="py-2.5 px-1 border-r border-slate-700 text-right w-10" rowSpan="2">Cant.</th>
+                          <th className="py-2.5 px-2 border-r border-slate-700 text-right w-20" rowSpan="2">Total Cotizado</th>
+                          <th className="py-2.5 px-1 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ANTERIOR</th>
+                          <th className="py-2.5 px-1 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ACTUAL (PERÍODO)</th>
+                          <th className="py-2.5 px-1 text-center bg-slate-700" colSpan="2">ACUMULADO</th>
                         </tr>
                         <tr className="bg-slate-700 text-white font-bold text-[9px]">
-                          <th className="py-1 px-1 text-center w-12 border-r border-slate-600">%</th>
-                          <th className="py-1 px-2 text-right w-24 border-r border-slate-600">Importe ($)</th>
-                          <th className="py-1 px-1 text-center w-12 border-r border-slate-600">%</th>
-                          <th className="py-1 px-2 text-right w-24 border-r border-slate-600">Importe ($)</th>
-                          <th className="py-1 px-1 text-center w-12 border-r border-slate-600">%</th>
-                          <th className="py-1 px-2 text-right w-24">Importe ($)</th>
+                          <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
+                          <th className="py-1 px-2 text-right w-20 border-r border-slate-600">Importe ($)</th>
+                          <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
+                          <th className="py-1 px-2 text-right w-20 border-r border-slate-600">Importe ($)</th>
+                          <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
+                          <th className="py-1 px-2 text-right w-20">Importe ($)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-300">
@@ -1247,23 +1339,23 @@ export default function Reportes(props) {
                             <tr className="bg-slate-100 font-extrabold text-slate-900 border-t border-slate-300">
                               <td className="py-2 px-2 text-center border-r border-slate-300">{rubroObj.rIdx + 1}</td>
                               <td className="py-2 px-3 uppercase border-r border-slate-300" colSpan="3">{rubroObj.nombre}</td>
-                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.totalRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.totalRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.rubroActual.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.rubroActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                              <td className="py-2 px-2 text-right">$ {(rubroObj.rubroAnterior + rubroObj.rubroActual).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="py-2 px-2 text-right">$ {(rubroObj.rubroAnterior + rubroObj.rubroActual).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                             </tr>
                             {rubroObj.tareasFilas.map((t) => (
                               <tr key={t.tIdx} className="hover:bg-amber-50/40 text-xs">
                                 <td className="py-2 px-2 text-center font-bold text-slate-700 border-r border-slate-300">{t.rIdx + 1}.{t.tIdx + 1}</td>
                                 <td className="py-2 px-3 text-slate-800 border-r border-slate-300 font-medium">{t.tarea}</td>
-                                <td className="py-2 px-2 text-center text-slate-500 border-r border-slate-300">{t.unidad}</td>
+                                <td className="py-2 px-1 text-center text-slate-500 border-r border-slate-300">{t.unidad}</td>
                                 <td className="py-2 px-1 text-right border-r border-slate-300">{t.cant}</td>
-                                <td className="py-2 px-2 text-right font-bold text-slate-900 border-r border-slate-300">$ {t.totalItem.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="py-2 px-2 text-right font-bold text-slate-900 border-r border-slate-300">$ {t.totalItem.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                 <td className="py-2 px-1 text-center border-r border-slate-300 text-slate-600">{t.pctAnterior}%</td>
-                                <td className="py-2 px-2 text-right border-r border-slate-300 text-slate-600">$ {t.impAnterior.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="py-2 px-2 text-right border-r border-slate-300 text-slate-600">$ {t.impAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                 <td className="py-2 px-1 text-center border-r border-slate-300 bg-amber-50/50">
                                   <input
                                     type="number"
@@ -1275,12 +1367,12 @@ export default function Reportes(props) {
                                       const val = parseFloat(e.target.value) || 0;
                                       setAvanceActualMap({ ...avanceActualMap, [t.keyMap]: val });
                                     }}
-                                    className="w-12 bg-white border border-slate-300 rounded px-1 py-0.5 text-center font-bold text-xs outline-none focus:border-amber-500"
+                                    className="w-10 bg-white border border-slate-300 rounded px-1 py-0.5 text-center font-bold text-xs outline-none focus:border-amber-500"
                                   />
                                 </td>
-                                <td className="py-2 px-2 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50">$ {t.impActual.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="py-2 px-2 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50">$ {t.impActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                 <td className="py-2 px-1 text-center border-r border-slate-300 font-bold text-slate-700">{t.pctAcumulado}%</td>
-                                <td className="py-2 px-2 text-right font-bold text-slate-950">$ {t.impAcumulado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="py-2 px-2 text-right font-bold text-slate-950">$ {t.impAcumulado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               </tr>
                             ))}
                           </React.Fragment>
@@ -1302,15 +1394,21 @@ export default function Reportes(props) {
                       }
 
                       const descuentoAdelantoCert = certificadoNro !== '0' ? totalCertificadoPeriodo * (adelantoPct / 100) : 0;
-                      const netoACertificar = totalCertificadoPeriodo - (certificadoNro === '0' ? 0 : descuentoAdelantoCert) - Number(desacopioMonto) + Number(adicionalesMonto);
-                      const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + Number(redeterminacionMonto));
+                      const netoACertificar = totalCertificadoPeriodo - (certificadoNro === '0' ? 0 : descuentoAdelantoCert) + Number(adicionalesMonto);
+                      
+                      let montoRedetCalculado = redeterminacionMonto;
+                      if (redeterminacionPct > 0) {
+                        montoRedetCalculado = netoACertificar * (redeterminacionPct / 100);
+                      }
+
+                      const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
 
                       return (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
                           <div className="space-y-3">
                             <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                               <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
-                              <span className="font-black text-slate-900 text-sm">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                              <span className="font-black text-slate-900 text-sm">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                             </div>
 
                             {certificadoNro === '0' ? (
@@ -1346,30 +1444,17 @@ export default function Reportes(props) {
                                     />
                                   </div>
                                 </div>
-                              </div>
-                            ) : (
-                              <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
-                                <span className="font-bold text-slate-700 block">Descuento por Adelanto Financiero ({adelantoPct}%):</span>
-                                <div className="text-right font-black text-rose-700 text-sm">
-                                  - $ {descuentoAdelantoCert.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                                <div className="text-right font-black text-amber-900 pt-1">
+                                  Monto Adelanto: $ {montoAdelantoCalculado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                                 </div>
                               </div>
-                            )}
-
-                            {certificadoNro !== '0' && (
+                            ) : (
                               <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
-                                <span className="font-bold text-slate-700">Descuento por Desacopio:</span>
-                                <input
-                                  type="number"
-                                  value={desacopioMonto}
-                                  onChange={(e) => setDesacopioMonto(e.target.value)}
-                                  className="w-32 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-rose-700 outline-none focus:border-amber-500"
-                                />
+                                <span className="font-bold text-slate-700">Descuento por Adelanto Financiero ({adelantoPct}%):</span>
+                                <span className="font-black text-rose-700">- $ {descuentoAdelantoCert.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                               </div>
                             )}
-                          </div>
 
-                          <div className="space-y-3">
                             <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                               <span className="font-bold text-slate-700">Adicionales Aprobados:</span>
                               <input
@@ -1379,20 +1464,57 @@ export default function Reportes(props) {
                                 className="w-32 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-emerald-700 outline-none focus:border-amber-500"
                               />
                             </div>
-                            {certificadoNro !== '0' && (
-                              <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
-                                <span className="font-bold text-slate-700">Redeterminación de Precio:</span>
-                                <input
-                                  type="number"
-                                  value={redeterminacionMonto}
-                                  onChange={(e) => setRedeterminacionMonto(e.target.value)}
-                                  className="w-32 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500"
-                                />
+
+                            <div className="flex justify-between items-center bg-slate-900 text-white p-3.5 rounded-xl shadow">
+                              <span className="font-extrabold text-xs uppercase">TOTAL NETO A CERTIFICAR:</span>
+                              <span className="font-black text-base text-amber-400">$ {netoACertificar.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            {certificadoNro !== '0' ? (
+                              <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
+                                <span className="font-bold text-slate-700 block">Redeterminación de Precio:</span>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
+                                    <input
+                                      type="number"
+                                      step="1"
+                                      value={redeterminacionPct}
+                                      onChange={(e) => {
+                                        const pct = parseFloat(e.target.value) || 0;
+                                        setRedeterminacionPct(pct);
+                                        setRedeterminacionMonto(netoACertificar * (pct / 100));
+                                      }}
+                                      className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
+                                    <input
+                                      type="number"
+                                      step="100"
+                                      value={redeterminacionMonto || montoRedetCalculado}
+                                      onChange={(e) => {
+                                        const monto = parseFloat(e.target.value) || 0;
+                                        setRedeterminacionMonto(monto);
+                                        setRedeterminacionPct((monto / (netoACertificar || 1)) * 100);
+                                      }}
+                                      className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="bg-white p-3 rounded-xl border border-slate-300 text-slate-400 italic text-center py-4">
+                                Redeterminación no aplicable en Adelanto Financiero.
                               </div>
                             )}
-                            <div className="flex justify-between items-center bg-slate-900 text-white p-3.5 rounded-xl shadow">
+
+                            <div className="flex justify-between items-center bg-slate-950 text-white p-4 rounded-xl shadow-md mt-6">
                               <span className="font-extrabold text-xs uppercase">TOTAL GENERAL A CERTIFICAR:</span>
-                              <span className="font-black text-base text-amber-400">$ {totalFinalLiquidacion.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                              <span className="font-black text-lg text-amber-400">$ {totalFinalLiquidacion.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                             </div>
                           </div>
                         </div>
@@ -1400,25 +1522,74 @@ export default function Reportes(props) {
                     })()}
                   </div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 text-xs">
-                    <div className="border border-slate-400 rounded-xl p-4 space-y-4 bg-white">
-                      <p className="font-black text-slate-900 uppercase">Por SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
-                      <div className="space-y-2 pt-2">
-                        <div><span className="text-slate-500 font-semibold">Firma:</span> <div className="border-b border-dashed border-slate-400 h-8"></div></div>
-                        <div><span className="text-slate-500 font-semibold">Aclaración:</span> <div className="border-b border-dashed border-slate-400 h-6"></div></div>
-                        <div><span className="text-slate-500 font-semibold">Fecha:</span> <div className="border-b border-dashed border-slate-400 h-6"></div></div>
+                  <form onSubmit={aprobarYGuardarCertificado} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50 p-4 space-y-4 print:hidden">
+                    <h4 className="font-black text-xs text-slate-900 uppercase">Aprobación y Firma del Certificado</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                      <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-300">
+                        <p className="font-bold text-slate-800 uppercase">Responsable Proveedor</p>
+                        <div>
+                          <label className="block font-semibold text-slate-600 mb-0.5">Nombre y Apellido:</label>
+                          <input 
+                            type="text" 
+                            required
+                            value={certRespProveedor.nombre}
+                            onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})}
+                            placeholder="Ej: Alexander Torres Lopez"
+                            className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-semibold text-slate-600 mb-0.5">Cargo:</label>
+                          <input 
+                            type="text" 
+                            required
+                            value={certRespProveedor.cargo}
+                            onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})}
+                            className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-300">
+                        <p className="font-bold text-slate-800 uppercase">Responsable Cliente</p>
+                        <div>
+                          <label className="block font-semibold text-slate-600 mb-0.5">Nombre y Apellido:</label>
+                          <input 
+                            type="text" 
+                            required
+                            value={certRespCliente.nombre}
+                            onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})}
+                            placeholder="Ej: Cristian Matei"
+                            className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-semibold text-slate-600 mb-0.5">Cargo:</label>
+                          <input 
+                            type="text" 
+                            required
+                            value={certRespCliente.cargo}
+                            onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})}
+                            className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                          />
+                        </div>
                       </div>
                     </div>
 
-                    <div className="border border-slate-400 rounded-xl p-4 space-y-4 bg-white">
-                      <p className="font-black text-slate-900 uppercase">Por el CLIENTE</p>
-                      <div className="space-y-2 pt-2">
-                        <div><span className="text-slate-500 font-semibold">Firma:</span> <div className="border-b border-dashed border-slate-400 h-8"></div></div>
-                        <div><span className="text-slate-500 font-semibold">Aclaración:</span> <div className="border-b border-dashed border-slate-400 h-6"></div></div>
-                        <div><span className="text-slate-500 font-semibold">Fecha:</span> <div className="border-b border-dashed border-slate-400 h-6"></div></div>
-                      </div>
+                    <div className="flex justify-end pt-2">
+                      <button 
+                        type="submit"
+                        disabled={isSavingCert}
+                        className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2 ${isSavingCert ? 'opacity-70 cursor-not-allowed' : ''}`}
+                      >
+                        {isSavingCert ? (
+                          <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Procesando...</>
+                        ) : (
+                          <><ShieldCheck className="w-4 h-4" /> Aprobar y Guardar Certificado</>
+                        )}
+                      </button>
                     </div>
-                  </div>
+                  </form>
                 </div>
               )}
             </div>
@@ -1511,7 +1682,7 @@ export default function Reportes(props) {
                         <td className="px-4 py-3 font-bold text-slate-900">{fac.n_factura || fac.nro_factura || `Factura #${idx + 1}`}</td>
                         <td className="px-4 py-3 text-slate-600">{fac.proveedor || 'Proveedor General'}</td>
                         <td className="px-4 py-3 text-slate-600">{fac.fecha || '---'}</td>
-                        <td className="px-4 py-3 text-right font-black text-slate-900">$ {Number(fac.total || fac.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-4 py-3 text-right font-black text-slate-900">$ {Number(fac.total || fac.subtotal || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                         <td className="px-4 py-3 text-center">
                           <span className="px-2.5 py-1 rounded-full font-bold text-[10px] uppercase bg-emerald-100 text-emerald-800">
                             Certificado
@@ -1982,7 +2153,7 @@ export default function Reportes(props) {
                   <div key={cat} className="space-y-2 border border-slate-200 rounded-xl p-4 bg-slate-50/50">
                     <div className="flex justify-between items-center border-b border-slate-200 pb-2">
                       <span className="font-extrabold text-xs text-slate-900 uppercase">{cat}</span>
-                      <span className="font-black text-xs text-amber-800">$ {totalCat.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                      <span className="font-black text-xs text-amber-800">$ {totalCat.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                     </div>
                     <table className="w-full text-left text-xs">
                       <thead>
@@ -2002,8 +2173,8 @@ export default function Reportes(props) {
                             <td className="py-2 px-2 font-bold text-slate-900">{it.nombre}</td>
                             <td className="py-2 px-2 text-center text-slate-500">{it.unidad}</td>
                             <td className="py-2 px-2 text-right">{it.cantidad}</td>
-                            <td className="py-2 px-2 text-right">$ {Number(it.costo_unitario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                            <td className="py-2 px-2 text-right font-bold text-slate-900">$ {Number(it.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className="py-2 px-2 text-right">$ {Number(it.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-2 text-right font-bold text-slate-900">$ {Number(it.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -2028,7 +2199,7 @@ export default function Reportes(props) {
                         <div key={cat} className="space-y-2 pl-4 border-l-2 border-amber-500">
                           <div className="flex justify-between items-center">
                             <span className="font-bold text-xs text-slate-700 uppercase">{cat}</span>
-                            <span className="font-black text-xs text-amber-800">$ {subCatTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                            <span className="font-black text-xs text-amber-800">$ {subCatTotal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                           </div>
                           <table className="w-full text-left text-xs">
                             <thead>
@@ -2048,8 +2219,8 @@ export default function Reportes(props) {
                                   <td className="py-1.5 px-2 font-bold text-slate-900">{it.nombre}</td>
                                   <td className="py-1.5 px-2 text-center text-slate-500">{it.unidad}</td>
                                   <td className="py-1.5 px-2 text-right">{it.cantidad}</td>
-                                  <td className="py-1.5 px-2 text-right">$ {Number(it.costo_unitario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                  <td className="py-1.5 px-2 text-right font-bold text-slate-900">$ {Number(it.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                  <td className="py-1.5 px-2 text-right">$ {Number(it.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                                  <td className="py-1.5 px-2 text-right font-bold text-slate-900">$ {Number(it.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -2110,7 +2281,7 @@ export default function Reportes(props) {
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                   <span className="text-slate-500 text-[10px] font-bold uppercase">Total Presupuestado</span>
-                  <p className="text-lg font-black text-slate-900 mt-1">$ {granTotalPresupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+                  <p className="text-lg font-black text-slate-900 mt-1">$ {granTotalPresupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</p>
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
                   <span className="text-slate-500 text-[10px] font-bold uppercase">Total Imputado Real</span>
@@ -2122,7 +2293,7 @@ export default function Reportes(props) {
                     }, 0);
                     const totalRealGG = gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0);
                     const granTotalReal = totalRealRubros + totalRealGG;
-                    return <p className="text-lg font-black text-amber-700 mt-1">$ {granTotalReal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>;
+                    return <p className="text-lg font-black text-amber-700 mt-1">$ {granTotalReal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</p>;
                   })()}
                 </div>
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -2138,7 +2309,7 @@ export default function Reportes(props) {
                     const desvioTotal = granTotalPresupuestado - granTotalReal;
                     return (
                       <p className={`text-lg font-black mt-1 ${desvioTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                        $ {desvioTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        $ {desvioTotal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                       </p>
                     );
                   })()}
@@ -2170,12 +2341,12 @@ export default function Reportes(props) {
                         return (
                           <tr key={rubro.id} className="hover:bg-slate-50 font-medium">
                             <td className="px-4 py-3 font-bold text-slate-900">{rubro.nombre}</td>
-                            <td className="px-4 py-3 text-right font-bold">$ {rubro.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                            <td className="px-4 py-3 text-right text-slate-600">$ {salariosRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                            <td className="px-4 py-3 text-right text-slate-600">$ {facturasRubroSuma.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                            <td className="px-4 py-3 text-right font-black text-amber-700">$ {totalRealRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-4 py-3 text-right font-bold">$ {rubro.total.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="px-4 py-3 text-right text-slate-600">$ {salariosRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="px-4 py-3 text-right text-slate-600">$ {facturasRubroSuma.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="px-4 py-3 text-right font-black text-amber-700">$ {totalRealRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                             <td className={`px-4 py-3 text-right font-black ${desvioRubro >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                              $ {desvioRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              $ {desvioRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                             </td>
                           </tr>
                         );
@@ -2201,10 +2372,10 @@ export default function Reportes(props) {
                       {gastosGeneralesDetalle.map(gg => (
                         <tr key={gg.id} className="hover:bg-slate-50 font-medium">
                           <td className="px-4 py-3 font-bold text-slate-900">{gg.concepto}</td>
-                          <td className="px-4 py-3 text-right font-bold">$ {gg.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-3 text-right font-black text-amber-700">$ {gg.real.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-3 text-right font-bold">$ {gg.total.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-4 py-3 text-right font-black text-amber-700">$ {gg.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                           <td className={`px-4 py-3 text-right font-black ${gg.desvio >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            $ {gg.desvio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            $ {gg.desvio.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                           </td>
                         </tr>
                       ))}
