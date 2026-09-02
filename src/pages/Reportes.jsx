@@ -120,7 +120,11 @@ export default function Reportes(props) {
   const listaEmpleadosActivos = useMemo(() => {
     const fuente = empleadosListProps.length > 0 ? empleadosListProps : (fetchedEmpleados.length > 0 ? fetchedEmpleados : [
       { id: '1', nombre: 'Callapiña Wilfredo Cristian', especialidad: 'Oficial Especializado', estado: 'ACTIVO' },
-      { id: '2', nombre: 'Caballero Jonatan Matias', especialidad: 'Oficial', estado: 'ACTIVO' }
+      { id: '2', nombre: 'Caballero Jonatan Matias', especialidad: 'Oficial', estado: 'ACTIVO' },
+      { id: '3', nombre: 'Oyola Carlos Alberto', especialidad: 'Oficial', estado: 'ACTIVO' },
+      { id: '4', nombre: 'Oyola Cristian Damian', especialidad: 'Medio Oficial', estado: 'ACTIVO' },
+      { id: '5', nombre: 'Torres Lopez John Alexander', especialidad: 'Oficial', estado: 'ACTIVO' },
+      { id: '6', nombre: 'Palacio Sanchez Joderson', especialidad: 'Medio Oficial', estado: 'ACTIVO' }
     ]);
 
     return fuente.filter(emp => {
@@ -1166,7 +1170,7 @@ export default function Reportes(props) {
                             onChange={(e) => {
                               const nombreVal = e.target.value;
                               const matchEmp = listaEmpleadosActivos.find(emp => (emp.nombre || emp.Nombre || emp.empleado || '') === nombreVal);
-                              const especialidadEmp = matchEmp ? (matchEmp.especialidad || matchEmp.Especialidad || emp.categoria || emp.puesto || 'Oficial') : 'Oficial';
+                              const especialidadEmp = matchEmp ? (matchEmp.especialidad || matchEmp.Especialidad || matchEmp.categoria || matchEmp.puesto || 'Oficial') : 'Oficial';
                               
                               let abrevVal = 'OF';
                               const espLower = especialidadEmp.toLowerCase();
