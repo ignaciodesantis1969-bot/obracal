@@ -141,14 +141,31 @@ export default function Reportes(props) {
   
   const [isSavingSice, setIsSavingSice] = useState(false);
 
+  // Helper flexible para buscar claves ignorando mayúsculas, guiones bajos o espacios
+  const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
+    if (!obj) return defecto;
+    for (const pk of posibleClaves) {
+      const cleanPk = pk.toLowerCase().replace(/[^a-z0-9]/g, '');
+      for (const [k, v] of Object.entries(obj)) {
+        const cleanK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (cleanK === cleanPk && v !== undefined && v !== null && String(v).trim() !== '') {
+          return String(v).trim();
+        }
+      }
+    }
+    return defecto;
+  };
+
   const clavesContratoActual = useMemo(() => {
-    const contratoActivo = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
+    const contratoActivo = contratosList.find(c => {
+      const cId = String(c.id || c.ID || c.codigo || c.Codigo || '').trim();
+      return cId === String(contratoSeleccionadoId).trim();
+    });
+
     if (contratoActivo) {
-      const pDirect = contratoActivo.proveedorKey || contratoActivo.proveedor_key || contratoActivo.claveProveedor || contratoActivo.clave_proveedor;
-      const cDirect = contratoActivo.clienteKey || contratoActivo.cliente_key || contratoActivo.claveCliente || contratoActivo.clave_cliente;
       return {
-        proveedorKey: pDirect ? String(pDirect).trim() : 'AT1020',
-        clienteKey: cDirect ? String(cDirect).trim() : 'CM7030'
+        proveedorKey: buscarValorEnObjeto(contratoActivo, ['proveedorKey', 'proveedor_key', 'claveProveedor', 'clave_proveedor', 'proveedor_clave'], 'AT1020'),
+        clienteKey: buscarValorEnObjeto(contratoActivo, ['clienteKey', 'cliente_key', 'claveCliente', 'clave_cliente', 'cliente_clave'], 'CM7030')
       };
     }
     return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
@@ -156,13 +173,19 @@ export default function Reportes(props) {
 
   useEffect(() => {
     if (contratoSeleccionadoId) {
-      const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
+      const contrato = contratosList.find(c => {
+        const cId = String(c.id || c.ID || c.codigo || c.Codigo || '').trim();
+        return cId === String(contratoSeleccionadoId).trim();
+      });
+
       if (contrato) {
-        let pCargo = contrato.proveedorCargo || contrato.proveedor_cargo || contrato.ProveedorCargo || contrato.cargo_proveedor || contrato.cargoProveedor || contrato.puesto_proveedor || '';
-        let pNombre = contrato.proveedorNombre || contrato.proveedor_nombre || contrato.ProveedorNombre || contrato.nombre_proveedor || contrato.responsableProveedor || contrato.responsable_proveedor || contrato.contacto_proveedor || '';
+        console.log("Contrato seleccionado encontrado:", contrato);
+
+        let pCargo = buscarValorEnObjeto(contrato, ['proveedorCargo', 'proveedor_cargo', 'cargoProveedor', 'cargo_proveedor', 'puestoProveedor', 'puesto_proveedor', 'cargo']);
+        let pNombre = buscarValorEnObjeto(contrato, ['proveedorNombre', 'proveedor_nombre', 'nombreProveedor', 'nombre_proveedor', 'responsableProveedor', 'responsable_proveedor', 'contactoProveedor', 'contacto_proveedor', 'proveedor']);
         
-        let cCargo = contrato.clienteCargo || contrato.cliente_cargo || contrato.ClienteCargo || contrato.cargo_cliente || contrato.cargoCliente || contrato.puesto_cliente || '';
-        let cNombre = contrato.clienteNombre || contrato.cliente_nombre || contrato.ClienteNombre || contrato.nombre_cliente || contrato.responsableCliente || contrato.responsable_cliente || contrato.contacto_cliente || '';
+        let cCargo = buscarValorEnObjeto(contrato, ['clienteCargo', 'cliente_cargo', 'cargoCliente', 'cargo_cliente', 'puestoCliente', 'puesto_cliente']);
+        let cNombre = buscarValorEnObjeto(contrato, ['clienteNombre', 'cliente_nombre', 'nombreCliente', 'nombre_cliente', 'responsableCliente', 'responsable_cliente', 'contactoCliente', 'contacto_cliente', 'cliente']);
 
         setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
         setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
