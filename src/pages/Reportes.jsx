@@ -117,13 +117,17 @@ export default function Reportes(props) {
     return fetchedReportesSice;
   }, [reportesSiceListProps, fetchedReportesSice]);
 
-  const listaEmpleadosBase = useMemo(() => {
-    if (empleadosListProps.length > 0) return empleadosListProps;
-    if (fetchedEmpleados.length > 0) return fetchedEmpleados;
-    return [
-      { id: '1', nombre: 'Alexander Torres Lopez', categoria: 'Oficial a cargo del Site', abreviacion: 'OE' },
-      { id: '2', nombre: 'Cristian Matei', categoria: 'Supervisor', abreviacion: 'S' }
-    ];
+  // Filtrar exclusivamente empleados ACTIVO desde RRHH
+  const listaEmpleadosActivos = useMemo(() => {
+    const fuente = empleadosListProps.length > 0 ? empleadosListProps : (fetchedEmpleados.length > 0 ? fetchedEmpleados : [
+      { id: '1', nombre: 'Callapiña Wilfredo Cristian', especialidad: 'Oficial Especializado', estado: 'ACTIVO' },
+      { id: '2', nombre: 'Caballero Jonatan Matias', especialidad: 'Oficial', estado: 'ACTIVO' }
+    ]);
+
+    return fuente.filter(emp => {
+      const estadoVal = String(emp.estado || emp.Estado || emp.status || 'ACTIVO').trim().toUpperCase();
+      return estadoVal === 'ACTIVO';
+    });
   }, [empleadosListProps, fetchedEmpleados]);
 
   const [obraFiltro, setObraFiltro] = useState('todas');
@@ -168,22 +172,29 @@ export default function Reportes(props) {
   const [operariosSeleccionados, setOperariosSeleccionados] = useState([]);
 
   useEffect(() => {
-    if (listaEmpleadosBase.length > 0 && operariosSeleccionados.length === 0) {
-      const iniciales = listaEmpleadosBase.slice(0, 3).map(emp => {
+    if (listaEmpleadosActivos.length > 0 && operariosSeleccionados.length === 0) {
+      const iniciales = listaEmpleadosActivos.slice(0, 1).map(emp => {
         const nombreEmp = emp.nombre || emp.Nombre || emp.empleado || emp.apellido || 'Operario';
-        const catEmp = emp.categoria || emp.Categoria || emp.puesto || 'Oficial';
-        const abrevEmp = emp.abreviacion || emp.Abreviacion || emp.abr || (catEmp.toLowerCase().includes('supervisor') ? 'S' : catEmp.toLowerCase().includes('especializado') ? 'OE' : 'OF');
+        const especialidadEmp = emp.especialidad || emp.Especialidad || emp.categoria || emp.puesto || 'Oficial';
+        
+        let abrevEmp = 'OF';
+        const espLower = especialidadEmp.toLowerCase();
+        if (espLower.includes('supervisor')) abrevEmp = 'S';
+        else if (espLower.includes('especializado')) abrevEmp = 'OE';
+        else if (espLower.includes('ehs') || espLower.includes('técnico ehs') || espLower.includes('tecnico ehs')) abrevEmp = 'TE';
+        else if (espLower.includes('medio oficial')) abrevEmp = 'MO';
+        else if (espLower.includes('oficina') || espLower.includes('técnica')) abrevEmp = 'TOT';
+
         return {
           id: emp.id || emp.ID || Math.random().toString(),
           nombre: nombreEmp,
-          categoria: catEmp,
           abreviacion: abrevEmp,
           horas: '' 
         };
       });
       setOperariosSeleccionados(iniciales);
     }
-  }, [listaEmpleadosBase]);
+  }, [listaEmpleadosActivos]);
 
   const [siceRespProveedor, setSiceRespProveedor] = useState({ cargo: '', nombre: '', clave: '' });
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
@@ -334,22 +345,13 @@ export default function Reportes(props) {
   const agregarOperarioFila = () => {
     setOperariosSeleccionados([
       ...operariosSeleccionados,
-      { id: Math.random().toString(), nombre: '', categoria: 'Oficial', abreviacion: 'OF', horas: '' }
+      { id: Math.random().toString(), nombre: '', abreviacion: 'OF', horas: '' }
     ]);
   };
 
   const actualizarOperarioFila = (index, campo, valor) => {
     const actualizados = [...operariosSeleccionados];
     actualizados[index][campo] = valor;
-    if (campo === 'categoria') {
-      const valLower = valor.toLowerCase();
-      if (valLower.includes('supervisor')) actualizados[index]['abreviacion'] = 'S';
-      else if (valLower.includes('especializado')) actualizados[index]['abreviacion'] = 'OE';
-      else if (valLower.includes('tecnico ehs')) actualizados[index]['abreviacion'] = 'TE';
-      else if (valLower.includes('medio oficial')) actualizados[index]['abreviacion'] = 'MO';
-      else if (valLower.includes('oficina')) actualizados[index]['abreviacion'] = 'TOT';
-      else actualizados[index]['abreviacion'] = 'OF';
-    }
     setOperariosSeleccionados(actualizados);
   };
 
@@ -430,7 +432,6 @@ export default function Reportes(props) {
 
     const operariosFinales = operariosSeleccionados.map(op => ({
       nombre: op.nombre,
-      categoria: op.categoria,
       abreviacion: op.abreviacion,
       horas: op.horas !== '' ? Number(op.horas) : totalHsSuma
     }));
@@ -1079,7 +1080,7 @@ export default function Reportes(props) {
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-amber-500" /> Parte Diario de Actividades (SICE S.A.)
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">Asocie un contrato, complete los operarios, los ítems y corrobore las claves.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Asocie un contrato, complete los operarios activos, los ítems y corrobore las claves.</p>
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <select
@@ -1139,7 +1140,7 @@ export default function Reportes(props) {
                 </div>
               </div>
 
-              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES */}
+              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES (Sin columna de cargo, seleccionados desde RRHH Activos) */}
               <div className="space-y-3 pt-2">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
@@ -1161,54 +1162,53 @@ export default function Reportes(props) {
                     operariosSeleccionados.map((op, idx) => (
                       <div key={op.id || idx} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
                         <div className="w-full sm:flex-1">
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Nombre Empleado</label>
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Empleado (RRHH Activos)</label>
                           <select
                             value={op.nombre}
                             onChange={(e) => {
                               const nombreVal = e.target.value;
-                              const matchEmp = listaEmpleadosBase.find(emp => (emp.nombre || emp.Nombre || emp.empleado || '') === nombreVal);
-                              const catVal = matchEmp ? (matchEmp.categoria || matchEmp.Categoria || matchEmp.puesto || 'Oficial') : op.categoria;
-                              const abrevVal = matchEmp ? (matchEmp.abreviacion || matchEmp.Abreviacion || (catVal.toLowerCase().includes('supervisor') ? 'S' : 'OF')) : op.abreviacion;
+                              const matchEmp = listaEmpleadosActivos.find(emp => (emp.nombre || emp.Nombre || emp.empleado || '') === nombreVal);
+                              const especialidadEmp = matchEmp ? (matchEmp.especialidad || matchEmp.Especialidad || matchEmp.categoria || matchEmp.puesto || 'Oficial') : 'Oficial';
                               
+                              let abrevVal = 'OF';
+                              const espLower = especialidadEmp.toLowerCase();
+                              if (espLower.includes('supervisor')) abrevVal = 'S';
+                              else if (espLower.includes('especializado')) abrevVal = 'OE';
+                              else if (espLower.includes('ehs') || espLower.includes('técnico ehs') || espLower.includes('tecnico ehs')) abrevVal = 'TE';
+                              else if (espLower.includes('medio oficial')) abrevVal = 'MO';
+                              else if (espLower.includes('oficina') || espLower.includes('técnica')) abrevVal = 'TOT';
+
                               const actualizados = [...operariosSeleccionados];
-                              actualizados[idx] = { ...actualizados[idx], nombre: nombreVal, categoria: catVal, abreviacion: abrevVal };
+                              actualizados[idx] = { ...actualizados[idx], nombre: nombreVal, abreviacion: abrevVal };
                               setOperariosSeleccionados(actualizados);
                             }}
                             className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
                           >
-                            <option value="">-- Seleccionar Operario --</option>
-                            {listaEmpleadosBase.map((emp, eIdx) => {
+                            <option value="">-- Seleccionar Operario (RRHH Activos) --</option>
+                            {listaEmpleadosActivos.map((emp, eIdx) => {
                               const empNom = emp.nombre || emp.Nombre || emp.empleado || emp.apellido || `Operario ${eIdx + 1}`;
+                              const empEsp = emp.especialidad || emp.Especialidad || emp.categoria || emp.puesto || '';
                               return (
-                                <option key={eIdx} value={empNom}>{empNom}</option>
+                                <option key={eIdx} value={empNom}>
+                                  {empNom} {empEsp ? `(${empEsp})` : ''}
+                                </option>
                               );
                             })}
                           </select>
                         </div>
 
-                        <div className="w-full sm:w-64">
-                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Categoría</label>
-                          <input
-                            type="text"
-                            value={op.categoria}
-                            onChange={(e) => actualizarOperarioFila(idx, 'categoria', e.target.value)}
-                            placeholder="Categoría..."
-                            className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500"
-                          />
-                        </div>
-
-                        <div className="w-20 text-center">
+                        <div className="w-24 text-center">
                           <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Abrev.</label>
                           <input
                             type="text"
                             value={op.abreviacion}
-                            readOnly
-                            title="Abreviación automática de categoría"
-                            className="w-full bg-amber-100/60 border border-slate-300 rounded px-2 py-1.5 text-xs font-black text-amber-900 text-center uppercase cursor-not-allowed"
+                            onChange={(e) => actualizarOperarioFila(idx, 'abreviacion', e.target.value.toUpperCase())}
+                            title="Abreviación de categoría (Ej: S, OE, TE, MO)"
+                            className="w-full bg-amber-100/70 border border-slate-300 rounded px-2 py-1.5 text-xs font-black text-amber-950 text-center uppercase focus:bg-white focus:outline-none focus:border-amber-500"
                           />
                         </div>
 
-                        <div className="w-28">
+                        <div className="w-32">
                           <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Horas</label>
                           <input
                             type="number"
