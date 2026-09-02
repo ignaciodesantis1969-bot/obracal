@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink } from 'lucide-react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink, Users } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
@@ -34,12 +34,14 @@ export default function Reportes(props) {
   const certificados = props.certificados || props.Certificados || [];
   const movimientos = props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria || [];
   const insumos = props.insumos || props.Insumos || [];
+  const empleadosListProps = props.empleados || props.Empleados || props.personal || props.Personal || [];
   const rubros = props.rubros || props.Rubros || [];
   const facturas = props.facturas || props.Facturas || [];
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
+  const [fetchedEmpleados, setFetchedEmpleados] = useState([]);
 
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
@@ -59,15 +61,7 @@ export default function Reportes(props) {
         }
         if (lista.length > 0) setFetchedContratos(lista);
       })
-      .catch(() => {
-        fetch(`${GOOGLE_SCRIPT_URL}?tabla=ContratosMantenimiento`)
-          .then(res => res.json())
-          .then(data => {
-            let lista = Array.isArray(data) ? data : (data?.data || []);
-            if (lista.length > 0) setFetchedContratos(lista);
-          })
-          .catch(() => {});
-      });
+      .catch(() => {});
 
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -87,15 +81,26 @@ export default function Reportes(props) {
         }
         if (lista.length > 0) setFetchedReportesSice(lista);
       })
-      .catch(() => {
-        fetch(`${GOOGLE_SCRIPT_URL}?tabla=ReportesSice`)
-          .then(res => res.json())
-          .then(data => {
-            let lista = Array.isArray(data) ? data : (data?.data || data?.ReportesSice || []);
-            if (lista.length > 0) setFetchedReportesSice(lista);
-          })
-          .catch(() => {});
-      });
+      .catch(() => {});
+
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'Empleados', action: 'get' })
+    })
+      .then(res => res.json())
+      .then(data => {
+        let lista = [];
+        if (Array.isArray(data)) lista = data;
+        else if (data && Array.isArray(data.data)) lista = data.data;
+        else if (data && Array.isArray(data.Empleados)) lista = data.Empleados;
+        else if (data && typeof data === 'object') {
+          const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+          if (foundKey) lista = data[foundKey];
+        }
+        if (lista.length > 0) setFetchedEmpleados(lista);
+      })
+      .catch(() => {});
   }, []);
 
   const contratosList = useMemo(() => {
@@ -111,6 +116,15 @@ export default function Reportes(props) {
     if (reportesSiceListProps.length > 0) return reportesSiceListProps;
     return fetchedReportesSice;
   }, [reportesSiceListProps, fetchedReportesSice]);
+
+  const listaEmpleadosBase = useMemo(() => {
+    if (empleadosListProps.length > 0) return empleadosListProps;
+    if (fetchedEmpleados.length > 0) return fetchedEmpleados;
+    return [
+      { id: '1', nombre: 'Alexander Torres Lopez', categoria: 'Oficial a cargo del Site', abreviacion: 'OE' },
+      { id: '2', nombre: 'Cristian Matei', categoria: 'Supervisor', abreviacion: 'S' }
+    ];
+  }, [empleadosListProps, fetchedEmpleados]);
 
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState(esOperador ? 'Reportes Diarios' : 'Certificaciones');
@@ -134,14 +148,49 @@ export default function Reportes(props) {
   const [siceItems, setSiceItems] = useState([
     { id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
   ]);
+
+  const calcularTotalHorasSice = (inicio, fin) => {
+    if (!inicio || !fin) return 0;
+    const [hIni, mIni] = inicio.split(':').map(Number);
+    const [hFin, mFin] = fin.split(':').map(Number);
+    let diffMinutos = (hFin * 60 + mFin) - (hIni * 60 + mIni);
+    if (diffMinutos < 0) diffMinutos += 24 * 60;
+    const horasEfectivas = diffMinutos / 60;
+    if (horasEfectivas <= 0) return 0;
+    const horasConProporcional = horasEfectivas * (11 / 9);
+    return Number(horasConProporcional.toFixed(2));
+  };
+
+  const totalHorasDefaultCalculado = useMemo(() => {
+    return siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0);
+  }, [siceItems]);
+
+  const [operariosSeleccionados, setOperariosSeleccionados] = useState([]);
+
+  useEffect(() => {
+    if (listaEmpleadosBase.length > 0 && operariosSeleccionados.length === 0) {
+      const iniciales = listaEmpleadosBase.slice(0, 3).map(emp => {
+        const nombreEmp = emp.nombre || emp.Nombre || emp.empleado || emp.apellido || 'Operario';
+        const catEmp = emp.categoria || emp.Categoria || emp.puesto || 'Oficial';
+        const abrevEmp = emp.abreviacion || emp.Abreviacion || emp.abr || (catEmp.toLowerCase().includes('supervisor') ? 'S' : catEmp.toLowerCase().includes('especializado') ? 'OE' : 'OF');
+        return {
+          id: emp.id || emp.ID || Math.random().toString(),
+          nombre: nombreEmp,
+          categoria: catEmp,
+          abreviacion: abrevEmp,
+          horas: '' 
+        };
+      });
+      setOperariosSeleccionados(iniciales);
+    }
+  }, [listaEmpleadosBase]);
+
   const [siceRespProveedor, setSiceRespProveedor] = useState({ cargo: '', nombre: '', clave: '' });
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
   const [sicePartesAprobados, setSicePartesAprobados] = useState([]);
   const [parteVisualizando, setParteVisualizando] = useState(null);
-  
   const [isSavingSice, setIsSavingSice] = useState(false);
 
-  // Helper flexible para buscar claves ignorando mayúsculas, guiones bajos o espacios
   const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
     if (!obj) return defecto;
     for (const pk of posibleClaves) {
@@ -156,7 +205,6 @@ export default function Reportes(props) {
     return defecto;
   };
 
-  // Extractor robusto que lee columnas directas o JSON de la descripción
   const extraerDatosContrato = (contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
 
@@ -201,7 +249,6 @@ export default function Reportes(props) {
     return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
   }, [contratosList, contratoSeleccionadoId]);
 
-  // Se ejecuta SÓLO cuando cambia el contrato seleccionado para no pisar las ediciones del usuario
   useEffect(() => {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => {
@@ -211,7 +258,6 @@ export default function Reportes(props) {
 
       if (contrato) {
         const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contrato);
-        // Las claves (clave) se inician VACÍAS ('') para que el usuario las escriba manualmente y no se autocompleten
         setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
         setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
       } else {
@@ -249,6 +295,10 @@ export default function Reportes(props) {
           if (typeof itemsParsed === 'string') {
             try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
           }
+          let operariosParsed = r.operarios || r.operariosPresentes || [];
+          if (typeof operariosParsed === 'string') {
+            try { operariosParsed = JSON.parse(operariosParsed); } catch { operariosParsed = []; }
+          }
           let provParsed = r.proveedor;
           if (typeof provParsed === 'string') {
             try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: '', cargo: '' }; }
@@ -263,6 +313,7 @@ export default function Reportes(props) {
             fecha: r.fecha || '',
             contratoId: contratoSeleccionadoId,
             items: Array.isArray(itemsParsed) ? itemsParsed : [],
+            operarios: Array.isArray(operariosParsed) ? operariosParsed : [],
             proveedor: provParsed,
             cliente: cliParsed,
             totalHorasSuma: Number(r.totalhorassuma || r.totalHorasSuma || 0),
@@ -279,6 +330,32 @@ export default function Reportes(props) {
       setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
     }
   }, [contratoSeleccionadoId]);
+
+  const agregarOperarioFila = () => {
+    setOperariosSeleccionados([
+      ...operariosSeleccionados,
+      { id: Math.random().toString(), nombre: '', categoria: 'Oficial', abreviacion: 'OF', horas: '' }
+    ]);
+  };
+
+  const actualizarOperarioFila = (index, campo, valor) => {
+    const actualizados = [...operariosSeleccionados];
+    actualizados[index][campo] = valor;
+    if (campo === 'categoria') {
+      const valLower = valor.toLowerCase();
+      if (valLower.includes('supervisor')) actualizados[index]['abreviacion'] = 'S';
+      else if (valLower.includes('especializado')) actualizados[index]['abreviacion'] = 'OE';
+      else if (valLower.includes('tecnico ehs')) actualizados[index]['abreviacion'] = 'TE';
+      else if (valLower.includes('medio oficial')) actualizados[index]['abreviacion'] = 'MO';
+      else if (valLower.includes('oficina')) actualizados[index]['abreviacion'] = 'TOT';
+      else actualizados[index]['abreviacion'] = 'OF';
+    }
+    setOperariosSeleccionados(actualizados);
+  };
+
+  const eliminarOperarioFila = (index) => {
+    setOperariosSeleccionados(operariosSeleccionados.filter((_, i) => i !== index));
+  };
 
   const eliminarParteServidor = async (idParte) => {
     if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
@@ -304,18 +381,6 @@ export default function Reportes(props) {
       console.error("Error al eliminar parte:", err);
       alert("Ocurrió un error al intentar eliminar el parte.");
     }
-  };
-
-  const calcularTotalHorasSice = (inicio, fin) => {
-    if (!inicio || !fin) return 0;
-    const [hIni, mIni] = inicio.split(':').map(Number);
-    const [hFin, mFin] = fin.split(':').map(Number);
-    let diffMinutos = (hFin * 60 + mFin) - (hIni * 60 + mIni);
-    if (diffMinutos < 0) diffMinutos += 24 * 60;
-    const horasEfectivas = diffMinutos / 60;
-    if (horasEfectivas <= 0) return 0;
-    const horasConProporcional = horasEfectivas * (11 / 9);
-    return Number(horasConProporcional.toFixed(2));
   };
 
   const agregarFilaSice = () => {
@@ -363,6 +428,13 @@ export default function Reportes(props) {
 
     const totalHsSuma = siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0);
 
+    const operariosFinales = operariosSeleccionados.map(op => ({
+      nombre: op.nombre,
+      categoria: op.categoria,
+      abreviacion: op.abreviacion,
+      horas: op.horas !== '' ? Number(op.horas) : totalHsSuma
+    }));
+
     setIsSavingSice(true);
 
     try {
@@ -373,6 +445,7 @@ export default function Reportes(props) {
         fecha: siceFecha,
         nro: siceParteNro,
         items: siceItems,
+        operarios: operariosFinales,
         proveedor: { cargo: siceRespProveedor.cargo, nombre: siceRespProveedor.nombre },
         cliente: { cargo: siceRespCliente.cargo, nombre: siceRespCliente.nombre },
         totalHorasSuma: totalHsSuma
@@ -397,6 +470,7 @@ export default function Reportes(props) {
         fecha: siceFecha,
         contratoid: contratoSeleccionadoId,
         items: [...siceItems],
+        operarios: operariosFinales,
         proveedor: { cargo: siceRespProveedor.cargo, nombre: siceRespProveedor.nombre },
         cliente: { cargo: siceRespCliente.cargo, nombre: siceRespCliente.nombre },
         totalHorasSuma: totalHsSuma,
@@ -1005,7 +1079,7 @@ export default function Reportes(props) {
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
                   <Calendar className="w-4 h-4 text-amber-500" /> Parte Diario de Actividades (SICE S.A.)
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">Asocie un contrato, complete los ítems y corrobore las claves para aprobar y archivar.</p>
+                <p className="text-xs text-slate-500 mt-0.5">Asocie un contrato, complete los operarios, los ítems y corrobore las claves.</p>
               </div>
               <div className="flex items-center gap-2 w-full sm:w-auto">
                 <select
@@ -1062,6 +1136,101 @@ export default function Reportes(props) {
                   <div>
                     <span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono text-sm">{siceParteNro}</span>
                   </div>
+                </div>
+              </div>
+
+              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES */}
+              <div className="space-y-3 pt-2">
+                <div className="flex justify-between items-center">
+                  <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
+                    <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={agregarOperarioFila}
+                    className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-[11px] transition-colors flex items-center gap-1 shadow-sm cursor-pointer print:hidden"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> Agregar Operario
+                  </button>
+                </div>
+
+                <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-50/50 p-3 space-y-2">
+                  {operariosSeleccionados.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-2">No hay operarios añadidos. Haga clic en "Agregar Operario".</p>
+                  ) : (
+                    operariosSeleccionados.map((op, idx) => (
+                      <div key={op.id || idx} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
+                        <div className="w-full sm:flex-1">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Nombre Empleado</label>
+                          <select
+                            value={op.nombre}
+                            onChange={(e) => {
+                              const nombreVal = e.target.value;
+                              const matchEmp = listaEmpleadosBase.find(emp => (emp.nombre || emp.Nombre || emp.empleado || '') === nombreVal);
+                              const catVal = matchEmp ? (matchEmp.categoria || matchEmp.Categoria || matchEmp.puesto || 'Oficial') : op.categoria;
+                              const abrevVal = matchEmp ? (matchEmp.abreviacion || matchEmp.Abreviacion || (catVal.toLowerCase().includes('supervisor') ? 'S' : 'OF')) : op.abreviacion;
+                              
+                              const actualizados = [...operariosSeleccionados];
+                              actualizados[idx] = { ...actualizados[idx], nombre: nombreVal, categoria: catVal, abreviacion: abrevVal };
+                              setOperariosSeleccionados(actualizados);
+                            }}
+                            className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+                          >
+                            <option value="">-- Seleccionar Operario --</option>
+                            {listaEmpleadosBase.map((emp, eIdx) => {
+                              const empNom = emp.nombre || emp.Nombre || emp.empleado || emp.apellido || `Operario ${eIdx + 1}`;
+                              return (
+                                <option key={eIdx} value={empNom}>{empNom}</option>
+                              );
+                            })}
+                          </select>
+                        </div>
+
+                        <div className="w-full sm:w-64">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Categoría</label>
+                          <input
+                            type="text"
+                            value={op.categoria}
+                            onChange={(e) => actualizarOperarioFila(idx, 'categoria', e.target.value)}
+                            placeholder="Categoría..."
+                            className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        <div className="w-20 text-center">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Abrev.</label>
+                          <input
+                            type="text"
+                            value={op.abreviacion}
+                            readOnly
+                            title="Abreviación automática de categoría"
+                            className="w-full bg-amber-100/60 border border-slate-300 rounded px-2 py-1.5 text-xs font-black text-amber-900 text-center uppercase cursor-not-allowed"
+                          />
+                        </div>
+
+                        <div className="w-28">
+                          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Horas</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={op.horas}
+                            onChange={(e) => actualizarOperarioFila(idx, 'horas', e.target.value)}
+                            placeholder={`${totalHorasDefaultCalculado} hs (Def.)`}
+                            className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-black text-slate-900 text-center outline-none focus:border-amber-500"
+                          />
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={() => eliminarOperarioFila(idx)}
+                          className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg transition-colors cursor-pointer print:hidden"
+                          title="Eliminar operario"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
 
@@ -1498,7 +1667,7 @@ export default function Reportes(props) {
               <select 
                 className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
                 value={compPresupuestoId}
-                onChange={e => setCompPresupuestoId(e.target.value)}
+                onChange={e => { setCompPresupuestoId(e.target.value)}
               >
                 <option value="">Seleccionar Presupuesto (Aprobados)...</option>
                 {presupuestosCompFiltrados.map(p => (
