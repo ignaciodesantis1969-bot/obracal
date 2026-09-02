@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink, Save } from 'lucide-react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
@@ -140,7 +140,6 @@ export default function Reportes(props) {
   const [parteVisualizando, setParteVisualizando] = useState(null);
   
   const [isSavingSice, setIsSavingSice] = useState(false);
-  const [isSavingContrato, setIsSavingContrato] = useState(false);
 
   // Helper flexible para buscar claves ignorando mayúsculas, guiones bajos o espacios
   const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
@@ -157,7 +156,7 @@ export default function Reportes(props) {
     return defecto;
   };
 
-  // Extractor optimizado para leer las columnas dedicadas de la Sheet (con respaldo en descripción)
+  // Extractor robusto que lee tanto de columnas directas como de la descripción del contrato
   const extraerDatosContrato = (contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
 
@@ -278,47 +277,6 @@ export default function Reportes(props) {
       setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
     }
   }, [contratoSeleccionadoId, contratosList, allReportesSice]);
-
-  // Función para guardar permanentemente la configuración de firmantes en la Sheet ContratosMantenimiento
-  const guardarConfiguracionContrato = async () => {
-    if (!contratoSeleccionadoId) {
-      alert("Seleccione un contrato primero.");
-      return;
-    }
-
-    setIsSavingContrato(true);
-    try {
-      const payload = {
-        tabla: 'ContratosMantenimiento',
-        action: 'update',
-        id: contratoSeleccionadoId,
-        proveedor_cargo: siceRespProveedor.cargo,
-        proveedor_nombre: siceRespProveedor.nombre,
-        proveedor_key: siceRespProveedor.clave,
-        cliente_cargo: siceRespCliente.cargo,
-        cliente_nombre: siceRespCliente.nombre,
-        cliente_key: siceRespCliente.clave
-      };
-
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
-      });
-      const resultado = await res.json();
-
-      if (resultado.success === false) {
-        alert("Error al guardar en Google Sheets: " + (resultado.error || 'Desconocido'));
-      } else {
-        alert("¡Configuración de firmantes y claves guardada exitosamente en la base de datos!");
-      }
-    } catch (err) {
-      console.error("Error al guardar contrato:", err);
-      alert("Ocurrió un error de red al intentar guardar en la base de datos.");
-    } finally {
-      setIsSavingContrato(false);
-    }
-  };
 
   const eliminarParteServidor = async (idParte) => {
     if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
@@ -1103,24 +1061,6 @@ export default function Reportes(props) {
                 </div>
               </div>
 
-              {/* Botón para guardar permanentemente en Google Sheets */}
-              {contratoSeleccionadoId && (
-                <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
-                  <div>
-                    <h5 className="font-black text-xs text-amber-900 uppercase">Configuración de Firmantes y Claves</h5>
-                    <p className="text-xs text-amber-700">Edite los campos abajo y haga clic en Guardar para que persistan permanentemente en la base de datos.</p>
-                  </div>
-                  <button
-                    type="button"
-                    disabled={isSavingContrato}
-                    onClick={guardarConfiguracionContrato}
-                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm cursor-pointer whitespace-nowrap"
-                  >
-                    <Save className="w-4 h-4" /> {isSavingContrato ? 'Guardando...' : 'Guardar Firmantes en Contrato'}
-                  </button>
-                </div>
-              )}
-
               <div className="overflow-x-auto border border-slate-400 rounded-lg">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
@@ -1297,7 +1237,7 @@ export default function Reportes(props) {
                 </div>
 
                 <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
-                  <p className="text-xs text-slate-500">Verifique las claves y presione aprobar para generar el reporte diario oficial.</p>
+                  <p className="text-xs text-slate-500">Los datos se cargan automáticamente desde el contrato seleccionado y se pueden verificar antes de aprobar.</p>
                   <button 
                     type="submit"
                     disabled={isSavingSice}
