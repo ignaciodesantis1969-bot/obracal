@@ -71,15 +71,19 @@ export default function Reportes(props) {
         if (Array.isArray(data)) {
           lista = data;
         } else if (data && typeof data === 'object') {
-          const targetKey = Object.keys(data).find(k => k.toLowerCase().includes('reporte') || k.toLowerCase().includes('sice') || Array.isArray(data[k]));
-          if (targetKey && Array.isArray(data[targetKey])) {
-            lista = data[targetKey];
-          } else {
-            const anyArrayKey = Object.keys(data).find(k => Array.isArray(data[k]));
-            if (anyArrayKey) lista = data[anyArrayKey];
+          if (Array.isArray(data.data)) lista = data.data;
+          else if (Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
+          else if (Array.isArray(data.reportesSice)) lista = data.reportesSice;
+          else {
+            const targetKey = Object.keys(data).find(k => k.toLowerCase().includes('reporte') || k.toLowerCase().includes('sice') || Array.isArray(data[k]));
+            if (targetKey && Array.isArray(data[targetKey])) {
+              lista = data[targetKey];
+            } else {
+              const anyArrayKey = Object.keys(data).find(k => Array.isArray(data[k]));
+              if (anyArrayKey) lista = data[anyArrayKey];
+            }
           }
         }
-
         if (lista.length > 0) {
           setFetchedReportesSice(lista);
         }
@@ -165,7 +169,7 @@ export default function Reportes(props) {
 
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
-  const [siceParteNro, setSiceParteNro] = useState('00003');
+  const [siceParteNro, setSiceParteNro] = useState('00005');
   const [siceItems, setSiceItems] = useState([
     { id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
   ]);
@@ -452,7 +456,8 @@ export default function Reportes(props) {
       });
       const resultado = await res.json();
 
-      if (!resultado.success) {
+      const pdfUrlFinal = resultado.pdfUrl || resultado.pdf_url || resultado.url || resultado.link || '';
+      if (resultado.success === false || (resultado.error && !pdfUrlFinal)) {
         alert("Error al generar el PDF en Google Drive: " + (resultado.error || 'Desconocido'));
         setIsSavingSice(false);
         return;
@@ -468,7 +473,7 @@ export default function Reportes(props) {
         proveedor: { cargo: siceRespProveedor.cargo, nombre: siceRespProveedor.nombre },
         cliente: { cargo: siceRespCliente.cargo, nombre: siceRespCliente.nombre },
         totalHorasSuma: totalHsSuma,
-        pdfUrl: resultado.pdfUrl 
+        pdfUrl: pdfUrlFinal 
       };
 
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
