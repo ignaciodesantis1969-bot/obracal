@@ -156,7 +156,7 @@ export default function Reportes(props) {
     return defecto;
   };
 
-  // Extractor robusto que lee tanto de columnas directas como de la descripción del contrato
+  // Extractor robusto que lee columnas directas o JSON de la descripción
   const extraerDatosContrato = (contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
 
@@ -201,6 +201,7 @@ export default function Reportes(props) {
     return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
   }, [contratosList, contratoSeleccionadoId]);
 
+  // Se ejecuta SÓLO cuando cambia el contrato seleccionado para no pisar las ediciones del usuario
   useEffect(() => {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => {
@@ -209,9 +210,10 @@ export default function Reportes(props) {
       });
 
       if (contrato) {
-        const { pCargo, pNombre, pKey, cCargo, cNombre, cKey } = extraerDatosContrato(contrato);
-        setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: pKey });
-        setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: cKey });
+        const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contrato);
+        // Las claves (clave) se inician VACÍAS ('') para que el usuario las escriba manualmente y no se autocompleten
+        setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
+        setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
       } else {
         setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
         setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
@@ -276,7 +278,7 @@ export default function Reportes(props) {
       setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
       setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
     }
-  }, [contratoSeleccionadoId, contratosList, allReportesSice]);
+  }, [contratoSeleccionadoId]);
 
   const eliminarParteServidor = async (idParte) => {
     if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
@@ -342,11 +344,11 @@ export default function Reportes(props) {
 
     const regexClave = /^[A-Za-z]{2}\d{4}$/;
     if (!regexClave.test(siceRespProveedor.clave)) {
-      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: AB1234).");
+      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: AT1020).");
       return;
     }
     if (!regexClave.test(siceRespCliente.clave)) {
-      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: CD5678).");
+      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: CM7030).");
       return;
     }
 
@@ -413,6 +415,8 @@ export default function Reportes(props) {
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
       setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
+      setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
+      setSiceRespCliente(prev => ({ ...prev, clave: '' }));
 
       alert("¡Parte Diario aprobado, PDF generado en Drive y guardado con éxito!");
 
@@ -1237,7 +1241,7 @@ export default function Reportes(props) {
                 </div>
 
                 <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
-                  <p className="text-xs text-slate-500">Los datos se cargan automáticamente desde el contrato seleccionado y se pueden verificar antes de aprobar.</p>
+                  <p className="text-xs text-slate-500">Ingrese sus claves para firmar y validar el parte diario.</p>
                   <button 
                     type="submit"
                     disabled={isSavingSice}
