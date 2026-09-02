@@ -21,15 +21,32 @@ const CONTRATO_DEFAULT = [
   }
 ];
 
-const REPORTES_DEFAULT_INICIALES = [];
+const REPORTES_DEFAULT_INICIALES = [
+  {
+    id: "1",
+    nro: "00001",
+    fecha: "2026-08-31",
+    contratoid: "1",
+    items: [
+      { id: 1, descripcion: "Mantenimiento correctivo general en planta", horaComienzo: "08:00", horaFin: "17:00", observaciones: "Sin novedades", terminoTarea: "SI" }
+    ],
+    operarios: [
+      { nombre: "Callapiña Wilfredo Cristian", abreviacion: "S", horas: 8.56 }
+    ],
+    proveedor: { cargo: "Oficial a cargo del Site", nombre: "Alexander Torres Lopez" },
+    cliente: { cargo: "Gerente de Planta", nombre: "Cristian Matei" },
+    totalHorasSuma: 8.56,
+    pdfUrl: ""
+  }
+];
 
 export default function Reportes(props) {
   const { user } = useAuth();
 
   const userRole = String(
-    props.role || props.userRole || user?.role || user?.rol || props.user?.role || ''
+    props.role || props.userRole || user?.role || user?.rol || user?.user_role || user?.tipo || user?.perfil || user?.user_metadata?.role || ''
   ).toLowerCase();
-  const esOperador = userRole.includes('operador') || userRole === 'operator';
+  const esOperador = userRole.includes('operador') || userRole.includes('operator') || userRole.includes('operat');
 
   const obras = props.obras || props.Obras || [];
   const presupuestos = props.presupuestos || props.Presupuestos || [];
