@@ -271,15 +271,6 @@ export default function Reportes(props) {
         setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
       }
 
-      const localKey = `obracal_sice_partes_${contratoSeleccionadoId}`;
-      let localPartes = [];
-      try {
-        const cached = localStorage.getItem(localKey);
-        if (cached) localPartes = JSON.parse(cached);
-      } catch (e) {
-        localPartes = [];
-      }
-
       const filtradosServer = allReportesSice.filter(r => {
         if (!r) return false;
         const rContratoId = String(
@@ -293,49 +284,44 @@ export default function Reportes(props) {
         return valores.includes(String(contratoSeleccionadoId).trim());
       });
 
-      const combinedMap = new Map();
-      [...localPartes, ...filtradosServer].forEach(r => {
-        const key = r.id || r.nro;
-        if (key && !combinedMap.has(key)) {
-          let itemsParsed = r.items;
-          if (typeof itemsParsed === 'string') {
-            try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
-          }
-          let operariosParsed = r.operarios || r.operariosPresentes || [];
-          if (typeof operariosParsed === 'string') {
-            try { operariosParsed = JSON.parse(operariosParsed); } catch { operariosParsed = []; }
-          }
-          let provParsed = r.proveedor;
-          if (typeof provParsed === 'string') {
-            try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: '', cargo: '' }; }
-          }
-          let cliParsed = r.cliente;
-          if (typeof cliParsed === 'string') {
-            try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: '', cargo: '' }; }
-          }
-          combinedMap.set(key, {
-            id: r.id || r.ID || `sice-${Math.random()}`,
-            nro: r.nro || r.numero || '00001',
-            fecha: r.fecha || '',
-            contratoId: contratoSeleccionadoId,
-            items: Array.isArray(itemsParsed) ? itemsParsed : [],
-            operarios: Array.isArray(operariosParsed) ? operariosParsed : [],
-            proveedor: provParsed,
-            cliente: cliParsed,
-            totalHorasSuma: Number(r.totalhorassuma || r.totalHorasSuma || 0),
-            pdfUrl: r.pdf_url || r.pdfUrl || ''
-          });
+      const finalLista = filtradosServer.map(r => {
+        let itemsParsed = r.items;
+        if (typeof itemsParsed === 'string') {
+          try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
         }
+        let operariosParsed = r.operarios || r.operariosPresentes || [];
+        if (typeof operariosParsed === 'string') {
+          try { operariosParsed = JSON.parse(operariosParsed); } catch { operariosParsed = []; }
+        }
+        let provParsed = r.proveedor;
+        if (typeof provParsed === 'string') {
+          try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: '', cargo: '' }; }
+        }
+        let cliParsed = r.cliente;
+        if (typeof cliParsed === 'string') {
+          try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: '', cargo: '' }; }
+        }
+        return {
+          id: r.id || r.ID || `sice-${Math.random()}`,
+          nro: r.nro || r.numero || '00001',
+          fecha: r.fecha || '',
+          contratoId: contratoSeleccionadoId,
+          items: Array.isArray(itemsParsed) ? itemsParsed : [],
+          operarios: Array.isArray(operariosParsed) ? operariosParsed : [],
+          proveedor: provParsed,
+          cliente: cliParsed,
+          totalHorasSuma: Number(r.totalhorassuma || r.totalHorasSuma || 0),
+          pdfUrl: r.pdf_url || r.pdfUrl || ''
+        };
       });
 
-      const finalLista = Array.from(combinedMap.values());
       setSicePartesAprobados(finalLista);
     } else {
       setSicePartesAprobados([]);
       setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
       setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
     }
-  }, [contratoSeleccionadoId]);
+  }, [contratoSeleccionadoId, allReportesSice, contratosList]);
 
   const agregarOperarioFila = () => {
     setOperariosSeleccionados([
@@ -369,10 +355,6 @@ export default function Reportes(props) {
       const filtrados = sicePartesAprobados.filter(p => String(p.id) !== String(idParte));
       setSicePartesAprobados(filtrados);
       setFetchedReportesSice(prev => prev.filter(p => String(p.id) !== String(idParte)));
-      try {
-        const localKey = `obracal_sice_partes_${contratoSeleccionadoId}`;
-        localStorage.setItem(localKey, JSON.stringify(filtrados));
-      } catch (e) {}
       alert("Parte diario eliminado exitosamente.");
     } catch (err) {
       console.error("Error al eliminar parte:", err);
@@ -473,14 +455,8 @@ export default function Reportes(props) {
         pdfUrl: resultado.pdfUrl 
       };
 
-      const actualizados = [nuevoParte, ...sicePartesAprobados];
-      setSicePartesAprobados(actualizados);
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
-
-      try {
-        const localKey = `obracal_sice_partes_${contratoSeleccionadoId}`;
-        localStorage.setItem(localKey, JSON.stringify(actualizados));
-      } catch (e) {}
+      setSicePartesAprobados(prev => [nuevoParte, ...prev]);
 
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
@@ -1179,7 +1155,7 @@ export default function Reportes(props) {
 
                               return (
                                 <option key={eIdx} value={empNom} disabled={isSelectedElsewhere}>
-                                  {empNom} {empEsp ? `(${empEsp})` : ''} {isSelectedElsewhere ? '(Ya seleccionado)' : ''}
+                                  {empNom} {isSelectedElsewhere ? '(Ya seleccionado)' : ''}
                                 </option>
                               );
                             })}
