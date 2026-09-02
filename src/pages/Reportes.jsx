@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink } from 'lucide-react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink, Save } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
@@ -140,6 +140,7 @@ export default function Reportes(props) {
   const [parteVisualizando, setParteVisualizando] = useState(null);
   
   const [isSavingSice, setIsSavingSice] = useState(false);
+  const [isSavingContrato, setIsSavingContrato] = useState(false);
 
   // Helper flexible para buscar claves ignorando mayúsculas, guiones bajos o espacios
   const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
@@ -156,23 +157,17 @@ export default function Reportes(props) {
     return defecto;
   };
 
-  // Analizador robusto que extrae propiedades directas o JSON incrustado en la descripción de ContratosMantenimiento
+  // Extractor optimizado para leer las columnas dedicadas de la Sheet (con respaldo en descripción)
   const extraerDatosContrato = (contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
 
     let objData = { ...contrato };
-
-    // Si la descripción u otros campos contienen JSON o datos estructurados SICE
     ['descripcion', 'detalle', 'config', 'datos'].forEach(campo => {
       if (typeof contrato[campo] === 'string') {
         const val = contrato[campo];
         try {
-          if (val.trim().startsWith('{')) {
-            const parsed = JSON.parse(val);
-            objData = { ...objData, ...parsed };
-          } else if (val.includes('---DATOS_SICE_INTEGRAL---') || val.includes('{')) {
-            // Extraer bloque JSON si está adjunto en la descripción
-            const parts = val.split(/---DATOS_SICE_INTEGRAL---|[{]/);
+          if (val.includes('{')) {
+            const parts = val.split(/[{]/);
             if (parts.length > 1) {
               const jsonStr = '{' + parts.slice(1).join('{');
               const parsed = JSON.parse(jsonStr);
@@ -183,13 +178,13 @@ export default function Reportes(props) {
       }
     });
 
-    let pCargo = buscarValorEnObjeto(objData, ['proveedorCargo', 'proveedor_cargo', 'cargoProveedor', 'cargo_proveedor', 'puestoProveedor', 'puesto_proveedor']) || objData.proveedor?.cargo || '';
-    let pNombre = buscarValorEnObjeto(objData, ['proveedorNombre', 'proveedor_nombre', 'nombreProveedor', 'nombre_proveedor', 'responsableProveedor', 'responsable_proveedor', 'contactoProveedor', 'contacto_proveedor']) || objData.proveedor?.nombre || '';
-    let pKey = buscarValorEnObjeto(objData, ['proveedorKey', 'proveedor_key', 'claveProveedor', 'clave_proveedor', 'proveedor_clave']) || objData.proveedor?.key || 'AT1020';
+    let pCargo = buscarValorEnObjeto(objData, ['proveedor_cargo', 'proveedorCargo', 'cargoProveedor', 'cargo_proveedor', 'puestoProveedor']) || objData.proveedor?.cargo || '';
+    let pNombre = buscarValorEnObjeto(objData, ['proveedor_nombre', 'proveedorNombre', 'nombreProveedor', 'nombre_proveedor', 'responsableProveedor']) || objData.proveedor?.nombre || '';
+    let pKey = buscarValorEnObjeto(objData, ['proveedor_key', 'proveedorKey', 'claveProveedor', 'clave_proveedor', 'proveedor_clave']) || objData.proveedor?.key || 'AT1020';
 
-    let cCargo = buscarValorEnObjeto(objData, ['clienteCargo', 'cliente_cargo', 'cargoCliente', 'cargo_cliente', 'puestoCliente', 'puesto_cliente']) || objData.cliente?.cargo || '';
-    let cNombre = buscarValorEnObjeto(objData, ['clienteNombre', 'cliente_nombre', 'nombreCliente', 'nombre_cliente', 'responsableCliente', 'responsable_cliente', 'contactoCliente', 'contacto_cliente']) || objData.cliente?.nombre || '';
-    let cKey = buscarValorEnObjeto(objData, ['clienteKey', 'cliente_key', 'claveCliente', 'clave_cliente', 'cliente_clave']) || objData.cliente?.key || 'CM7030';
+    let cCargo = buscarValorEnObjeto(objData, ['cliente_cargo', 'clienteCargo', 'cargoCliente', 'cargo_cliente', 'puestoCliente']) || objData.cliente?.cargo || '';
+    let cNombre = buscarValorEnObjeto(objData, ['cliente_nombre', 'clienteNombre', 'nombreCliente', 'nombre_cliente', 'responsableCliente']) || objData.cliente?.nombre || '';
+    let cKey = buscarValorEnObjeto(objData, ['cliente_key', 'clienteKey', 'claveCliente', 'clave_cliente', 'cliente_clave']) || objData.cliente?.key || 'CM7030';
 
     return { pCargo, pNombre, pKey, cCargo, cNombre, cKey };
   };
@@ -215,11 +210,9 @@ export default function Reportes(props) {
       });
 
       if (contrato) {
-        console.log("Contrato seleccionado encontrado:", contrato);
-        const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contrato);
-
-        setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
-        setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
+        const { pCargo, pNombre, pKey, cCargo, cNombre, cKey } = extraerDatosContrato(contrato);
+        setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: pKey });
+        setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: cKey });
       } else {
         setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
         setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
@@ -285,6 +278,47 @@ export default function Reportes(props) {
       setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
     }
   }, [contratoSeleccionadoId, contratosList, allReportesSice]);
+
+  // Función para guardar permanentemente la configuración de firmantes en la Sheet ContratosMantenimiento
+  const guardarConfiguracionContrato = async () => {
+    if (!contratoSeleccionadoId) {
+      alert("Seleccione un contrato primero.");
+      return;
+    }
+
+    setIsSavingContrato(true);
+    try {
+      const payload = {
+        tabla: 'ContratosMantenimiento',
+        action: 'update',
+        id: contratoSeleccionadoId,
+        proveedor_cargo: siceRespProveedor.cargo,
+        proveedor_nombre: siceRespProveedor.nombre,
+        proveedor_key: siceRespProveedor.clave,
+        cliente_cargo: siceRespCliente.cargo,
+        cliente_nombre: siceRespCliente.nombre,
+        cliente_key: siceRespCliente.clave
+      };
+
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const resultado = await res.json();
+
+      if (resultado.success === false) {
+        alert("Error al guardar en Google Sheets: " + (resultado.error || 'Desconocido'));
+      } else {
+        alert("¡Configuración de firmantes y claves guardada exitosamente en la base de datos!");
+      }
+    } catch (err) {
+      console.error("Error al guardar contrato:", err);
+      alert("Ocurrió un error de red al intentar guardar en la base de datos.");
+    } finally {
+      setIsSavingContrato(false);
+    }
+  };
 
   const eliminarParteServidor = async (idParte) => {
     if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
@@ -421,9 +455,6 @@ export default function Reportes(props) {
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
       setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
-      
-      setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
-      setSiceRespCliente(prev => ({ ...prev, clave: '' }));
 
       alert("¡Parte Diario aprobado, PDF generado en Drive y guardado con éxito!");
 
@@ -1072,6 +1103,24 @@ export default function Reportes(props) {
                 </div>
               </div>
 
+              {/* Botón para guardar permanentemente en Google Sheets */}
+              {contratoSeleccionadoId && (
+                <div className="bg-amber-50 border border-amber-300 p-4 rounded-xl flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
+                  <div>
+                    <h5 className="font-black text-xs text-amber-900 uppercase">Configuración de Firmantes y Claves</h5>
+                    <p className="text-xs text-amber-700">Edite los campos abajo y haga clic en Guardar para que persistan permanentemente en la base de datos.</p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={isSavingContrato}
+                    onClick={guardarConfiguracionContrato}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm cursor-pointer whitespace-nowrap"
+                  >
+                    <Save className="w-4 h-4" /> {isSavingContrato ? 'Guardando...' : 'Guardar Firmantes en Contrato'}
+                  </button>
+                </div>
+              )}
+
               <div className="overflow-x-auto border border-slate-400 rounded-lg">
                 <table className="w-full text-left text-xs border-collapse">
                   <thead>
@@ -1192,12 +1241,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: XX0000):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: AT1020):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder="Ej: XX0000"
+                          placeholder="Ej: AT1020"
                           value={siceRespProveedor.clave}
                           onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
@@ -1216,7 +1265,7 @@ export default function Reportes(props) {
                           required
                           value={siceRespCliente.cargo}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, cargo: e.target.value})}
-                          placeholder="Ej: Supervisor de Planta"
+                          placeholder="Ej: Gerente de Planta"
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -1227,17 +1276,17 @@ export default function Reportes(props) {
                           required
                           value={siceRespCliente.nombre}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, nombre: e.target.value})}
-                          placeholder="Ej: Carlos Gómez"
+                          placeholder="Ej: Cristian Matei"
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: YY9999):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: CM7030):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder="Ej: YY9999"
+                          placeholder="Ej: CM7030"
                           value={siceRespCliente.clave}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
@@ -1248,7 +1297,7 @@ export default function Reportes(props) {
                 </div>
 
                 <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
-                  <p className="text-xs text-slate-500">Los datos se cargan por defecto desde el contrato seleccionado y se pueden editar antes de firmar.</p>
+                  <p className="text-xs text-slate-500">Verifique las claves y presione aprobar para generar el reporte diario oficial.</p>
                   <button 
                     type="submit"
                     disabled={isSavingSice}
