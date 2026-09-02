@@ -1105,13 +1105,17 @@ export default function Reportes(props) {
       }
       const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
 
+      const clienteNombreFinal = buscarValorEnObjeto(certificadoPresupuestoObj, [
+        'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial'
+      ]) || '---';
+
       const payloadCert = {
         action: 'guardarYGenerarPDF',
         tabla: 'Certificaciones',
         presupuestoId: certPresupuestoId,
         certificadoNro: certificadoNro,
         fecha: new Date().toISOString().slice(0, 10),
-        cliente: certificadoPresupuestoObj.cliente || '',
+        cliente: clienteNombreFinal,
         obra: certificadoPresupuestoObj.nombre || certificadoPresupuestoObj.nombre_obra || '',
         ordenCompra: certificadoPresupuestoObj.orden_compra || certificadoPresupuestoObj.ordenCompra || certificadoPresupuestoObj.oc || '',
         totalPeriodo: totalCertificadoPeriodo,
@@ -1291,7 +1295,11 @@ export default function Reportes(props) {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
                     <div className="col-span-2">
                       <span className="text-slate-500 font-semibold block">Cliente:</span>
-                      <strong className="text-slate-900">{certificadoPresupuestoObj.cliente || '---'}</strong>
+                      <strong className="text-slate-900">
+                        {buscarValorEnObjeto(certificadoPresupuestoObj, [
+                          'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial'
+                        ]) || '---'}
+                      </strong>
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Presupuesto Nro:</span>
@@ -1318,19 +1326,19 @@ export default function Reportes(props) {
                           <th className="py-2.5 px-2 border-r border-slate-700 w-10 text-center" rowSpan="2">Ítem</th>
                           <th className="py-2.5 px-3 border-r border-slate-700" rowSpan="2">Descripción del Rubro / Tarea</th>
                           <th className="py-2.5 px-1 border-r border-slate-700 text-center w-10" rowSpan="2">Und</th>
-                          <th className="py-2.5 px-1 border-r border-slate-700 text-right w-10" rowSpan="2">Cant.</th>
-                          <th className="py-2.5 px-2 border-r border-slate-700 text-right w-20" rowSpan="2">Total Cotizado</th>
+                          <th className="py-2.5 px-1 border-r border-slate-700 text-right w-8" rowSpan="2">Cant.</th>
+                          <th className="py-2.5 px-3 border-r border-slate-700 text-right min-w-[110px]" rowSpan="2">Total Cotizado</th>
                           <th className="py-2.5 px-1 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ANTERIOR</th>
                           <th className="py-2.5 px-1 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ACTUAL (PERÍODO)</th>
                           <th className="py-2.5 px-1 text-center bg-slate-700" colSpan="2">ACUMULADO</th>
                         </tr>
                         <tr className="bg-slate-700 text-white font-bold text-[9px]">
                           <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
-                          <th className="py-1 px-2 text-right w-20 border-r border-slate-600">Importe ($)</th>
+                          <th className="py-1 px-3 text-right min-w-[105px] border-r border-slate-600">Importe ($)</th>
                           <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
-                          <th className="py-1 px-2 text-right w-20 border-r border-slate-600">Importe ($)</th>
+                          <th className="py-1 px-3 text-right min-w-[105px] border-r border-slate-600">Importe ($)</th>
                           <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
-                          <th className="py-1 px-2 text-right w-20">Importe ($)</th>
+                          <th className="py-1 px-3 text-right min-w-[105px]">Importe ($)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-300">
@@ -1339,13 +1347,13 @@ export default function Reportes(props) {
                             <tr className="bg-slate-100 font-extrabold text-slate-900 border-t border-slate-300">
                               <td className="py-2 px-2 text-center border-r border-slate-300">{rubroObj.rIdx + 1}</td>
                               <td className="py-2 px-3 uppercase border-r border-slate-300" colSpan="3">{rubroObj.nombre}</td>
-                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.totalRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                              <td className="py-2 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.totalRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                              <td className="py-2 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.rubroActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                              <td className="py-2 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.rubroActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                              <td className="py-2 px-2 text-right">$ {(rubroObj.rubroAnterior + rubroObj.rubroActual).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                              <td className="py-2 px-3 text-right whitespace-nowrap">$ {(rubroObj.rubroAnterior + rubroObj.rubroActual).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                             </tr>
                             {rubroObj.tareasFilas.map((t) => (
                               <tr key={t.tIdx} className="hover:bg-amber-50/40 text-xs">
@@ -1353,9 +1361,9 @@ export default function Reportes(props) {
                                 <td className="py-2 px-3 text-slate-800 border-r border-slate-300 font-medium">{t.tarea}</td>
                                 <td className="py-2 px-1 text-center text-slate-500 border-r border-slate-300">{t.unidad}</td>
                                 <td className="py-2 px-1 text-right border-r border-slate-300">{t.cant}</td>
-                                <td className="py-2 px-2 text-right font-bold text-slate-900 border-r border-slate-300">$ {t.totalItem.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                                <td className="py-2 px-3 text-right font-bold text-slate-900 border-r border-slate-300 whitespace-nowrap">$ {t.totalItem.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                 <td className="py-2 px-1 text-center border-r border-slate-300 text-slate-600">{t.pctAnterior}%</td>
-                                <td className="py-2 px-2 text-right border-r border-slate-300 text-slate-600">$ {t.impAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                                <td className="py-2 px-3 text-right border-r border-slate-300 text-slate-600 whitespace-nowrap">$ {t.impAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                 <td className="py-2 px-1 text-center border-r border-slate-300 bg-amber-50/50">
                                   <input
                                     type="number"
@@ -1370,9 +1378,9 @@ export default function Reportes(props) {
                                     className="w-10 bg-white border border-slate-300 rounded px-1 py-0.5 text-center font-bold text-xs outline-none focus:border-amber-500"
                                   />
                                 </td>
-                                <td className="py-2 px-2 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50">$ {t.impActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                                <td className="py-2 px-3 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50 whitespace-nowrap">$ {t.impActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                 <td className="py-2 px-1 text-center border-r border-slate-300 font-bold text-slate-700">{t.pctAcumulado}%</td>
-                                <td className="py-2 px-2 text-right font-bold text-slate-950">$ {t.impAcumulado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                                <td className="py-2 px-3 text-right font-bold text-slate-950 whitespace-nowrap">$ {t.impAcumulado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               </tr>
                             ))}
                           </React.Fragment>
@@ -1424,7 +1432,7 @@ export default function Reportes(props) {
                                       onChange={(e) => {
                                         const pct = parseFloat(e.target.value) || 0;
                                         setAdelantoPct(pct);
-                                        setAdelantoMonto(totalPresupuestoBase * (pct / 100));
+                                        setAdelantoMonto(Math.round(totalPresupuestoBase * (pct / 100)));
                                       }}
                                       className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
                                     />
@@ -1433,19 +1441,16 @@ export default function Reportes(props) {
                                     <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
                                     <input
                                       type="number"
-                                      step="100"
-                                      value={adelantoMonto || montoAdelantoCalculado}
+                                      step="1"
+                                      value={Math.round(adelantoMonto || montoAdelantoCalculado)}
                                       onChange={(e) => {
                                         const monto = parseFloat(e.target.value) || 0;
                                         setAdelantoMonto(monto);
-                                        setAdelantoPct((monto / totalPresupuestoBase) * 100);
+                                        setAdelantoPct(totalPresupuestoBase > 0 ? Number(((monto / totalPresupuestoBase) * 100).toFixed(2)) : 0);
                                       }}
                                       className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
                                     />
                                   </div>
-                                </div>
-                                <div className="text-right font-black text-amber-900 pt-1">
-                                  Monto Adelanto: $ {montoAdelantoCalculado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                                 </div>
                               </div>
                             ) : (
@@ -1485,7 +1490,7 @@ export default function Reportes(props) {
                                       onChange={(e) => {
                                         const pct = parseFloat(e.target.value) || 0;
                                         setRedeterminacionPct(pct);
-                                        setRedeterminacionMonto(netoACertificar * (pct / 100));
+                                        setRedeterminacionMonto(Math.round(netoACertificar * (pct / 100)));
                                       }}
                                       className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500"
                                     />
@@ -1494,8 +1499,8 @@ export default function Reportes(props) {
                                     <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
                                     <input
                                       type="number"
-                                      step="100"
-                                      value={redeterminacionMonto || montoRedetCalculado}
+                                      step="1"
+                                      value={Math.round(redeterminacionMonto || montoRedetCalculado)}
                                       onChange={(e) => {
                                         const monto = parseFloat(e.target.value) || 0;
                                         setRedeterminacionMonto(monto);
