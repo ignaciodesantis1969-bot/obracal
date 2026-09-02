@@ -28,7 +28,6 @@ export default function Reportes(props) {
     props.role || props.userRole || user?.role || user?.rol || user?.user_role || user?.tipo || user?.perfil || user?.user_metadata?.role || ''
   ).toLowerCase();
   
-  // Detección estricta de operador
   const esOperador = userRole.includes('operador') || userRole.includes('operator') || userRole.includes('operat');
 
   const obras = props.obras || props.Obras || [];
@@ -43,6 +42,19 @@ export default function Reportes(props) {
   const [fetchedContratos, setFetchedContratos] = useState([]);
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
   const [fetchedEmpleados, setFetchedEmpleados] = useState([]);
+
+  // Cargar respaldo local inicial para garantizar visualización inmediata del historial
+  useEffect(() => {
+    try {
+      const localSice = localStorage.getItem('sice_partes_guardados');
+      if (localSice) {
+        const parsedLocal = JSON.parse(localSice);
+        if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
+          setFetchedReportesSice(parsedLocal);
+        }
+      }
+    } catch (e) {}
+  }, []);
 
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
@@ -62,7 +74,7 @@ export default function Reportes(props) {
       })
       .catch(() => {});
 
-    // LECTOR BLINDADO DE REPORTES SICE
+    // LECTOR ULTRA-ROBUSTO DE REPORTES SICE
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -75,16 +87,22 @@ export default function Reportes(props) {
         if (Array.isArray(data)) {
           lista = data;
         } else if (data && typeof data === 'object') {
-          const possibleArray = data.ReportesSice || data.reportesSice || data.data || data.records || data.items || data.result;
+          const possibleArray = data.ReportesSice || data.reportesSice || data.data || data.records || data.items || data.result || data.rows;
           if (Array.isArray(possibleArray)) {
             lista = possibleArray;
           } else {
-            // Extraer valores si es un objeto de filas indexadas
             lista = Object.values(data).filter(v => v && typeof v === 'object' && !Array.isArray(v));
           }
         }
         if (lista.length > 0) {
-          setFetchedReportesSice(lista);
+          setFetchedReportesSice(prev => {
+            // Combinar con los locales para no perder nada
+            const combinados = [...lista, ...prev];
+            // Deduplicar por id o nro
+            const unicos = Array.from(new Map(combinados.map(item => [item.id || item.nro, item])).values());
+            localStorage.setItem('sice_partes_guardados', JSON.stringify(unicos));
+            return unicos;
+          });
         }
       })
       .catch((err) => console.error("Error al obtener ReportesSice:", err));
@@ -154,7 +172,6 @@ export default function Reportes(props) {
   const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Reportes Diarios');
 
-  // Bloqueo estricto: El operador solo puede trabajar en Reportes Diarios
   useEffect(() => {
     setActiveTab('Reportes Diarios');
   }, [esOperador]);
@@ -359,7 +376,7 @@ export default function Reportes(props) {
   };
 
   const eliminarParteServidor = async (idParte) => {
-    if (esOperador) return; // Bloqueo estricto para operadores
+    if (esOperador) return;
     if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
     try {
       await fetch(GOOGLE_SCRIPT_URL, {
@@ -371,7 +388,9 @@ export default function Reportes(props) {
           id: idParte
         })
       });
-      setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
+      const filtrados = fetchedReportesSice.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte));
+      setFetchedReportesSice(filtrados);
+      localStorage.setItem('sice_partes_guardados', JSON.stringify(filtrados));
       alert("Parte diario eliminado exitosamente.");
     } catch (err) {
       console.error("Error al eliminar parte:", err);
@@ -473,7 +492,11 @@ export default function Reportes(props) {
         pdfUrl: pdfUrlFinal 
       };
 
-      setFetchedReportesSice(prev => [nuevoParte, ...prev]);
+      setFetchedReportesSice(prev => {
+        const actualizados = [nuevoParte, ...prev];
+        localStorage.setItem('sice_partes_guardados', JSON.stringify(actualizados));
+        return actualizados;
+      });
 
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
@@ -1014,7 +1037,6 @@ export default function Reportes(props) {
         </p>
       </div>
 
-      {/* PESTAÑAS: Restricción absoluta para operadores (solo visualizan Reportes Diarios) */}
       {!esOperador && (
         <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
           {['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
@@ -1451,7 +1473,6 @@ export default function Reportes(props) {
                             <Eye className="w-4 h-4" /> Visualizar
                           </button>
                         )}
-                        {/* Botón de borrado estrictamente bloqueado para operadores */}
                         {!esOperador && (
                           <button 
                             onClick={() => eliminarParteServidor(parteId)}
@@ -1471,7 +1492,6 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {/* MODAL DE VISUALIZACIÓN DE PARTE DIARIO */}
       {parteVisualizando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-300 p-6 space-y-6 text-slate-900 relative">
