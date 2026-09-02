@@ -27,6 +27,8 @@ export default function Reportes(props) {
   const userRole = String(
     props.role || props.userRole || user?.role || user?.rol || user?.user_role || user?.tipo || user?.perfil || user?.user_metadata?.role || ''
   ).toLowerCase();
+  
+  // Detección estricta de operador
   const esOperador = userRole.includes('operador') || userRole.includes('operator') || userRole.includes('operat');
 
   const obras = props.obras || props.Obras || [];
@@ -60,7 +62,7 @@ export default function Reportes(props) {
       })
       .catch(() => {});
 
-    // LECTOR ROBUSTO DE REPORTES SICE DESDE GOOGLE SHEETS
+    // LECTOR BLINDADO DE REPORTES SICE
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -68,21 +70,21 @@ export default function Reportes(props) {
     })
       .then(res => res.json())
       .then(data => {
-        let listaCruda = [];
+        console.log("Respuesta cruda ReportesSice:", data);
+        let lista = [];
         if (Array.isArray(data)) {
-          listaCruda = data;
+          lista = data;
         } else if (data && typeof data === 'object') {
-          const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
-          if (foundKey) {
-            listaCruda = data[foundKey];
+          const possibleArray = data.ReportesSice || data.reportesSice || data.data || data.records || data.items || data.result;
+          if (Array.isArray(possibleArray)) {
+            lista = possibleArray;
           } else {
-            const values = Object.values(data);
-            listaCruda = values.filter(v => v && typeof v === 'object' && !Array.isArray(v));
+            // Extraer valores si es un objeto de filas indexadas
+            lista = Object.values(data).filter(v => v && typeof v === 'object' && !Array.isArray(v));
           }
         }
-
-        if (listaCruda.length > 0) {
-          setFetchedReportesSice(listaCruda);
+        if (lista.length > 0) {
+          setFetchedReportesSice(lista);
         }
       })
       .catch((err) => console.error("Error al obtener ReportesSice:", err));
@@ -150,12 +152,11 @@ export default function Reportes(props) {
   }, [empleadosListProps, fetchedEmpleados]);
 
   const [obraFiltro, setObraFiltro] = useState('todas');
-  const [activeTab, setActiveTab] = useState(esOperador ? 'Reportes Diarios' : 'Certificaciones');
+  const [activeTab, setActiveTab] = useState('Reportes Diarios');
 
+  // Bloqueo estricto: El operador solo puede trabajar en Reportes Diarios
   useEffect(() => {
-    if (esOperador) {
-      setActiveTab('Reportes Diarios');
-    }
+    setActiveTab('Reportes Diarios');
   }, [esOperador]);
 
   const [compObraId, setCompObraId] = useState('todas');
@@ -285,9 +286,7 @@ export default function Reportes(props) {
       lista = allReportesSice.filter(r => {
         if (!r) return false;
         const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId', 'id_contrato', 'IdContrato'])).trim();
-
         if (rContratoId === String(contratoSeleccionadoId).trim()) return true;
-
         const valores = Object.values(r).map(v => String(v).trim());
         return valores.includes(String(contratoSeleccionadoId).trim());
       });
@@ -360,6 +359,7 @@ export default function Reportes(props) {
   };
 
   const eliminarParteServidor = async (idParte) => {
+    if (esOperador) return; // Bloqueo estricto para operadores
     if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
     try {
       await fetch(GOOGLE_SCRIPT_URL, {
@@ -1009,9 +1009,12 @@ export default function Reportes(props) {
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:hidden">
         <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes</h1>
-        <p className="text-slate-500 text-sm mt-1">(Certificacion - Reportes - Listado de Insumos - Comparativas)</p>
+        <p className="text-slate-500 text-sm mt-1">
+          {esOperador ? "(Vista de Operador - Reportes Diarios)" : "(Certificacion - Reportes - Listado de Insumos - Comparativas)"}
+        </p>
       </div>
 
+      {/* PESTAÑAS: Restricción absoluta para operadores (solo visualizan Reportes Diarios) */}
       {!esOperador && (
         <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
           {['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
@@ -1060,7 +1063,7 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {activeTab === 'Reportes Diarios' && (
+      {(activeTab === 'Reportes Diarios' || esOperador) && (
         <div className="space-y-6">
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
@@ -1448,6 +1451,7 @@ export default function Reportes(props) {
                             <Eye className="w-4 h-4" /> Visualizar
                           </button>
                         )}
+                        {/* Botón de borrado estrictamente bloqueado para operadores */}
                         {!esOperador && (
                           <button 
                             onClick={() => eliminarParteServidor(parteId)}
@@ -1573,386 +1577,6 @@ export default function Reportes(props) {
               </button>
             </div>
           </div>
-        </div>
-      )}
-
-      {!esOperador && activeTab === 'Listado de Insumos' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
-                <Package className="w-4 h-4 text-amber-500" /> Listado de Insumos por Presupuesto
-              </h3>
-              <p className="text-xs text-slate-500 mt-0.5">Selecciona un presupuesto para ver el desglose de insumos.</p>
-            </div>
-
-            <div className="flex flex-col sm:flex-row items-center gap-3 w-full md:w-auto">
-              <select
-                className="w-full sm:w-80 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer shadow-sm"
-                value={insumoPresupuestoId}
-                onChange={(e) => setInsumoPresupuestoId(e.target.value)}
-              >
-                <option value="">-- Seleccionar Presupuesto --</option>
-                {presupuestos.map(p => (
-                  <option key={p.id || p.ID} value={String(p.id || p.ID)}>
-                    [{p.codigo || 'S/C'}] {p.nombre || p.Nombre} — Estado: {p.estado_presupuesto || p.estado || 'borrador'}
-                  </option>
-                ))}
-              </select>
-
-              {presupuestoInsumosSeleccionado && (
-                <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200 w-full sm:w-auto justify-center">
-                  <button
-                    onClick={() => setVistaGeneralInsumos(false)}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${!vistaGeneralInsumos ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                  >
-                    <Layers className="w-3.5 h-3.5" /> Por Rubro
-                  </button>
-                  <button
-                    onClick={() => setVistaGeneralInsumos(true)}
-                    className={`flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${vistaGeneralInsumos ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
-                  >
-                    <List className="w-3.5 h-3.5" /> General
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {!presupuestoInsumosSeleccionado ? (
-            <div className="py-16 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-              Selecciona un presupuesto arriba para desplegar el listado de insumos.
-            </div>
-          ) : vistaGeneralInsumos ? (
-            <div className="space-y-6">
-              <div className="space-y-6">
-                {ordenCategorias.map(cat => {
-                  const lista = insumosGenerales[cat];
-                  if (!lista || lista.length === 0) return null;
-                  const totalCat = lista.reduce((acc, item) => acc + item.total, 0);
-
-                  return (
-                    <div key={cat} className="space-y-2">
-                      <div className="flex justify-between items-center border-b border-slate-200 pb-1">
-                        <h5 className="text-xs font-black text-amber-600 uppercase tracking-wider">
-                          {cat} ({lista.length} ítems)
-                        </h5>
-                        <span className="text-xs font-bold text-slate-700">
-                          Total: $ {Math.round(totalCat).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                        </span>
-                      </div>
-                      <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                        <table className="w-full text-left text-xs">
-                          <thead>
-                            <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
-                              <th className="py-2.5 px-3">Insumo / Artículo</th>
-                              <th className="py-2.5 px-3">Rubro de Origen</th>
-                              <th className="py-2.5 px-3">Tarea Asociada</th>
-                              <th className="py-2.5 px-2 text-center">Unidad</th>
-                              <th className="py-2.5 px-2 text-center">Cantidad Total</th>
-                              <th className="py-2.5 px-3 text-right">Costo Unit.</th>
-                              <th className="py-2.5 px-3 text-right">Total ($)</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100">
-                            {lista.map((ins, idx) => (
-                              <tr key={idx} className="hover:bg-slate-50">
-                                <td className="py-2.5 px-3 font-bold text-slate-800">{ins.nombre}</td>
-                                <td className="py-2.5 px-3 font-semibold text-slate-600 uppercase text-[11px]">{ins.rubro}</td>
-                                <td className="py-2.5 px-3 text-slate-500">{ins.tarea}</td>
-                                <td className="py-2.5 px-2 text-center uppercase text-slate-600">{ins.unidad}</td>
-                                <td className="py-2.5 px-2 text-center font-bold text-slate-800">{ins.cantidad}</td>
-                                <td className="py-2.5 px-3 text-right text-slate-600">$ {Math.round(ins.costo_unitario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                <td className="py-2.5 px-3 text-right font-black text-slate-900">$ {Math.round(ins.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              {Object.keys(insumosPorRubro).length === 0 ? (
-                <div className="p-8 text-center text-slate-500 text-xs">Este presupuesto no contiene tareas ni insumos cargados.</div>
-              ) : (
-                Object.entries(insumosPorRubro).map(([nombreRubro, categorias]) => (
-                  <div key={nombreRubro} className="border border-slate-300 rounded-2xl overflow-hidden shadow-sm">
-                    <div className="bg-slate-800 text-white px-6 py-3 font-extrabold text-xs uppercase tracking-wide">
-                      <span>Rubro: {nombreRubro}</span>
-                    </div>
-                    <div className="p-6 space-y-6 bg-white">
-                      {ordenCategorias.map(cat => {
-                        const listaInsumos = categorias[cat];
-                        if (!listaInsumos || listaInsumos.length === 0) return null;
-                        const totalCatRubro = listaInsumos.reduce((acc, item) => acc + item.total, 0);
-
-                        return (
-                          <div key={cat} className="space-y-2">
-                            <div className="flex justify-between items-center border-b border-slate-200 pb-1">
-                              <h5 className="text-xs font-black text-amber-600 uppercase tracking-wider">{cat}</h5>
-                              <span className="text-[11px] font-bold text-slate-600">
-                                Subtotal: $ {Math.round(totalCatRubro).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                              </span>
-                            </div>
-                            <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                              <table className="w-full text-left text-xs">
-                                <thead>
-                                  <tr className="bg-slate-50 text-slate-500 font-semibold uppercase border-b border-slate-200">
-                                    <th className="py-2 px-3">Insumo / Artículo</th>
-                                    <th className="py-2 px-3">Asociado a Tarea</th>
-                                    <th className="py-2 px-2 text-center">Unidad</th>
-                                    <th className="py-2 px-2 text-center">Cantidad Total</th>
-                                    <th className="py-2 px-3 text-right">Costo Unit.</th>
-                                    <th className="py-2 px-3 text-right">Total ($)</th>
-                                  </tr>
-                                </thead>
-                                <tbody className="divide-y divide-slate-100">
-                                  {listaInsumos.map((ins, idx) => (
-                                    <tr key={idx} className="hover:bg-slate-50">
-                                      <td className="py-2 px-3 font-bold text-slate-800">{ins.nombre}</td>
-                                      <td className="py-2 px-3 text-slate-500">{ins.tarea}</td>
-                                      <td className="py-2 px-2 text-center uppercase text-slate-600">{ins.unidad}</td>
-                                      <td className="py-2 px-2 text-center font-bold text-slate-800">{ins.cantidad}</td>
-                                      <td className="py-2 px-3 text-right text-slate-600">$ {Math.round(ins.costo_unitario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                      <td className="py-2 px-3 text-right font-black text-slate-900">$ {Math.round(ins.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {!esOperador && activeTab === 'Comparativo' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-200">
-            <div>
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Análisis Comparativo Detallado (Presupuesto vs Real)</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Desglose por rubros, gastos generales y sueldos de RRHH</p>
-            </div>
-
-            <div className="flex gap-3 w-full md:w-auto">
-              <select 
-                className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
-                value={compObraId}
-                onChange={e => { setCompObraId(e.target.value); setCompPresupuestoId(''); }}
-              >
-                <option value="todas">Todas las obras</option>
-                {obras.map(o => (
-                  <option key={o.id || o.ID} value={String(o.id || o.ID)}>{o.nombre || o.Nombre || 'Obra'}</option>
-                ))}
-              </select>
-
-              <select 
-                className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
-                value={compPresupuestoId}
-                onChange={e => setCompPresupuestoId(e.target.value)}
-              >
-                <option value="">Seleccionar Presupuesto (Aprobados)...</option>
-                {presupuestosCompFiltrados.map(p => (
-                  <option key={p.id || p.ID} value={String(p.id || p.ID)}>{p.codigo || 'PRES'} - {p.nombre || p.Nombre || 'Presupuesto'}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          {!compPresupuestoId ? (
-            <div className="py-16 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-              Selecciona una obra y un presupuesto aprobado para visualizar el comparativo desglosado.
-            </div>
-          ) : (() => {
-            let totalRealRubrosCalculado = 0;
-
-            return (
-              <div className="overflow-x-auto border border-slate-200 rounded-xl">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="bg-slate-100 text-slate-700 font-bold uppercase border-b border-slate-200">
-                      <th className="px-4 py-3">Rubro / Componente / Gastos Generales</th>
-                      <th className="px-4 py-3 text-right">Presupuestado Aprobado ($)</th>
-                      <th className="px-4 py-3 text-right">Imputaciones Reales (Facturas) ($)</th>
-                      <th className="px-4 py-3 text-right">Salarios Semanales (RRHH) ($)</th>
-                      <th className="px-4 py-3 text-right">Variación / Desvío ($)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {rubrosPresupuestoDetalle.map((rubro) => {
-                      const componentesEntradas = Object.entries(rubro.componentes);
-
-                      const realFacturasRubroTotal = facturasPresupuesto
-                        .filter(fac => {
-                          const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').trim();
-                          if (rFac.toLowerCase().includes('gastos generales')) return false;
-                          const limpioRubroFac = limpiarTexto(rFac);
-                          const limpioRubroPres = limpiarTexto(rubro.nombre);
-                          return limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac);
-                        });
-
-                      const realSalariosRubro = obtenerSalariosPorRubro(rubro.nombre);
-
-                      return (
-                        <React.Fragment key={`rub-${rubro.id}`}>
-                          <tr className="bg-slate-50 font-extrabold text-slate-900 border-t border-slate-200">
-                            <td className="px-4 py-3 uppercase text-amber-600 flex items-center gap-2" colSpan={5}>
-                              <Layers className="w-4 h-4 text-amber-500" />
-                              {rubro.nombre}
-                            </td>
-                          </tr>
-
-                          {componentesEntradas.map(([compNombre, montoComp], cIdx) => {
-                            const realFacComp = obtenerFacturasParaComponente(rubro, compNombre, realFacturasRubroTotal);
-                            const esManoDeObra = limpiarTexto(compNombre).includes('mano') || limpiarTexto(compNombre).includes('obra');
-                            const realSalariosComp = esManoDeObra ? realSalariosRubro : 0;
-                            const totalRealComp = realFacComp + realSalariosComp;
-                            totalRealRubrosCalculado += totalRealComp;
-                            const desvioComp = montoComp - totalRealComp;
-
-                            return (
-                              <tr key={cIdx} className="hover:bg-slate-50/80">
-                                <td className="px-4 py-2.5 pl-8 text-slate-600 font-medium flex items-center gap-2">
-                                  <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
-                                  {compNombre}
-                                </td>
-                                <td className="px-4 py-2.5 text-right font-bold text-blue-600">
-                                  $ {montoComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                </td>
-                                <td className="px-4 py-2.5 text-right font-semibold text-slate-700">
-                                  $ {realFacComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                </td>
-                                <td className="px-4 py-2.5 text-right font-semibold text-amber-600">
-                                  $ {realSalariosComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                </td>
-                                <td className={`px-4 py-2.5 text-right font-black ${desvioComp >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                  $ {desvioComp.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </React.Fragment>
-                      );
-                    })}
-
-                    <tr className="bg-amber-200 text-amber-950 font-extrabold">
-                      <td className="px-4 py-3 uppercase">TOTAL RUBROS</td>
-                      <td className="px-4 py-3 text-right">$ {totalPresupuestoRubros.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-3 text-right">
-                        $ {rubrosPresupuestoDetalle.reduce((acc, r) => {
-                          const fRubro = facturasPresupuesto
-                            .filter(fac => {
-                              const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').trim();
-                              if (rFac.toLowerCase().includes('gastos generales')) return false;
-                              const limpioRubroFac = limpiarTexto(rFac);
-                              const limpioRubroPres = limpiarTexto(r.nombre);
-                              if (!(limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac))) {
-                                return false;
-                              }
-                              const tipoFac = limpiarTexto(fac.tipo_insumo || fac.renglon || fac.concepto || '');
-                              if (tipoFac.includes('mano') || tipoFac.includes('salario')) return false;
-                              return true;
-                            })
-                            .reduce((sum, fac) => sum + Number(fac.subtotal || fac.Subtotal || 0), 0);
-                          return acc + fRubro;
-                        }, 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td className="px-4 py-3 text-right">$ {movimientosRrhhPresupuesto.reduce((acc, m) => acc + Number(m.monto || m.Monto || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-3 text-right">$ {(totalPresupuestoRubros - totalRealRubrosCalculado).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    </tr>
-
-                    {gastosGeneralesDetalle.length > 0 && (
-                      <React.Fragment>
-                        <tr className="bg-amber-50 font-extrabold text-slate-900 border-t-2 border-amber-200">
-                          <td className="px-4 py-3 uppercase text-amber-800 flex items-center gap-2" colSpan={5}>
-                            <ShieldCheck className="w-4 h-4 text-amber-600" />
-                            GASTOS GENERALES (SEGURIDAD E HIGIENE / EPP / ROPA / IMPREVISTOS)
-                          </td>
-                        </tr>
-
-                        {gastosGeneralesDetalle.map((ggItem) => {
-                          const realItemGG = ggItem.real || 0;
-                          const desvioGG = ggItem.desvio !== undefined ? ggItem.desvio : (ggItem.total - realItemGG);
-
-                          return (
-                            <tr key={ggItem.id} className="hover:bg-amber-50/50">
-                              <td className="px-4 py-2.5 pl-8 text-slate-700 font-medium flex items-center gap-2">
-                                <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                                {ggItem.concepto} {!ggItem.esImprevistos && `(Cant: ${ggItem.cantidad})`}
-                              </td>
-                              <td className="px-4 py-2.5 text-right font-bold text-blue-600">
-                                $ {ggItem.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                              </td>
-                              <td className="px-4 py-2.5 text-right font-semibold text-slate-700">
-                                $ {realItemGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                              </td>
-                              <td className="px-4 py-2.5 text-right font-semibold text-amber-600">$ 0,00</td>
-                              <td className={`px-4 py-2.5 text-right font-black ${desvioGG >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                                $ {desvioGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </React.Fragment>
-                    )}
-
-                    <tr className="bg-amber-200 text-amber-950 font-extrabold">
-                      <td className="px-4 py-3 uppercase">TOTAL GASTOS GENERALES E IMPREVISTOS</td>
-                      <td className="px-4 py-3 text-right">$ {totalPresupuestoGG.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-3 text-right">$ {(totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-3 text-right">$ 0,00</td>
-                      <td className="px-4 py-3 text-right">$ {(totalPresupuestoGG - (totalRealGGEspecifico + totalRealImprevistos)).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    </tr>
-
-                    {(() => {
-                      const totalFacturasRubrosNeto = rubrosPresupuestoDetalle.reduce((acc, r) => {
-                        const fRubro = facturasPresupuesto
-                          .filter(fac => {
-                            const rFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').trim();
-                            if (rFac.toLowerCase().includes('gastos generales')) return false;
-                            const limpioRubroFac = limpiarTexto(rFac);
-                            const limpioRubroPres = limpiarTexto(r.nombre);
-                            if (!(limpioRubroFac === limpioRubroPres || limpioRubroFac.includes(limpioRubroPres) || limpioRubroPres.includes(limpioRubroFac))) {
-                              return false;
-                            }
-                            const tipoFac = limpiarTexto(fac.tipo_insumo || fac.renglon || fac.concepto || '');
-                            if (tipoFac.includes('mano') || tipoFac.includes('salario')) return false;
-                            return true;
-                          })
-                          .reduce((sum, fac) => sum + Number(fac.subtotal || fac.Subtotal || 0), 0);
-                        return acc + fRubro;
-                      }, 0);
-
-                      const granTotalReal = totalRealRubrosCalculado + totalRealGGEspecifico + totalRealImprevistos;
-                      const granTotalDesvio = granTotalPresupuestado - granTotalReal;
-
-                      return (
-                        <tr className="bg-slate-900 text-white font-black text-sm">
-                          <td className="px-4 py-4 uppercase">GRAN TOTAL GENERAL</td>
-                          <td className="px-4 py-4 text-right">$ {granTotalPresupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-4 text-right">$ {(totalFacturasRubrosNeto + totalRealGGEspecifico + totalRealImprevistos).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-4 text-right">$ {movimientosRrhhPresupuesto.reduce((acc, m) => acc + Number(m.monto || m.Monto || 0), 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className={`px-4 py-4 text-right ${granTotalDesvio >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                            $ {granTotalDesvio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                          </td>
-                        </tr>
-                      );
-                    })()}
-                  </tbody>
-                </table>
-              </div>
-            );
-          })()}
         </div>
       )}
     </div>
