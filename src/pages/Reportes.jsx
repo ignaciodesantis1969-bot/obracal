@@ -113,8 +113,9 @@ export default function Reportes(props) {
 
         if (lista.length > 0) {
           setFetchedReportesSice(prev => {
-            const combinados = [...lista, ...prev];
-            const unicos = Array.from(new Map(combinados.map(item => [String(item.id || item.nro), item])).values());
+            const localActual = JSON.parse(localStorage.getItem('sice_reportes_locales') || '[]');
+            const combinados = [...localActual, ...lista, ...prev];
+            const unicos = Array.from(new Map(combinados.map(item => [String(buscarValorEnObjeto(item, ['id', 'ID']) || buscarValorEnObjeto(item, ['nro', 'Nro', 'numero'])), item])).values());
             localStorage.setItem('sice_reportes_locales', JSON.stringify(unicos));
             return unicos;
           });
@@ -149,18 +150,32 @@ export default function Reportes(props) {
 
   const reportesSiceListProps = props.reportesSice || props.ReportesSice || props.reportes_sice || [];
 
+  const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
+    if (!obj) return defecto;
+    for (const pk of posibleClaves) {
+      const cleanPk = pk.toLowerCase().replace(/[^a-z0-9]/g, '');
+      for (const [k, v] of Object.entries(obj)) {
+        const cleanK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (cleanK === cleanPk && v !== undefined && v !== null && String(v).trim() !== '') {
+          return v;
+        }
+      }
+    }
+    return defecto;
+  };
+
   const allReportesSice = useMemo(() => {
-    let base = reportesSiceListProps.length > 0 ? reportesSiceListProps : fetchedReportesSice;
+    let base = fetchedReportesSice;
     try {
       const localSaved = JSON.parse(localStorage.getItem('sice_reportes_locales') || '[]');
       if (Array.isArray(localSaved) && localSaved.length > 0) {
-        const combinados = [...base, ...localSaved];
-        base = Array.from(new Map(combinados.map(item => [String(item.id || item.nro), item])).values());
+        const combinados = [...base, ...localSaved, ...reportesSiceListProps];
+        base = Array.from(new Map(combinados.map(item => [String(buscarValorEnObjeto(item, ['id', 'ID']) || buscarValorEnObjeto(item, ['nro', 'Nro', 'numero'])), item])).values());
       }
     } catch {}
     if (base.length === 0) return REPORTES_DEFAULT_INICIALES;
     return base;
-  }, [reportesSiceListProps, fetchedReportesSice]);
+  }, [fetchedReportesSice, reportesSiceListProps]);
 
   const listaEmpleadosActivos = useMemo(() => {
     const fuente = empleadosListProps.length > 0 ? empleadosListProps : (fetchedEmpleados.length > 0 ? fetchedEmpleados : [
@@ -221,12 +236,12 @@ export default function Reportes(props) {
   useEffect(() => {
     if (listaEmpleadosActivos.length > 0 && operariosSeleccionados.length === 0) {
       const iniciales = listaEmpleadosActivos.slice(0, 1).map(emp => {
-        const nombreEmp = emp.nombre || emp.Nombre || emp.empleado || emp.apellido || 'Operario';
+        const nombreEmp = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || 'Operario';
         const isCallapina = nombreEmp.toLowerCase().includes('callapiña') || nombreEmp.toLowerCase().includes('callapina');
         const abrevEmp = isCallapina ? 'S' : 'OE';
 
         return {
-          id: emp.id || emp.ID || Math.random().toString(),
+          id: buscarValorEnObjeto(emp, ['id', 'ID']) || Math.random().toString(),
           nombre: nombreEmp,
           abreviacion: abrevEmp,
           horas: '' 
@@ -240,20 +255,6 @@ export default function Reportes(props) {
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
   const [parteVisualizando, setParteVisualizando] = useState(null);
   const [isSavingSice, setIsSavingSice] = useState(false);
-
-  const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
-    if (!obj) return defecto;
-    for (const pk of posibleClaves) {
-      const cleanPk = pk.toLowerCase().replace(/[^a-z0-9]/g, '');
-      for (const [k, v] of Object.entries(obj)) {
-        const cleanK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (cleanK === cleanPk && v !== undefined && v !== null && String(v).trim() !== '') {
-          return String(v).trim();
-        }
-      }
-    }
-    return defecto;
-  };
 
   const extraerDatosContrato = (contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
@@ -288,7 +289,7 @@ export default function Reportes(props) {
 
   const clavesContratoActual = useMemo(() => {
     const contratoActivo = contratosList.find(c => {
-      const cId = String(c.id || c.ID || c.codigo || c.Codigo || '').trim();
+      const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo'])).trim();
       return cId === String(contratoSeleccionadoId).trim();
     });
 
@@ -302,7 +303,7 @@ export default function Reportes(props) {
   useEffect(() => {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => {
-        const cId = String(c.id || c.ID || c.codigo || c.Codigo || '').trim();
+        const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo'])).trim();
         return cId === String(contratoSeleccionadoId).trim();
       });
 
@@ -327,10 +328,7 @@ export default function Reportes(props) {
     if (contratoSeleccionadoId) {
       lista = allReportesSice.filter(r => {
         if (!r) return false;
-        const rContratoId = String(
-          r.contratoid || r.contratoId || r.contrato_id || r.ContratoId || 
-          r.id_contrato || r.IdContrato || ''
-        ).trim();
+        const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId', 'id_contrato', 'IdContrato'])).trim();
 
         if (rContratoId === String(contratoSeleccionadoId).trim()) return true;
 
@@ -340,33 +338,50 @@ export default function Reportes(props) {
     }
 
     return lista.map(r => {
-      let itemsParsed = r.items;
-      if (typeof itemsParsed === 'string') {
+      let rawItems = buscarValorEnObjeto(r, ['items', 'Item', 'Items']);
+      let itemsParsed = rawItems;
+      if (typeof itemsParsed === 'string' && itemsParsed.trim()) {
         try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
       }
-      let operariosParsed = r.operarios || r.operariosPresentes || [];
-      if (typeof operariosParsed === 'string') {
+
+      let rawOps = buscarValorEnObjeto(r, ['operarios', 'operariosPresentes', 'Operarios', 'OperariosPresentes']);
+      let operariosParsed = rawOps;
+      if (typeof operariosParsed === 'string' && operariosParsed.trim()) {
         try { operariosParsed = JSON.parse(operariosParsed); } catch { operariosParsed = []; }
       }
-      let provParsed = r.proveedor;
-      if (typeof provParsed === 'string') {
-        try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: '', cargo: '' }; }
+
+      let rawProv = buscarValorEnObjeto(r, ['proveedor', 'Proveedor']);
+      let provParsed = rawProv;
+      if (typeof provParsed === 'string' && provParsed.trim()) {
+        try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: String(rawProv), cargo: '' }; }
       }
-      let cliParsed = r.cliente;
-      if (typeof cliParsed === 'string') {
-        try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: '', cargo: '' }; }
+      if (!provParsed || typeof provParsed !== 'object') provParsed = { nombre: '', cargo: '' };
+
+      let rawCli = buscarValorEnObjeto(r, ['cliente', 'Cliente']);
+      let cliParsed = rawCli;
+      if (typeof cliParsed === 'string' && cliParsed.trim()) {
+        try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: String(rawCli), cargo: '' }; }
       }
+      if (!cliParsed || typeof cliParsed !== 'object') cliParsed = { nombre: '', cargo: '' };
+
+      const idVal = buscarValorEnObjeto(r, ['id', 'ID', 'Id']);
+      const nroVal = buscarValorEnObjeto(r, ['nro', 'Nro', 'numero', 'Numero']);
+      const fechaVal = buscarValorEnObjeto(r, ['fecha', 'Fecha']);
+      const contratoIdVal = buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId']);
+      const totalHsVal = buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma', 'TotalHorasSuma', 'total_horas_suma']);
+      const pdfUrlVal = buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'PdfUrl', 'urlPdf']);
+
       return {
-        id: r.id || r.ID || `sice-${Math.random()}`,
-        nro: r.nro || r.numero || '00001',
-        fecha: r.fecha || '',
-        contratoid: r.contratoid || r.contratoId || '',
+        id: idVal || nroVal || `sice-${Math.random()}`,
+        nro: nroVal || '00001',
+        fecha: fechaVal || '',
+        contratoid: contratoIdVal || '',
         items: Array.isArray(itemsParsed) ? itemsParsed : [],
         operarios: Array.isArray(operariosParsed) ? operariosParsed : [],
         proveedor: provParsed,
         cliente: cliParsed,
-        totalHorasSuma: Number(r.totalhorassuma || r.totalHorasSuma || 0),
-        pdfUrl: r.pdf_url || r.pdfUrl || ''
+        totalHorasSuma: Number(totalHsVal || 0),
+        pdfUrl: pdfUrlVal || ''
       };
     });
   }, [contratoSeleccionadoId, allReportesSice]);
@@ -401,7 +416,7 @@ export default function Reportes(props) {
         })
       });
       setFetchedReportesSice(prev => {
-        const filtrados = prev.filter(p => String(p.id) !== String(idParte));
+        const filtrados = prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte));
         localStorage.setItem('sice_reportes_locales', JSON.stringify(filtrados));
         return filtrados;
       });
@@ -1114,10 +1129,10 @@ export default function Reportes(props) {
                 >
                   <option value="">-- Seleccionar Contrato ({contratosList.length} disponibles) --</option>
                   {contratosList.map((c, i) => {
-                    const cId = String(c.id || c.ID || c.codigo || c.Codigo || i);
-                    const cCod = c.codigo || c.Codigo || 'S/C';
-                    const cNom = c.nombre || c.nombre_contrato || c.Nombre_contrato || c.nombreContrato || c.cliente || c.Cliente || 'Contrato';
-                    const cEst = c.estado || c.Estado || 'Activo';
+                    const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo']) || i);
+                    const cCod = buscarValorEnObjeto(c, ['codigo', 'Codigo']) || 'S/C';
+                    const cNom = buscarValorEnObjeto(c, ['nombre', 'nombre_contrato', 'Nombre_contrato', 'nombreContrato', 'cliente', 'Cliente']) || 'Contrato';
+                    const cEst = buscarValorEnObjeto(c, ['estado', 'Estado']) || 'Activo';
                     return (
                       <option key={cId} value={cId}>
                         [{cCod}] {cNom} ({cEst})
@@ -1164,7 +1179,7 @@ export default function Reportes(props) {
                 </div>
               </div>
 
-              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES */}
+              {/* OPERARIOS PRESENTES */}
               <div className="space-y-3 pt-2">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
@@ -1202,7 +1217,7 @@ export default function Reportes(props) {
                           >
                             <option value="">-- Seleccionar Operario (RRHH Activos) --</option>
                             {listaEmpleadosActivos.map((emp, eIdx) => {
-                              const empNom = emp.nombre || emp.Nombre || emp.empleado || emp.apellido || `Operario ${eIdx + 1}`;
+                              const empNom = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || `Operario ${eIdx + 1}`;
                               const isSelectedElsewhere = operariosSeleccionados.some((oItem, oIdx) => oIdx !== idx && oItem.nombre === empNom);
 
                               return (
@@ -1503,7 +1518,7 @@ export default function Reportes(props) {
         </div>
       )}
 
-      {/* 🔍 MODAL DE VISUALIZACIÓN DE PARTE DIARIO */}
+      {/* MODAL DE VISUALIZACIÓN DE PARTE DIARIO */}
       {parteVisualizando && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-300 p-6 space-y-6 text-slate-900 relative">
@@ -1529,7 +1544,6 @@ export default function Reportes(props) {
               </div>
             </div>
 
-            {/* Operarios presentes */}
             <div className="space-y-2">
               <h4 className="text-xs font-black text-slate-900 uppercase flex items-center gap-1.5">
                 <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes
@@ -1551,7 +1565,6 @@ export default function Reportes(props) {
               </div>
             </div>
 
-            {/* Ítems del servicio */}
             <div className="overflow-x-auto border border-slate-300 rounded-xl">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
@@ -1581,7 +1594,6 @@ export default function Reportes(props) {
               </table>
             </div>
 
-            {/* Firmas / Responsables */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 text-xs">
               <div>
                 <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Proveedor</h5>
