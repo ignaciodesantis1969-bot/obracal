@@ -1667,7 +1667,7 @@ export default function Reportes(props) {
               <select 
                 className="bg-white border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 outline-none focus:border-amber-500 shadow-sm cursor-pointer"
                 value={compPresupuestoId}
-                onChange={e => { setCompPresupuestoId(e.target.value)}
+                onChange={e => setCompPresupuestoId(e.target.value)}
               >
                 <option value="">Seleccionar Presupuesto (Aprobados)...</option>
                 {presupuestosCompFiltrados.map(p => (
