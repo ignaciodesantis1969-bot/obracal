@@ -158,8 +158,6 @@ export default function Reportes(props) {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
       if (contrato) {
-        console.log("Contrato seleccionado:", contrato);
-
         let pCargo = contrato.proveedorCargo || contrato.proveedor_cargo || contrato.ProveedorCargo || contrato.cargo_proveedor || contrato.cargoProveedor || contrato.puesto_proveedor || '';
         let pNombre = contrato.proveedorNombre || contrato.proveedor_nombre || contrato.ProveedorNombre || contrato.nombre_proveedor || contrato.responsableProveedor || contrato.responsable_proveedor || contrato.contacto_proveedor || '';
         
