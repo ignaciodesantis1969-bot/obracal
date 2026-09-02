@@ -141,7 +141,7 @@ export default function Reportes(props) {
   
   const [isSavingSice, setIsSavingSice] = useState(false);
 
-  // Helper flexible para buscar claves ignorando mayúsculas, guiones bajos o espacios
+  // Helper estricto y ordenado para buscar claves ignorando mayúsculas, guiones bajos o espacios
   const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
     if (!obj) return defecto;
     for (const pk of posibleClaves) {
@@ -181,11 +181,12 @@ export default function Reportes(props) {
       if (contrato) {
         console.log("Contrato seleccionado encontrado:", contrato);
 
-        let pCargo = buscarValorEnObjeto(contrato, ['proveedorCargo', 'proveedor_cargo', 'cargoProveedor', 'cargo_proveedor', 'puestoProveedor', 'puesto_proveedor', 'cargo']);
-        let pNombre = buscarValorEnObjeto(contrato, ['proveedorNombre', 'proveedor_nombre', 'nombreProveedor', 'nombre_proveedor', 'responsableProveedor', 'responsable_proveedor', 'contactoProveedor', 'contacto_proveedor', 'proveedor']);
+        // Claves específicas para evitar mapear la empresa ("LDC ARGENTINA S.A.") en lugar del nombre del responsable
+        let pCargo = buscarValorEnObjeto(contrato, ['proveedorCargo', 'proveedor_cargo', 'cargoProveedor', 'cargo_proveedor', 'puestoProveedor', 'puesto_proveedor']);
+        let pNombre = buscarValorEnObjeto(contrato, ['proveedorNombre', 'proveedor_nombre', 'nombreProveedor', 'nombre_proveedor', 'responsableProveedor', 'responsable_proveedor', 'contactoProveedor', 'contacto_proveedor']);
         
         let cCargo = buscarValorEnObjeto(contrato, ['clienteCargo', 'cliente_cargo', 'cargoCliente', 'cargo_cliente', 'puestoCliente', 'puesto_cliente']);
-        let cNombre = buscarValorEnObjeto(contrato, ['clienteNombre', 'cliente_nombre', 'nombreCliente', 'nombre_cliente', 'responsableCliente', 'responsable_cliente', 'contactoCliente', 'contacto_cliente', 'cliente']);
+        let cNombre = buscarValorEnObjeto(contrato, ['clienteNombre', 'cliente_nombre', 'nombreCliente', 'nombre_cliente', 'responsableCliente', 'responsable_cliente', 'contactoCliente', 'contacto_cliente']);
 
         setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
         setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
