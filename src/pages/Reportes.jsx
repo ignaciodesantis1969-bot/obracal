@@ -39,76 +39,86 @@ export default function Reportes(props) {
   const facturas = props.facturas || props.Facturas || [];
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
 
+  const propsContratos = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento;
+  const propsReportesSice = props.reportesSice || props.ReportesSice || props.reportes_sice;
+  const propsEmpleados = empleadosListProps;
+
   const [fetchedContratos, setFetchedContratos] = useState([]);
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
   const [fetchedEmpleados, setFetchedEmpleados] = useState([]);
 
+  // Optimización de red: Solo se ejecuta el fetch si los datos no vienen provistos por props
   useEffect(() => {
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' })
-    })
-      .then(res => res.json())
-      .then(data => {
-        let lista = [];
-        if (Array.isArray(data)) lista = data;
-        else if (data && typeof data === 'object') {
-          const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
-          if (foundKey) lista = data[foundKey];
-        }
-        if (lista.length > 0) setFetchedContratos(lista);
+    if (!propsContratos || propsContratos.length === 0) {
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' })
       })
-      .catch(() => {});
-
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' })
-    })
-      .then(res => res.json())
-      .then(data => {
-        let lista = [];
-        if (Array.isArray(data)) {
-          lista = data;
-        } else if (data && typeof data === 'object') {
-          const possibleArray = data.ReportesSice || data.reportesSice || data.data || data.records || data.items || data.result || data.rows;
-          if (Array.isArray(possibleArray)) {
-            lista = possibleArray;
-          } else {
-            lista = Object.values(data).filter(v => v && typeof v === 'object' && !Array.isArray(v));
+        .then(res => res.json())
+        .then(data => {
+          let lista = [];
+          if (Array.isArray(data)) lista = data;
+          else if (data && typeof data === 'object') {
+            const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+            if (foundKey) lista = data[foundKey];
           }
-        }
-        if (lista.length > 0) {
-          setFetchedReportesSice(lista);
-        }
-      })
-      .catch((err) => console.error("Error al obtener ReportesSice:", err));
+          if (lista.length > 0) setFetchedContratos(lista);
+        })
+        .catch(() => {});
+    }
 
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: 'Empleados', action: 'get' })
-    })
-      .then(res => res.json())
-      .then(data => {
-        let lista = [];
-        if (Array.isArray(data)) lista = data;
-        else if (data && typeof data === 'object') {
-          const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
-          if (foundKey) lista = data[foundKey];
-        }
-        if (lista.length > 0) setFetchedEmpleados(lista);
+    if (!propsReportesSice || propsReportesSice.length === 0) {
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' })
       })
-      .catch(() => {});
-  }, []);
+        .then(res => res.json())
+        .then(data => {
+          let lista = [];
+          if (Array.isArray(data)) {
+            lista = data;
+          } else if (data && typeof data === 'object') {
+            const possibleArray = data.ReportesSice || data.reportesSice || data.data || data.records || data.items || data.result || data.rows;
+            if (Array.isArray(possibleArray)) {
+              lista = possibleArray;
+            } else {
+              lista = Object.values(data).filter(v => v && typeof v === 'object' && !Array.isArray(v));
+            }
+          }
+          if (lista.length > 0) {
+            setFetchedReportesSice(lista);
+          }
+        })
+        .catch((err) => console.error("Error al obtener ReportesSice:", err));
+    }
+
+    if (!propsEmpleados || propsEmpleados.length === 0) {
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'Empleados', action: 'get' })
+      })
+        .then(res => res.json())
+        .then(data => {
+          let lista = [];
+          if (Array.isArray(data)) lista = data;
+          else if (data && typeof data === 'object') {
+            const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+            if (foundKey) lista = data[foundKey];
+          }
+          if (lista.length > 0) setFetchedEmpleados(lista);
+        })
+        .catch(() => {});
+    }
+  }, [propsContratos, propsReportesSice, propsEmpleados]);
 
   const contratosList = useMemo(() => {
-    const propsC = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento;
-    if (Array.isArray(propsC) && propsC.length > 0) return propsC;
+    if (Array.isArray(propsContratos) && propsContratos.length > 0) return propsContratos;
     if (fetchedContratos.length > 0) return fetchedContratos;
     return CONTRATO_DEFAULT;
-  }, [props.contratos, props.Contratos, props.contratosMantenimiento, props.ContratosMantenimiento, props.contratos_mantenimiento, fetchedContratos]);
+  }, [propsContratos, fetchedContratos]);
 
   const reportesSiceListProps = props.reportesSice || props.ReportesSice || props.reportes_sice || [];
 
@@ -151,7 +161,6 @@ export default function Reportes(props) {
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
 
-  // Estado para porcentajes de avance actual ingresados (clave: "rubroIdx-tareaIdx" o similar)
   const [avanceActualMap, setAvanceActualMap] = useState({});
   const [desacopioMonto, setDesacopioMonto] = useState(0);
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
@@ -963,6 +972,87 @@ export default function Reportes(props) {
 
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
 
+  // Optimización de rendimiento: useMemo para evitar congelamiento al escribir en los inputs de porcentaje de avance
+  const certificadoCalculos = useMemo(() => {
+    if (!certificadoPresupuestoObj) return { filasRender: [], sumaTotalPresupuesto: 0, sumaTotalAnterior: 0, sumaTotalActual: 0, sumaTotalAcumulado: 0, totalPresupuestoCalc: 0, totalActualCalc: 0 };
+
+    let itemsDetalle = [];
+    try {
+      const parsed = typeof certificadoPresupuestoObj.items_detalle === 'string'
+        ? JSON.parse(certificadoPresupuestoObj.items_detalle)
+        : certificadoPresupuestoObj.items_detalle;
+      itemsDetalle = parsed?.rubros || parsed || [];
+    } catch (e) {
+      itemsDetalle = [];
+    }
+
+    let sumaTotalPresupuesto = 0;
+    let sumaTotalAnterior = 0;
+    let sumaTotalActual = 0;
+    let sumaTotalAcumulado = 0;
+    let totalPresupuestoCalc = 0;
+    let totalActualCalc = 0;
+
+    const filasRender = itemsDetalle.map((rubro, rIdx) => {
+      let totalRubro = 0;
+      let rubroAnterior = 0;
+      let rubroActual = 0;
+
+      const tareasFilas = (rubro.tareas || []).map((t, tIdx) => {
+        const cant = Number(t.cantidad) || 1;
+        const pUnit = Number(t.costo_unitario) || Number(t.precio_unitario) || 0;
+        const totalItem = cant * pUnit;
+        totalRubro += totalItem;
+
+        const pctAnterior = 0.50; 
+        const impAnterior = totalItem * pctAnterior;
+        rubroAnterior += impAnterior;
+
+        const keyMap = `${rIdx}-${tIdx}`;
+        const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : 0.30;
+        const impActual = totalItem * pctActual;
+        rubroActual += impActual;
+
+        const pctAcumulado = Math.min(1, pctAnterior + pctActual);
+        const impAcumulado = impAnterior + impActual;
+
+        sumaTotalPresupuesto += totalItem;
+        sumaTotalAnterior += impAnterior;
+        sumaTotalActual += impActual;
+        sumaTotalAcumulado += impAcumulado;
+        totalPresupuestoCalc += totalItem;
+        totalActualCalc += impActual;
+
+        return {
+          rIdx,
+          tIdx,
+          tarea: t.tarea || t.descripcion || 'Índice de obra',
+          unidad: t.unidad || 'm2',
+          cant,
+          totalItem,
+          pctAnterior,
+          impAnterior,
+          pctActual,
+          impActual,
+          pctAcumulado,
+          impAcumulado,
+          keyMap
+        };
+      });
+
+      return {
+        rIdx,
+        nombre: rubro.rubro || `Rubro #${rIdx + 1}`,
+        totalRubro,
+        rubroAnterior,
+        rubroActual,
+        tareasFilas
+      };
+    });
+
+    return { filasRender, sumaTotalPresupuesto, sumaTotalAnterior, sumaTotalActual, sumaTotalAcumulado, totalPresupuestoCalc, totalActualCalc };
+  }, [certificadoPresupuestoObj, avanceActualMap]);
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:hidden">
@@ -997,7 +1087,6 @@ export default function Reportes(props) {
             </div>
           </div>
 
-          {/* Sub-pestañas de Tipos de Certificación */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 print:hidden">
             <button
               type="button"
@@ -1033,7 +1122,6 @@ export default function Reportes(props) {
             </button>
           </div>
 
-          {/* VISTA 1: Certificado Avance de Obra - Presupuesto */}
           {tipoCertificadoSubTab === 'avance_obra' && (
             <div className="space-y-6 pt-2">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 print:hidden">
@@ -1074,7 +1162,6 @@ export default function Reportes(props) {
                 </div>
               ) : (
                 <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
-                  {/* Encabezado del Certificado */}
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
                     <div>
                       <img src="/logo-07.png" alt="SICE S.A." className="h-20 object-contain mb-2" />
@@ -1086,7 +1173,6 @@ export default function Reportes(props) {
                     </div>
                   </div>
 
-                  {/* Datos Generales */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
                     <div><span className="text-slate-500 font-semibold block">Comitente:</span> <strong className="text-slate-900">{certificadoPresupuestoObj.cliente || 'Familia Baca Castex'}</strong></div>
                     <div><span className="text-slate-500 font-semibold block">Proveedor:</span> <strong className="text-slate-900">SOLVENCIAS INTEGRALES S.A.</strong></div>
@@ -1096,7 +1182,6 @@ export default function Reportes(props) {
                     <div><span className="text-slate-500 font-semibold block">Orden de Compra:</span> <strong className="text-slate-900">00004</strong></div>
                   </div>
 
-                  {/* Tabla Matriz Presupuesto & Certificación */}
                   <div className="overflow-x-auto border border-slate-400 rounded-xl">
                     <table className="w-full text-left text-xs border-collapse">
                       <thead>
@@ -1120,131 +1205,58 @@ export default function Reportes(props) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-300">
-                        {(() => {
-                          let itemsDetalle = [];
-                          try {
-                            const parsed = typeof certificadoPresupuestoObj.items_detalle === 'string'
-                              ? JSON.parse(certificadoPresupuestoObj.items_detalle)
-                              : certificadoPresupuestoObj.items_detalle;
-                            itemsDetalle = parsed?.rubros || parsed || [];
-                          } catch (e) {
-                            itemsDetalle = [];
-                          }
-
-                          let sumaTotalPresupuesto = 0;
-                          let sumaTotalAnterior = 0;
-                          let sumaTotalActual = 0;
-                          let sumaTotalAcumulado = 0;
-
-                          const filasRender = itemsDetalle.map((rubro, rIdx) => {
-                            let totalRubro = 0;
-                            let rubroAnterior = 0;
-                            let rubroActual = 0;
-
-                            const tareasFilas = (rubro.tareas || []).map((t, tIdx) => {
-                              const cant = Number(t.cantidad) || 1;
-                              const pUnit = Number(t.costo_unitario) || Number(t.precio_unitario) || 0;
-                              const totalItem = cant * pUnit;
-                              totalRubro += totalItem;
-
-                              // Simulamos avance anterior fijo (ej. 50%) y actual editable o predeterminado
-                              const pctAnterior = 0.50; 
-                              const impAnterior = totalItem * pctAnterior;
-                              rubroAnterior += impAnterior;
-
-                              const keyMap = `${rIdx}-${tIdx}`;
-                              const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : 0.30;
-                              const impActual = totalItem * pctActual;
-                              rubroActual += impActual;
-
-                              const pctAcumulado = Math.min(1, pctAnterior + pctActual);
-                              const impAcumulado = impAnterior + impActual;
-
-                              sumaTotalPresupuesto += totalItem;
-                              sumaTotalAnterior += impAnterior;
-                              sumaTotalActual += impActual;
-                              sumaTotalAcumulado += impAcumulado;
-
-                              return (
-                                <tr key={tIdx} className="hover:bg-amber-50/40 text-xs">
-                                  <td className="py-2 px-2 text-center font-bold text-slate-700 border-r border-slate-300">{rIdx + 1}.{tIdx + 1}</td>
-                                  <td className="py-2 px-3 text-slate-800 border-r border-slate-300 font-medium">{t.tarea || t.descripcion || 'Índice de obra'}</td>
-                                  <td className="py-2 px-2 text-center text-slate-500 border-r border-slate-300">{t.unidad || 'm2'}</td>
-                                  <td className="py-2 px-2 text-right border-r border-slate-300">{cant}</td>
-                                  <td className="py-2 px-2 text-right font-bold text-slate-900 border-r border-slate-300">$ {totalItem.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                  <td className="py-2 px-1 text-center border-r border-slate-300 text-slate-600">{(pctAnterior * 100).toFixed(0)}%</td>
-                                  <td className="py-2 px-2 text-right border-r border-slate-300 text-slate-600">$ {impAnterior.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                  <td className="py-2 px-1 text-center border-r border-slate-300 bg-amber-50/50">
-                                    <input
-                                      type="number"
-                                      step="0.05"
-                                      min="0"
-                                      max="1"
-                                      value={pctActual}
-                                      onChange={(e) => {
-                                        const val = parseFloat(e.target.value) || 0;
-                                        setAvanceActualMap({ ...avanceActualMap, [keyMap]: val });
-                                      }}
-                                      className="w-14 bg-white border border-slate-300 rounded px-1 py-0.5 text-center font-bold text-xs outline-none focus:border-amber-500"
-                                    />
-                                  </td>
-                                  <td className="py-2 px-2 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50">$ {impActual.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                  <td className="py-2 px-1 text-center border-r border-slate-300 font-bold text-slate-700">{(pctAcumulado * 100).toFixed(0)}%</td>
-                                  <td className="py-2 px-2 text-right font-bold text-slate-950">$ {impAcumulado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                </tr>
-                              );
-                            });
-
-                            return (
-                              <React.Fragment key={rIdx}>
-                                <tr className="bg-slate-100 font-extrabold text-slate-900 border-t border-slate-300">
-                                  <td className="py-2 px-2 text-center border-r border-slate-300">{rIdx + 1}</td>
-                                  <td className="py-2 px-3 uppercase border-r border-slate-300" colSpan="3">{rubro.rubro || `Rubro #${rIdx + 1}`}</td>
-                                  <td className="py-2 px-2 text-right border-r border-slate-300">$ {totalRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                  <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                                  <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroAnterior.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                  <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                                  <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroActual.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                  <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                                  <td className="py-2 px-2 text-right">$ {(rubroAnterior + rubroActual).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                </tr>
-                                {tareasFilas}
-                              </React.Fragment>
-                            );
-                          });
-
-                          return { filasRender, sumaTotalPresupuesto, sumaTotalAnterior, sumaTotalActual, sumaTotalAcumulado };
-                        })()}
+                        {certificadoCalculos.filasRender.map((rubroObj) => (
+                          <React.Fragment key={rubroObj.rIdx}>
+                            <tr className="bg-slate-100 font-extrabold text-slate-900 border-t border-slate-300">
+                              <td className="py-2 px-2 text-center border-r border-slate-300">{rubroObj.rIdx + 1}</td>
+                              <td className="py-2 px-3 uppercase border-r border-slate-300" colSpan="3">{rubroObj.nombre}</td>
+                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.totalRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
+                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
+                              <td className="py-2 px-2 text-right border-r border-slate-300">$ {rubroObj.rubroActual.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
+                              <td className="py-2 px-2 text-right">$ {(rubroObj.rubroAnterior + rubroObj.rubroActual).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            </tr>
+                            {rubroObj.tareasFilas.map((t) => (
+                              <tr key={t.tIdx} className="hover:bg-amber-50/40 text-xs">
+                                <td className="py-2 px-2 text-center font-bold text-slate-700 border-r border-slate-300">{t.rIdx + 1}.{t.tIdx + 1}</td>
+                                <td className="py-2 px-3 text-slate-800 border-r border-slate-300 font-medium">{t.tarea}</td>
+                                <td className="py-2 px-2 text-center text-slate-500 border-r border-slate-300">{t.unidad}</td>
+                                <td className="py-2 px-2 text-right border-r border-slate-300">{t.cant}</td>
+                                <td className="py-2 px-2 text-right font-bold text-slate-900 border-r border-slate-300">$ {t.totalItem.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="py-2 px-1 text-center border-r border-slate-300 text-slate-600">{(t.pctAnterior * 100).toFixed(0)}%</td>
+                                <td className="py-2 px-2 text-right border-r border-slate-300 text-slate-600">$ {t.impAnterior.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="py-2 px-1 text-center border-r border-slate-300 bg-amber-50/50">
+                                  <input
+                                    type="number"
+                                    step="0.05"
+                                    min="0"
+                                    max="1"
+                                    value={t.pctActual}
+                                    onChange={(e) => {
+                                      const val = parseFloat(e.target.value) || 0;
+                                      setAvanceActualMap({ ...avanceActualMap, [t.keyMap]: val });
+                                    }}
+                                    className="w-14 bg-white border border-slate-300 rounded px-1 py-0.5 text-center font-bold text-xs outline-none focus:border-amber-500"
+                                  />
+                                </td>
+                                <td className="py-2 px-2 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50">$ {t.impActual.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                <td className="py-2 px-1 text-center border-r border-slate-300 font-bold text-slate-700">{(t.pctAcumulado * 100).toFixed(0)}%</td>
+                                <td className="py-2 px-2 text-right font-bold text-slate-950">$ {t.impAcumulado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                              </tr>
+                            ))}
+                          </React.Fragment>
+                        ))}
                       </tbody>
                     </table>
                   </div>
 
-                  {/* Resumen y Liquidación Final Inferior */}
                   <div className="bg-slate-50 border-2 border-slate-800 rounded-2xl p-6 space-y-4">
                     <h3 className="text-xs font-black text-slate-900 uppercase border-b border-slate-300 pb-2">RESUMEN Y LIQUIDACIÓN FINANCIERA</h3>
                     
                     {(() => {
-                      let totalPresupuestoCalc = 0;
-                      let totalActualCalc = 0;
-                      try {
-                        const parsed = typeof certificadoPresupuestoObj.items_detalle === 'string'
-                          ? JSON.parse(certificadoPresupuestoObj.items_detalle)
-                          : certificadoPresupuestoObj.items_detalle;
-                        const arrRubros = parsed?.rubros || parsed || [];
-                        arrRubros.forEach((rubro, rIdx) => {
-                          (rubro.tareas || []).forEach((t, tIdx) => {
-                            const cant = Number(t.cantidad) || 1;
-                            const pUnit = Number(t.costo_unitario) || Number(t.precio_unitario) || 0;
-                            const tot = cant * pUnit;
-                            totalPresupuestoCalc += tot;
-                            const keyMap = `${rIdx}-${tIdx}`;
-                            const pctAct = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : 0.30;
-                            totalActualCalc += tot * pctAct;
-                          });
-                        });
-                      } catch (e) {}
-
-                      const netoACertificar = totalActualCalc - Number(desacopioMonto) + Number(adicionalesMonto);
+                      const netoACertificar = certificadoCalculos.totalActualCalc - Number(desacopioMonto) + Number(adicionalesMonto);
                       const totalFinalLiquidacion = netoACertificar + Number(redeterminacionMonto);
 
                       return (
@@ -1252,7 +1264,7 @@ export default function Reportes(props) {
                           <div className="space-y-3">
                             <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                               <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
-                              <span className="font-black text-slate-900 text-sm">$ {totalActualCalc.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                              <span className="font-black text-slate-900 text-sm">$ {certificadoCalculos.totalActualCalc.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
                             </div>
                             <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                               <span className="font-bold text-slate-700">Descuento por Desacopio:</span>
@@ -1298,7 +1310,6 @@ export default function Reportes(props) {
                     })()}
                   </div>
 
-                  {/* Firmas y Conformidad */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4 text-xs">
                     <div className="border border-slate-400 rounded-xl p-4 space-y-4 bg-white">
                       <p className="font-black text-slate-900 uppercase">Por SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
@@ -1323,7 +1334,6 @@ export default function Reportes(props) {
             </div>
           )}
 
-          {/* VISTA 2: Certificado de Horas Hombre - Contrato */}
           {tipoCertificadoSubTab === 'horas_hombre' && (
             <div className="space-y-4 pt-2">
               <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -1381,7 +1391,6 @@ export default function Reportes(props) {
             </div>
           )}
 
-          {/* VISTA 3: Certificado de Compra de Materiales - Contrato */}
           {tipoCertificadoSubTab === 'compra_materiales' && (
             <div className="space-y-4 pt-2">
               <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
@@ -1496,7 +1505,6 @@ export default function Reportes(props) {
                 </div>
               </div>
 
-              {/* OPERARIOS PRESENTES */}
               <div className="space-y-3 pt-2">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
