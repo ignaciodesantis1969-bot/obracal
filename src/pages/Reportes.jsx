@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink, Users, X } from 'lucide-react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink, Users, X, Clock, FileSpreadsheet } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
@@ -148,6 +148,7 @@ export default function Reportes(props) {
   }, [empleadosListProps, fetchedEmpleados]);
 
   const [activeTab, setActiveTab] = useState('Reportes Diarios');
+  const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
 
   useEffect(() => {
     if (esOperador) {
@@ -959,7 +960,7 @@ export default function Reportes(props) {
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:hidden">
         <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes</h1>
         <p className="text-slate-500 text-sm mt-1">
-          {esOperador ? "(Vista de Operador - Reportes Diarios)" : "(Certificacion - Reportes - Listado de Insumos - Comparativas)"}
+          {esOperador ? "(Vista de Operador - Reportes Diarios)" : "(Certificaciones - Reportes - Listado de Insumos - Comparativas)"}
         </p>
       </div>
 
@@ -978,35 +979,196 @@ export default function Reportes(props) {
       )}
 
       {!esOperador && activeTab === 'Certificaciones' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden p-6 space-y-4">
-          <h3 className="text-sm font-extrabold text-slate-900 uppercase">Detalle de Certificaciones</h3>
-          {certificados.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-xs">No hay certificados registrados.</div>
-          ) : (
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
-                  <th className="px-4 py-3">Concepto</th>
-                  <th className="px-4 py-3">Fecha</th>
-                  <th className="px-4 py-3 text-right">Monto</th>
-                  <th className="px-4 py-3 text-center">Estado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {certificados.map((c, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-bold text-slate-900">{c.concepto || c.descripcion || `Certificado #${idx + 1}`}</td>
-                    <td className="px-4 py-3 text-slate-600">{c.fecha || '---'}</td>
-                    <td className="px-4 py-3 text-right font-black">$ {Number(c.monto || c.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                    <td className="px-4 py-3 text-center">
-                      <span className="px-2.5 py-1 rounded-full font-bold text-[10px] uppercase bg-amber-100 text-amber-800">
-                        {c.estado || 'Pendiente'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
+                <FileText className="w-4 h-4 text-amber-500" /> Gestión de Certificaciones
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">Seleccione el tipo de certificación a emitir o auditar en el sistema.</p>
+            </div>
+          </div>
+
+          {/* Sub-pestañas de Tipos de Certificación */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <button
+              type="button"
+              onClick={() => setTipoCertificadoSubTab('avance_obra')}
+              className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${tipoCertificadoSubTab === 'avance_obra' ? 'bg-amber-50 border-amber-500 shadow-xs' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-2 font-black text-xs text-slate-900 mb-1">
+                <Building2 className="w-4 h-4 text-amber-600" /> Avance de Obra
+              </div>
+              <p className="text-[11px] text-slate-500 leading-tight">Certificado Avance de Obra - Presupuesto</p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTipoCertificadoSubTab('horas_hombre')}
+              className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${tipoCertificadoSubTab === 'horas_hombre' ? 'bg-amber-50 border-amber-500 shadow-xs' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-2 font-black text-xs text-slate-900 mb-1">
+                <Clock className="w-4 h-4 text-amber-600" /> Horas Hombre
+              </div>
+              <p className="text-[11px] text-slate-500 leading-tight">Certificado de Horas Hombre - Contrato</p>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setTipoCertificadoSubTab('compra_materiales')}
+              className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${tipoCertificadoSubTab === 'compra_materiales' ? 'bg-amber-50 border-amber-500 shadow-xs' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+            >
+              <div className="flex items-center gap-2 font-black text-xs text-slate-900 mb-1">
+                <Package className="w-4 h-4 text-amber-600" /> Compra de Materiales
+              </div>
+              <p className="text-[11px] text-slate-500 leading-tight">Certificado de Compra de Materiales - Contrato</p>
+            </button>
+          </div>
+
+          {/* VISTA 1: Certificado Avance de Obra - Presupuesto */}
+          {tipoCertificadoSubTab === 'avance_obra' && (
+            <div className="space-y-4 pt-2">
+              <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 uppercase">Certificado Avance de Obra - Presupuesto</h4>
+                  <p className="text-[11px] text-slate-500">Evaluación del avance físico y económico en base a presupuestos aprobados y certificados registrados.</p>
+                </div>
+              </div>
+
+              {certificados.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
+                  No hay certificados de avance de obra registrados en el sistema.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200 text-[10px]">
+                      <th className="px-4 py-3">Concepto / Obra</th>
+                      <th className="px-4 py-3">Fecha</th>
+                      <th className="px-4 py-3 text-right">Monto Certificado</th>
+                      <th className="px-4 py-3 text-center">Estado</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {certificados.map((c, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-900">{c.concepto || c.descripcion || `Certificado de Avance #${idx + 1}`}</td>
+                        <td className="px-4 py-3 text-slate-600">{c.fecha || '---'}</td>
+                        <td className="px-4 py-3 text-right font-black text-slate-900">$ {Number(c.monto || c.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="px-2.5 py-1 rounded-full font-bold text-[10px] uppercase bg-amber-100 text-amber-800">
+                            {c.estado || 'Aprobado'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* VISTA 2: Certificado de Horas Hombre - Contrato */}
+          {tipoCertificadoSubTab === 'horas_hombre' && (
+            <div className="space-y-4 pt-2">
+              <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 uppercase">Certificado de Horas Hombre - Contrato</h4>
+                  <p className="text-[11px] text-slate-500">Consolidado de horas trabajadas y validadas a partir del historial de partes diarios SICE.</p>
+                </div>
+              </div>
+
+              {allReportesSice.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
+                  No hay partes diarios o registros de horas hombre aprobados para certificar.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200 text-[10px]">
+                      <th className="px-4 py-3">Parte Nro</th>
+                      <th className="px-4 py-3">Fecha</th>
+                      <th className="px-4 py-3">Contrato Asociado</th>
+                      <th className="px-4 py-3 text-center">Total Horas Validadas</th>
+                      <th className="px-4 py-3 text-center">Acciones</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {allReportesSice.map((parte, idx) => {
+                      const parteId = parte.id || parte.nro || idx;
+                      const totalHs = parte.totalHorasSuma || parte.total_horas_suma || 0;
+                      return (
+                        <tr key={parteId} className="hover:bg-slate-50">
+                          <td className="px-4 py-3 font-bold text-amber-800">Parte #{parte.nro || '00001'}</td>
+                          <td className="px-4 py-3 text-slate-600">{parte.fecha || '---'}</td>
+                          <td className="px-4 py-3 text-slate-800 font-semibold">{parte.contratoid || 'Contrato SICE General'}</td>
+                          <td className="px-4 py-3 text-center font-black text-emerald-700">{totalHs} hs</td>
+                          <td className="px-4 py-3 text-center">
+                            {parte.pdfUrl || parte.pdf_url ? (
+                              <a
+                                href={parte.pdfUrl || parte.pdf_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-[10px] inline-flex items-center gap-1 transition-colors"
+                              >
+                                <ExternalLink className="w-3 h-3" /> Ver Certificado PDF
+                              </a>
+                            ) : (
+                              <span className="text-slate-400 italic">Generado en sistema</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* VISTA 3: Certificado de Compra de Materiales - Contrato */}
+          {tipoCertificadoSubTab === 'compra_materiales' && (
+            <div className="space-y-4 pt-2">
+              <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <div>
+                  <h4 className="text-xs font-black text-slate-900 uppercase">Certificado de Compra de Materiales - Contrato</h4>
+                  <p className="text-[11px] text-slate-500">Auditoría y certificación de insumos y facturas de compras imputadas a los contratos activos.</p>
+                </div>
+              </div>
+
+              {facturas.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
+                  No hay facturas o compras de materiales registradas para certificar.
+                </div>
+              ) : (
+                <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
+                  <thead>
+                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200 text-[10px]">
+                      <th className="px-4 py-3">Nro. Factura / Comprobante</th>
+                      <th className="px-4 py-3">Proveedor</th>
+                      <th className="px-4 py-3">Fecha</th>
+                      <th className="px-4 py-3 text-right">Monto Total</th>
+                      <th className="px-4 py-3 text-center">Estado Certificación</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {facturas.map((fac, idx) => (
+                      <tr key={idx} className="hover:bg-slate-50">
+                        <td className="px-4 py-3 font-bold text-slate-900">{fac.n_factura || fac.nro_factura || `Factura #${idx + 1}`}</td>
+                        <td className="px-4 py-3 text-slate-600">{fac.proveedor || 'Proveedor General'}</td>
+                        <td className="px-4 py-3 text-slate-600">{fac.fecha || '---'}</td>
+                        <td className="px-4 py-3 text-right font-black text-slate-900">$ {Number(fac.total || fac.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className="px-2.5 py-1 rounded-full font-bold text-[10px] uppercase bg-emerald-100 text-emerald-800">
+                            Certificado
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
           )}
         </div>
       )}
