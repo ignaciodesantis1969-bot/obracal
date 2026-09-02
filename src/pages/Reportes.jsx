@@ -344,11 +344,11 @@ export default function Reportes(props) {
 
     const regexClave = /^[A-Za-z]{2}\d{4}$/;
     if (!regexClave.test(siceRespProveedor.clave)) {
-      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: AT1020).");
+      alert("La clave del Responsable Proveedor debe tener exactamente 2 letras y 4 números (Ej: AB1234).");
       return;
     }
     if (!regexClave.test(siceRespCliente.clave)) {
-      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: CM7030).");
+      alert("La clave del Responsable Cliente debe tener exactamente 2 letras y 4 números (Ej: CD5678).");
       return;
     }
 
@@ -1185,12 +1185,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: AT1020):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: AB1234):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder="Ej: AT1020"
+                          placeholder="Ej: AB1234"
                           value={siceRespProveedor.clave}
                           onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
@@ -1225,12 +1225,12 @@ export default function Reportes(props) {
                         />
                       </div>
                       <div>
-                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: CM7030):</label>
+                        <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: CD5678):</label>
                         <input 
                           type="password" 
                           required
                           maxLength={6}
-                          placeholder="Ej: CM7030"
+                          placeholder="Ej: CD5678"
                           value={siceRespCliente.clave}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
