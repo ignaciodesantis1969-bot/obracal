@@ -158,10 +158,13 @@ export default function Reportes(props) {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => String(c.id || c.ID || c.codigo || c.Codigo) === String(contratoSeleccionadoId));
       if (contrato) {
-        let pCargo = contrato.proveedorCargo || contrato.proveedor_cargo || contrato.ProveedorCargo || contrato.cargo_proveedor || '';
-        let pNombre = contrato.proveedorNombre || contrato.proveedor_nombre || contrato.ProveedorNombre || contrato.proveedor || '';
-        let cCargo = contrato.clienteCargo || contrato.cliente_cargo || contrato.ClienteCargo || contrato.cargo_cliente || '';
-        let cNombre = contrato.clienteNombre || contrato.cliente_nombre || contrato.ClienteNombre || contrato.cliente || '';
+        console.log("Contrato seleccionado:", contrato);
+
+        let pCargo = contrato.proveedorCargo || contrato.proveedor_cargo || contrato.ProveedorCargo || contrato.cargo_proveedor || contrato.cargoProveedor || contrato.puesto_proveedor || '';
+        let pNombre = contrato.proveedorNombre || contrato.proveedor_nombre || contrato.ProveedorNombre || contrato.nombre_proveedor || contrato.responsableProveedor || contrato.responsable_proveedor || contrato.contacto_proveedor || '';
+        
+        let cCargo = contrato.clienteCargo || contrato.cliente_cargo || contrato.ClienteCargo || contrato.cargo_cliente || contrato.cargoCliente || contrato.puesto_cliente || '';
+        let cNombre = contrato.clienteNombre || contrato.cliente_nombre || contrato.ClienteNombre || contrato.nombre_cliente || contrato.responsableCliente || contrato.responsable_cliente || contrato.contacto_cliente || '';
 
         setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
         setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
@@ -319,7 +322,7 @@ export default function Reportes(props) {
     try {
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
-        tabla: 'ReportesSice', // <--- ¡Añadido para que el backend sepa dónde guardar!
+        tabla: 'ReportesSice',
         contratoId: contratoSeleccionadoId,
         fecha: siceFecha,
         nro: siceParteNro,
