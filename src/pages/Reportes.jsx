@@ -60,7 +60,7 @@ export default function Reportes(props) {
       })
       .catch(() => {});
 
-    // CARGA ESTRICTA Y SEGURA DE REPORTES SICE DESDE GOOGLE SHEETS
+    // LECTOR ROBUSTO DE REPORTES SICE DESDE GOOGLE SHEETS
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -72,23 +72,17 @@ export default function Reportes(props) {
         if (Array.isArray(data)) {
           listaCruda = data;
         } else if (data && typeof data === 'object') {
-          const possibleArray = data.ReportesSice || data.reportesSice || data.data || data.records || data.items;
-          if (Array.isArray(possibleArray)) {
-            listaCruda = possibleArray;
+          const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+          if (foundKey) {
+            listaCruda = data[foundKey];
+          } else {
+            const values = Object.values(data);
+            listaCruda = values.filter(v => v && typeof v === 'object' && !Array.isArray(v));
           }
         }
 
-        // Filtro estricto: solo objetos que tengan propiedades clave de un parte SICE real
-        const reportesValidos = listaCruda.filter(item => {
-          if (!item || typeof item !== 'object') return false;
-          const tieneNro = item.nro !== undefined && item.nro !== null && String(item.nro).trim() !== '';
-          const tieneFecha = item.fecha !== undefined && item.fecha !== null && String(item.fecha).trim() !== '';
-          const tieneId = item.id !== undefined && item.id !== null && String(item.id).trim() !== '';
-          return tieneNro || tieneFecha || tieneId;
-        });
-
-        if (reportesValidos.length > 0) {
-          setFetchedReportesSice(reportesValidos);
+        if (listaCruda.length > 0) {
+          setFetchedReportesSice(listaCruda);
         }
       })
       .catch((err) => console.error("Error al obtener ReportesSice:", err));
@@ -331,7 +325,7 @@ export default function Reportes(props) {
       const fechaVal = buscarValorEnObjeto(r, ['fecha', 'Fecha']);
       const contratoIdVal = buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId']);
       const totalHsVal = buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma', 'TotalHorasSuma', 'total_horas_suma']);
-      const pdfUrlVal = buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'PdfUrl', 'urlPdf']);
+      const pdfUrlVal = buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'PdfUrl', 'urlPdf', 'pdfurl']);
 
       return {
         id: idVal || nroVal || `sice-${Math.random()}`,
