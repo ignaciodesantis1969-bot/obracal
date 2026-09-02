@@ -117,7 +117,6 @@ export default function Reportes(props) {
     return fetchedReportesSice;
   }, [reportesSiceListProps, fetchedReportesSice]);
 
-  // Filtrar exclusivamente empleados ACTIVO desde RRHH
   const listaEmpleadosActivos = useMemo(() => {
     const fuente = empleadosListProps.length > 0 ? empleadosListProps : (fetchedEmpleados.length > 0 ? fetchedEmpleados : [
       { id: '1', nombre: 'Callapiña Wilfredo Cristian', especialidad: 'Oficial Especializado', estado: 'ACTIVO' },
@@ -145,7 +144,6 @@ export default function Reportes(props) {
   const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
   const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(false);
 
-  // 📝 Estados para Reportes Diarios (Formato Oficial SICE S.A.)
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   const [siceParteNro, setSiceParteNro] = useState('00001');
@@ -1140,11 +1138,11 @@ export default function Reportes(props) {
                 </div>
               </div>
 
-              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES (Sin columna de cargo, seleccionados desde RRHH Activos) */}
+              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES (Múltiples selecciones posibles desde la lista de RRHH Activos) */}
               <div className="space-y-3 pt-2">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
-                    <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes
+                    <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes ({listaEmpleadosActivos.length} activos disponibles)
                   </h3>
                   <button
                     type="button"
@@ -1168,7 +1166,7 @@ export default function Reportes(props) {
                             onChange={(e) => {
                               const nombreVal = e.target.value;
                               const matchEmp = listaEmpleadosActivos.find(emp => (emp.nombre || emp.Nombre || emp.empleado || '') === nombreVal);
-                              const especialidadEmp = matchEmp ? (matchEmp.especialidad || matchEmp.Especialidad || matchEmp.categoria || matchEmp.puesto || 'Oficial') : 'Oficial';
+                              const especialidadEmp = matchEmp ? (matchEmp.especialidad || matchEmp.Especialidad || emp.categoria || emp.puesto || 'Oficial') : 'Oficial';
                               
                               let abrevVal = 'OF';
                               const espLower = especialidadEmp.toLowerCase();
@@ -1188,9 +1186,11 @@ export default function Reportes(props) {
                             {listaEmpleadosActivos.map((emp, eIdx) => {
                               const empNom = emp.nombre || emp.Nombre || emp.empleado || emp.apellido || `Operario ${eIdx + 1}`;
                               const empEsp = emp.especialidad || emp.Especialidad || emp.categoria || emp.puesto || '';
+                              const isSelectedElsewhere = operariosSeleccionados.some((oItem, oIdx) => oIdx !== idx && oItem.nombre === empNom);
+
                               return (
-                                <option key={eIdx} value={empNom}>
-                                  {empNom} {empEsp ? `(${empEsp})` : ''}
+                                <option key={eIdx} value={empNom} disabled={isSelectedElsewhere}>
+                                  {empNom} {empEsp ? `(${empEsp})` : ''} {isSelectedElsewhere ? '(Ya seleccionado)' : ''}
                                 </option>
                               );
                             })}
