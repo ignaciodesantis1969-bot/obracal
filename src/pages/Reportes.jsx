@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink, Users } from 'lucide-react';
+import { Building2, Layers, ShieldCheck, Filter, List, Package, Calendar, Plus, CheckCircle2, TrendingUp, Printer, Trash2, Eye, FileText, ExternalLink, Users, X } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
@@ -21,7 +21,6 @@ const CONTRATO_DEFAULT = [
   }
 ];
 
-// Registro inicial por defecto basado en la base de datos para garantizar visualización inmediata
 const REPORTES_DEFAULT_INICIALES = [
   {
     id: "1",
@@ -61,7 +60,6 @@ export default function Reportes(props) {
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
   
-  // Inicialización ultra robusta con localStorage y respaldo por defecto
   const [fetchedReportesSice, setFetchedReportesSice] = useState(() => {
     try {
       const saved = localStorage.getItem('sice_reportes_locales');
@@ -324,7 +322,6 @@ export default function Reportes(props) {
     }
   }, [contratoSeleccionadoId, contratosList]);
 
-  // Historial de partes completamente flexible (muestra todos si no hay contrato seleccionado, o los filtra si se elige uno)
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
     if (contratoSeleccionadoId) {
@@ -556,7 +553,7 @@ export default function Reportes(props) {
   const insumosOficialMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
-      const gId = String(insGlobal.id || insGlobal.ID || insumoGlobal.insumo_id || '').trim();
+      const gId = String(insGlobal.id || insGlobal.ID || insGlobal.insumo_id || '').trim();
       const tipoOriginal = String(insGlobal.tipo || insGlobal.Tipo || insGlobal.tipo_insumo || 'Material').trim().toLowerCase();
       if (gId) {
         let tipoNorm = 'Material';
@@ -1502,6 +1499,118 @@ export default function Reportes(props) {
                 })}
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 🔍 MODAL DE VISUALIZACIÓN DE PARTE DIARIO */}
+      {parteVisualizando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-300 p-6 space-y-6 text-slate-900 relative">
+            <button 
+              onClick={() => setParteVisualizando(null)}
+              className="absolute top-4 right-4 p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center justify-between border-b-2 border-slate-800 pb-4 pr-12">
+              <img src="/logo-07.png" alt="SICE S.A." className="h-20 object-contain" />
+              <h2 className="text-lg font-black text-slate-900 tracking-wide text-right">PARTE DIARIO DE ACTIVIDADES</h2>
+            </div>
+
+            <div className="text-xs space-y-2 border-b border-slate-300 pb-4">
+              <p className="font-extrabold text-blue-900 text-sm">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                <div><span className="text-slate-500 font-semibold">C.U.I.T.:</span> <span className="font-bold">30-71573431-8</span></div>
+                <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
+                <div><span className="text-slate-500 font-semibold">Fecha:</span> <span className="font-bold">{parteVisualizando.fecha}</span></div>
+                <div><span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono">{parteVisualizando.nro}</span></div>
+              </div>
+            </div>
+
+            {/* Operarios presentes */}
+            <div className="space-y-2">
+              <h4 className="text-xs font-black text-slate-900 uppercase flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes
+              </h4>
+              <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-50 p-3 space-y-1">
+                {parteVisualizando.operarios?.length > 0 ? (
+                  parteVisualizando.operarios.map((op, oIdx) => (
+                    <div key={oIdx} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-slate-200">
+                      <span className="font-bold text-slate-800">{op.nombre}</span>
+                      <div className="flex gap-4">
+                        <span className="text-slate-600">Cat./Abrev: <strong>{op.abreviacion}</strong></span>
+                        <span className="text-amber-800 font-black">{op.horas} hs</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 text-center py-1">Registrado con operario principal.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Ítems del servicio */}
+            <div className="overflow-x-auto border border-slate-300 rounded-xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
+                    <th className="py-2.5 px-3 border-r border-slate-700 w-12 text-center">Item</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700">Descripción del Servicio</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-28">Comienzo</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-28">Fin</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-24">Total</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700">Observaciones</th>
+                    <th className="py-2.5 px-3 text-center w-24">Terminó</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {parteVisualizando.items?.map((it, iIdx) => (
+                    <tr key={iIdx} className="bg-white">
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">{it.id || iIdx + 1}</td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-800">{it.descripcion || '---'}</td>
+                      <td className="py-2.5 px-3 text-center text-slate-600">{it.horaComienzo || '08:00'}</td>
+                      <td className="py-2.5 px-3 text-center text-slate-600">{it.horaFin || '17:00'}</td>
+                      <td className="py-2.5 px-3 text-center font-extrabold text-amber-900 bg-amber-50">{calcularTotalHorasSice(it.horaComienzo, it.horaFin)} hs</td>
+                      <td className="py-2.5 px-3 text-slate-600">{it.observaciones || '---'}</td>
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-800">{it.terminoTarea || 'SI'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Firmas / Responsables */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 text-xs">
+              <div>
+                <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Proveedor</h5>
+                <p><span className="text-slate-500">Cargo:</span> <strong>{parteVisualizando.proveedor?.cargo}</strong></p>
+                <p><span className="text-slate-500">Nombre:</span> <strong>{parteVisualizando.proveedor?.nombre}</strong></p>
+                <p className="text-emerald-700 font-semibold mt-1">✔ Firmado y Validado</p>
+              </div>
+              <div>
+                <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Cliente</h5>
+                <p><span className="text-slate-500">Cargo:</span> <strong>{parteVisualizando.cliente?.cargo}</strong></p>
+                <p><span className="text-slate-500">Nombre:</span> <strong>{parteVisualizando.cliente?.nombre}</strong></p>
+                <p className="text-emerald-700 font-semibold mt-1">✔ Firmado y Validado</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+              <button
+                onClick={() => window.print()}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow cursor-pointer"
+              >
+                <Printer className="w-4 h-4" /> Imprimir Documento
+              </button>
+              <button
+                onClick={() => setParteVisualizando(null)}
+                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer shadow"
+              >
+                Cerrar Ventana
+              </button>
+            </div>
           </div>
         </div>
       )}
