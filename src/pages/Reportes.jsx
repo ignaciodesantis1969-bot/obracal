@@ -1456,13 +1456,15 @@ export default function Reportes(props) {
                             <Eye className="w-4 h-4" /> Visualizar
                           </button>
                         )}
-                        <button 
-                          onClick={() => eliminarParteServidor(parteId)}
-                          className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
-                          title="Eliminar reporte"
-                        >
-                          <Trash2 className="w-4 h-4" /> Borrar
-                        </button>
+                        {!esOperador && (
+                          <button 
+                            onClick={() => eliminarParteServidor(parteId)}
+                            className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
+                            title="Eliminar reporte"
+                          >
+                            <Trash2 className="w-4 h-4" /> Borrar
+                          </button>
+                        )}
                       </div>
                     </div>
                   );
