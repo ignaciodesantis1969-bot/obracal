@@ -177,15 +177,8 @@ export default function Reportes(props) {
     if (listaEmpleadosActivos.length > 0 && operariosSeleccionados.length === 0) {
       const iniciales = listaEmpleadosActivos.slice(0, 1).map(emp => {
         const nombreEmp = emp.nombre || emp.Nombre || emp.empleado || emp.apellido || 'Operario';
-        const especialidadEmp = emp.especialidad || emp.Especialidad || emp.categoria || emp.puesto || 'Oficial';
-        
-        let abrevEmp = 'OF';
-        const espLower = especialidadEmp.toLowerCase();
-        if (espLower.includes('supervisor')) abrevEmp = 'S';
-        else if (espLower.includes('especializado')) abrevEmp = 'OE';
-        else if (espLower.includes('ehs') || espLower.includes('técnico ehs') || espLower.includes('tecnico ehs')) abrevEmp = 'TE';
-        else if (espLower.includes('medio oficial')) abrevEmp = 'MO';
-        else if (espLower.includes('oficina') || espLower.includes('técnica')) abrevEmp = 'TOT';
+        const isCallapina = nombreEmp.toLowerCase().includes('callapiña') || nombreEmp.toLowerCase().includes('callapina');
+        const abrevEmp = isCallapina ? 'S' : 'OE';
 
         return {
           id: emp.id || emp.ID || Math.random().toString(),
@@ -347,7 +340,7 @@ export default function Reportes(props) {
   const agregarOperarioFila = () => {
     setOperariosSeleccionados([
       ...operariosSeleccionados,
-      { id: Math.random().toString(), nombre: '', abreviacion: 'OF', horas: '' }
+      { id: Math.random().toString(), nombre: '', abreviacion: 'OE', horas: '' }
     ]);
   };
 
@@ -1142,7 +1135,7 @@ export default function Reportes(props) {
                 </div>
               </div>
 
-              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES (Múltiples selecciones posibles desde la lista de RRHH Activos) */}
+              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES (Categoría "S" para Callapiña, "OE" para los demás) */}
               <div className="space-y-3 pt-2">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
@@ -1169,16 +1162,8 @@ export default function Reportes(props) {
                             value={op.nombre}
                             onChange={(e) => {
                               const nombreVal = e.target.value;
-                              const matchEmp = listaEmpleadosActivos.find(emp => (emp.nombre || emp.Nombre || emp.empleado || '') === nombreVal);
-                              const especialidadEmp = matchEmp ? (matchEmp.especialidad || matchEmp.Especialidad || matchEmp.categoria || matchEmp.puesto || 'Oficial') : 'Oficial';
-                              
-                              let abrevVal = 'OF';
-                              const espLower = especialidadEmp.toLowerCase();
-                              if (espLower.includes('supervisor')) abrevVal = 'S';
-                              else if (espLower.includes('especializado')) abrevVal = 'OE';
-                              else if (espLower.includes('ehs') || espLower.includes('técnico ehs') || espLower.includes('tecnico ehs')) abrevVal = 'TE';
-                              else if (espLower.includes('medio oficial')) abrevVal = 'MO';
-                              else if (espLower.includes('oficina') || espLower.includes('técnica')) abrevVal = 'TOT';
+                              const isCallapina = nombreVal.toLowerCase().includes('callapiña') || nombreVal.toLowerCase().includes('callapina');
+                              const abrevVal = isCallapina ? 'S' : 'OE';
 
                               const actualizados = [...operariosSeleccionados];
                               actualizados[idx] = { ...actualizados[idx], nombre: nombreVal, abreviacion: abrevVal };
@@ -1207,7 +1192,7 @@ export default function Reportes(props) {
                             type="text"
                             value={op.abreviacion}
                             onChange={(e) => actualizarOperarioFila(idx, 'abreviacion', e.target.value.toUpperCase())}
-                            title="Abreviación de categoría (Ej: S, OE, TE, MO)"
+                            title="Abreviación de categoría (S para Callapiña, OE para el resto)"
                             className="w-full bg-amber-100/70 border border-slate-300 rounded px-2 py-1.5 text-xs font-black text-amber-950 text-center uppercase focus:bg-white focus:outline-none focus:border-amber-500"
                           />
                         </div>
