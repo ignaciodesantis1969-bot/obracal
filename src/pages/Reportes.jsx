@@ -72,15 +72,19 @@ export default function Reportes(props) {
           lista = data;
         } else if (data && typeof data === 'object') {
           if (Array.isArray(data.data)) lista = data.data;
+          else if (Array.isArray(data.records)) lista = data.records;
+          else if (Array.isArray(data.items)) lista = data.items;
           else if (Array.isArray(data.ReportesSice)) lista = data.ReportesSice;
           else if (Array.isArray(data.reportesSice)) lista = data.reportesSice;
           else {
-            const targetKey = Object.keys(data).find(k => k.toLowerCase().includes('reporte') || k.toLowerCase().includes('sice') || Array.isArray(data[k]));
-            if (targetKey && Array.isArray(data[targetKey])) {
-              lista = data[targetKey];
+            const foundArrayKey = Object.keys(data).find(k => Array.isArray(data[k]));
+            if (foundArrayKey) {
+              lista = data[foundArrayKey];
             } else {
-              const anyArrayKey = Object.keys(data).find(k => Array.isArray(data[k]));
-              if (anyArrayKey) lista = data[anyArrayKey];
+              const values = Object.values(data);
+              if (values.length > 0) {
+                lista = values.filter(v => v && typeof v === 'object' && !Array.isArray(v));
+              }
             }
           }
         }
@@ -88,7 +92,7 @@ export default function Reportes(props) {
           setFetchedReportesSice(lista);
         }
       })
-      .catch(() => {});
+      .catch((err) => console.error("Error al obtener ReportesSice:", err));
 
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
