@@ -40,7 +40,17 @@ export default function Reportes(props) {
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
-  const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
+  
+  // InicializamosfetchedReportesSice desde localStorage para respaldo inmediato
+  const [fetchedReportesSice, setFetchedReportesSice] = useState(() => {
+    try {
+      const saved = localStorage.getItem('sice_reportes_locales');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const [fetchedEmpleados, setFetchedEmpleados] = useState([]);
 
   useEffect(() => {
@@ -79,7 +89,14 @@ export default function Reportes(props) {
           const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
           if (foundKey) lista = data[foundKey];
         }
-        if (lista.length > 0) setFetchedReportesSice(lista);
+        if (lista.length > 0) {
+          setFetchedReportesSice(prev => {
+            const combinados = [...lista, ...prev];
+            const unicos = Array.from(new Map(combinados.map(item => [item.id || item.nro, item])).values());
+            localStorage.setItem('sice_reportes_locales', JSON.stringify(unicos));
+            return unicos;
+          });
+        }
       })
       .catch(() => {});
 
@@ -113,8 +130,15 @@ export default function Reportes(props) {
   const reportesSiceListProps = props.reportesSice || props.ReportesSice || props.reportes_sice || [];
 
   const allReportesSice = useMemo(() => {
-    if (reportesSiceListProps.length > 0) return reportesSiceListProps;
-    return fetchedReportesSice;
+    let base = reportesSiceListProps.length > 0 ? reportesSiceListProps : fetchedReportesSice;
+    try {
+      const localSaved = JSON.parse(localStorage.getItem('sice_reportes_locales') || '[]');
+      if (Array.isArray(localSaved) && localSaved.length > 0) {
+        const combinados = [...base, ...localSaved];
+        base = Array.from(new Map(combinados.map(item => [item.id || item.nro, item])).values());
+      }
+    } catch {}
+    return base;
   }, [reportesSiceListProps, fetchedReportesSice]);
 
   const listaEmpleadosActivos = useMemo(() => {
@@ -254,7 +278,6 @@ export default function Reportes(props) {
     return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
   }, [contratosList, contratoSeleccionadoId]);
 
-  // Efecto para actualizar cargos y nombres del contrato seleccionado SIN borrar las contraseñas
   useEffect(() => {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => {
@@ -278,7 +301,6 @@ export default function Reportes(props) {
     }
   }, [contratoSeleccionadoId, contratosList]);
 
-  // Historial de partes dinámico (muestra todos si no hay contrato seleccionado, o los filtra si hay uno seleccionado)
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
     if (contratoSeleccionadoId) {
@@ -357,7 +379,11 @@ export default function Reportes(props) {
           id: idParte
         })
       });
-      setFetchedReportesSice(prev => prev.filter(p => String(p.id) !== String(idParte)));
+      setFetchedReportesSice(prev => {
+        const filtrados = prev.filter(p => String(p.id) !== String(idParte));
+        localStorage.setItem('sice_reportes_locales', JSON.stringify(filtrados));
+        return filtrados;
+      });
       alert("Parte diario eliminado exitosamente.");
     } catch (err) {
       console.error("Error al eliminar parte:", err);
@@ -458,7 +484,11 @@ export default function Reportes(props) {
         pdfUrl: resultado.pdfUrl 
       };
 
-      setFetchedReportesSice(prev => [nuevoParte, ...prev]);
+      setFetchedReportesSice(prev => {
+        const actualizados = [nuevoParte, ...prev];
+        localStorage.setItem('sice_reportes_locales', JSON.stringify(actualizados));
+        return actualizados;
+      });
 
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
@@ -1113,7 +1143,7 @@ export default function Reportes(props) {
                 </div>
               </div>
 
-              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES (Sin especialidad entre paréntesis) */}
+              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES */}
               <div className="space-y-3 pt-2">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
