@@ -263,13 +263,18 @@ export default function Reportes(props) {
       });
 
       if (contrato) {
-        const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contrato);
-        setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
-        setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
-      } else {
-        setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
-        setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
-      }
+  const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contrato);
+  setSiceRespProveedor(prev => ({
+    cargo: pCargo,
+    nombre: pNombre,
+    clave: prev.clave || ''
+  }));
+  setSiceRespCliente(prev => ({
+    cargo: cCargo,
+    nombre: cNombre,
+    clave: prev.clave || ''
+  }));
+}
 
       const filtradosServer = allReportesSice.filter(r => {
         if (!r) return false;
