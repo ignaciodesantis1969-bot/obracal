@@ -193,7 +193,6 @@ export default function Reportes(props) {
 
   const [siceRespProveedor, setSiceRespProveedor] = useState({ cargo: '', nombre: '', clave: '' });
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
-  const [sicePartesAprobados, setSicePartesAprobados] = useState([]);
   const [parteVisualizando, setParteVisualizando] = useState(null);
   const [isSavingSice, setIsSavingSice] = useState(false);
 
@@ -255,6 +254,7 @@ export default function Reportes(props) {
     return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
   }, [contratosList, contratoSeleccionadoId]);
 
+  // Efecto para actualizar cargos y nombres del contrato seleccionado SIN borrar las contraseñas
   useEffect(() => {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => {
@@ -263,20 +263,26 @@ export default function Reportes(props) {
       });
 
       if (contrato) {
-  const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contrato);
-  setSiceRespProveedor(prev => ({
-    cargo: pCargo,
-    nombre: pNombre,
-    clave: prev.clave || ''
-  }));
-  setSiceRespCliente(prev => ({
-    cargo: cCargo,
-    nombre: cNombre,
-    clave: prev.clave || ''
-  }));
-}
+        const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contrato);
+        setSiceRespProveedor(prev => ({
+          cargo: pCargo,
+          nombre: pNombre,
+          clave: prev.clave || ''
+        }));
+        setSiceRespCliente(prev => ({
+          cargo: cCargo,
+          nombre: cNombre,
+          clave: prev.clave || ''
+        }));
+      }
+    }
+  }, [contratoSeleccionadoId, contratosList]);
 
-      const filtradosServer = allReportesSice.filter(r => {
+  // Historial de partes dinámico (muestra todos si no hay contrato seleccionado, o los filtra si hay uno seleccionado)
+  const sicePartesAprobados = useMemo(() => {
+    let lista = allReportesSice;
+    if (contratoSeleccionadoId) {
+      lista = allReportesSice.filter(r => {
         if (!r) return false;
         const rContratoId = String(
           r.contratoid || r.contratoId || r.contrato_id || r.ContratoId || 
@@ -288,45 +294,39 @@ export default function Reportes(props) {
         const valores = Object.values(r).map(v => String(v).trim());
         return valores.includes(String(contratoSeleccionadoId).trim());
       });
-
-      const finalLista = filtradosServer.map(r => {
-        let itemsParsed = r.items;
-        if (typeof itemsParsed === 'string') {
-          try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
-        }
-        let operariosParsed = r.operarios || r.operariosPresentes || [];
-        if (typeof operariosParsed === 'string') {
-          try { operariosParsed = JSON.parse(operariosParsed); } catch { operariosParsed = []; }
-        }
-        let provParsed = r.proveedor;
-        if (typeof provParsed === 'string') {
-          try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: '', cargo: '' }; }
-        }
-        let cliParsed = r.cliente;
-        if (typeof cliParsed === 'string') {
-          try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: '', cargo: '' }; }
-        }
-        return {
-          id: r.id || r.ID || `sice-${Math.random()}`,
-          nro: r.nro || r.numero || '00001',
-          fecha: r.fecha || '',
-          contratoId: contratoSeleccionadoId,
-          items: Array.isArray(itemsParsed) ? itemsParsed : [],
-          operarios: Array.isArray(operariosParsed) ? operariosParsed : [],
-          proveedor: provParsed,
-          cliente: cliParsed,
-          totalHorasSuma: Number(r.totalhorassuma || r.totalHorasSuma || 0),
-          pdfUrl: r.pdf_url || r.pdfUrl || ''
-        };
-      });
-
-      setSicePartesAprobados(finalLista);
-    } else {
-      setSicePartesAprobados([]);
-      setSiceRespProveedor({ cargo: '', nombre: '', clave: '' });
-      setSiceRespCliente({ cargo: '', nombre: '', clave: '' });
     }
-  }, [contratoSeleccionadoId, allReportesSice, contratosList]);
+
+    return lista.map(r => {
+      let itemsParsed = r.items;
+      if (typeof itemsParsed === 'string') {
+        try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
+      }
+      let operariosParsed = r.operarios || r.operariosPresentes || [];
+      if (typeof operariosParsed === 'string') {
+        try { operariosParsed = JSON.parse(operariosParsed); } catch { operariosParsed = []; }
+      }
+      let provParsed = r.proveedor;
+      if (typeof provParsed === 'string') {
+        try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: '', cargo: '' }; }
+      }
+      let cliParsed = r.cliente;
+      if (typeof cliParsed === 'string') {
+        try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: '', cargo: '' }; }
+      }
+      return {
+        id: r.id || r.ID || `sice-${Math.random()}`,
+        nro: r.nro || r.numero || '00001',
+        fecha: r.fecha || '',
+        contratoid: r.contratoid || r.contratoId || '',
+        items: Array.isArray(itemsParsed) ? itemsParsed : [],
+        operarios: Array.isArray(operariosParsed) ? operariosParsed : [],
+        proveedor: provParsed,
+        cliente: cliParsed,
+        totalHorasSuma: Number(r.totalhorassuma || r.totalHorasSuma || 0),
+        pdfUrl: r.pdf_url || r.pdfUrl || ''
+      };
+    });
+  }, [contratoSeleccionadoId, allReportesSice]);
 
   const agregarOperarioFila = () => {
     setOperariosSeleccionados([
@@ -357,8 +357,6 @@ export default function Reportes(props) {
           id: idParte
         })
       });
-      const filtrados = sicePartesAprobados.filter(p => String(p.id) !== String(idParte));
-      setSicePartesAprobados(filtrados);
       setFetchedReportesSice(prev => prev.filter(p => String(p.id) !== String(idParte)));
       alert("Parte diario eliminado exitosamente.");
     } catch (err) {
@@ -461,7 +459,6 @@ export default function Reportes(props) {
       };
 
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
-      setSicePartesAprobados(prev => [nuevoParte, ...prev]);
 
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
@@ -1116,7 +1113,7 @@ export default function Reportes(props) {
                 </div>
               </div>
 
-              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES (Categoría "S" para Callapiña, "OE" para los demás) */}
+              {/* 👷 SECCIÓN DE OPERARIOS PRESENTES (Sin especialidad entre paréntesis) */}
               <div className="space-y-3 pt-2">
                 <div className="flex justify-between items-center">
                   <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
@@ -1155,7 +1152,6 @@ export default function Reportes(props) {
                             <option value="">-- Seleccionar Operario (RRHH Activos) --</option>
                             {listaEmpleadosActivos.map((emp, eIdx) => {
                               const empNom = emp.nombre || emp.Nombre || emp.empleado || emp.apellido || `Operario ${eIdx + 1}`;
-                              const empEsp = emp.especialidad || emp.Especialidad || emp.categoria || emp.puesto || '';
                               const isSelectedElsewhere = operariosSeleccionados.some((oItem, oIdx) => oIdx !== idx && oItem.nombre === empNom);
 
                               return (
@@ -1401,7 +1397,7 @@ export default function Reportes(props) {
             <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados</h3>
             {sicePartesAprobados.length === 0 ? (
               <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-                No hay partes diarios aprobados ni archivados en este contrato. Seleccione el contrato correcto arriba.
+                No hay partes diarios aprobados ni archivados en el sistema.
               </div>
             ) : (
               <div className="space-y-3">
