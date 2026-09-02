@@ -141,7 +141,7 @@ export default function Reportes(props) {
   
   const [isSavingSice, setIsSavingSice] = useState(false);
 
-  // Helper estricto y ordenado para buscar claves ignorando mayúsculas, guiones bajos o espacios
+  // Helper flexible para buscar claves ignorando mayúsculas, guiones bajos o espacios
   const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
     if (!obj) return defecto;
     for (const pk of posibleClaves) {
@@ -156,6 +156,44 @@ export default function Reportes(props) {
     return defecto;
   };
 
+  // Analizador robusto que extrae propiedades directas o JSON incrustado en la descripción de ContratosMantenimiento
+  const extraerDatosContrato = (contrato) => {
+    if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
+
+    let objData = { ...contrato };
+
+    // Si la descripción u otros campos contienen JSON o datos estructurados SICE
+    ['descripcion', 'detalle', 'config', 'datos'].forEach(campo => {
+      if (typeof contrato[campo] === 'string') {
+        const val = contrato[campo];
+        try {
+          if (val.trim().startsWith('{')) {
+            const parsed = JSON.parse(val);
+            objData = { ...objData, ...parsed };
+          } else if (val.includes('---DATOS_SICE_INTEGRAL---') || val.includes('{')) {
+            // Extraer bloque JSON si está adjunto en la descripción
+            const parts = val.split(/---DATOS_SICE_INTEGRAL---|[{]/);
+            if (parts.length > 1) {
+              const jsonStr = '{' + parts.slice(1).join('{');
+              const parsed = JSON.parse(jsonStr);
+              objData = { ...objData, ...parsed };
+            }
+          }
+        } catch (e) {}
+      }
+    });
+
+    let pCargo = buscarValorEnObjeto(objData, ['proveedorCargo', 'proveedor_cargo', 'cargoProveedor', 'cargo_proveedor', 'puestoProveedor', 'puesto_proveedor']) || objData.proveedor?.cargo || '';
+    let pNombre = buscarValorEnObjeto(objData, ['proveedorNombre', 'proveedor_nombre', 'nombreProveedor', 'nombre_proveedor', 'responsableProveedor', 'responsable_proveedor', 'contactoProveedor', 'contacto_proveedor']) || objData.proveedor?.nombre || '';
+    let pKey = buscarValorEnObjeto(objData, ['proveedorKey', 'proveedor_key', 'claveProveedor', 'clave_proveedor', 'proveedor_clave']) || objData.proveedor?.key || 'AT1020';
+
+    let cCargo = buscarValorEnObjeto(objData, ['clienteCargo', 'cliente_cargo', 'cargoCliente', 'cargo_cliente', 'puestoCliente', 'puesto_cliente']) || objData.cliente?.cargo || '';
+    let cNombre = buscarValorEnObjeto(objData, ['clienteNombre', 'cliente_nombre', 'nombreCliente', 'nombre_cliente', 'responsableCliente', 'responsable_cliente', 'contactoCliente', 'contacto_cliente']) || objData.cliente?.nombre || '';
+    let cKey = buscarValorEnObjeto(objData, ['clienteKey', 'cliente_key', 'claveCliente', 'clave_cliente', 'cliente_clave']) || objData.cliente?.key || 'CM7030';
+
+    return { pCargo, pNombre, pKey, cCargo, cNombre, cKey };
+  };
+
   const clavesContratoActual = useMemo(() => {
     const contratoActivo = contratosList.find(c => {
       const cId = String(c.id || c.ID || c.codigo || c.Codigo || '').trim();
@@ -163,10 +201,8 @@ export default function Reportes(props) {
     });
 
     if (contratoActivo) {
-      return {
-        proveedorKey: buscarValorEnObjeto(contratoActivo, ['proveedorKey', 'proveedor_key', 'claveProveedor', 'clave_proveedor', 'proveedor_clave'], 'AT1020'),
-        clienteKey: buscarValorEnObjeto(contratoActivo, ['clienteKey', 'cliente_key', 'claveCliente', 'clave_cliente', 'cliente_clave'], 'CM7030')
-      };
+      const extracted = extraerDatosContrato(contratoActivo);
+      return { proveedorKey: extracted.pKey, clienteKey: extracted.cKey };
     }
     return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
   }, [contratosList, contratoSeleccionadoId]);
@@ -180,13 +216,7 @@ export default function Reportes(props) {
 
       if (contrato) {
         console.log("Contrato seleccionado encontrado:", contrato);
-
-        // Claves específicas para evitar mapear la empresa ("LDC ARGENTINA S.A.") en lugar del nombre del responsable
-        let pCargo = buscarValorEnObjeto(contrato, ['proveedorCargo', 'proveedor_cargo', 'cargoProveedor', 'cargo_proveedor', 'puestoProveedor', 'puesto_proveedor']);
-        let pNombre = buscarValorEnObjeto(contrato, ['proveedorNombre', 'proveedor_nombre', 'nombreProveedor', 'nombre_proveedor', 'responsableProveedor', 'responsable_proveedor', 'contactoProveedor', 'contacto_proveedor']);
-        
-        let cCargo = buscarValorEnObjeto(contrato, ['clienteCargo', 'cliente_cargo', 'cargoCliente', 'cargo_cliente', 'puestoCliente', 'puesto_cliente']);
-        let cNombre = buscarValorEnObjeto(contrato, ['clienteNombre', 'cliente_nombre', 'nombreCliente', 'nombre_cliente', 'responsableCliente', 'responsable_cliente', 'contactoCliente', 'contacto_cliente']);
+        const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contrato);
 
         setSiceRespProveedor({ cargo: pCargo, nombre: pNombre, clave: '' });
         setSiceRespCliente({ cargo: cCargo, nombre: cNombre, clave: '' });
