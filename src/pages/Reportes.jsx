@@ -21,25 +21,6 @@ const CONTRATO_DEFAULT = [
   }
 ];
 
-const REPORTES_DEFAULT_INICIALES = [
-  {
-    id: "1",
-    nro: "00001",
-    fecha: "2026-08-31",
-    contratoid: "1",
-    items: [
-      { id: 1, descripcion: "Mantenimiento correctivo general en planta", horaComienzo: "08:00", horaFin: "17:00", observaciones: "Sin novedades", terminoTarea: "SI" }
-    ],
-    operarios: [
-      { nombre: "Callapiña Wilfredo Cristian", abreviacion: "S", horas: 8.56 }
-    ],
-    proveedor: { cargo: "Oficial a cargo del Site", nombre: "Alexander Torres Lopez" },
-    cliente: { cargo: "Gerente de Planta", nombre: "Cristian Matei" },
-    totalHorasSuma: 8.56,
-    pdfUrl: ""
-  }
-];
-
 export default function Reportes(props) {
   const { user } = useAuth();
 
@@ -54,23 +35,11 @@ export default function Reportes(props) {
   const movimientos = props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria || [];
   const insumos = props.insumos || props.Insumos || [];
   const empleadosListProps = props.empleados || props.Empleados || props.personal || props.Personal || [];
-  const rubros = props.rubros || props.Rubros || [];
   const facturas = props.facturas || props.Facturas || [];
   const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
-  
-  const [fetchedReportesSice, setFetchedReportesSice] = useState(() => {
-    try {
-      const saved = localStorage.getItem('sice_reportes_locales');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-      }
-    } catch {}
-    return REPORTES_DEFAULT_INICIALES;
-  });
-
+  const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
   const [fetchedEmpleados, setFetchedEmpleados] = useState([]);
 
   useEffect(() => {
@@ -112,13 +81,7 @@ export default function Reportes(props) {
         }
 
         if (lista.length > 0) {
-          setFetchedReportesSice(prev => {
-            const localActual = JSON.parse(localStorage.getItem('sice_reportes_locales') || '[]');
-            const combinados = [...localActual, ...lista, ...prev];
-            const unicos = Array.from(new Map(combinados.map(item => [String(buscarValorEnObjeto(item, ['id', 'ID']) || buscarValorEnObjeto(item, ['nro', 'Nro', 'numero'])), item])).values());
-            localStorage.setItem('sice_reportes_locales', JSON.stringify(unicos));
-            return unicos;
-          });
+          setFetchedReportesSice(lista);
         }
       })
       .catch(() => {});
@@ -165,15 +128,7 @@ export default function Reportes(props) {
   };
 
   const allReportesSice = useMemo(() => {
-    let base = fetchedReportesSice;
-    try {
-      const localSaved = JSON.parse(localStorage.getItem('sice_reportes_locales') || '[]');
-      if (Array.isArray(localSaved) && localSaved.length > 0) {
-        const combinados = [...base, ...localSaved, ...reportesSiceListProps];
-        base = Array.from(new Map(combinados.map(item => [String(buscarValorEnObjeto(item, ['id', 'ID']) || buscarValorEnObjeto(item, ['nro', 'Nro', 'numero'])), item])).values());
-      }
-    } catch {}
-    if (base.length === 0) return REPORTES_DEFAULT_INICIALES;
+    let base = fetchedReportesSice.length > 0 ? fetchedReportesSice : reportesSiceListProps;
     return base;
   }, [fetchedReportesSice, reportesSiceListProps]);
 
@@ -210,7 +165,7 @@ export default function Reportes(props) {
 
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
-  const [siceParteNro, setSiceParteNro] = useState('00002');
+  const [siceParteNro, setSiceParteNro] = useState('00003');
   const [siceItems, setSiceItems] = useState([
     { id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
   ]);
@@ -415,11 +370,7 @@ export default function Reportes(props) {
           id: idParte
         })
       });
-      setFetchedReportesSice(prev => {
-        const filtrados = prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte));
-        localStorage.setItem('sice_reportes_locales', JSON.stringify(filtrados));
-        return filtrados;
-      });
+      setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
       alert("Parte diario eliminado exitosamente.");
     } catch (err) {
       console.error("Error al eliminar parte:", err);
@@ -520,11 +471,7 @@ export default function Reportes(props) {
         pdfUrl: resultado.pdfUrl 
       };
 
-      setFetchedReportesSice(prev => {
-        const actualizados = [nuevoParte, ...prev];
-        localStorage.setItem('sice_reportes_locales', JSON.stringify(actualizados));
-        return actualizados;
-      });
+      setFetchedReportesSice(prev => [nuevoParte, ...prev]);
 
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
