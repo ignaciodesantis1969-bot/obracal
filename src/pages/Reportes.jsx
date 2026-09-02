@@ -43,19 +43,6 @@ export default function Reportes(props) {
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
   const [fetchedEmpleados, setFetchedEmpleados] = useState([]);
 
-  // Cargar respaldo local inicial para garantizar visualización inmediata del historial
-  useEffect(() => {
-    try {
-      const localSice = localStorage.getItem('sice_partes_guardados');
-      if (localSice) {
-        const parsedLocal = JSON.parse(localSice);
-        if (Array.isArray(parsedLocal) && parsedLocal.length > 0) {
-          setFetchedReportesSice(parsedLocal);
-        }
-      }
-    } catch (e) {}
-  }, []);
-
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -74,7 +61,6 @@ export default function Reportes(props) {
       })
       .catch(() => {});
 
-    // LECTOR ULTRA-ROBUSTO DE REPORTES SICE
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -82,7 +68,6 @@ export default function Reportes(props) {
     })
       .then(res => res.json())
       .then(data => {
-        console.log("Respuesta cruda ReportesSice:", data);
         let lista = [];
         if (Array.isArray(data)) {
           lista = data;
@@ -95,14 +80,7 @@ export default function Reportes(props) {
           }
         }
         if (lista.length > 0) {
-          setFetchedReportesSice(prev => {
-            // Combinar con los locales para no perder nada
-            const combinados = [...lista, ...prev];
-            // Deduplicar por id o nro
-            const unicos = Array.from(new Map(combinados.map(item => [item.id || item.nro, item])).values());
-            localStorage.setItem('sice_partes_guardados', JSON.stringify(unicos));
-            return unicos;
-          });
+          setFetchedReportesSice(lista);
         }
       })
       .catch((err) => console.error("Error al obtener ReportesSice:", err));
@@ -169,11 +147,12 @@ export default function Reportes(props) {
     });
   }, [empleadosListProps, fetchedEmpleados]);
 
-  const [obraFiltro, setObraFiltro] = useState('todas');
   const [activeTab, setActiveTab] = useState('Reportes Diarios');
 
   useEffect(() => {
-    setActiveTab('Reportes Diarios');
+    if (esOperador) {
+      setActiveTab('Reportes Diarios');
+    }
   }, [esOperador]);
 
   const [compObraId, setCompObraId] = useState('todas');
@@ -388,9 +367,7 @@ export default function Reportes(props) {
           id: idParte
         })
       });
-      const filtrados = fetchedReportesSice.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte));
-      setFetchedReportesSice(filtrados);
-      localStorage.setItem('sice_partes_guardados', JSON.stringify(filtrados));
+      setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
       alert("Parte diario eliminado exitosamente.");
     } catch (err) {
       console.error("Error al eliminar parte:", err);
@@ -492,11 +469,7 @@ export default function Reportes(props) {
         pdfUrl: pdfUrlFinal 
       };
 
-      setFetchedReportesSice(prev => {
-        const actualizados = [nuevoParte, ...prev];
-        localStorage.setItem('sice_partes_guardados', JSON.stringify(actualizados));
-        return actualizados;
-      });
+      setFetchedReportesSice(prev => [nuevoParte, ...prev]);
 
       const siguienteNro = String(Number(siceParteNro) + 1).padStart(5, '0');
       setSiceParteNro(siguienteNro);
@@ -513,18 +486,6 @@ export default function Reportes(props) {
       setIsSavingSice(false);
     }
   };
-
-  const presupuestosFiltrados = obraFiltro === 'todas' 
-    ? presupuestos 
-    : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(obraFiltro));
-
-  const certificadosFiltrados = obraFiltro === 'todas' 
-    ? certificados 
-    : certificados.filter(c => String(c.obra_id || c.Obra_id || c.obraId) === String(obraFiltro));
-
-  const movimientosFiltrados = obraFiltro === 'todas' 
-    ? movimientos 
-    : movimientos.filter(m => String(m.obra_id || m.Obra_id || m.obraId) === String(obraFiltro));
 
   const presupuestosCompFiltrados = (compObraId === 'todas' 
     ? presupuestos 
@@ -993,41 +954,6 @@ export default function Reportes(props) {
 
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
 
-  const obtenerFacturasParaComponente = (rubroObj, compNombre, facturasRubroTotal) => {
-    const compNorm = limpiarTexto(compNombre);
-    if (compNorm.includes('mano') || compNorm.includes('obra')) {
-      return 0;
-    }
-
-    const matchingFacturas = facturasRubroTotal.filter(fac => {
-      const tipoFac = limpiarTexto(
-        fac.tipo_insumo || fac.Tipo_insumo || 
-        fac.renglon || fac.Renglon || 
-        fac.concepto || fac.Concepto || 
-        fac.descripcion || fac.Descripcion || 
-        fac.detalle_gasto || fac.Detalle_gasto || ''
-      );
-
-      if (tipoFac.includes('mano') || tipoFac.includes('salario')) {
-        return false;
-      }
-
-      if (compNorm.includes('subcontrato')) {
-        return tipoFac.includes('subcontrato') || tipoFac.includes('georadar') || tipoFac.includes('alquiler') || tipoFac.includes('flete') || tipoFac.includes('servicio');
-      }
-      if (compNorm.includes('equipo') || tipoFac.includes('maquinaria')) {
-        return tipoFac.includes('equipo') || tipoFac.includes('maquinaria') || tipoFac.includes('andamio');
-      }
-      if (compNorm.includes('material')) {
-        return tipoFac.includes('material') || tipoFac.includes('cemento') || tipoFac.includes('ladrillo') || tipoFac.includes('ferreteria') ||
-               (!tipoFac.includes('subcontrato') && !tipoFac.includes('equipo') && !tipoFac.includes('maquinaria'));
-      }
-      return false;
-    });
-
-    return matchingFacturas.reduce((sum, f) => sum + Number(f.subtotal || f.Subtotal || 0), 0);
-  };
-
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:hidden">
@@ -1489,6 +1415,290 @@ export default function Reportes(props) {
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {!esOperador && activeTab === 'Listado de Insumos' && (
+        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
+                <Package className="w-4 h-4 text-amber-500" /> Listado de Insumos por Presupuesto
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">Seleccione un presupuesto aprobado para desglosar sus insumos y materiales.</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <select
+                value={insumoPresupuestoId}
+                onChange={(e) => setInsumoPresupuestoId(e.target.value)}
+                className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+              >
+                <option value="">-- Seleccionar Presupuesto Aprobado --</option>
+                {presupuestos.filter(p => {
+                  const est = String(p.estado_presupuesto || p.Estado_presupuesto || p.estado || '').toLowerCase().trim();
+                  return est === 'aprobado' || est === 'aprobada';
+                }).map(p => (
+                  <option key={p.id || p.ID} value={p.id || p.ID}>
+                    [{p.codigo || p.id}] {p.nombre || p.nombre_obra || 'Presupuesto'}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={() => setVistaGeneralInsumos(!vistaGeneralInsumos)}
+                className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs hover:bg-slate-800 transition-colors cursor-pointer"
+              >
+                {vistaGeneralInsumos ? 'Ver por Rubros' : 'Ver Vista General'}
+              </button>
+            </div>
+          </div>
+
+          {!presupuestoInsumosSeleccionado ? (
+            <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
+              Por favor, seleccione un presupuesto aprobado para visualizar sus insumos.
+            </div>
+          ) : vistaGeneralInsumos ? (
+            <div className="space-y-6">
+              <h4 className="text-xs font-extrabold text-slate-800 uppercase">Consolidado General de Insumos</h4>
+              {ordenCategorias.map(cat => {
+                const itemsCat = insumosGenerales[cat] || [];
+                if (itemsCat.length === 0) return null;
+                const totalCat = itemsCat.reduce((acc, i) => acc + (Number(i.total) || 0), 0);
+                return (
+                  <div key={cat} className="space-y-2 border border-slate-200 rounded-xl p-4 bg-slate-50/50">
+                    <div className="flex justify-between items-center border-b border-slate-200 pb-2">
+                      <span className="font-extrabold text-xs text-slate-900 uppercase">{cat}</span>
+                      <span className="font-black text-xs text-amber-800">$ {totalCat.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="text-slate-500 font-bold uppercase text-[10px]">
+                          <th className="py-2 px-2">Rubro / Tarea</th>
+                          <th className="py-2 px-2">Insumo / Artículo</th>
+                          <th className="py-2 px-2 text-center">Unidad</th>
+                          <th className="py-2 px-2 text-right">Cant.</th>
+                          <th className="py-2 px-2 text-right">C. Unit.</th>
+                          <th className="py-2 px-2 text-right">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {itemsCat.map((it, iIdx) => (
+                          <tr key={iIdx} className="hover:bg-white">
+                            <td className="py-2 px-2 text-slate-600 font-medium">{it.rubro} / {it.tarea}</td>
+                            <td className="py-2 px-2 font-bold text-slate-900">{it.nombre}</td>
+                            <td className="py-2 px-2 text-center text-slate-500">{it.unidad}</td>
+                            <td className="py-2 px-2 text-right">{it.cantidad}</td>
+                            <td className="py-2 px-2 text-right">$ {Number(it.costo_unitario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className="py-2 px-2 text-right font-bold text-slate-900">$ {Number(it.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {Object.keys(insumosPorRubro).length === 0 ? (
+                <div className="p-8 text-center text-slate-400 text-xs">No se encontraron rubros con insumos detallados en este presupuesto.</div>
+              ) : (
+                Object.entries(insumosPorRubro).map(([nombreRubro, cats]) => (
+                  <div key={nombreRubro} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-4">
+                    <h4 className="font-extrabold text-xs text-slate-900 uppercase border-b border-slate-200 pb-2">{nombreRubro}</h4>
+                    {ordenCategorias.map(cat => {
+                      const itemsCat = cats[cat] || [];
+                      if (itemsCat.length === 0) return null;
+                      const subCatTotal = itemsCat.reduce((acc, i) => acc + (Number(i.total) || 0), 0);
+                      return (
+                        <div key={cat} className="space-y-2 pl-4 border-l-2 border-amber-500">
+                          <div className="flex justify-between items-center">
+                            <span className="font-bold text-xs text-slate-700 uppercase">{cat}</span>
+                            <span className="font-black text-xs text-amber-800">$ {subCatTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <table className="w-full text-left text-xs">
+                            <thead>
+                              <tr className="text-slate-500 font-bold uppercase text-[10px]">
+                                <th className="py-1.5 px-2">Tarea</th>
+                                <th className="py-1.5 px-2">Insumo</th>
+                                <th className="py-1.5 px-2 text-center">Unidad</th>
+                                <th className="py-1.5 px-2 text-right">Cant.</th>
+                                <th className="py-1.5 px-2 text-right">C. Unit.</th>
+                                <th className="py-1.5 px-2 text-right">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100">
+                              {itemsCat.map((it, iIdx) => (
+                                <tr key={iIdx} className="hover:bg-white">
+                                  <td className="py-1.5 px-2 text-slate-600">{it.tarea}</td>
+                                  <td className="py-1.5 px-2 font-bold text-slate-900">{it.nombre}</td>
+                                  <td className="py-1.5 px-2 text-center text-slate-500">{it.unidad}</td>
+                                  <td className="py-1.5 px-2 text-right">{it.cantidad}</td>
+                                  <td className="py-1.5 px-2 text-right">$ {Number(it.costo_unitario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                  <td className="py-1.5 px-2 text-right font-bold text-slate-900">$ {Number(it.total).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {!esOperador && activeTab === 'Comparativo' && (
+        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-amber-500" /> Análisis Comparativo (Presupuesto vs. Real)
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">Cruce de montos presupuestados con imputaciones reales de facturas, gastos y salarios de RRHH.</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <select
+                value={compObraId}
+                onChange={(e) => {
+                  setCompObraId(e.target.value);
+                  setCompPresupuestoId('');
+                }}
+                className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+              >
+                <option value="todas">-- Todas las Obras --</option>
+                {obras.map(o => (
+                  <option key={o.id || o.ID} value={o.id || o.ID}>{o.nombre || o.nombre_obra || 'Obra'}</option>
+                ))}
+              </select>
+              <select
+                value={compPresupuestoId}
+                onChange={(e) => setCompPresupuestoId(e.target.value)}
+                className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+              >
+                <option value="">-- Seleccionar Presupuesto Aprobado --</option>
+                {presupuestosCompFiltrados.map(p => (
+                  <option key={p.id || p.ID} value={p.id || p.ID}>[{p.codigo || p.id}] {p.nombre || p.nombre_obra || 'Presupuesto'}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {!presupuestoSeleccionado ? (
+            <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
+              Por favor, seleccione un presupuesto aprobado para visualizar el análisis comparativo financiero.
+            </div>
+          ) : (
+            <div className="space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 text-[10px] font-bold uppercase">Total Presupuestado</span>
+                  <p className="text-lg font-black text-slate-900 mt-1">$ {granTotalPresupuestado.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>
+                </div>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 text-[10px] font-bold uppercase">Total Imputado Real</span>
+                  {(() => {
+                    const totalRealRubros = rubrosPresupuestoDetalle.reduce((sum, r) => {
+                      const salariosRubro = obtenerSalariosPorRubro(r.nombre);
+                      const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f.rubro_presupuesto || f.rubro || '') === limpiarTexto(r.nombre)).reduce((acc, f) => acc + Number(f.subtotal || f.Subtotal || 0), 0);
+                      return sum + salariosRubro + facturasRubro;
+                    }, 0);
+                    const totalRealGG = gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0);
+                    const granTotalReal = totalRealRubros + totalRealGG;
+                    return <p className="text-lg font-black text-amber-700 mt-1">$ {granTotalReal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</p>;
+                  })()}
+                </div>
+                <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                  <span className="text-slate-500 text-[10px] font-bold uppercase">Desvío Financiero Total</span>
+                  {(() => {
+                    const totalRealRubros = rubrosPresupuestoDetalle.reduce((sum, r) => {
+                      const salariosRubro = obtenerSalariosPorRubro(r.nombre);
+                      const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f.rubro_presupuesto || f.rubro || '') === limpiarTexto(r.nombre)).reduce((acc, f) => acc + Number(f.subtotal || f.Subtotal || 0), 0);
+                      return sum + salariosRubro + facturasRubro;
+                    }, 0);
+                    const totalRealGG = gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0);
+                    const granTotalReal = totalRealRubros + totalRealGG;
+                    const desvioTotal = granTotalPresupuestado - granTotalReal;
+                    return (
+                      <p className={`text-lg font-black mt-1 ${desvioTotal >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                        $ {desvioTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                      </p>
+                    );
+                  })()}
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <h4 className="text-xs font-extrabold text-slate-900 uppercase">Detalle por Rubro Constructivo</h4>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200 text-[10px]">
+                        <th className="px-4 py-3">Rubro</th>
+                        <th className="px-4 py-3 text-right">Presupuestado</th>
+                        <th className="px-4 py-3 text-right">Salarios RRHH</th>
+                        <th className="px-4 py-3 text-right">Facturas / Materiales</th>
+                        <th className="px-4 py-3 text-right">Total Real</th>
+                        <th className="px-4 py-3 text-right">Desvío</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rubrosPresupuestoDetalle.map(rubro => {
+                        const salariosRubro = obtenerSalariosPorRubro(rubro.nombre);
+                        const facturasRubroTotal = facturasPresupuesto.filter(f => limpiarTexto(f.rubro_presupuesto || f.rubro || '') === limpiarTexto(rubro.nombre));
+                        const facturasRubroSuma = facturasRubroTotal.reduce((acc, f) => acc + Number(f.subtotal || f.Subtotal || 0), 0);
+                        const totalRealRubro = salariosRubro + facturasRubroSuma;
+                        const desvioRubro = rubro.total - totalRealRubro;
+
+                        return (
+                          <tr key={rubro.id} className="hover:bg-slate-50 font-medium">
+                            <td className="px-4 py-3 font-bold text-slate-900">{rubro.nombre}</td>
+                            <td className="px-4 py-3 text-right font-bold">$ {rubro.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-4 py-3 text-right text-slate-600">$ {salariosRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-4 py-3 text-right text-slate-600">$ {facturasRubroSuma.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className="px-4 py-3 text-right font-black text-amber-700">$ {totalRealRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                            <td className={`px-4 py-3 text-right font-black ${desvioRubro >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                              $ {desvioRubro.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              <div className="space-y-4 pt-4">
+                <h4 className="text-xs font-extrabold text-slate-900 uppercase">Gastos Generales e Imprevistos</h4>
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200 text-[10px]">
+                        <th className="px-4 py-3">Concepto</th>
+                        <th className="px-4 py-3 text-right">Presupuestado</th>
+                        <th className="px-4 py-3 text-right">Real Imputado</th>
+                        <th className="px-4 py-3 text-right">Desvío</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {gastosGeneralesDetalle.map(gg => (
+                        <tr key={gg.id} className="hover:bg-slate-50 font-medium">
+                          <td className="px-4 py-3 font-bold text-slate-900">{gg.concepto}</td>
+                          <td className="px-4 py-3 text-right font-bold">$ {gg.total.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className="px-4 py-3 text-right font-black text-amber-700">$ {gg.real.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                          <td className={`px-4 py-3 text-right font-black ${gg.desvio >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            $ {gg.desvio.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
