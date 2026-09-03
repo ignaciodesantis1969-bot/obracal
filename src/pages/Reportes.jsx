@@ -72,6 +72,7 @@ function ReportesContent(props) {
   const propsContratos = props?.contratos || props?.Contratos || props?.contratosMantenimiento || props?.ContratosMantenimiento || props?.contratos_mantenimiento;
   const propsReportesSice = props?.reportesSice || props?.ReportesSice || props?.reportes_sice;
   const propsInsumos = props?.insumos || props?.Insumos;
+  const propsProveedores = props?.proveedores || props?.Proveedores;
   const propsEmpleados = empleadosListProps;
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
@@ -79,6 +80,7 @@ function ReportesContent(props) {
   const [fetchedEmpleados, setFetchedEmpleados] = useState([]);
   const [fetchedCertificados, setFetchedCertificados] = useState([]);
   const [fetchedInsumos, setFetchedInsumos] = useState([]);
+  const [fetchedProveedores, setFetchedProveedores] = useState([]);
 
   useEffect(() => {
     if (!propsContratos || (Array.isArray(propsContratos) && propsContratos.length === 0)) {
@@ -162,6 +164,25 @@ function ReportesContent(props) {
         .catch(() => {});
     }
 
+    if (!propsProveedores || (Array.isArray(propsProveedores) && propsProveedores.length === 0)) {
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'Proveedores', action: 'get' })
+      })
+        .then(res => res.json())
+        .then(data => {
+          let lista = [];
+          if (Array.isArray(data)) lista = data;
+          else if (data && typeof data === 'object') {
+            const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+            if (foundKey) lista = data[foundKey];
+          }
+          if (lista.length > 0) setFetchedProveedores(lista);
+        })
+        .catch(() => {});
+    }
+
     if (!propsEmpleados || (Array.isArray(propsEmpleados) && propsEmpleados.length === 0)) {
       fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -180,7 +201,7 @@ function ReportesContent(props) {
         })
         .catch(() => {});
     }
-  }, [propsContratos, propsReportesSice, propsEmpleados, propsInsumos]);
+  }, [propsContratos, propsReportesSice, propsEmpleados, propsInsumos, propsProveedores]);
 
   const contratosList = useMemo(() => {
     if (Array.isArray(propsContratos) && propsContratos.length > 0) return propsContratos;
@@ -193,6 +214,26 @@ function ReportesContent(props) {
     const f = Array.isArray(fetchedInsumos) ? fetchedInsumos : [];
     return [...p, ...f];
   }, [propsInsumos, fetchedInsumos]);
+
+  const proveedoresList = useMemo(() => {
+    const p = Array.isArray(propsProveedores) ? propsProveedores : [];
+    const f = Array.isArray(fetchedProveedores) ? fetchedProveedores : [];
+    return [...p, ...f];
+  }, [propsProveedores, fetchedProveedores]);
+
+  const proveedorNombreMap = useMemo(() => {
+    const map = {};
+    proveedoresList.forEach(prov => {
+      const pId = String(prov?.id || prov?.ID || '').trim();
+      const pCod = String(prov?.codigo || prov?.Codigo || '').trim();
+      const pRazon = String(prov?.razon_social || prov?.razonSocial || prov?.nombre || prov?.nombre_proveedor || '').trim();
+      if (pRazon) {
+        if (pId) map[pId] = pRazon;
+        if (pCod) map[pCod] = pRazon;
+      }
+    });
+    return map;
+  }, [proveedoresList]);
 
   const reportesSiceListProps = Array.isArray(props?.reportesSice || props?.ReportesSice || props?.reportes_sice) ? (props.reportesSice || props.ReportesSice || props.reportes_sice) : [];
 
@@ -711,7 +752,11 @@ function ReportesContent(props) {
     insumos.forEach(insGlobal => {
       const gId = String(insGlobal?.id || insGlobal?.ID || insGlobal?.insumo_id || '').trim();
       const tipoOriginal = String(insGlobal?.tipo || insGlobal?.Tipo || insGlobal?.tipo_insumo || 'Material').trim().toLowerCase();
-      const proveedorOriginal = insGlobal?.proveedor || insGlobal?.proveedor_nombre || insGlobal?.proveedorNombre || insGlobal?.razon_social || '';
+      
+      const provId = String(insGlobal?.proveedor_id || insGlobal?.proveedorId || insGlobal?.id_proveedor || '').trim();
+      const proveedorDirecto = insGlobal?.proveedor || insGlobal?.proveedor_nombre || insGlobal?.proveedorNombre || insGlobal?.razon_social || '';
+      
+      const proveedorResuelto = provId ? (proveedorNombreMap[provId] || proveedorDirecto) : proveedorDirecto;
       const nombreGl = String(insGlobal?.nombre || insGlobal?.nombre_articulo || insGlobal?.concepto || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
 
       if (gId) {
@@ -722,12 +767,12 @@ function ReportesContent(props) {
         else tipoNorm = 'Materiales';
 
         insumosOficialMap[gId] = tipoNorm;
-        if (proveedorOriginal && proveedorOriginal !== '---') {
-          insumosProveedorMap[gId] = proveedorOriginal;
+        if (proveedorResuelto && proveedorResuelto !== '---') {
+          insumosProveedorMap[gId] = proveedorResuelto;
         }
       }
-      if (nombreGl && proveedorOriginal && proveedorOriginal !== '---') {
-        insumosNombreProveedorMap[nombreGl] = proveedorOriginal;
+      if (nombreGl && proveedorResuelto && proveedorResuelto !== '---') {
+        insumosNombreProveedorMap[nombreGl] = proveedorResuelto;
       }
     });
   }
@@ -831,7 +876,12 @@ function ReportesContent(props) {
           
           const nombreInsStr = ins?.nombre || ins?.nombre_del_articulo || ins?.concepto || tarea?.tarea || 'Insumo sin nombre';
           const nombreInsClean = limpiarTexto(nombreInsStr);
-          const proveedorIns = ins?.proveedor || ins?.proveedor_nombre || ins?.proveedorNombre || insumosProveedorMap[insId] || insumosNombreProveedorMap[nombreInsClean] || '---';
+
+          const provIdIns = String(ins?.proveedor_id || ins?.proveedorId || ins?.id_proveedor || '').trim();
+          const provDirectoIns = ins?.proveedor || ins?.proveedor_nombre || ins?.proveedorNombre || '';
+          const proveedorResueltoIns = provIdIns ? (proveedorNombreMap[provIdIns] || provDirectoIns) : provDirectoIns;
+
+          const proveedorIns = proveedorResueltoIns || insumosProveedorMap[insId] || insumosNombreProveedorMap[nombreInsClean] || '---';
 
           const itemProcesado = {
             rubro: nombreRubro,
@@ -853,7 +903,7 @@ function ReportesContent(props) {
     });
 
     return { insumosPorRubro: porRubro, insumosGenerales: general };
-  }, [presupuestoInsumosSeleccionado, insumosOficialMap, insumosProveedorMap, insumosNombreProveedorMap]);
+  }, [presupuestoInsumosSeleccionado, insumosOficialMap, insumosProveedorMap, insumosNombreProveedorMap, proveedorNombreMap]);
 
   const ordenCategorias = ['MANO DE OBRA', 'MATERIALES', 'SUBCONTRATOS', 'EQUIPOS / HERRAMIENTAS', 'OTROS'];
 
@@ -1333,7 +1383,7 @@ function ReportesContent(props) {
             padding: 10px !important;
             background: white !important;
           }
-          .print\\:hidden {
+          aside, nav, header, footer, .sidebar, [class*="sidebar"], [class*="nav"], .print\\:hidden {
             display: none !important;
           }
         }
