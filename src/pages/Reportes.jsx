@@ -30,14 +30,14 @@ export default function Reportes(props) {
   
   const esOperador = userRole.includes('operador') || userRole.includes('operator') || userRole.includes('operat');
 
-  const obras = props.obras || props.Obras || [];
-  const presupuestos = props.presupuestos || props.Presupuestos || [];
-  const certificadosProps = props.certificados || props.Certificados || [];
-  const movimientos = props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria || [];
-  const insumos = props.insumos || props.Insumos || [];
-  const empleadosListProps = props.empleados || props.Empleados || props.personal || props.Personal || [];
-  const facturas = props.facturas || props.Facturas || [];
-  const maestroTareasRubros = props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros || [];
+  const obras = Array.isArray(props.obras || props.Obras) ? (props.obras || props.Obras) : [];
+  const presupuestos = Array.isArray(props.presupuestos || props.Presupuestos) ? (props.presupuestos || props.Presupuestos) : [];
+  const certificadosProps = Array.isArray(props.certificados || props.Certificados) ? (props.certificados || props.Certificados) : [];
+  const movimientos = Array.isArray(props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria) ? (props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria) : [];
+  const insumos = Array.isArray(props.insumos || props.Insumos) ? (props.insumos || props.Insumos) : [];
+  const empleadosListProps = Array.isArray(props.empleados || props.Empleados || props.personal || props.Personal) ? (props.empleados || props.Empleados || props.personal || props.Personal) : [];
+  const facturas = Array.isArray(props.facturas || props.Facturas) ? (props.facturas || props.Facturas) : [];
+  const maestroTareasRubros = Array.isArray(props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros) ? (props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros) : [];
 
   const propsContratos = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento;
   const propsReportesSice = props.reportesSice || props.ReportesSice || props.reportes_sice;
@@ -49,7 +49,7 @@ export default function Reportes(props) {
   const [fetchedCertificados, setFetchedCertificados] = useState([]);
 
   useEffect(() => {
-    if (!propsContratos || propsContratos.length === 0) {
+    if (!propsContratos || (Array.isArray(propsContratos) && propsContratos.length === 0)) {
       fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -68,7 +68,7 @@ export default function Reportes(props) {
         .catch(() => {});
     }
 
-    if (!propsReportesSice || propsReportesSice.length === 0) {
+    if (!propsReportesSice || (Array.isArray(propsReportesSice) && propsReportesSice.length === 0)) {
       fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -111,7 +111,7 @@ export default function Reportes(props) {
       })
       .catch(() => {});
 
-    if (!propsEmpleados || propsEmpleados.length === 0) {
+    if (!propsEmpleados || (Array.isArray(propsEmpleados) && propsEmpleados.length === 0)) {
       fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -137,10 +137,10 @@ export default function Reportes(props) {
     return CONTRATO_DEFAULT;
   }, [propsContratos, fetchedContratos]);
 
-  const reportesSiceListProps = props.reportesSice || props.ReportesSice || props.reportes_sice || [];
+  const reportesSiceListProps = Array.isArray(props.reportesSice || props.ReportesSice || props.reportes_sice) ? (props.reportesSice || props.ReportesSice || props.reportes_sice) : [];
 
   const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
-    if (!obj) return defecto;
+    if (!obj || typeof obj !== 'object') return defecto;
     for (const pk of posibleClaves) {
       const cleanPk = pk.toLowerCase().replace(/[^a-z0-9]/g, '');
       for (const [k, v] of Object.entries(obj)) {
@@ -161,8 +161,8 @@ export default function Reportes(props) {
     if (direct) return direct;
 
     const obraId = presupuesto.obra_id || presupuesto.Obra_id || presupuesto.obraId || presupuesto.id_obra;
-    if (obraId && Array.isArray(obras)) {
-      const obraEncontrada = obras.find(o => String(o.id || o.ID) === String(obraId));
+    if (obraId && obras.length > 0) {
+      const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
       if (obraEncontrada) {
         const clienteObra = buscarValorEnObjeto(obraEncontrada, ['cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'razon_social', 'razonSocial']);
         if (clienteObra) return clienteObra;
@@ -178,7 +178,7 @@ export default function Reportes(props) {
 
   const allReportesSice = useMemo(() => {
     let base = fetchedReportesSice.length > 0 ? fetchedReportesSice : reportesSiceListProps;
-    return base;
+    return Array.isArray(base) ? base : [];
   }, [fetchedReportesSice, reportesSiceListProps]);
 
   const listaEmpleadosActivos = useMemo(() => {
@@ -192,7 +192,7 @@ export default function Reportes(props) {
     ]);
 
     return fuente.filter(emp => {
-      const estadoVal = String(emp.estado || emp.Estado || emp.status || 'ACTIVO').trim().toUpperCase();
+      const estadoVal = String(emp?.estado || emp?.Estado || emp?.status || 'ACTIVO').trim().toUpperCase();
       return estadoVal === 'ACTIVO';
     });
   }, [empleadosListProps, fetchedEmpleados]);
@@ -221,12 +221,11 @@ export default function Reportes(props) {
     }
   }, [esOperador]);
 
-  // Conjunto de certificados ya guardados para la combinación (PresupuestoId + CertificadoNro)
   const certificadosGuardadosSet = useMemo(() => {
     const set = new Set();
     allCertificados.forEach(c => {
-      const pId = String(c.presupuestoId || c.presupuesto_id || '').trim();
-      const nro = String(c.certificadoNro || c.certificado_nro || '').trim();
+      const pId = String(c?.presupuestoId || c?.presupuesto_id || '').trim();
+      const nro = String(c?.certificadoNro || c?.certificado_nro || '').trim();
       if (pId && nro !== '') {
         set.add(`${pId}_${nro}`);
       }
@@ -236,10 +235,10 @@ export default function Reportes(props) {
 
   const presupuestosDisponiblesCert = useMemo(() => {
     return presupuestos.filter(p => {
-      const est = String(p.estado_presupuesto || p.Estado_presupuesto || p.estado || '').toLowerCase().trim();
+      const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || '').toLowerCase().trim();
       if (est !== 'aprobado' && est !== 'aprobada') return false;
       
-      const pId = String(p.id || p.ID || '').trim();
+      const pId = String(p?.id || p?.ID || '').trim();
       const yaGrabado = certificadosGuardadosSet.has(`${pId}_${certificadoNro}`);
       return !yaGrabado;
     });
@@ -260,9 +259,9 @@ export default function Reportes(props) {
 
   const calcularTotalHorasSice = (inicio, fin) => {
     if (!inicio || !fin) return 0;
-    const [hIni, mIni] = inicio.split(':').map(Number);
-    const [hFin, mFin] = fin.split(':').map(Number);
-    let diffMinutos = (hFin * 60 + mFin) - (hIni * 60 + mIni);
+    const [hIni, mIni] = String(inicio).split(':').map(Number);
+    const [hFin, mFin] = String(fin).split(':').map(Number);
+    let diffMinutos = ((hFin || 0) * 60 + (mFin || 0)) - ((hIni || 0) * 60 + (mIni || 0));
     if (diffMinutos < 0) diffMinutos += 24 * 60;
     const horasEfectivas = diffMinutos / 60;
     if (horasEfectivas <= 0) return 0;
@@ -271,7 +270,7 @@ export default function Reportes(props) {
   };
 
   const totalHorasDefaultCalculado = useMemo(() => {
-    return siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0);
+    return siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it?.horaComienzo, it?.horaFin), 0);
   }, [siceItems]);
 
   const [operariosSeleccionados, setOperariosSeleccionados] = useState([]);
@@ -319,13 +318,13 @@ export default function Reportes(props) {
       }
     });
 
-    let pCargo = buscarValorEnObjeto(objData, ['proveedor_cargo', 'proveedorCargo', 'cargoProveedor', 'cargo_proveedor', 'puestoProveedor']) || objData.proveedor?.cargo || '';
-    let pNombre = buscarValorEnObjeto(objData, ['proveedor_nombre', 'proveedorNombre', 'nombreProveedor', 'nombre_proveedor', 'responsableProveedor']) || objData.proveedor?.nombre || '';
-    let pKey = buscarValorEnObjeto(objData, ['proveedor_key', 'proveedorKey', 'claveProveedor', 'clave_proveedor', 'proveedor_clave']) || objData.proveedor?.key || 'AT1020';
+    let pCargo = buscarValorEnObjeto(objData, ['proveedor_cargo', 'proveedorCargo', 'cargoProveedor', 'cargo_proveedor', 'puestoProveedor']) || objData?.proveedor?.cargo || '';
+    let pNombre = buscarValorEnObjeto(objData, ['proveedor_nombre', 'proveedorNombre', 'nombreProveedor', 'nombre_proveedor', 'responsableProveedor']) || objData?.proveedor?.nombre || '';
+    let pKey = buscarValorEnObjeto(objData, ['proveedor_key', 'proveedorKey', 'claveProveedor', 'clave_proveedor', 'proveedor_clave']) || objData?.proveedor?.key || 'AT1020';
 
-    let cCargo = buscarValorEnObjeto(objData, ['cliente_cargo', 'clienteCargo', 'cargoCliente', 'cargo_cliente', 'puestoCliente']) || objData.cliente?.cargo || '';
-    let cNombre = buscarValorEnObjeto(objData, ['cliente_nombre', 'clienteNombre', 'nombreCliente', 'nombre_cliente', 'responsableCliente']) || objData.cliente?.nombre || '';
-    let cKey = buscarValorEnObjeto(objData, ['cliente_key', 'clienteKey', 'claveCliente', 'clave_cliente', 'cliente_clave']) || objData.cliente?.key || 'CM7030';
+    let cCargo = buscarValorEnObjeto(objData, ['cliente_cargo', 'clienteCargo', 'cargoCliente', 'cargo_cliente', 'puestoCliente']) || objData?.cliente?.cargo || '';
+    let cNombre = buscarValorEnObjeto(objData, ['cliente_nombre', 'clienteNombre', 'nombreCliente', 'nombre_cliente', 'responsableCliente']) || objData?.cliente?.nombre || '';
+    let cKey = buscarValorEnObjeto(objData, ['cliente_key', 'clienteKey', 'claveCliente', 'clave_cliente', 'cliente_clave']) || objData?.cliente?.key || 'CM7030';
 
     return { pCargo, pNombre, pKey, cCargo, cNombre, cKey };
   };
@@ -355,12 +354,12 @@ export default function Reportes(props) {
         setSiceRespProveedor(prev => ({
           cargo: pCargo,
           nombre: pNombre,
-          clave: prev.clave || ''
+          clave: prev?.clave || ''
         }));
         setSiceRespCliente(prev => ({
           cargo: cCargo,
           nombre: cNombre,
-          clave: prev.clave || ''
+          clave: prev?.clave || ''
         }));
       }
     }
@@ -436,8 +435,10 @@ export default function Reportes(props) {
 
   const actualizarOperarioFila = (index, campo, valor) => {
     const actualizados = [...operariosSeleccionados];
-    actualizados[index][campo] = valor;
-    setOperariosSeleccionados(actualizados);
+    if (actualizados[index]) {
+      actualizados[index][campo] = valor;
+      setOperariosSeleccionados(actualizados);
+    }
   };
 
   const eliminarOperarioFila = (index) => {
@@ -478,8 +479,10 @@ export default function Reportes(props) {
 
   const actualizarItemSice = (index, campo, valor) => {
     const actualizados = [...siceItems];
-    actualizados[index][campo] = valor;
-    setSiceItems(actualizados);
+    if (actualizados[index]) {
+      actualizados[index][campo] = valor;
+      setSiceItems(actualizados);
+    }
   };
 
   const aprobarYArchivarParteSice = async (e) => {
@@ -508,12 +511,12 @@ export default function Reportes(props) {
       return;
     }
 
-    const totalHsSuma = siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it.horaComienzo, it.horaFin), 0);
+    const totalHsSuma = siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it?.horaComienzo, it?.horaFin), 0);
 
     const operariosFinales = operariosSeleccionados.map(op => ({
-      nombre: op.nombre,
-      abreviacion: op.abreviacion,
-      horas: op.horas !== '' ? Number(op.horas) : totalHsSuma
+      nombre: op?.nombre,
+      abreviacion: op?.abreviacion,
+      horas: op?.horas !== '' ? Number(op?.horas) : totalHsSuma
     }));
 
     setIsSavingSice(true);
@@ -539,9 +542,9 @@ export default function Reportes(props) {
       });
       const resultado = await res.json();
 
-      const pdfUrlFinal = resultado.pdfUrl || resultado.pdf_url || resultado.url || resultado.link || '';
-      if (resultado.success === false || (resultado.error && !pdfUrlFinal)) {
-        alert("Error al generar el PDF en Google Drive: " + (resultado.error || 'Desconocido'));
+      const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
+      if (resultado?.success === false || (resultado?.error && !pdfUrlFinal)) {
+        alert("Error al generar el PDF en Google Drive: " + (resultado?.error || 'Desconocido'));
         setIsSavingSice(false);
         return;
       }
@@ -579,21 +582,21 @@ export default function Reportes(props) {
 
   const presupuestosCompFiltrados = (compObraId === 'todas' 
     ? presupuestos 
-    : presupuestos.filter(p => String(p.obra_id || p.Obra_id || p.obraId) === String(compObraId))
+    : presupuestos.filter(p => String(p?.obra_id || p?.Obra_id || p?.obraId) === String(compObraId))
   ).filter(p => {
-    const estadoBruto = p.estado_presupuesto || p.Estado_presupuesto || p.estado || p.Estado || '';
+    const estadoBruto = p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || p?.Estado || '';
     const estadoLimpio = String(estadoBruto).toLowerCase().trim();
     return estadoLimpio === 'aprobado' || estadoLimpio === 'aprobada';
   });
 
-  const presupuestoSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(compPresupuestoId));
-  const certificadoPresupuestoObj = presupuestos.find(p => String(p.id || p.ID) === String(certPresupuestoId));
+  const presupuestoSeleccionado = presupuestos.find(p => String(p?.id || p?.ID) === String(compPresupuestoId));
+  const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
   
   const insumosOficialMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
-      const gId = String(insGlobal.id || insGlobal.ID || insGlobal.insumo_id || '').trim();
-      const tipoOriginal = String(insGlobal.tipo || insGlobal.Tipo || insGlobal.tipo_insumo || 'Material').trim().toLowerCase();
+      const gId = String(insGlobal?.id || insGlobal?.ID || insGlobal?.insumo_id || '').trim();
+      const tipoOriginal = String(insGlobal?.tipo || insGlobal?.Tipo || insGlobal?.tipo_insumo || 'Material').trim().toLowerCase();
       if (gId) {
         let tipoNorm = 'Material';
         if (tipoOriginal.includes('mano')) tipoNorm = 'Mano de Obra';
@@ -611,9 +614,9 @@ export default function Reportes(props) {
   const maestroTareasMap = {};
   if (Array.isArray(maestroTareasRubros)) {
     maestroTareasRubros.forEach(itemMaestro => {
-      const tareaRaw = itemMaestro.tarea || itemMaestro.nombre || itemMaestro.Tarea || '';
+      const tareaRaw = itemMaestro?.tarea || itemMaestro?.nombre || itemMaestro?.Tarea || '';
       const tareaKey = limpiarTexto(tareaRaw);
-      let insumosDetalleParsed = itemMaestro.insumos_detalle || itemMaestro.Insumos_detalle || itemMaestro.insumos || [];
+      let insumosDetalleParsed = itemMaestro?.insumos_detalle || itemMaestro?.Insumos_detalle || itemMaestro?.insumos || [];
       
       if (typeof insumosDetalleParsed === 'string' && insumosDetalleParsed.trim()) {
         try { insumosDetalleParsed = JSON.parse(insumosDetalleParsed); } catch { insumosDetalleParsed = []; }
@@ -642,17 +645,17 @@ export default function Reportes(props) {
   };
 
   const obtenerTipoInsumoInfalible = (insumoItem) => {
-    const insId = String(insumoItem.id || insumoItem.ID || insumoItem.insumo_id || '').trim();
+    const insId = String(insumoItem?.id || insumoItem?.ID || insumoItem?.insumo_id || '').trim();
     if (insId && insumosOficialMap[insId]) {
       return insumosOficialMap[insId];
     }
 
-    const t = String(insumoItem.tipo || insumoItem.Tipo || '').toLowerCase();
+    const t = String(insumoItem?.tipo || insumoItem?.Tipo || '').toLowerCase();
     if (t.includes('mano')) return 'Mano de Obra';
     if (t.includes('subcontrato')) return 'Subcontrato';
     if (t.includes('equipo') || t.includes('maquinaria')) return 'Equipo/Maquinaria';
 
-    const nombreIns = String(insumoItem.nombre || insumoItem.nombre_del_articulo || insumoItem.concepto || '').toLowerCase();
+    const nombreIns = String(insumoItem?.nombre || insumoItem?.nombre_del_articulo || insumoItem?.concepto || '').toLowerCase();
     if (nombreIns.includes('mano de obra') || nombreIns.includes('cuadrilla') || nombreIns.includes('oficial') || nombreIns.includes('ayudante') || nombreIns.includes('sereno') || nombreIns.includes('operario')) {
       return 'Mano de Obra';
     }
@@ -666,16 +669,16 @@ export default function Reportes(props) {
     return 'Material';
   };
 
-  const presupuestoInsumosSeleccionado = presupuestos.find(p => String(p.id || p.ID) === String(insumoPresupuestoId));
+  const presupuestoInsumosSeleccionado = presupuestos.find(p => String(p?.id || p?.ID) === String(insumoPresupuestoId));
 
   const { insumosPorRubro, insumosGenerales } = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return { insumosPorRubro: {}, insumosGenerales: {} };
 
     let itemsDetalle = [];
     try {
-      const parsed = typeof presupuestoInsumosSeleccionado.items_detalle === 'string' 
+      const parsed = typeof presupuestoInsumosSeleccionado?.items_detalle === 'string' 
         ? JSON.parse(presupuestoInsumosSeleccionado.items_detalle) 
-        : presupuestoInsumosSeleccionado.items_detalle;
+        : presupuestoInsumosSeleccionado?.items_detalle;
       
       if (Array.isArray(parsed)) itemsDetalle = parsed;
       else if (parsed?.rubros && Array.isArray(parsed.rubros)) itemsDetalle = parsed.rubros;
@@ -694,7 +697,7 @@ export default function Reportes(props) {
     };
 
     itemsDetalle.forEach(rubroObj => {
-      const nombreRubro = rubroObj.rubro || 'SIN RUBRO';
+      const nombreRubro = rubroObj?.rubro || 'SIN RUBRO';
       if (!porRubro[nombreRubro]) {
         porRubro[nombreRubro] = {
           'MANO DE OBRA': [],
@@ -705,10 +708,11 @@ export default function Reportes(props) {
         };
       }
 
-      (rubroObj.tareas || []).forEach(tarea => {
-        let insumosTarea = tarea.insumos;
-        const cantTarea = Number(tarea.cantidad) || 1;
-        const costoTarea = Number(tarea.costo_unitario) || 0;
+      const tareasRubro = Array.isArray(rubroObj?.tareas) ? rubroObj.tareas : [];
+      tareasRubro.forEach(tarea => {
+        let insumosTarea = tarea?.insumos;
+        const cantTarea = Number(tarea?.cantidad) || 1;
+        const costoTarea = Number(tarea?.costo_unitario) || 0;
 
         if (typeof insumosTarea === 'string' && insumosTarea.trim().startsWith('[')) {
           try { insumosTarea = JSON.parse(insumosTarea); } catch { insumosTarea = []; }
@@ -723,7 +727,7 @@ export default function Reportes(props) {
         }
 
         if (!Array.isArray(insumosTarea) || insumosTarea.length === 0) {
-          const maestroInsumosEncontrados = buscarInsumosMaestro(tarea.tarea);
+          const maestroInsumosEncontrados = buscarInsumosMaestro(tarea?.tarea);
           if (Array.isArray(maestroInsumosEncontrados) && maestroInsumosEncontrados.length > 0) {
             insumosTarea = maestroInsumosEncontrados;
           }
@@ -732,7 +736,7 @@ export default function Reportes(props) {
         if (Array.isArray(insumosTarea) && insumosTarea.length > 0) {
           insumosTarea.forEach(ins => {
             const tipoResuelto = obtenerTipoInsumoInfalible(ins);
-            const categoriaOriginal = String(ins.tipo || ins.categoria || tipoResuelto).trim().toUpperCase();
+            const categoriaOriginal = String(ins?.tipo || ins?.categoria || tipoResuelto).trim().toUpperCase();
             
             let catNormalizada = 'MATERIALES';
             if (categoriaOriginal.includes('MANO') || categoriaOriginal.includes('OBRA')) catNormalizada = 'MANO DE OBRA';
@@ -740,16 +744,16 @@ export default function Reportes(props) {
             else if (categoriaOriginal.includes('SUB')) catNormalizada = 'SUBCONTRATOS';
             else if (categoriaOriginal.includes('EQ') || categoriaOriginal.includes('HERR') || categoriaOriginal.includes('MAQUINARIA')) catNormalizada = 'EQUIPOS / HERRAMIENTAS';
 
-            const cantIns = Number(ins.cantidad) || 1;
-            const cUnitIns = Number(ins.costo_unitario) || Number(ins.costo) || costoTarea;
+            const cantIns = Number(ins?.cantidad) || 1;
+            const cUnitIns = Number(ins?.costo_unitario) || Number(ins?.costo) || costoTarea;
             const cantidadTotal = cantIns * cantTarea;
             const totalInsumo = cantidadTotal * cUnitIns;
 
             const itemProcesado = {
               rubro: nombreRubro,
-              tarea: tarea.tarea || 'Sin tarea',
-              nombre: ins.nombre || ins.nombre_del_articulo || ins.concepto || 'Insumo sin nombre',
-              unidad: ins.unidad || 'un',
+              tarea: tarea?.tarea || 'Sin tarea',
+              nombre: ins?.nombre || ins?.nombre_del_articulo || ins?.concepto || 'Insumo sin nombre',
+              unidad: ins?.unidad || 'un',
               cantidad: cantidadTotal,
               costo_unitario: cUnitIns,
               total: totalInsumo
@@ -761,9 +765,9 @@ export default function Reportes(props) {
         } else {
           const itemFallback = {
             rubro: nombreRubro,
-            tarea: tarea.tarea || 'Sin tarea',
-            nombre: tarea.tarea || 'Índice general',
-            unidad: tarea.unidad || 'gl',
+            tarea: tarea?.tarea || 'Sin tarea',
+            nombre: tarea?.tarea || 'Índice general',
+            unidad: tarea?.unidad || 'gl',
             cantidad: cantTarea,
             costo_unitario: costoTarea,
             total: cantTarea * costoTarea
@@ -782,12 +786,12 @@ export default function Reportes(props) {
   const movimientosRrhhPresupuesto = React.useMemo(() => {
     if (!compPresupuestoId) return [];
     return movimientos.filter(m => {
-      const tipo = String(m.tipo || m.Tipo || '').toLowerCase();
+      const tipo = String(m?.tipo || m?.Tipo || '').toLowerCase();
       if (tipo !== 'egreso') return false;
 
-      const concepto = String(m.concepto || m.Concepto || '');
-      const referencia = String(m.referencia || m.Referencia || '');
-      const mPresupuestoId = String(m.presupuesto_id || m.Presupuesto_id || '');
+      const concepto = String(m?.concepto || m?.Concepto || '');
+      const referencia = String(m?.referencia || m?.Referencia || '');
+      const mPresupuestoId = String(m?.presupuesto_id || m?.Presupuesto_id || '');
 
       const matchIdDirecto = mPresupuestoId && mPresupuestoId === String(compPresupuestoId);
       const matchTextoPresupuesto = concepto.includes(`Presupuesto: ${compPresupuestoId}`);
@@ -800,8 +804,8 @@ export default function Reportes(props) {
   const obtenerSalariosPorRubro = (nombreRubro) => {
     let totalRubroRrhh = 0;
     movimientosRrhhPresupuesto.forEach(m => {
-      const concepto = String(m.concepto || m.Concepto || '');
-      const monto = Number(m.monto || m.Monto || 0);
+      const concepto = String(m?.concepto || m?.Concepto || '');
+      const monto = Number(m?.monto || m?.Monto || 0);
       const regex = /\[Rubro:\s*(.*?)\s*-\s*[\d.]+%\s*\]/i;
       const match = concepto.match(regex);
       if (match && match[1]) {
@@ -819,17 +823,17 @@ export default function Reportes(props) {
   let totalPresupuestoRubros = 0;
   let totalPresupuestoGG = 0;
 
-  if (presupuestoSeleccionado && presupuestoSeleccionado.items_detalle) {
+  if (presupuestoSeleccionado && presupuestoSeleccionado?.items_detalle) {
     try {
       const parsedDetalle = typeof presupuestoSeleccionado.items_detalle === 'string' 
         ? JSON.parse(presupuestoSeleccionado.items_detalle) 
         : presupuestoSeleccionado.items_detalle;
       
-      const rubrosArray = Array.isArray(parsedDetalle) ? parsedDetalle : (parsedDetalle?.rubros || []);
+      const rubrosArray = Array.isArray(parsedDetalle) ? parsedDetalle : (Array.isArray(parsedDetalle?.rubros) ? parsedDetalle.rubros : []);
 
       if (rubrosArray.length > 0) {
         rubrosPresupuestoDetalle = rubrosArray.map((rubroItem, rIdx) => {
-          const tareasList = rubroItem.tareas || [];
+          const tareasList = Array.isArray(rubroItem?.tareas) ? rubroItem.tareas : [];
           let totalRubro = 0;
           
           let acumuladorComponentes = {
@@ -840,10 +844,10 @@ export default function Reportes(props) {
           };
 
           tareasList.forEach(tareaItem => {
-            const costoTareaTotal = (Number(tareaItem.cantidad) || 1) * (Number(tareaItem.costo_unitario) || 0);
+            const costoTareaTotal = (Number(tareaItem?.cantidad) || 1) * (Number(tareaItem?.costo_unitario) || 0);
             totalRubro += costoTareaTotal;
 
-            let insumosDeLaTarea = tareaItem.insumos;
+            let insumosDeLaTarea = tareaItem?.insumos;
             let listaInsumosParsed = [];
             let esEstructuradoValido = false;
 
@@ -864,7 +868,7 @@ export default function Reportes(props) {
             }
 
             if (!esEstructuradoValido) {
-              listaInsumosParsed = buscarInsumosMaestro(tareaItem.tarea);
+              listaInsumosParsed = buscarInsumosMaestro(tareaItem?.tarea);
               if (Array.isArray(listaInsumosParsed) && listaInsumosParsed.length > 0) {
                 esEstructuradoValido = true;
               }
@@ -876,7 +880,7 @@ export default function Reportes(props) {
 
               listaInsumosParsed.forEach(insumo => {
                 const tipoNorm = obtenerTipoInsumoInfalible(insumo);
-                const costoIns = (Number(insumo.cantidad) || 1) * (Number(insumo.costo_unitario) || Number(insumo.costo) || 0);
+                const costoIns = (Number(insumo?.cantidad) || 1) * (Number(insumo?.costo_unitario) || Number(insumo?.costo) || 0);
                 subtotalesIns.push({ tipo: tipoNorm, costo: costoIns });
                 sumaInsCosto += costoIns;
               });
@@ -890,8 +894,8 @@ export default function Reportes(props) {
                 acumuladorComponentes['Material'] = (acumuladorComponentes['Material'] || 0) + costoTareaTotal;
               }
             } else {
-              const textoPlano = typeof tareaItem.insumos === 'string' ? tareaItem.insumos : '';
-              const textoEvaluacion = (String(tareaItem.tarea || '') + " " + textoPlano).toLowerCase();
+              const textoPlano = typeof tareaItem?.insumos === 'string' ? tareaItem.insumos : '';
+              const textoEvaluacion = (String(tareaItem?.tarea || '') + " " + textoPlano).toLowerCase();
               let tipoDef = 'Material';
               
               if (textoEvaluacion.includes('mano') || textoEvaluacion.includes('oficial') || textoEvaluacion.includes('ayudante') || textoEvaluacion.includes('demolicion') || textoEvaluacion.includes('salarios') || textoEvaluacion.includes('colocacion') || textoEvaluacion.includes('armado') || textoEvaluacion.includes('techista') || textoEvaluacion.includes('jornal')) {
@@ -914,7 +918,7 @@ export default function Reportes(props) {
 
           return {
             id: rIdx,
-            nombre: rubroItem.rubro || `Rubro #${rIdx + 1}`,
+            nombre: rubroItem?.rubro || `Rubro #${rIdx + 1}`,
             total: totalRubro,
             componentes: componentesActivos,
             tareas: tareasList
@@ -922,16 +926,16 @@ export default function Reportes(props) {
         });
       }
 
-      if (parsedDetalle && parsedDetalle.comercial) {
-        if (parsedDetalle.comercial.gastos_generales_insumos) {
+      if (parsedDetalle && parsedDetalle?.comercial) {
+        if (Array.isArray(parsedDetalle.comercial.gastos_generales_insumos)) {
           parsedDetalle.comercial.gastos_generales_insumos.forEach((gg, ggIdx) => {
-            const cant = Number(gg.cantidad) || 1;
-            const unit = Number(gg.unitario) || 0;
+            const cant = Number(gg?.cantidad) || 1;
+            const unit = Number(gg?.unitario) || 0;
             const subtotalGG = cant * unit;
             totalPresupuestoGG += subtotalGG;
             gastosGeneralesBase.push({
               id: `gg-${ggIdx}`,
-              concepto: gg.concepto || `Gasto General #${ggIdx + 1}`,
+              concepto: gg?.concepto || `Gasto General #${ggIdx + 1}`,
               cantidad: cant,
               unitario: unit,
               total: subtotalGG,
@@ -941,7 +945,7 @@ export default function Reportes(props) {
         }
 
         const porcentajeImprevistos = Number(parsedDetalle.comercial.porcentaje_imprevistos) || 0;
-        const costoDirectoBase = Number(presupuestoSeleccionado.costo_directo) || totalPresupuestoRubros;
+        const costoDirectoBase = Number(presupuestoSeleccionado?.costo_directo) || totalPresupuestoRubros;
         const montoImprevistos = costoDirectoBase * (porcentajeImprevistos / 100);
         
         if (montoImprevistos > 0) {
@@ -961,7 +965,7 @@ export default function Reportes(props) {
     }
   }
 
-  const facturasPresupuesto = facturas.filter(f => String(f.presupuesto_id || f.Presupuesto_id) === String(compPresupuestoId));
+  const facturasPresupuesto = facturas.filter(f => String(f?.presupuesto_id || f?.Presupuesto_id) === String(compPresupuestoId));
   
   let totalRealGGEspecifico = 0;
   let totalRealImprevistos = 0;
@@ -969,24 +973,24 @@ export default function Reportes(props) {
 
   const gastosGeneralesDetalle = gastosGeneralesBase.map(ggItem => {
     let realAsignado = 0;
-    const cLower = ggItem.concepto.toLowerCase();
-    const cClean = limpiarTexto(ggItem.concepto);
+    const cLower = String(ggItem?.concepto || '').toLowerCase();
+    const cClean = limpiarTexto(ggItem?.concepto);
 
-    if (!ggItem.esImprevistos) {
+    if (!ggItem?.esImprevistos) {
       facturasPresupuesto.forEach((fac, fIdx) => {
         if (facturasAsignadasGG.has(fIdx)) return;
 
         const tipoInsumoFac = String(
-          fac.tipo_insumo || fac.Tipo_insumo || 
-          fac.renglon || fac.Renglon || 
-          fac.concepto || fac.Concepto || 
-          fac.descripcion || fac.Descripcion || 
-          fac.detalle_gasto || fac.Detalle_gasto || ''
+          fac?.tipo_insumo || fac?.Tipo_insumo || 
+          fac?.renglon || fac?.Renglon || 
+          fac?.concepto || fac?.Concepto || 
+          fac?.descripcion || fac?.Descripcion || 
+          fac?.detalle_gasto || fac?.Detalle_gasto || ''
         ).toLowerCase();
 
         const limpioFac = limpiarTexto(tipoInsumoFac);
-        const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').toLowerCase();
-        const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
+        const rubroFac = String(fac?.rubro_presupuesto || fac?.Rubro_presupuesto || fac?.rubro || fac?.Rubro || '').toLowerCase();
+        const montoFac = Number(fac?.subtotal || fac?.Subtotal || 0);
 
         let match = false;
 
@@ -1019,21 +1023,21 @@ export default function Reportes(props) {
     return {
       ...ggItem,
       real: realAsignado,
-      desvio: ggItem.total - realAsignado
+      desvio: (ggItem?.total || 0) - realAsignado
     };
   });
 
-  const imprevistoItemIndex = gastosGeneralesDetalle.findIndex(g => g.esImprevistos);
+  const imprevistoItemIndex = gastosGeneralesDetalle.findIndex(g => g?.esImprevistos);
   if (imprevistoItemIndex !== -1) {
     let realImprevistosCalc = 0;
     facturasPresupuesto.forEach((fac, fIdx) => {
       if (facturasAsignadasGG.has(fIdx)) return;
 
-      const rubroFac = String(fac.rubro_presupuesto || fac.Rubro_presupuesto || fac.rubro || fac.Rubro || '').toLowerCase();
+      const rubroFac = String(fac?.rubro_presupuesto || fac?.Rubro_presupuesto || fac?.rubro || fac?.Rubro || '').toLowerCase();
       const tipoInsFac = String(
-        fac.tipo_insumo || fac.Tipo_insumo || fac.renglon || fac.Renglon || fac.detalle_gasto || fac.Detalle_gasto || ''
+        fac?.tipo_insumo || fac?.Tipo_insumo || fac?.renglon || fac?.Renglon || fac?.detalle_gasto || fac?.Detalle_gasto || ''
       ).toLowerCase();
-      const montoFac = Number(fac.subtotal || fac.Subtotal || 0);
+      const montoFac = Number(fac?.subtotal || fac?.Subtotal || 0);
 
       const esDeGG = rubroFac.includes('gastos generales') || tipoInsFac.includes('gasto general') || tipoInsFac.includes('imprevisto');
       if (esDeGG) {
@@ -1044,7 +1048,7 @@ export default function Reportes(props) {
 
     totalRealImprevistos = realImprevistosCalc;
     gastosGeneralesDetalle[imprevistoItemIndex].real = realImprevistosCalc;
-    gastosGeneralesDetalle[imprevistoItemIndex].desvio = gastosGeneralesDetalle[imprevistoItemIndex].total - realImprevistosCalc;
+    gastosGeneralesDetalle[imprevistoItemIndex].desvio = (gastosGeneralesDetalle[imprevistoItemIndex]?.total || 0) - realImprevistosCalc;
   }
 
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
@@ -1054,9 +1058,9 @@ export default function Reportes(props) {
 
     let itemsDetalle = [];
     try {
-      const parsed = typeof certificadoPresupuestoObj.items_detalle === 'string'
+      const parsed = typeof certificadoPresupuestoObj?.items_detalle === 'string'
         ? JSON.parse(certificadoPresupuestoObj.items_detalle)
-        : certificadoPresupuestoObj.items_detalle;
+        : certificadoPresupuestoObj?.items_detalle;
       
       if (Array.isArray(parsed)) itemsDetalle = parsed;
       else if (parsed?.rubros && Array.isArray(parsed.rubros)) itemsDetalle = parsed.rubros;
@@ -1077,9 +1081,10 @@ export default function Reportes(props) {
       let rubroAnterior = 0;
       let rubroActual = 0;
 
-      const tareasFilas = (rubro.tareas || []).map((t, tIdx) => {
-        const cant = Number(t.cantidad) || 1;
-        const pUnit = Number(t.costo_unitario) || Number(t.precio_unitario) || 0;
+      const tareasRubro = Array.isArray(rubro?.tareas) ? rubro.tareas : [];
+      const tareasFilas = tareasRubro.map((t, tIdx) => {
+        const cant = Number(t?.cantidad) || 1;
+        const pUnit = Number(t?.costo_unitario) || Number(t?.precio_unitario) || 0;
         const totalItem = cant * pUnit;
         totalRubro += totalItem;
 
@@ -1105,8 +1110,8 @@ export default function Reportes(props) {
         return {
           rIdx,
           tIdx,
-          tarea: t.tarea || t.descripcion || 'Índice de obra',
-          unidad: t.unidad || 'm2',
+          tarea: t?.tarea || t?.descripcion || 'Índice de obra',
+          unidad: t?.unidad || 'm2',
           cant,
           totalItem,
           pctAnterior,
@@ -1121,7 +1126,7 @@ export default function Reportes(props) {
 
       return {
         rIdx,
-        nombre: rubro.rubro || `Rubro #${rIdx + 1}`,
+        nombre: rubro?.rubro || `Rubro #${rIdx + 1}`,
         totalRubro,
         rubroAnterior,
         rubroActual,
@@ -1138,15 +1143,15 @@ export default function Reportes(props) {
       alert("Seleccione un presupuesto aprobado.");
       return;
     }
-    if (!certRespProveedor.nombre.trim() || !certRespCliente.nombre.trim()) {
+    if (!certRespProveedor?.nombre?.trim() || !certRespCliente?.nombre?.trim()) {
       alert("Por favor complete los nombres de los responsables.");
       return;
     }
 
     setIsSavingCert(true);
     try {
-      const totalPresupuestoBase = certificadoCalculos.totalPresupuestoCalc || 1;
-      const totalCertificadoPeriodo = certificadoNro === '0' ? 0 : certificadoCalculos.totalActualCalc;
+      const totalPresupuestoBase = certificadoCalculos?.totalPresupuestoCalc || 1;
+      const totalCertificadoPeriodo = certificadoNro === '0' ? 0 : certificadoCalculos?.totalActualCalc;
       let montoAdelantoCalculado = adelantoMonto;
       if (certificadoNro === '0') {
         montoAdelantoCalculado = totalPresupuestoBase * (adelantoPct / 100);
@@ -1169,15 +1174,15 @@ export default function Reportes(props) {
         certificadoNro: certificadoNro,
         fecha: certFecha,
         cliente: clienteNombreFinal,
-        obra: certificadoPresupuestoObj.nombre || certificadoPresupuestoObj.nombre_obra || '',
-        ordenCompra: certificadoPresupuestoObj.orden_compra || certificadoPresupuestoObj.ordenCompra || certificadoPresupuestoObj.oc || '',
+        obra: certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || '',
+        ordenCompra: certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '',
         totalPeriodo: totalCertificadoPeriodo,
         adelantoDescuento: descuentoAdelantoCert,
         adicionales: Number(adicionalesMonto) || 0,
         redeterminacion: montoRedetCalculado,
         totalGeneral: totalFinalLiquidacion,
-        proveedor: { nombre: certRespProveedor.nombre, cargo: certRespProveedor.cargo },
-        clienteResp: { nombre: certRespCliente.nombre, cargo: certRespCliente.cargo }
+        proveedor: { nombre: certRespProveedor?.nombre, cargo: certRespProveedor?.cargo },
+        clienteResp: { nombre: certRespCliente?.nombre, cargo: certRespCliente?.cargo }
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -1187,9 +1192,9 @@ export default function Reportes(props) {
       });
       const resultado = await res.json();
 
-      const pdfUrlFinal = resultado.pdfUrl || resultado.pdf_url || resultado.url || resultado.link || '';
-      if (resultado.success === false || (resultado.error && !pdfUrlFinal)) {
-        alert("Error al generar el certificado en Google Drive: " + (resultado.error || 'Desconocido'));
+      const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
+      if (resultado?.success === false || (resultado?.error && !pdfUrlFinal)) {
+        alert("Error al generar el certificado en Google Drive: " + (resultado?.error || 'Desconocido'));
         setIsSavingCert(false);
         return;
       }
@@ -1314,8 +1319,8 @@ export default function Reportes(props) {
                   >
                     <option value="">-- Seleccionar Presupuesto Aprobado ({presupuestosDisponiblesCert.length} disp.) --</option>
                     {presupuestosDisponiblesCert.map(p => (
-                      <option key={p.id || p.ID} value={p.id || p.ID}>
-                        [{p.codigo || p.id}] {p.nombre || p.nombre_obra || 'Presupuesto'}
+                      <option key={p?.id || p?.ID} value={p?.id || p?.ID}>
+                        [{p?.codigo || p?.id}] {p?.nombre || p?.nombre_obra || 'Presupuesto'}
                       </option>
                     ))}
                   </select>
@@ -1360,7 +1365,7 @@ export default function Reportes(props) {
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Presupuesto Nro:</span>
-                      <strong className="text-slate-900">{certificadoPresupuestoObj.codigo || certificadoPresupuestoObj.id}</strong>
+                      <strong className="text-slate-900">{certificadoPresupuestoObj?.codigo || certificadoPresupuestoObj?.id}</strong>
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Fecha Emisión:</span>
@@ -1368,11 +1373,11 @@ export default function Reportes(props) {
                     </div>
                     <div className="col-span-2">
                       <span className="text-slate-500 font-semibold block">Obra:</span>
-                      <strong className="text-slate-900 block mt-0.5">{certificadoPresupuestoObj.nombre || certificadoPresupuestoObj.nombre_obra || 'Obra Albañilería - Vivienda Unifamiliar'}</strong>
+                      <strong className="text-slate-900 block mt-0.5">{certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra Albañilería - Vivienda Unifamiliar'}</strong>
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Orden de Compra:</span>
-                      <strong className="text-slate-900">{certificadoPresupuestoObj.orden_compra || certificadoPresupuestoObj.ordenCompra || certificadoPresupuestoObj.oc || '---'}</strong>
+                      <strong className="text-slate-900">{certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '---'}</strong>
                     </div>
                   </div>
 
@@ -1680,15 +1685,15 @@ export default function Reportes(props) {
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {allCertificados.map((cert, idx) => {
-                          const nroCert = cert.certificadoNro !== undefined ? cert.certificadoNro : (cert.certificado_nro || '0');
-                          const fechaCert = cert.fecha || cert.fecha_emision || '---';
-                          const clienteCert = cert.cliente || '---';
-                          const obraCert = cert.obra || '---';
-                          const totalGen = Number(cert.totalGeneral || cert.total_general || 0);
-                          const pdfLink = cert.pdfUrl || cert.pdf_url;
+                          const nroCert = cert?.certificadoNro !== undefined ? cert.certificadoNro : (cert?.certificado_nro || '0');
+                          const fechaCert = cert?.fecha || cert?.fecha_emision || '---';
+                          const clienteCert = cert?.cliente || '---';
+                          const obraCert = cert?.obra || '---';
+                          const totalGen = Number(cert?.totalGeneral || cert?.total_general || 0);
+                          const pdfLink = cert?.pdfUrl || cert?.pdf_url;
 
                           return (
-                            <tr key={cert.id || idx} className="hover:bg-slate-50">
+                            <tr key={cert?.id || idx} className="hover:bg-slate-50">
                               <td className="px-4 py-3 font-bold text-amber-800">
                                 Certificado #{nroCert} {nroCert === '0' ? '(Adelanto)' : ''}
                               </td>
@@ -1749,18 +1754,18 @@ export default function Reportes(props) {
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {allReportesSice.map((parte, idx) => {
-                      const parteId = parte.id || parte.nro || idx;
-                      const totalHs = parte.totalHorasSuma || parte.total_horas_suma || 0;
+                      const parteId = parte?.id || parte?.nro || idx;
+                      const totalHs = parte?.totalHorasSuma || parte?.total_horas_suma || 0;
                       return (
                         <tr key={parteId} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 font-bold text-amber-800">Parte #{parte.nro || '00001'}</td>
-                          <td className="px-4 py-3 text-slate-600">{parte.fecha || '---'}</td>
-                          <td className="px-4 py-3 text-slate-800 font-semibold">{parte.contratoid || 'Contrato SICE General'}</td>
+                          <td className="px-4 py-3 font-bold text-amber-800">Parte #{parte?.nro || '00001'}</td>
+                          <td className="px-4 py-3 text-slate-600">{parte?.fecha || '---'}</td>
+                          <td className="px-4 py-3 text-slate-800 font-semibold">{parte?.contratoid || 'Contrato SICE General'}</td>
                           <td className="px-4 py-3 text-center font-black text-emerald-700">{totalHs} hs</td>
                           <td className="px-4 py-3 text-center">
-                            {parte.pdfUrl || parte.pdf_url ? (
+                            {parte?.pdfUrl || parte?.pdf_url ? (
                               <a
-                                href={parte.pdfUrl || parte.pdf_url}
+                                href={parte?.pdfUrl || parte?.pdf_url}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-[10px] inline-flex items-center gap-1 transition-colors"
@@ -1807,10 +1812,10 @@ export default function Reportes(props) {
                   <tbody className="divide-y divide-slate-100">
                     {facturas.map((fac, idx) => (
                       <tr key={idx} className="hover:bg-slate-50">
-                        <td className="px-4 py-3 font-bold text-slate-900">{fac.n_factura || fac.nro_factura || `Factura #${idx + 1}`}</td>
-                        <td className="px-4 py-3 text-slate-600">{fac.proveedor || 'Proveedor General'}</td>
-                        <td className="px-4 py-3 text-slate-600">{fac.fecha || '---'}</td>
-                        <td className="px-4 py-3 text-right font-black text-slate-900">$ {Number(fac.total || fac.subtotal || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                        <td className="px-4 py-3 font-bold text-slate-900">{fac?.n_factura || fac?.nro_factura || `Factura #${idx + 1}`}</td>
+                        <td className="px-4 py-3 text-slate-600">{fac?.proveedor || 'Proveedor General'}</td>
+                        <td className="px-4 py-3 text-slate-600">{fac?.fecha || '---'}</td>
+                        <td className="px-4 py-3 text-right font-black text-slate-900">$ {Number(fac?.total || fac?.subtotal || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                         <td className="px-4 py-3 text-center">
                           <span className="px-2.5 py-1 rounded-full font-bold text-[10px] uppercase bg-emerald-100 text-emerald-800">
                             Certificado
@@ -1913,11 +1918,11 @@ export default function Reportes(props) {
                     <p className="text-xs text-slate-400 text-center py-2">No hay operarios añadidos. Haga clic en "Agregar Operario".</p>
                   ) : (
                     operariosSeleccionados.map((op, idx) => (
-                      <div key={op.id || idx} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
+                      <div key={op?.id || idx} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
                         <div className="w-full sm:flex-1">
                           <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Empleado (RRHH Activos)</label>
                           <select
-                            value={op.nombre}
+                            value={op?.nombre}
                             onChange={(e) => {
                               const nombreVal = e.target.value;
                               const isCallapina = nombreVal.toLowerCase().includes('callapiña') || nombreVal.toLowerCase().includes('callapina');
@@ -1932,7 +1937,7 @@ export default function Reportes(props) {
                             <option value="">-- Seleccionar Operario (RRHH Activos) --</option>
                             {listaEmpleadosActivos.map((emp, eIdx) => {
                               const empNom = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || `Operario ${eIdx + 1}`;
-                              const isSelectedElsewhere = operariosSeleccionados.some((oItem, oIdx) => oIdx !== idx && oItem.nombre === empNom);
+                              const isSelectedElsewhere = operariosSeleccionados.some((oItem, oIdx) => oIdx !== idx && oItem?.nombre === empNom);
 
                               return (
                                 <option key={eIdx} value={empNom} disabled={isSelectedElsewhere}>
@@ -1947,7 +1952,7 @@ export default function Reportes(props) {
                           <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Abrev.</label>
                           <input
                             type="text"
-                            value={op.abreviacion}
+                            value={op?.abreviacion}
                             onChange={(e) => actualizarOperarioFila(idx, 'abreviacion', e.target.value.toUpperCase())}
                             title="Abreviación de categoría (S para Callapiña, OE para el resto)"
                             className="w-full bg-amber-100/70 border border-slate-300 rounded px-2 py-1.5 text-xs font-black text-amber-950 text-center uppercase focus:bg-white focus:outline-none focus:border-amber-500"
@@ -1959,7 +1964,7 @@ export default function Reportes(props) {
                           <input
                             type="number"
                             step="0.01"
-                            value={op.horas}
+                            value={op?.horas}
                             onChange={(e) => actualizarOperarioFila(idx, 'horas', e.target.value)}
                             placeholder={`${totalHorasDefaultCalculado} hs (Def.)`}
                             className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-black text-slate-900 text-center outline-none focus:border-amber-500"
@@ -1995,14 +2000,14 @@ export default function Reportes(props) {
                   </thead>
                   <tbody className="divide-y divide-slate-300">
                     {siceItems.map((row, index) => {
-                      const totalHs = calcularTotalHorasSice(row.horaComienzo, row.horaFin);
+                      const totalHs = calcularTotalHorasSice(row?.horaComienzo, row?.horaFin);
                       return (
                         <tr key={index} className="bg-amber-50/60 hover:bg-amber-50 transition-colors">
-                          <td className="py-2 px-2 text-center font-bold border-r border-slate-300 text-slate-700">{row.id}</td>
+                          <td className="py-2 px-2 text-center font-bold border-r border-slate-300 text-slate-700">{row?.id}</td>
                           <td className="py-1.5 px-2 border-r border-slate-300">
                             <input 
                               type="text" 
-                              value={row.descripcion}
+                              value={row?.descripcion}
                               onChange={(e) => actualizarItemSice(index, 'descripcion', e.target.value)}
                               placeholder="Descripción de labores..."
                               className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
@@ -2011,7 +2016,7 @@ export default function Reportes(props) {
                           <td className="py-1.5 px-2 border-r border-slate-300 text-center">
                             <input 
                               type="time" 
-                              value={row.horaComienzo}
+                              value={row?.horaComienzo}
                               onChange={(e) => actualizarItemSice(index, 'horaComienzo', e.target.value)}
                               className="bg-amber-100/50 border border-slate-300 rounded px-1.5 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
                             />
@@ -2019,7 +2024,7 @@ export default function Reportes(props) {
                           <td className="py-1.5 px-2 border-r border-slate-300 text-center">
                             <input 
                               type="time" 
-                              value={row.horaFin}
+                              value={row?.horaFin}
                               onChange={(e) => actualizarItemSice(index, 'horaFin', e.target.value)}
                               className="bg-amber-100/50 border border-slate-300 rounded px-1.5 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
                             />
@@ -2030,7 +2035,7 @@ export default function Reportes(props) {
                           <td className="py-1.5 px-2 border-r border-slate-300">
                             <input 
                               type="text" 
-                              value={row.observaciones}
+                              value={row?.observaciones}
                               onChange={(e) => actualizarItemSice(index, 'observaciones', e.target.value)}
                               placeholder="Observaciones..."
                               className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
@@ -2041,14 +2046,14 @@ export default function Reportes(props) {
                               <button
                                 type="button"
                                 onClick={() => actualizarItemSice(index, 'terminoTarea', 'SI')}
-                                className={`px-2.5 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row.terminoTarea === 'SI' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
+                                className={`px-2.5 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row?.terminoTarea === 'SI' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
                               >
                                 SI
                               </button>
                               <button
                                 type="button"
                                 onClick={() => actualizarItemSice(index, 'terminoTarea', 'NO')}
-                                className={`px-2.5 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row.terminoTarea === 'NO' ? 'bg-rose-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
+                                className={`px-2.5 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row?.terminoTarea === 'NO' ? 'bg-rose-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
                               >
                                 NO
                               </button>
@@ -2182,21 +2187,21 @@ export default function Reportes(props) {
             ) : (
               <div className="space-y-3">
                 {sicePartesAprobados.map((parte, idx) => {
-                  const parteId = parte.id || parte.nro || idx;
+                  const parteId = parte?.id || parte?.nro || idx;
                   return (
                     <div key={parteId} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte.nro}</span>
-                          <span className="text-xs font-medium text-slate-500">Fecha: {parte.fecha}</span>
-                          <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte.totalHorasSuma} hs</span>
+                          <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte?.nro}</span>
+                          <span className="text-xs font-medium text-slate-500">Fecha: {parte?.fecha}</span>
+                          <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte?.totalHorasSuma} hs</span>
                         </div>
                         <p className="text-slate-700 text-xs mt-2">
-                          Proveedor: <strong>{parte.proveedor?.nombre}</strong> ({parte.proveedor?.cargo}) | Cliente: <strong>{parte.cliente?.nombre}</strong> ({parte.cliente?.cargo})
+                          Proveedor: <strong>{parte?.proveedor?.nombre}</strong> ({parte?.proveedor?.cargo}) | Cliente: <strong>{parte?.cliente?.nombre}</strong> ({parte?.cliente?.cargo})
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
-                        {parte.pdfUrl ? (
+                        {parte?.pdfUrl ? (
                           <a 
                             href={parte.pdfUrl} 
                             target="_blank" 
@@ -2249,11 +2254,11 @@ export default function Reportes(props) {
               >
                 <option value="">-- Seleccionar Presupuesto Aprobado --</option>
                 {presupuestos.filter(p => {
-                  const est = String(p.estado_presupuesto || p.Estado_presupuesto || p.estado || '').toLowerCase().trim();
+                  const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || '').toLowerCase().trim();
                   return est === 'aprobado' || est === 'aprobada';
                 }).map(p => (
-                  <option key={p.id || p.ID} value={p.id || p.ID}>
-                    [{p.codigo || p.id}] {p.nombre || p.nombre_obra || 'Presupuesto'}
+                  <option key={p?.id || p?.ID} value={p?.id || p?.ID}>
+                    [{p?.codigo || p?.id}] {p?.nombre || p?.nombre_obra || 'Presupuesto'}
                   </option>
                 ))}
               </select>
@@ -2276,7 +2281,7 @@ export default function Reportes(props) {
               {ordenCategorias.map(cat => {
                 const itemsCat = insumosGenerales[cat] || [];
                 if (itemsCat.length === 0) return null;
-                const totalCat = itemsCat.reduce((acc, i) => acc + (Number(i.total) || 0), 0);
+                const totalCat = itemsCat.reduce((acc, i) => acc + (Number(i?.total) || 0), 0);
                 return (
                   <div key={cat} className="space-y-2 border border-slate-200 rounded-xl p-4 bg-slate-50/50">
                     <div className="flex justify-between items-center border-b border-slate-200 pb-2">
@@ -2297,12 +2302,12 @@ export default function Reportes(props) {
                       <tbody className="divide-y divide-slate-100">
                         {itemsCat.map((it, iIdx) => (
                           <tr key={iIdx} className="hover:bg-white">
-                            <td className="py-2 px-2 text-slate-600 font-medium">{it.rubro} / {it.tarea}</td>
-                            <td className="py-2 px-2 font-bold text-slate-900">{it.nombre}</td>
-                            <td className="py-2 px-2 text-center text-slate-500">{it.unidad}</td>
-                            <td className="py-2 px-2 text-right">{it.cantidad}</td>
-                            <td className="py-2 px-2 text-right">$ {Number(it.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-2 text-right font-bold text-slate-900">$ {Number(it.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-2 text-slate-600 font-medium">{it?.rubro} / {it?.tarea}</td>
+                            <td className="py-2 px-2 font-bold text-slate-900">{it?.nombre}</td>
+                            <td className="py-2 px-2 text-center text-slate-500">{it?.unidad}</td>
+                            <td className="py-2 px-2 text-right">{it?.cantidad}</td>
+                            <td className="py-2 px-2 text-right">$ {Number(it?.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-2 text-right font-bold text-slate-900">$ {Number(it?.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -2322,7 +2327,7 @@ export default function Reportes(props) {
                     {ordenCategorias.map(cat => {
                       const itemsCat = cats[cat] || [];
                       if (itemsCat.length === 0) return null;
-                      const subCatTotal = itemsCat.reduce((acc, i) => acc + (Number(i.total) || 0), 0);
+                      const subCatTotal = itemsCat.reduce((acc, i) => acc + (Number(i?.total) || 0), 0);
                       return (
                         <div key={cat} className="space-y-2 pl-4 border-l-2 border-amber-500">
                           <div className="flex justify-between items-center">
@@ -2343,12 +2348,12 @@ export default function Reportes(props) {
                             <tbody className="divide-y divide-slate-100">
                               {itemsCat.map((it, iIdx) => (
                                 <tr key={iIdx} className="hover:bg-white">
-                                  <td className="py-1.5 px-2 text-slate-600">{it.tarea}</td>
-                                  <td className="py-1.5 px-2 font-bold text-slate-900">{it.nombre}</td>
-                                  <td className="py-1.5 px-2 text-center text-slate-500">{it.unidad}</td>
-                                  <td className="py-1.5 px-2 text-right">{it.cantidad}</td>
-                                  <td className="py-1.5 px-2 text-right">$ {Number(it.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                                  <td className="py-1.5 px-2 text-right font-bold text-slate-900">$ {Number(it.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                                  <td className="py-1.5 px-2 text-slate-600">{it?.tarea}</td>
+                                  <td className="py-1.5 px-2 font-bold text-slate-900">{it?.nombre}</td>
+                                  <td className="py-1.5 px-2 text-center text-slate-500">{it?.unidad}</td>
+                                  <td className="py-1.5 px-2 text-right">{it?.cantidad}</td>
+                                  <td className="py-1.5 px-2 text-right">$ {Number(it?.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                                  <td className="py-1.5 px-2 text-right font-bold text-slate-900">$ {Number(it?.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                 </tr>
                               ))}
                             </tbody>
@@ -2384,7 +2389,7 @@ export default function Reportes(props) {
               >
                 <option value="todas">-- Todas las Obras --</option>
                 {obras.map(o => (
-                  <option key={o.id || o.ID} value={o.id || o.ID}>{o.nombre || o.nombre_obra || 'Obra'}</option>
+                  <option key={o?.id || o?.ID} value={o?.id || o?.ID}>{o?.nombre || o?.nombre_obra || 'Obra'}</option>
                 ))}
               </select>
               <select
@@ -2394,7 +2399,7 @@ export default function Reportes(props) {
               >
                 <option value="">-- Seleccionar Presupuesto Aprobado --</option>
                 {presupuestosCompFiltrados.map(p => (
-                  <option key={p.id || p.ID} value={p.id || p.ID}>[{p.codigo || p.id}] {p.nombre || p.nombre_obra || 'Presupuesto'}</option>
+                  <option key={p?.id || p?.ID} value={p?.id || p?.ID}>[{p?.codigo || p?.id}] {p?.nombre || p?.nombre_obra || 'Presupuesto'}</option>
                 ))}
               </select>
             </div>
@@ -2415,11 +2420,11 @@ export default function Reportes(props) {
                   <span className="text-slate-500 text-[10px] font-bold uppercase">Total Imputado Real</span>
                   {(() => {
                     const totalRealRubros = rubrosPresupuestoDetalle.reduce((sum, r) => {
-                      const salariosRubro = obtenerSalariosPorRubro(r.nombre);
-                      const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f.rubro_presupuesto || f.rubro || '') === limpiarTexto(r.nombre)).reduce((acc, f) => acc + Number(f.subtotal || f.Subtotal || 0), 0);
+                      const salariosRubro = obtenerSalariosPorRubro(r?.nombre);
+                      const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f?.rubro_presupuesto || f?.rubro || '') === limpiarTexto(r?.nombre)).reduce((acc, f) => acc + Number(f?.subtotal || f?.Subtotal || 0), 0);
                       return sum + salariosRubro + facturasRubro;
                     }, 0);
-                    const totalRealGG = gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0);
+                    const totalRealGG = gastosGeneralesDetalle.reduce((acc, g) => acc + (g?.real || 0), 0);
                     const granTotalReal = totalRealRubros + totalRealGG;
                     return <p className="text-lg font-black text-amber-700 mt-1">$ {granTotalReal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</p>;
                   })()}
@@ -2428,11 +2433,11 @@ export default function Reportes(props) {
                   <span className="text-slate-500 text-[10px] font-bold uppercase">Desvío Financiero Total</span>
                   {(() => {
                     const totalRealRubros = rubrosPresupuestoDetalle.reduce((sum, r) => {
-                      const salariosRubro = obtenerSalariosPorRubro(r.nombre);
-                      const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f.rubro_presupuesto || f.rubro || '') === limpiarTexto(r.nombre)).reduce((acc, f) => acc + Number(f.subtotal || f.Subtotal || 0), 0);
+                      const salariosRubro = obtenerSalariosPorRubro(r?.nombre);
+                      const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f?.rubro_presupuesto || f?.rubro || '') === limpiarTexto(r?.nombre)).reduce((acc, f) => acc + Number(f?.subtotal || f?.Subtotal || 0), 0);
                       return sum + salariosRubro + facturasRubro;
                     }, 0);
-                    const totalRealGG = gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0);
+                    const totalRealGG = gastosGeneralesDetalle.reduce((acc, g) => acc + (g?.real || 0), 0);
                     const granTotalReal = totalRealRubros + totalRealGG;
                     const desvioTotal = granTotalPresupuestado - granTotalReal;
                     return (
@@ -2460,16 +2465,16 @@ export default function Reportes(props) {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {rubrosPresupuestoDetalle.map(rubro => {
-                        const salariosRubro = obtenerSalariosPorRubro(rubro.nombre);
-                        const facturasRubroTotal = facturasPresupuesto.filter(f => limpiarTexto(f.rubro_presupuesto || f.rubro || '') === limpiarTexto(rubro.nombre));
-                        const facturasRubroSuma = facturasRubroTotal.reduce((acc, f) => acc + Number(f.subtotal || f.Subtotal || 0), 0);
+                        const salariosRubro = obtenerSalariosPorRubro(rubro?.nombre);
+                        const facturasRubroTotal = facturasPresupuesto.filter(f => limpiarTexto(f?.rubro_presupuesto || f?.rubro || '') === limpiarTexto(rubro?.nombre));
+                        const facturasRubroSuma = facturasRubroTotal.reduce((acc, f) => acc + Number(f?.subtotal || f?.Subtotal || 0), 0);
                         const totalRealRubro = salariosRubro + facturasRubroSuma;
-                        const desvioRubro = rubro.total - totalRealRubro;
+                        const desvioRubro = (rubro?.total || 0) - totalRealRubro;
 
                         return (
-                          <tr key={rubro.id} className="hover:bg-slate-50 font-medium">
-                            <td className="px-4 py-3 font-bold text-slate-900">{rubro.nombre}</td>
-                            <td className="px-4 py-3 text-right font-bold">$ {rubro.total.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <tr key={rubro?.id} className="hover:bg-slate-50 font-medium">
+                            <td className="px-4 py-3 font-bold text-slate-900">{rubro?.nombre}</td>
+                            <td className="px-4 py-3 text-right font-bold">$ {(rubro?.total || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                             <td className="px-4 py-3 text-right text-slate-600">$ {salariosRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                             <td className="px-4 py-3 text-right text-slate-600">$ {facturasRubroSuma.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                             <td className="px-4 py-3 text-right font-black text-amber-700">$ {totalRealRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
@@ -2498,12 +2503,12 @@ export default function Reportes(props) {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {gastosGeneralesDetalle.map(gg => (
-                        <tr key={gg.id} className="hover:bg-slate-50 font-medium">
-                          <td className="px-4 py-3 font-bold text-slate-900">{gg.concepto}</td>
-                          <td className="px-4 py-3 text-right font-bold">$ {gg.total.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="px-4 py-3 text-right font-black text-amber-700">$ {gg.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className={`px-4 py-3 text-right font-black ${gg.desvio >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                            $ {gg.desvio.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                        <tr key={gg?.id} className="hover:bg-slate-50 font-medium">
+                          <td className="px-4 py-3 font-bold text-slate-900">{gg?.concepto}</td>
+                          <td className="px-4 py-3 text-right font-bold">$ {(gg?.total || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-4 py-3 text-right font-black text-amber-700">$ {(gg?.real || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className={`px-4 py-3 text-right font-black ${(gg?.desvio || 0) >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+                            $ {(gg?.desvio || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                           </td>
                         </tr>
                       ))}
@@ -2536,8 +2541,8 @@ export default function Reportes(props) {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
                 <div><span className="text-slate-500 font-semibold">C.U.I.T.:</span> <span className="font-bold">30-71573431-8</span></div>
                 <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
-                <div><span className="text-slate-500 font-semibold">Fecha:</span> <span className="font-bold">{parteVisualizando.fecha}</span></div>
-                <div><span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono">{parteVisualizando.nro}</span></div>
+                <div><span className="text-slate-500 font-semibold">Fecha:</span> <span className="font-bold">{parteVisualizando?.fecha}</span></div>
+                <div><span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono">{parteVisualizando?.nro}</span></div>
               </div>
             </div>
 
@@ -2546,13 +2551,13 @@ export default function Reportes(props) {
                 <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes
               </h4>
               <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-50 p-3 space-y-1">
-                {parteVisualizando.operarios?.length > 0 ? (
+                {Array.isArray(parteVisualizando?.operarios) && parteVisualizando.operarios.length > 0 ? (
                   parteVisualizando.operarios.map((op, oIdx) => (
                     <div key={oIdx} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-slate-200">
-                      <span className="font-bold text-slate-800">{op.nombre}</span>
+                      <span className="font-bold text-slate-800">{op?.nombre}</span>
                       <div className="flex gap-4">
-                        <span className="text-slate-600">Cat./Abrev: <strong>{op.abreviacion}</strong></span>
-                        <span className="text-amber-800 font-black">{op.horas} hs</span>
+                        <span className="text-slate-600">Cat./Abrev: <strong>{op?.abreviacion}</strong></span>
+                        <span className="text-amber-800 font-black">{op?.horas} hs</span>
                       </div>
                     </div>
                   ))
@@ -2576,15 +2581,15 @@ export default function Reportes(props) {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {parteVisualizando.items?.map((it, iIdx) => (
+                  {Array.isArray(parteVisualizando?.items) && parteVisualizando.items.map((it, iIdx) => (
                     <tr key={iIdx} className="bg-white">
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">{it.id || iIdx + 1}</td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-800">{it.descripcion || '---'}</td>
-                      <td className="py-2.5 px-3 text-center text-slate-600">{it.horaComienzo || '08:00'}</td>
-                      <td className="py-2.5 px-3 text-center text-slate-600">{it.horaFin || '17:00'}</td>
-                      <td className="py-2.5 px-3 text-center font-extrabold text-amber-900 bg-amber-50">{calcularTotalHorasSice(it.horaComienzo, it.horaFin)} hs</td>
-                      <td className="py-2.5 px-3 text-slate-600">{it.observaciones || '---'}</td>
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-800">{it.terminoTarea || 'SI'}</td>
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">{it?.id || iIdx + 1}</td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-800">{it?.descripcion || '---'}</td>
+                      <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaComienzo || '08:00'}</td>
+                      <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaFin || '17:00'}</td>
+                      <td className="py-2.5 px-3 text-center font-extrabold text-amber-900 bg-amber-50">{calcularTotalHorasSice(it?.horaComienzo, it?.horaFin)} hs</td>
+                      <td className="py-2.5 px-3 text-slate-600">{it?.observaciones || '---'}</td>
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-800">{it?.terminoTarea || 'SI'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -2594,14 +2599,14 @@ export default function Reportes(props) {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 text-xs">
               <div>
                 <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Proveedor</h5>
-                <p><span className="text-slate-500">Cargo:</span> <strong>{parteVisualizando.proveedor?.cargo}</strong></p>
-                <p><span className="text-slate-500">Nombre:</span> <strong>{parteVisualizando.proveedor?.nombre}</strong></p>
+                <p><span className="text-slate-500">Cargo:</span> <strong>{parteVisualizando?.proveedor?.cargo}</strong></p>
+                <p><span className="text-slate-500">Nombre:</span> <strong>{parteVisualizando?.proveedor?.nombre}</strong></p>
                 <p className="text-emerald-700 font-semibold mt-1">✔ Firmado y Validado</p>
               </div>
               <div>
                 <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Cliente</h5>
-                <p><span className="text-slate-500">Cargo:</span> <strong className="text-slate-950">{parteVisualizando.cliente?.cargo}</strong></p>
-                <p><span className="text-slate-500">Nombre:</span> <strong className="text-slate-950">{parteVisualizando.cliente?.nombre}</strong></p>
+                <p><span className="text-slate-500">Cargo:</span> <strong className="text-slate-950">{parteVisualizando?.cliente?.cargo}</strong></p>
+                <p><span className="text-slate-500">Nombre:</span> <strong className="text-slate-950">{parteVisualizando?.cliente?.nombre}</strong></p>
                 <p className="text-emerald-700 font-semibold mt-1">✔ Firmado y Validado</p>
               </div>
             </div>
