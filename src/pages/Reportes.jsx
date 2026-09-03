@@ -2464,7 +2464,7 @@ function ReportesContent(props) {
                           <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte?.totalHorasSuma} hs</span>
                         </div>
                         <p className="text-slate-700 text-xs mt-2">
-                          Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cargo})
+                          Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cCargo})
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
