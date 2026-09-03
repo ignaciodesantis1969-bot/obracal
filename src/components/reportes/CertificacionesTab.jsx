@@ -17,6 +17,7 @@ export default function CertificacionesTab({
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
   const [certClienteNombre, setCertClienteNombre] = useState('');
+  const [fetchedClientes, setFetchedClientes] = useState([]);
   const [avanceActualMap, setAvanceActualMap] = useState({});
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
   
@@ -31,6 +32,19 @@ export default function CertificacionesTab({
   const [certRespCliente, setCertRespCliente] = useState({ nombre: 'Cristian Matei', cargo: 'Gerente de Planta' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
+  useEffect(() => {
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'Clientes', action: 'get' })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setFetchedClientes(data);
+      })
+      .catch(() => {});
+  }, []);
+
   const allCertificados = useMemo(() => {
     const cProps = Array.isArray(certificadosProps) ? certificadosProps : [];
     const fCert = Array.isArray(fetchedCertificados) ? fetchedCertificados : [];
@@ -41,45 +55,65 @@ export default function CertificacionesTab({
 
   const extraerClienteRobusto = (pObj) => {
     if (!pObj) return '';
-    const llaves = ['cliente', 'razon_social', 'razonSocial', 'cliente_nombre', 'client', 'razonsocial'];
-    for (const k of llaves) {
-      if (pObj[k]) return String(pObj[k]);
+    const posiblesClaves = [
+      'cliente', 'razon_social', 'razonSocial', 'cliente_razon_social', 
+      'nombre_cliente', 'clientName', 'client', 'razon', 'empresa', 
+      'razonsocial', 'client_name', 'clienteNombre', 'nombreCliente'
+    ];
+    for (const k of posiblesClaves) {
+      if (pObj[k] != null && String(pObj[k]).trim() !== '' && String(pObj[k]) !== '---') {
+        return String(pObj[k]);
+      }
     }
     for (const [k, v] of Object.entries(pObj)) {
-      if ((k.toLowerCase().includes('client') || k.toLowerCase().includes('razon')) && v) {
+      const kl = k.toLowerCase();
+      if ((kl.includes('client') || kl.includes('razon') || kl.includes('empresa') || (kl.includes('nombre') && !kl.includes('obra') && !kl.includes('presupuesto'))) && v != null && String(v).trim() !== '' && String(v) !== '---') {
         return String(v);
       }
     }
     return '';
   };
 
-  const fetchClientNameFromScript = async (pId) => {
-    if (!pId) return;
-    try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'obtenerCliente', presupuestoId: pId, presupuesto_id: pId })
-      });
-      const resultado = await response.json();
-      const cliScript = resultado?.cliente || resultado?.razonSocial || resultado?.razon_social;
-      if (cliScript) {
-        setCertClienteNombre(cliScript);
-      }
-    } catch (error) {
-      console.error("Error al obtener cliente del script:", error);
+  const resolverRazonSocialCliente = (pObj) => {
+    if (!pObj) return '';
+    const textDirecto = extraerClienteRobusto(pObj);
+    if (textDirecto && isNaN(textDirecto)) {
+      return textDirecto;
     }
+    const possibleIdKeys = ['cliente_id', 'clienteId', 'id_cliente', 'client_id', 'cliente'];
+    let foundId = '';
+    for (const k of possibleIdKeys) {
+      if (pObj[k] != null && String(pObj[k]).trim() !== '') {
+        foundId = String(pObj[k]).trim();
+        break;
+      }
+    }
+    if (foundId && fetchedClientes.length > 0) {
+      const match = fetchedClientes.find(c => 
+        String(c?.id || c?.ID || '') === foundId ||
+        String(c?.codigo || c?.code || '') === foundId ||
+        String(c?.razon_social || c?.nombre || '').toLowerCase() === foundId.toLowerCase()
+      );
+      if (match) {
+        return match.razon_social || match.razonSocial || match.nombre || match.cliente || foundId;
+      }
+    }
+    if (textDirecto) return textDirecto;
+    if (typeof obtenerClienteDePresupuesto === 'function') {
+      const resProp = obtenerClienteDePresupuesto(pObj);
+      if (resProp && resProp !== '---') return resProp;
+    }
+    return '';
   };
 
   useEffect(() => {
     if (certPresupuestoId && certificadoPresupuestoObj) {
-      const clienteDetectado = extraerClienteRobusto(certificadoPresupuestoObj);
-      setCertClienteNombre(clienteDetectado);
-      fetchClientNameFromScript(certPresupuestoId);
+      const clienteResuelto = resolverRazonSocialCliente(certificadoPresupuestoObj);
+      setCertClienteNombre(clienteResuelto);
     } else if (!certPresupuestoId) {
       setCertClienteNombre('');
     }
-  }, [certPresupuestoId, certificadoPresupuestoObj]);
+  }, [certPresupuestoId, certificadoPresupuestoObj, fetchedClientes]);
 
   useEffect(() => {
     if (certificadoPresupuestoObj) {
@@ -209,7 +243,7 @@ export default function CertificacionesTab({
         presupuesto_id: String(certPresupuestoId),
         certificado_nro: String(certificadoNro),
         fecha: String(certFecha),
-        cliente: certClienteNombre || extraerClienteRobusto(certificadoPresupuestoObj),
+        cliente: certClienteNombre || resolverRazonSocialCliente(certificadoPresupuestoObj),
         obra: String(certificadoPresupuestoObj?.nombre || 'Obra'),
         orden_compra: obtenerOrdenDeCompra(certificadoPresupuestoObj),
         filas: certificadoCalculos.filasRender,
