@@ -18,6 +18,7 @@ export default function CertificacionesTab({
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
   const [certClienteNombre, setCertClienteNombre] = useState('');
   const [fetchedClientes, setFetchedClientes] = useState([]);
+  const [fetchedObras, setFetchedObras] = useState([]);
   const [avanceActualMap, setAvanceActualMap] = useState({});
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
   
@@ -40,11 +41,29 @@ export default function CertificacionesTab({
       body: JSON.stringify({ tabla: 'Clientes', action: 'get' })
     })
       .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data)) setFetchedClientes(data);
-      })
+      .then(data => { if (Array.isArray(data)) setFetchedClientes(data); })
+      .catch(() => {});
+
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'Obras', action: 'get' })
+    })
+      .then(res => res.json())
+      .then(data => { if (Array.isArray(data)) setFetchedObras(data); })
       .catch(() => {});
   }, []);
+
+  const listaObrasCompleta = useMemo(() => {
+    const pObras = Array.isArray(obras) ? obras : [];
+    const fObras = Array.isArray(fetchedObras) ? fetchedObras : [];
+    const map = new Map();
+    [...pObras, ...fObras].forEach(o => {
+      const id = String(o?.id || o?.ID || o?.codigo || '').trim();
+      if (id) map.set(id, o);
+    });
+    return Array.from(map.values());
+  }, [obras, fetchedObras]);
 
   const allCertificados = useMemo(() => {
     const cProps = Array.isArray(certificadosProps) ? certificadosProps : [];
@@ -54,23 +73,34 @@ export default function CertificacionesTab({
 
   const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
 
+  // Secuencia relacional exacta: Presupuestos -> obra_id -> Obras -> cliente_id -> Clientes -> razon_social
   const resolverRazonSocialCliente = (pObj) => {
     if (!pObj) return '';
-    if (typeof obtenerClienteDePresupuesto === 'function') {
-      const resProp = obtenerClienteDePresupuesto(pObj);
-      if (resProp && resProp !== '---' && String(resProp).trim() !== '') return String(resProp);
-    }
-    const keys = ['cliente', 'razon_social', 'razonSocial', 'cliente_nombre', 'nombre_cliente', 'clientName', 'client', 'empresa'];
-    for (const k of keys) {
-      if (pObj[k] != null && String(pObj[k]).trim() !== '' && String(pObj[k]) !== '---') {
-        return String(pObj[k]);
+    const obraId = pObj.obra_id || pObj.obraId || pObj.id_obra || pObj.obra;
+    if (obraId && listaObrasCompleta.length > 0) {
+      const obraObj = listaObrasCompleta.find(o => 
+        String(o?.id || o?.ID || '') === String(obraId) ||
+        String(o?.codigo || o?.code || '') === String(obraId) ||
+        String(o?.nombre || '') === String(obraId)
+      );
+      if (obraObj) {
+        const clienteId = obraObj.cliente_id || obraObj.clienteId || obraObj.id_cliente || obraObj.cliente;
+        if (clienteId && fetchedClientes.length > 0) {
+          const clienteObj = fetchedClientes.find(c => 
+            String(c?.id || c?.ID || '') === String(clienteId) ||
+            String(c?.codigo || c?.code || '') === String(clienteId) ||
+            String(c?.razon_social || c?.nombre || '') === String(clienteId)
+          );
+          if (clienteObj) {
+            return clienteObj.razon_social || clienteObj.razonSocial || clienteObj.nombre || clienteObj.cliente || '';
+          }
+        }
+        if (clienteId && isNaN(clienteId)) return String(clienteId);
       }
     }
-    const clientId = pObj.cliente_id || pObj.clienteId || pObj.id_cliente;
-    if (clientId && fetchedClientes.length > 0) {
-      const match = fetchedClientes.find(c => String(c?.id || c?.ID || '') === String(clientId) || String(c?.codigo || '') === String(clientId));
-      if (match) return match.razon_social || match.razonSocial || match.nombre || match.cliente || '';
-    }
+    if (pObj.razon_social && pObj.razon_social !== '---') return String(pObj.razon_social);
+    if (pObj.razonSocial && pObj.razonSocial !== '---') return String(pObj.razonSocial);
+    if (pObj.cliente && pObj.cliente !== '---' && isNaN(pObj.cliente)) return String(pObj.cliente);
     return '';
   };
 
@@ -86,13 +116,12 @@ export default function CertificacionesTab({
         nombre: certificadoPresupuestoObj.responsable_cliente || certificadoPresupuestoObj.responsableCliente || '',
         cargo: certificadoPresupuestoObj.cargo_cliente || certificadoPresupuestoObj.cargoCliente || ''
       });
-      
     } else if (!certPresupuestoId) {
       setCertClienteNombre('');
       setCertRespProveedor({ nombre: '', cargo: '' });
       setCertRespCliente({ nombre: '', cargo: '' });
     }
-  }, [certPresupuestoId, certificadoPresupuestoObj, fetchedClientes]);
+  }, [certPresupuestoId, certificadoPresupuestoObj, fetchedClientes, listaObrasCompleta]);
 
   const certificadosGuardadosSet = useMemo(() => {
     const set = new Set();
@@ -418,16 +447,16 @@ export default function CertificacionesTab({
                   <tbody className="divide-y divide-slate-300">
                     {certificadoCalculos.filasRender.map((rubroObj) => (
                       <React.Fragment key={rubroObj.rIdx}>
-                        {/* RUBRO CON FONDO GRIS DESTACADO (bg-slate-200) */}
-                        <tr className="bg-slate-200 font-extrabold text-slate-900 border-t-2 border-slate-400">
-                          <td className="py-2.5 px-2 text-center border-r border-slate-300">{rubroObj.rIdx + 1}</td>
-                          <td className="py-2.5 px-3 uppercase border-r border-slate-300" colSpan="3">{rubroObj.nombre}</td>
-                          <td className="py-2.5 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.totalRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="py-2.5 px-1 text-center border-r border-slate-300">-</td>
-                          <td className="py-2.5 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="py-2.5 px-1 text-center border-r border-slate-300">-</td>
-                          <td className="py-2.5 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.rubroActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="py-2.5 px-1 text-center border-r border-slate-300">-</td>
+                        {/* RUBROS CON FONDO GRIS DISTINTIVO (bg-slate-300) */}
+                        <tr className="bg-slate-300 font-black text-slate-950 border-t-2 border-slate-400">
+                          <td className="py-2.5 px-2 text-center border-r border-slate-400">{rubroObj.rIdx + 1}</td>
+                          <td className="py-2.5 px-3 uppercase border-r border-slate-400" colSpan="3">{rubroObj.nombre}</td>
+                          <td className="py-2.5 px-3 text-right border-r border-slate-400 whitespace-nowrap">$ {rubroObj.totalRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="py-2.5 px-1 text-center border-r border-slate-400">-</td>
+                          <td className="py-2.5 px-3 text-right border-r border-slate-400 whitespace-nowrap">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="py-2.5 px-1 text-center border-r border-slate-400">-</td>
+                          <td className="py-2.5 px-3 text-right border-r border-slate-400 whitespace-nowrap">$ {rubroObj.rubroActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="py-2.5 px-1 text-center border-r border-slate-400">-</td>
                           <td className="py-2.5 px-3 text-right whitespace-nowrap">$ {(rubroObj.rubroAnterior + rubroObj.rubroActual).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                         </tr>
                         {rubroObj.tareasFilas.map((t) => (
