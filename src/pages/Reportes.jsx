@@ -342,7 +342,6 @@ function ReportesContent(props) {
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
   
-  // MODIFICACIÓN 1: Estado para el nombre del cliente obtenido del script
   const [certClienteNombre, setCertClienteNombre] = useState('');
 
   const [avanceActualMap, setAvanceActualMap] = useState({});
@@ -366,12 +365,10 @@ function ReportesContent(props) {
     }
   }, [esOperador]);
 
-  // MODIFICACIÓN 2: Función para consultar la razón social del cliente directamente al script
+  const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
+
   const fetchClientNameFromScript = async (pId) => {
-    if (!pId) {
-      setCertClienteNombre('');
-      return;
-    }
+    if (!pId) return;
     try {
       const response = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -385,27 +382,21 @@ function ReportesContent(props) {
       const resultado = await response.json();
       if (resultado && (resultado.cliente || resultado.razonSocial || resultado.razon_social)) {
         setCertClienteNombre(resultado.cliente || resultado.razonSocial || resultado.razon_social);
-      } else {
-        // Fallback local si el script no retorna explícitamente el campo
-        const obj = presupuestos.find(p => String(p?.id || p?.ID) === String(pId));
-        setCertClienteNombre(obtenerClienteDePresupuesto(obj));
       }
     } catch (error) {
       console.error("Error al obtener el cliente desde el script:", error);
-      const obj = presupuestos.find(p => String(p?.id || p?.ID) === String(pId));
-      setCertClienteNombre(obtenerClienteDePresupuesto(obj));
     }
   };
 
   useEffect(() => {
-    if (certPresupuestoId) {
+    if (certPresupuestoId && certificadoPresupuestoObj) {
+      const clienteLocal = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
+      setCertClienteNombre(clienteLocal !== '---' ? clienteLocal : '');
       fetchClientNameFromScript(certPresupuestoId);
-    } else {
+    } else if (!certPresupuestoId) {
       setCertClienteNombre('');
     }
-  }, [certPresupuestoId]);
-
-  const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
+  }, [certPresupuestoId, certificadoPresupuestoObj]);
   
   useEffect(() => {
     if (certificadoPresupuestoObj) {
@@ -1415,7 +1406,6 @@ function ReportesContent(props) {
       }
       const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
 
-      // MODIFICACIÓN 3: Incluir el cliente obtenido del script en el payload
       const clienteNombreFinal = certClienteNombre || obtenerClienteDePresupuesto(certificadoPresupuestoObj);
       const obraStr = String(certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra Albañilería');
       const ordenCompraStr = obtenerOrdenDeCompra(certificadoPresupuestoObj);
@@ -1495,10 +1485,11 @@ function ReportesContent(props) {
           body * {
             visibility: hidden !important;
           }
-          #printable-insumos-container, #printable-insumos-container * {
+          #printable-insumos-container, #printable-insumos-container *,
+          #printable-certificado-container, #printable-certificado-container * {
             visibility: visible !important;
           }
-          #printable-insumos-container {
+          #printable-insumos-container, #printable-certificado-container {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
@@ -1634,7 +1625,7 @@ function ReportesContent(props) {
                   Seleccione un presupuesto aprobado en el selector superior para desplegar el Certificado de Avance de Obra. (Los presupuestos ya certificados para el N° {certificadoNro} se ocultan automáticamente).
                 </div>
               ) : (
-                <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
+                <div id="printable-certificado-container" className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
                   <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
                     <div>
                       <img src="/logo-07.png" alt="SICE S.A." className="h-20 object-contain mb-2" />
@@ -1653,7 +1644,6 @@ function ReportesContent(props) {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
                     <div className="col-span-2">
                       <span className="text-slate-500 font-semibold block">Cliente (Razón Social):</span>
-                      {/* MODIFICACIÓN 4: Campo editable/visual del cliente obtenido del script */}
                       <input
                         type="text"
                         value={certClienteNombre}
@@ -1894,73 +1884,107 @@ function ReportesContent(props) {
                     })()}
                   </div>
 
-                  <form onSubmit={aprobarYGuardarCertificado} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50 p-4 space-y-4 print:hidden">
-                    <h4 className="font-black text-xs text-slate-900 uppercase">Aprobación y Firma del Certificado</h4>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                      <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-300">
-                        <p className="font-bold text-slate-800 uppercase">Responsable Proveedor</p>
-                        <div>
-                          <label className="block font-semibold text-slate-600 mb-0.5">Nombre y Apellido:</label>
-                          <input 
-                            type="text" 
-                            required
-                            value={certRespProveedor.nombre}
-                            onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})}
-                            className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-semibold text-slate-600 mb-0.5">Cargo:</label>
-                          <input 
-                            type="text" 
-                            required
-                            value={certRespProveedor.cargo}
-                            onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})}
-                            className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
-                          />
-                        </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs pt-4 border-t border-slate-300">
+                    <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-300">
+                      <p className="font-bold text-slate-800 uppercase">Responsable Proveedor</p>
+                      <div>
+                        <span className="text-slate-500 block">Nombre:</span>
+                        <strong className="text-slate-900">{certRespProveedor.nombre}</strong>
                       </div>
-
-                      <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-300">
-                        <p className="font-bold text-slate-800 uppercase">Responsable Cliente</p>
-                        <div>
-                          <label className="block font-semibold text-slate-600 mb-0.5">Nombre y Apellido:</label>
-                          <input 
-                            type="text" 
-                            required
-                            value={certRespCliente.nombre}
-                            onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})}
-                            className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
-                          />
-                        </div>
-                        <div>
-                          <label className="block font-semibold text-slate-600 mb-0.5">Cargo:</label>
-                          <input 
-                            type="text" 
-                            required
-                            value={certRespCliente.cargo}
-                            onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})}
-                            className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
-                          />
-                        </div>
+                      <div>
+                        <span className="text-slate-500 block">Cargo:</span>
+                        <strong className="text-slate-900">{certRespProveedor.cargo}</strong>
                       </div>
                     </div>
-
-                    <div className="flex justify-end pt-2">
-                      <button 
-                        type="submit"
-                        disabled={isSavingCert}
-                        className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2 ${isSavingCert ? 'opacity-70 cursor-not-allowed' : ''}`}
-                      >
-                        {isSavingCert ? (
-                          <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Procesando...</>
-                        ) : (
-                          <><ShieldCheck className="w-4 h-4" /> Guardar Certificado en Sheets</>
-                        )}
-                      </button>
+                    <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-300">
+                      <p className="font-bold text-slate-800 uppercase">Responsable Cliente</p>
+                      <div>
+                        <span className="text-slate-500 block">Nombre:</span>
+                        <strong className="text-slate-900">{certRespCliente.nombre}</strong>
+                      </div>
+                      <div>
+                        <span className="text-slate-500 block">Cargo:</span>
+                        <strong className="text-slate-900">{certRespCliente.cargo}</strong>
+                      </div>
                     </div>
-                  </form>
+                  </div>
                 </div>
+              )}
+
+              {certificadoPresupuestoObj && (
+                <form onSubmit={aprobarYGuardarCertificado} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50 p-4 space-y-4 print:hidden">
+                  <h4 className="font-black text-xs text-slate-900 uppercase">Aprobación y Firma del Certificado</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+                    <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-300">
+                      <p className="font-bold text-slate-800 uppercase">Responsable Proveedor</p>
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">Nombre y Apellido:</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={certRespProveedor.nombre}
+                          onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})}
+                          className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">Cargo:</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={certRespProveedor.cargo}
+                          onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})}
+                          className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2 bg-white p-3 rounded-xl border border-slate-300">
+                      <p className="font-bold text-slate-800 uppercase">Responsable Cliente</p>
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">Nombre y Apellido:</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={certRespCliente.nombre}
+                          onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})}
+                          className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block font-semibold text-slate-600 mb-0.5">Cargo:</label>
+                        <input 
+                          type="text" 
+                          required
+                          value={certRespCliente.cargo}
+                          onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})}
+                          className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => window.print()}
+                      className="px-6 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
+                    >
+                      <Printer className="w-4 h-4" /> Imprimir / PDF (Vista Exacta)
+                    </button>
+                    <button 
+                      type="submit"
+                      disabled={isSavingCert}
+                      className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2 ${isSavingCert ? 'opacity-70 cursor-not-allowed' : ''}`}
+                    >
+                      {isSavingCert ? (
+                        <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Procesando...</>
+                      ) : (
+                        <><ShieldCheck className="w-4 h-4" /> Guardar Certificado en Sheets</>
+                      )}
+                    </button>
+                  </div>
+                </form>
               )}
 
               <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4 mt-6 print:hidden">
