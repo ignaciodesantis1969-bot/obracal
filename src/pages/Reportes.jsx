@@ -186,76 +186,57 @@ function ReportesContent(props) {
   };
 
   const obtenerClienteDePresupuesto = (presupuesto) => {
-    if (!presupuesto) return 'LDC Argentina S.A.';
+    if (!presupuesto) return '---';
     
-    const posibleClavesCliente = [
-      'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 
-      'razon_social', 'razonSocial', 'empresa', 'Empresa', 'clientenombre', 'nombrecliente', 'cliente_razon_social'
-    ];
-    for (const key of posibleClavesCliente) {
-      if (presupuesto[key]) {
-        const val = presupuesto[key];
-        if (typeof val === 'object') {
-          const resObj = val.nombre || val.razon_social || val.empresa || val.razonSocial;
+    // Búsqueda dinámica en todas las propiedades del presupuesto
+    for (const [k, v] of Object.entries(presupuesto)) {
+      const lowerK = String(k).toLowerCase();
+      if ((lowerK.includes('client') || lowerK.includes('razon') || lowerK.includes('empresa') || lowerK.includes('comitente')) && v !== undefined && v !== null && String(v).trim() !== '') {
+        if (typeof v === 'object') {
+          const resObj = v.nombre || v.razon_social || v.empresa || v.razonSocial;
           if (resObj) return String(resObj);
         }
-        if (String(val).trim() !== '') return String(val).trim();
+        return String(v).trim();
       }
     }
 
+    // Búsqueda en la obra asociada
     const obraId = presupuesto?.obra_id || presupuesto?.Obra_id || presupuesto?.obraId || presupuesto?.id_obra;
     if (obraId && obras.length > 0) {
       const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
       if (obraEncontrada) {
-        for (const key of posibleClavesCliente) {
-          if (obraEncontrada[key]) {
-            const val = obraEncontrada[key];
-            if (typeof val === 'object') {
-              const resObj = val.nombre || val.razon_social || val.empresa || val.razonSocial;
+        for (const [k, v] of Object.entries(obraEncontrada)) {
+          const lowerK = String(k).toLowerCase();
+          if ((lowerK.includes('client') || lowerK.includes('razon') || lowerK.includes('empresa') || lowerK.includes('comitente')) && v !== undefined && v !== null && String(v).trim() !== '') {
+            if (typeof v === 'object') {
+              const resObj = v.nombre || v.razon_social || v.empresa || v.razonSocial;
               if (resObj) return String(resObj);
             }
-            if (String(val).trim() !== '') return String(val).trim();
+            return String(v).trim();
           }
         }
       }
     }
 
-    return 'LDC Argentina S.A.';
+    return '---';
   };
 
   const obtenerOrdenDeCompra = (presupuesto) => {
-    if (!presupuesto) return 'OC-5000002190';
+    if (!presupuesto) return '---';
     const posibles = [
+      presupuesto.nro_orden_compra,
       presupuesto.orden_compra,
       presupuesto.ordenCompra,
       presupuesto.oc,
-      presupuesto.nro_orden_compra,
-      presupuesto.numero_orden_compra,
       presupuesto.n_orden_compra,
-      presupuesto.referencia_oc,
-      presupuesto?.cotizacion?.orden_compra,
-      presupuesto?.comercial?.orden_compra
+      presupuesto.referencia_oc
     ];
     for (const val of posibles) {
       if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '---') {
         return String(val).trim();
       }
     }
-
-    const obraId = presupuesto?.obra_id || presupuesto?.Obra_id || presupuesto?.obraId;
-    if (obraId && obras.length > 0) {
-      const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
-      if (obraEncontrada) {
-        const posiblesObra = [obraEncontrada.orden_compra, obraEncontrada.ordenCompra, obraEncontrada.oc, obraEncontrada.nro_orden_compra];
-        for (const val of posiblesObra) {
-          if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '---') {
-            return String(val).trim();
-          }
-        }
-      }
-    }
-
-    return 'OC-5000002190';
+    return '---';
   };
 
   const allCertificados = useMemo(() => {
