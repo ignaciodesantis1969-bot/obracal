@@ -21,26 +21,58 @@ const CONTRATO_DEFAULT = [
   }
 ];
 
-export default function Reportes(props) {
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, errorInfo) {
+    console.error("Error capturado en Reportes:", error, errorInfo);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-8 bg-rose-50 border border-rose-200 rounded-2xl text-center space-y-4 max-w-xl mx-auto mt-10 shadow-sm">
+          <h2 className="text-sm font-black text-rose-900 uppercase">Ocurrió un error al renderizar esta sección</h2>
+          <p className="text-xs text-rose-700 font-mono bg-rose-100 p-3 rounded-xl overflow-x-auto text-left">
+            {String(this.state.error?.message || this.state.error)}
+          </p>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 bg-rose-600 text-white rounded-xl text-xs font-bold hover:bg-rose-700 transition-colors cursor-pointer shadow"
+          >
+            Recargar aplicación
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function ReportesContent(props) {
   const { user } = useAuth();
 
   const userRole = String(
-    props.role || props.userRole || user?.role || user?.rol || user?.user_role || user?.tipo || user?.perfil || user?.user_metadata?.role || ''
+    props?.role || props?.userRole || user?.role || user?.rol || user?.user_role || user?.tipo || user?.perfil || user?.user_metadata?.role || ''
   ).toLowerCase();
   
   const esOperador = userRole.includes('operador') || userRole.includes('operator') || userRole.includes('operat');
 
-  const obras = Array.isArray(props.obras || props.Obras) ? (props.obras || props.Obras) : [];
-  const presupuestos = Array.isArray(props.presupuestos || props.Presupuestos) ? (props.presupuestos || props.Presupuestos) : [];
-  const certificadosProps = Array.isArray(props.certificados || props.Certificados) ? (props.certificados || props.Certificados) : [];
-  const movimientos = Array.isArray(props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria) ? (props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria) : [];
-  const insumos = Array.isArray(props.insumos || props.Insumos) ? (props.insumos || props.Insumos) : [];
-  const empleadosListProps = Array.isArray(props.empleados || props.Empleados || props.personal || props.Personal) ? (props.empleados || props.Empleados || props.personal || props.Personal) : [];
-  const facturas = Array.isArray(props.facturas || props.Facturas) ? (props.facturas || props.Facturas) : [];
-  const maestroTareasRubros = Array.isArray(props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros) ? (props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros) : [];
+  const obras = Array.isArray(props?.obras || props?.Obras) ? (props.obras || props.Obras) : [];
+  const presupuestos = Array.isArray(props?.presupuestos || props?.Presupuestos) ? (props.presupuestos || props.Presupuestos) : [];
+  const certificadosProps = Array.isArray(props?.certificados || props?.Certificados) ? (props.certificados || props.Certificados) : [];
+  const movimientos = Array.isArray(props?.movimientos || props?.Movimientos || props?.tesoreria || props?.Tesoreria) ? (props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria) : [];
+  const insumos = Array.isArray(props?.insumos || props?.Insumos) ? (props.insumos || props.Insumos) : [];
+  const empleadosListProps = Array.isArray(props?.empleados || props?.Empleados || props?.personal || props?.Personal) ? (props.empleados || props.Empleados || props.personal || props.Personal) : [];
+  const facturas = Array.isArray(props?.facturas || props?.Facturas) ? (props.facturas || props.Facturas) : [];
+  const maestroTareasRubros = Array.isArray(props?.maestroTareasRubros || props?.MaestroTareasRubros || props?.maestro_tareas_rubros) ? (props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros) : [];
 
-  const propsContratos = props.contratos || props.Contratos || props.contratosMantenimiento || props.ContratosMantenimiento || props.contratos_mantenimiento;
-  const propsReportesSice = props.reportesSice || props.ReportesSice || props.reportes_sice;
+  const propsContratos = props?.contratos || props?.Contratos || props?.contratosMantenimiento || props?.ContratosMantenimiento || props?.contratos_mantenimiento;
+  const propsReportesSice = props?.reportesSice || props?.ReportesSice || props?.reportes_sice;
   const propsEmpleados = empleadosListProps;
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
@@ -137,14 +169,14 @@ export default function Reportes(props) {
     return CONTRATO_DEFAULT;
   }, [propsContratos, fetchedContratos]);
 
-  const reportesSiceListProps = Array.isArray(props.reportesSice || props.ReportesSice || props.reportes_sice) ? (props.reportesSice || props.ReportesSice || props.reportes_sice) : [];
+  const reportesSiceListProps = Array.isArray(props?.reportesSice || props?.ReportesSice || props?.reportes_sice) ? (props.reportesSice || props.ReportesSice || props.reportes_sice) : [];
 
   const buscarValorEnObjeto = (obj, posibleClaves, defecto = '') => {
     if (!obj || typeof obj !== 'object') return defecto;
     for (const pk of posibleClaves) {
-      const cleanPk = pk.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanPk = String(pk).toLowerCase().replace(/[^a-z0-9]/g, '');
       for (const [k, v] of Object.entries(obj)) {
-        const cleanK = k.toLowerCase().replace(/[^a-z0-9]/g, '');
+        const cleanK = String(k).toLowerCase().replace(/[^a-z0-9]/g, '');
         if (cleanK === cleanPk && v !== undefined && v !== null && String(v).trim() !== '') {
           return v;
         }
@@ -160,7 +192,7 @@ export default function Reportes(props) {
     ]);
     if (direct) return direct;
 
-    const obraId = presupuesto.obra_id || presupuesto.Obra_id || presupuesto.obraId || presupuesto.id_obra;
+    const obraId = presupuesto?.obra_id || presupuesto?.Obra_id || presupuesto?.obraId || presupuesto?.id_obra;
     if (obraId && obras.length > 0) {
       const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
       if (obraEncontrada) {
@@ -172,8 +204,9 @@ export default function Reportes(props) {
   };
 
   const allCertificados = useMemo(() => {
-    const combined = [...certificadosProps, ...fetchedCertificados];
-    return combined;
+    const cProps = Array.isArray(certificadosProps) ? certificadosProps : [];
+    const fCert = Array.isArray(fetchedCertificados) ? fetchedCertificados : [];
+    return [...cProps, ...fCert];
   }, [certificadosProps, fetchedCertificados]);
 
   const allReportesSice = useMemo(() => {
@@ -191,10 +224,10 @@ export default function Reportes(props) {
       { id: '6', nombre: 'Palacio Sanchez Joderson', especialidad: 'Medio Oficial', estado: 'ACTIVO' }
     ]);
 
-    return fuente.filter(emp => {
+    return Array.isArray(fuente) ? fuente.filter(emp => {
       const estadoVal = String(emp?.estado || emp?.Estado || emp?.status || 'ACTIVO').trim().toUpperCase();
       return estadoVal === 'ACTIVO';
-    });
+    }) : [];
   }, [empleadosListProps, fetchedEmpleados]);
 
   const [activeTab, setActiveTab] = useState('Reportes Diarios');
@@ -2629,5 +2662,13 @@ export default function Reportes(props) {
         </div>
       )}
     </div>
+  );
+}
+
+export default function Reportes(props) {
+  return (
+    <ErrorBoundary>
+      <ReportesContent {...props} />
+    </ErrorBoundary>
   );
 }
