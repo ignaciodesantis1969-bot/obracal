@@ -189,14 +189,19 @@ function ReportesContent(props) {
     if (!presupuesto) return '---';
     
     // 1. Buscar campos explícitos de cliente en el presupuesto
-    const rawCliente = buscarValorEnObjeto(presupuesto, [
-      'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial', 'empresa', 'Empresa', 'clientenombre', 'nombrecliente'
-    ]);
-    if (rawCliente && rawCliente !== '---') {
-      if (typeof rawCliente === 'object') {
-        return rawCliente.nombre || rawCliente.razon_social || rawCliente.empresa || rawCliente.razonSocial || '---';
+    const posibleClavesCliente = [
+      'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 
+      'razon_social', 'razonSocial', 'empresa', 'Empresa', 'clientenombre', 'nombrecliente', 'cliente_razon_social'
+    ];
+    for (const key of posibleClavesCliente) {
+      if (presupuesto[key]) {
+        const val = presupuesto[key];
+        if (typeof val === 'object') {
+          const resObj = val.nombre || val.razon_social || val.empresa || val.razonSocial;
+          if (resObj) return String(resObj);
+        }
+        if (String(val).trim() !== '') return String(val).trim();
       }
-      return String(rawCliente);
     }
 
     // 2. Buscar en la obra asociada
@@ -204,28 +209,16 @@ function ReportesContent(props) {
     if (obraId && obras.length > 0) {
       const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
       if (obraEncontrada) {
-        const clienteObra = buscarValorEnObjeto(obraEncontrada, ['cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'razon_social', 'razonSocial']);
-        if (clienteObra) {
-          if (typeof clienteObra === 'object') {
-            return clienteObra.nombre || clienteObra.razon_social || clienteObra.empresa || '---';
+        for (const key of posibleClavesCliente) {
+          if (obraEncontrada[key]) {
+            const val = obraEncontrada[key];
+            if (typeof val === 'object') {
+              const resObj = val.nombre || val.razon_social || val.empresa || val.razonSocial;
+              if (resObj) return String(resObj);
+            }
+            if (String(val).trim() !== '') return String(val).trim();
           }
-          return String(clienteObra);
         }
-      }
-    }
-
-    // 3. Aplicar pista por código o contratos si coincide
-    const codigoPres = String(presupuesto?.codigo || presupuesto?.Codigo || presupuesto?.id || '').trim();
-    if (codigoPres.length >= 5) {
-      const prefix = codigoPres.substring(0, 5).toUpperCase();
-      const mapaClientes = {
-        'CL001': 'Cliente 001',
-        'CL002': 'LDC Argentina S.A.',
-        'CL003': 'Cliente 003',
-        'CL004': 'Cliente 004'
-      };
-      if (mapaClientes[prefix]) {
-        return mapaClientes[prefix];
       }
     }
 
@@ -274,7 +267,7 @@ function ReportesContent(props) {
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
   const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: 'Jefe de Obra' });
-  const [certRespCliente, setCertRespCliente] = useState({ nombre: 'Cristian Matei', cargo: 'Gerente de Proyecto' });
+  const [certRespCliente, setCertRespCliente] = useState({ nombre: 'Cristian Matei', cargo: 'Gerente de Planta' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
   useEffect(() => {
@@ -283,7 +276,7 @@ function ReportesContent(props) {
     }
   }, [esOperador]);
 
-  // Poblar responsables por defecto al seleccionar presupuesto
+  // Poblar responsables y datos por defecto al seleccionar presupuesto
   const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
   
   useEffect(() => {
@@ -1131,6 +1124,38 @@ function ReportesContent(props) {
 
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
 
+  // Requerimiento 6: Filtrar historial únicamente para el presupuesto que estamos trabajando
+  const certificadosDelPresupuestoActual = useMemo(() => {
+    if (!certPresupuestoId) return [];
+    return allCertificados.filter(c => {
+      const pId = String(c?.presupuestoId || c?.presupuesto_id || c?.id_presupuesto || '').trim();
+      return pId === String(certPresupuestoId).trim();
+    });
+  }, [allCertificados, certPresupuestoId]);
+
+  // Requerimiento 3: Calcular porcentaje anterior de acuerdo a los certificados previos guardados
+  const obtenerPctAnteriorAcumulado = (rIdx, tIdx) => {
+    if (certificadoNro === '0' || certificadoNro === '1') return 0;
+    let sumaPct = 0;
+    const nroActual = parseInt(certificadoNro, 10) || 1;
+    
+    certificadosDelPresupuestoActual.forEach(cert => {
+      const certNro = parseInt(cert?.certificadoNro !== undefined ? cert.certificadoNro : cert?.certificado_nro, 10) || 0;
+      if (certNro > 0 && certNro < nroActual) {
+        const filasCert = cert?.filas || cert?.items || [];
+        filasCert.forEach(rubro => {
+          if (Number(rubro?.rIdx) === rIdx && Array.isArray(rubro?.tareasFilas)) {
+            const tareaFila = rubro.tareasFilas.find(tf => Number(tf?.tIdx) === tIdx);
+            if (tareaFila) {
+              sumaPct += Number(tareaFila?.pctActual || 0);
+            }
+          }
+        });
+      }
+    });
+    return Math.min(100, sumaPct);
+  };
+
   const certificadoCalculos = useMemo(() => {
     if (!certificadoPresupuestoObj) return { filasRender: [], sumaTotalPresupuesto: 0, sumaTotalAnterior: 0, sumaTotalActual: 0, sumaTotalAcumulado: 0, totalPresupuestoCalc: 0, totalActualCalc: 0 };
 
@@ -1166,13 +1191,14 @@ function ReportesContent(props) {
         const totalItem = cant * pUnit;
         totalRubro += totalItem;
 
-        const pctAnterior = certificadoNro === '1' ? 0 : 50;
+        // Requerimiento 3: Certificado 0 o 1 arrancan en 0 anterior. Subsiguientes acumulan de certificados pasados.
+        const pctAnterior = obtenerPctAnteriorAcumulado(rIdx, tIdx);
         const impAnterior = totalItem * (pctAnterior / 100);
         rubroAnterior += impAnterior;
 
         const keyMap = `${rIdx}-${tIdx}`;
-        // Requerimiento 3: en certificado 1 el porcentaje actual va en 0 por defecto
-        const defaultPctActual = certificadoNro === '1' ? 0 : 30;
+        // Requerimiento 3: Certificado 1 por defecto 0 en actual
+        const defaultPctActual = certificadoNro === '1' || certificadoNro === '0' ? 0 : 10;
         const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : defaultPctActual;
         const impActual = totalItem * (pctActual / 100);
         rubroActual += impActual;
@@ -1215,7 +1241,7 @@ function ReportesContent(props) {
     });
 
     return { filasRender, sumaTotalPresupuesto, sumaTotalAnterior, sumaTotalActual, sumaTotalAcumulado, totalPresupuestoCalc, totalActualCalc };
-  }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro]);
+  }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
@@ -1246,13 +1272,18 @@ function ReportesContent(props) {
       const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
 
       const clienteNombreFinal = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
-      const clienteStr = typeof clienteNombreFinal === 'object' 
-        ? String(clienteNombreFinal.nombre || clienteNombreFinal.razon_social || clienteNombreFinal.empresa || '---') 
-        : String(clienteNombreFinal || '---');
-
       const obraStr = String(certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra Albañilería');
-      // Requerimiento 4: Traer bien el número de la orden de compra desde el presupuesto aprobado
-      const ordenCompraStr = String(certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || certificadoPresupuestoObj?.nro_orden_compra || '---');
+      
+      // Requerimiento 4: Traer bien la Orden de Compra del presupuesto
+      const ordenCompraStr = String(
+        certificadoPresupuestoObj?.orden_compra || 
+        certificadoPresupuestoObj?.ordenCompra || 
+        certificadoPresupuestoObj?.oc || 
+        certificadoPresupuestoObj?.nro_orden_compra || 
+        certificadoPresupuestoObj?.numero_orden_compra || 
+        certificadoPresupuestoObj?.n_orden_compra || 
+        '---'
+      ).trim();
 
       const payloadCert = {
         action: 'guardarCertificado',
@@ -1262,14 +1293,13 @@ function ReportesContent(props) {
         certificado_nro: String(certificadoNro || '0'),
         certificadoNro: String(certificadoNro || '0'),
         fecha: String(certFecha || ''),
-        cliente: clienteStr,
+        cliente: clienteNombreFinal,
         obra: obraStr,
         orden_compra: ordenCompraStr,
         filas: certificadoCalculos.filasRender,
         total_periodo: Number(totalCertificadoPeriodo) || 0,
         adelanto_descuento: Number(descuentoAdelantoCert) || 0,
         adicionales: Number(adicionalesMonto) || 0,
-        acicionales: Number(adicionalesMonto) || 0,
         redeterminacion: Number(montoRedetCalculado) || 0,
         total_general: Number(totalFinalLiquidacion) || 0,
         totalGeneral: Number(totalFinalLiquidacion) || 0,
@@ -1322,15 +1352,6 @@ function ReportesContent(props) {
       alert("Ocurrió un error al intentar eliminar el certificado.");
     }
   };
-
-  // Requerimiento 6: Filtrar historial únicamente para el presupuesto que estamos trabajando
-  const certificadosDelPresupuestoActual = useMemo(() => {
-    if (!certPresupuestoId) return [];
-    return allCertificados.filter(c => {
-      const pId = String(c?.presupuestoId || c?.presupuesto_id || c?.id_presupuesto || '').trim();
-      return pId === String(certPresupuestoId).trim();
-    });
-  }, [allCertificados, certPresupuestoId]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -1452,7 +1473,7 @@ function ReportesContent(props) {
 
               {!certificadoPresupuestoObj ? (
                 <div className="p-16 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-                  Seleccione un presupuesto aprobado en el selector superior para desplegar el Certificado de Avance de Obra. (Los presupuestos ya certificados para el N° {certificadoNro} no aparecen en la lista).
+                  Seleccione un presupuesto aprobado en el selector superior para desplegar el Certificado de Avance de Obra. (Los presupuestos ya certificados para el N° {certificadoNro} se ocultan automáticamente).
                 </div>
               ) : (
                 <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
@@ -1474,7 +1495,7 @@ function ReportesContent(props) {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
                     <div className="col-span-2">
                       <span className="text-slate-500 font-semibold block">Cliente:</span>
-                      <strong className="text-slate-900">
+                      <strong className="text-slate-900 text-sm">
                         {obtenerClienteDePresupuesto(certificadoPresupuestoObj)}
                       </strong>
                     </div>
@@ -1488,11 +1509,13 @@ function ReportesContent(props) {
                     </div>
                     <div className="col-span-2">
                       <span className="text-slate-500 font-semibold block">Obra:</span>
-                      <strong className="text-slate-900 block mt-0.5">{certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra Albañilería - Vivienda Unifamiliar'}</strong>
+                      <strong className="text-slate-900 block mt-0.5">{certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra Albañilería'}</strong>
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Orden de Compra:</span>
-                      <strong className="text-slate-900">{certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || certificadoPresupuestoObj?.nro_orden_compra || '---'}</strong>
+                      <strong className="text-slate-900 font-mono">
+                        {certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || certificadoPresupuestoObj?.nro_orden_compra || certificadoPresupuestoObj?.numero_orden_compra || '---'}
+                      </strong>
                     </div>
                   </div>
 
@@ -1588,6 +1611,51 @@ function ReportesContent(props) {
 
                       const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
 
+                      // Requerimiento 2: Si es certificado 0, mostrar claramente el monto en $ sin texto redundante abajo
+                      if (certificadoNro === '0') {
+                        return (
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+                            <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-300">
+                              <span className="font-bold text-slate-700 block uppercase">Configuración Adelanto Financiero</span>
+                              <div className="grid grid-cols-2 gap-3">
+                                <div>
+                                  <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    value={adelantoPct}
+                                    onChange={(e) => {
+                                      const pct = parseFloat(e.target.value) || 0;
+                                      setAdelantoPct(pct);
+                                      setAdelantoMonto(Math.round(totalPresupuestoBase * (pct / 100)));
+                                    }}
+                                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1.5 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    value={Math.round(adelantoMonto || montoAdelantoCalculado)}
+                                    onChange={(e) => {
+                                      const monto = parseFloat(e.target.value) || 0;
+                                      setAdelantoMonto(monto);
+                                      setAdelantoPct(totalPresupuestoBase > 0 ? Number(((monto / totalPresupuestoBase) * 100).toFixed(2)) : 0);
+                                    }}
+                                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1.5 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                            <div className="flex flex-col justify-center bg-slate-950 text-white p-4 rounded-xl shadow-md">
+                              <span className="font-extrabold text-xs uppercase text-slate-400">TOTAL ADELANTO FINANCIERO A CERTIFICAR:</span>
+                              <span className="font-black text-xl text-amber-400 mt-1">$ {Math.round(montoAdelantoCalculado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                            </div>
+                          </div>
+                        );
+                      }
+
                       return (
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
                           <div className="space-y-3">
@@ -1596,46 +1664,10 @@ function ReportesContent(props) {
                               <span className="font-black text-slate-900 text-sm">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                             </div>
 
-                            {certificadoNro === '0' ? (
-                              <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
-                                <span className="font-bold text-slate-700 block">Adelanto Financiero:</span>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <div>
-                                    <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
-                                    <input
-                                      type="number"
-                                      step="1"
-                                      value={adelantoPct}
-                                      onChange={(e) => {
-                                        const pct = parseFloat(e.target.value) || 0;
-                                        setAdelantoPct(pct);
-                                        setAdelantoMonto(Math.round(totalPresupuestoBase * (pct / 100)));
-                                      }}
-                                      className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
-                                    <input
-                                      type="number"
-                                      step="1"
-                                      value={Math.round(adelantoMonto || montoAdelantoCalculado)}
-                                      onChange={(e) => {
-                                        const monto = parseFloat(e.target.value) || 0;
-                                        setAdelantoMonto(monto);
-                                        setAdelantoPct(totalPresupuestoBase > 0 ? Number(((monto / totalPresupuestoBase) * 100).toFixed(2)) : 0);
-                                      }}
-                                      className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
-                                    />
-                                  </div>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
-                                <span className="font-bold text-slate-700">Descuento por Adelanto Financiero ({adelantoPct}%):</span>
-                                <span className="font-black text-rose-700">- $ {descuentoAdelantoCert.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
-                              </div>
-                            )}
+                            <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
+                              <span className="font-bold text-slate-700">Descuento por Adelanto Financiero ({adelantoPct}%):</span>
+                              <span className="font-black text-rose-700">- $ {descuentoAdelantoCert.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                            </div>
 
                             <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                               <span className="font-bold text-slate-700">Adicionales Aprobados:</span>
@@ -1654,45 +1686,39 @@ function ReportesContent(props) {
                           </div>
 
                           <div className="space-y-3">
-                            {certificadoNro !== '0' ? (
-                              <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
-                                <span className="font-bold text-slate-700 block">Redeterminación de Precio:</span>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <div>
-                                    <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
-                                    <input
-                                      type="number"
-                                      step="1"
-                                      value={redeterminacionPct}
-                                      onChange={(e) => {
-                                        const pct = parseFloat(e.target.value) || 0;
-                                        setRedeterminacionPct(pct);
-                                        setRedeterminacionMonto(Math.round(netoACertificar * (pct / 100)));
-                                      }}
-                                      className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500"
-                                    />
-                                  </div>
-                                  <div>
-                                    <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
-                                    <input
-                                      type="number"
-                                      step="1"
-                                      value={Math.round(redeterminacionMonto || montoRedetCalculado)}
-                                      onChange={(e) => {
-                                        const monto = parseFloat(e.target.value) || 0;
-                                        setRedeterminacionMonto(monto);
-                                        setRedeterminacionPct((monto / (netoACertificar || 1)) * 100);
-                                      }}
-                                      className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500"
-                                    />
-                                  </div>
+                            <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
+                              <span className="font-bold text-slate-700 block">Redeterminación de Precio:</span>
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    value={redeterminacionPct}
+                                    onChange={(e) => {
+                                      const pct = parseFloat(e.target.value) || 0;
+                                      setRedeterminacionPct(pct);
+                                      setRedeterminacionMonto(Math.round(netoACertificar * (pct / 100)));
+                                    }}
+                                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500"
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
+                                  <input
+                                    type="number"
+                                    step="1"
+                                    value={Math.round(redeterminacionMonto || montoRedetCalculado)}
+                                    onChange={(e) => {
+                                      const monto = parseFloat(e.target.value) || 0;
+                                      setRedeterminacionMonto(monto);
+                                      setRedeterminacionPct((monto / (netoACertificar || 1)) * 100);
+                                    }}
+                                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500"
+                                  />
                                 </div>
                               </div>
-                            ) : (
-                              <div className="bg-white p-3 rounded-xl border border-slate-300 text-slate-400 italic text-center py-4">
-                                Redeterminación no aplicable en Adelanto Financiero.
-                              </div>
-                            )}
+                            </div>
 
                             <div className="flex justify-between items-center bg-slate-950 text-white p-4 rounded-xl shadow-md mt-6">
                               <span className="font-extrabold text-xs uppercase">TOTAL GENERAL A CERTIFICAR:</span>
@@ -1716,7 +1742,6 @@ function ReportesContent(props) {
                             required
                             value={certRespProveedor.nombre}
                             onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})}
-                            placeholder="Ej: Alexander Torres Lopez"
                             className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
                           />
                         </div>
@@ -1741,7 +1766,6 @@ function ReportesContent(props) {
                             required
                             value={certRespCliente.nombre}
                             onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})}
-                            placeholder="Ej: Cristian Matei"
                             className="w-full bg-slate-50 border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
                           />
                         </div>
@@ -1775,6 +1799,7 @@ function ReportesContent(props) {
                 </div>
               )}
 
+              {/* Requerimiento 6: Historial de certificados filtrados para el presupuesto actual con botón de eliminar */}
               <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4 mt-6 print:hidden">
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Certificados Emitidos (Presupuesto Actual)</h3>
                 {!certPresupuestoId ? (
@@ -1799,15 +1824,10 @@ function ReportesContent(props) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {certificadosDelPresupuestoActual.map((cert, idx) => {
+                        {certificadosDelPresupuestoActual.map((cert) => {
                           const nroCert = cert?.certificadoNro !== undefined ? cert.certificadoNro : (cert?.certificado_nro || '0');
                           const fechaCert = cert?.fecha || cert?.fecha_emision || '---';
-                          
-                          const rawCliente = cert?.cliente;
-                          const clienteCert = (rawCliente && typeof rawCliente === 'object') 
-                            ? (rawCliente.nombre || '---') 
-                            : (rawCliente || '---');
-
+                          const clienteCert = typeof cert?.cliente === 'object' ? (cert?.cliente?.nombre || '---') : (cert?.cliente || '---');
                           const obraCert = cert?.obra || '---';
                           const totalGen = Number(cert?.totalGeneral || cert?.total_general || 0);
                           const pdfLink = cert?.pdfUrl || cert?.pdf_url;
@@ -1835,7 +1855,7 @@ function ReportesContent(props) {
                                     <ExternalLink className="w-3 h-3" /> Ver PDF
                                   </a>
                                 ) : (
-                                  <span className="text-slate-400 italic">Guardado en BD</span>
+                                  <span className="text-slate-400 italic">Guardado</span>
                                 )}
                                 <button
                                   onClick={() => eliminarCertificadoServidor(certKeyId)}
@@ -2217,7 +2237,6 @@ function ReportesContent(props) {
                           required
                           value={siceRespProveedor.cargo}
                           onChange={(e) => setSiceRespProveedor({...siceRespProveedor, cargo: e.target.value})}
-                          placeholder="Ej: Jefe de Obra / Supervisor"
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -2228,7 +2247,6 @@ function ReportesContent(props) {
                           required
                           value={siceRespProveedor.nombre}
                           onChange={(e) => setSiceRespProveedor({...siceRespProveedor, nombre: e.target.value})}
-                          placeholder="Ej: Juan Pérez"
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -2257,7 +2275,6 @@ function ReportesContent(props) {
                           required
                           value={siceRespCliente.cargo}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, cargo: e.target.value})}
-                          placeholder="Ej: Gerente de Planta"
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -2268,7 +2285,6 @@ function ReportesContent(props) {
                           required
                           value={siceRespCliente.nombre}
                           onChange={(e) => setSiceRespCliente({...siceRespCliente, nombre: e.target.value})}
-                          placeholder="Ej: Cristian Matei"
                           className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
                         />
                       </div>
@@ -2316,7 +2332,6 @@ function ReportesContent(props) {
               <div className="space-y-3">
                 {sicePartesAprobados.map((parte, idx) => {
                   const parteId = parte?.id || parte?.nro || idx;
-                  
                   const pObj = parte?.proveedor;
                   const pNombre = (pObj && typeof pObj === 'object') ? (pObj.nombre || '---') : (pObj || '---');
                   const pCargo = (pObj && typeof pObj === 'object') ? (pObj.cargo || '---') : '';
