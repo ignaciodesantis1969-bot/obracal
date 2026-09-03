@@ -1211,7 +1211,7 @@ function ReportesContent(props) {
       const clienteNombreFinal = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
 
       const payloadCert = {
-        action: 'post',
+        action: 'guardar',
         tabla: 'Certificaciones',
         presupuesto_id: certPresupuestoId,
         certificado_nro: certificadoNro,
