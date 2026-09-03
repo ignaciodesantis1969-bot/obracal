@@ -66,19 +66,20 @@ function ReportesContent(props) {
   const presupuestos = Array.isArray(props?.presupuestos || props?.Presupuestos) ? (props.presupuestos || props.Presupuestos) : [];
   const certificadosProps = Array.isArray(props?.certificados || props?.Certificados) ? (props.certificados || props.Certificados) : [];
   const movimientos = Array.isArray(props?.movimientos || props?.Movimientos || props?.tesoreria || props?.Tesoreria) ? (props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria) : [];
-  const insumos = Array.isArray(props?.insumos || props?.Insumos) ? (props.insumos || props.Insumos) : [];
   const empleadosListProps = Array.isArray(props?.empleados || props?.Empleados || props?.personal || props?.Personal) ? (props.empleados || props.Empleados || props.personal || props.Personal) : [];
   const facturas = Array.isArray(props?.facturas || props?.Facturas) ? (props.facturas || props.Facturas) : [];
   const maestroTareasRubros = Array.isArray(props?.maestroTareasRubros || props?.MaestroTareasRubros || props?.maestro_tareas_rubros) ? (props.maestroTareasRubros || props.MaestroTareasRubros || props.maestro_tareas_rubros) : [];
 
   const propsContratos = props?.contratos || props?.Contratos || props?.contratosMantenimiento || props?.ContratosMantenimiento || props?.contratos_mantenimiento;
   const propsReportesSice = props?.reportesSice || props?.ReportesSice || props?.reportes_sice;
+  const propsInsumos = props?.insumos || props?.Insumos;
   const propsEmpleados = empleadosListProps;
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
   const [fetchedEmpleados, setFetchedEmpleados] = useState([]);
   const [fetchedCertificados, setFetchedCertificados] = useState([]);
+  const [fetchedInsumos, setFetchedInsumos] = useState([]);
 
   useEffect(() => {
     if (!propsContratos || (Array.isArray(propsContratos) && propsContratos.length === 0)) {
@@ -143,6 +144,25 @@ function ReportesContent(props) {
       })
       .catch(() => {});
 
+    if (!propsInsumos || (Array.isArray(propsInsumos) && propsInsumos.length === 0)) {
+      fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'Insumos', action: 'get' })
+      })
+        .then(res => res.json())
+        .then(data => {
+          let lista = [];
+          if (Array.isArray(data)) lista = data;
+          else if (data && typeof data === 'object') {
+            const foundKey = Object.keys(data).find(k => Array.isArray(data[k]));
+            if (foundKey) lista = data[foundKey];
+          }
+          if (lista.length > 0) setFetchedInsumos(lista);
+        })
+        .catch(() => {});
+    }
+
     if (!propsEmpleados || (Array.isArray(propsEmpleados) && propsEmpleados.length === 0)) {
       fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -161,13 +181,19 @@ function ReportesContent(props) {
         })
         .catch(() => {});
     }
-  }, [propsContratos, propsReportesSice, propsEmpleados]);
+  }, [propsContratos, propsReportesSice, propsEmpleados, propsInsumos]);
 
   const contratosList = useMemo(() => {
     if (Array.isArray(propsContratos) && propsContratos.length > 0) return propsContratos;
     if (fetchedContratos.length > 0) return fetchedContratos;
     return CONTRATO_DEFAULT;
   }, [propsContratos, fetchedContratos]);
+
+  const insumos = useMemo(() => {
+    const p = Array.isArray(propsInsumos) ? propsInsumos : [];
+    const f = Array.isArray(fetchedInsumos) ? fetchedInsumos : [];
+    return [...p, ...f];
+  }, [propsInsumos, fetchedInsumos]);
 
   const reportesSiceListProps = Array.isArray(props?.reportesSice || props?.ReportesSice || props?.reportes_sice) ? (props.reportesSice || props.ReportesSice || props.reportes_sice) : [];
 
@@ -190,7 +216,7 @@ function ReportesContent(props) {
     
     for (const [k, v] of Object.entries(presupuesto)) {
       const lowerK = String(k).toLowerCase();
-      if (lowerK.includes('responsable')) continue; // Excluir campos de responsable
+      if (lowerK.includes('responsable')) continue;
       if ((lowerK.includes('client') || lowerK.includes('razon') || lowerK.includes('empresa') || lowerK.includes('comitente')) && v !== undefined && v !== null && String(v).trim() !== '') {
         if (typeof v === 'object') {
           const resObj = v.nombre || v.razon_social || v.empresa || v.razonSocial;
@@ -1254,7 +1280,6 @@ function ReportesContent(props) {
     return { filasRender, sumaTotalPresupuesto, sumaTotalAnterior, sumaTotalActual, sumaTotalAcumulado, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
-  // Sincronizar automáticamente el monto del adelanto en $ al cambiar el presupuesto o el porcentaje
   useEffect(() => {
     const totalPresupuestoBase = certificadoCalculos?.totalPresupuestoCalc || 0;
     if (totalPresupuestoBase > 0) {
