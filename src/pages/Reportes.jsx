@@ -557,8 +557,8 @@ function ReportesContent(props) {
     const totalHsSuma = siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it?.horaComienzo, it?.horaFin), 0);
 
     const operariosFinales = operariosSeleccionados.map(op => ({
-      nombre: op?.nombre,
-      abreviacion: op?.abreviacion,
+      nombre: String(op?.nombre || ''),
+      abreviacion: String(op?.abreviacion || 'OE'),
       horas: op?.horas !== '' ? Number(op?.horas) : totalHsSuma
     }));
 
@@ -568,14 +568,20 @@ function ReportesContent(props) {
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
         tabla: 'ReportesSice',
-        contratoId: contratoSeleccionadoId,
-        fecha: siceFecha,
-        nro: siceParteNro,
+        contratoId: String(contratoSeleccionadoId),
+        fecha: String(siceFecha),
+        nro: String(siceParteNro),
         items: siceItems,
         operarios: operariosFinales,
-        proveedor: { cargo: siceRespProveedor.cargo, nombre: siceRespProveedor.nombre },
-        cliente: { cargo: siceRespCliente.cargo, nombre: siceRespCliente.nombre },
-        totalHorasSuma: totalHsSuma
+        proveedor: { 
+          cargo: String(siceRespProveedor.cargo || ''), 
+          nombre: String(siceRespProveedor.nombre || '') 
+        },
+        cliente: { 
+          cargo: String(siceRespCliente.cargo || ''), 
+          nombre: String(siceRespCliente.nombre || '') 
+        },
+        totalHorasSuma: Number(totalHsSuma)
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -594,14 +600,14 @@ function ReportesContent(props) {
 
       const nuevoParte = {
         id: `sice-${Date.now()}`,
-        nro: siceParteNro,
-        fecha: siceFecha,
-        contratoid: contratoSeleccionadoId,
+        nro: String(siceParteNro),
+        fecha: String(siceFecha),
+        contratoid: String(contratoSeleccionadoId),
         items: [...siceItems],
         operarios: operariosFinales,
-        proveedor: { cargo: siceRespProveedor.cargo, nombre: siceRespProveedor.nombre },
-        cliente: { cargo: siceRespCliente.cargo, nombre: siceRespCliente.nombre },
-        totalHorasSuma: totalHsSuma,
+        proveedor: { cargo: String(siceRespProveedor.cargo), nombre: String(siceRespProveedor.nombre) },
+        cliente: { cargo: String(siceRespCliente.cargo), nombre: String(siceRespCliente.nombre) },
+        totalHorasSuma: Number(totalHsSuma),
         pdfUrl: pdfUrlFinal 
       };
 
@@ -1209,35 +1215,31 @@ function ReportesContent(props) {
       const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
 
       const clienteNombreFinal = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
+      const clienteStr = typeof clienteNombreFinal === 'object' 
+        ? String(clienteNombreFinal.nombre || clienteNombreFinal.razon_social || clienteNombreFinal.empresa || '---') 
+        : String(clienteNombreFinal || '---');
+
+      const obraStr = String(certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra Albañilería');
+      const ordenCompraStr = String(certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '---');
 
       const payloadCert = {
         action: 'guardarYGenerarPDF',
         tabla: 'Certificaciones',
-        presupuesto_id: certPresupuestoId,
-        presupuestoId: certPresupuestoId,
-        certificado_nro: certificadoNro,
-        certificadoNro: certificadoNro,
-        fecha: certFecha,
-        cliente: clienteNombreFinal,
-        obra: certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || '',
-        orden_compra: certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '',
-        ordenCompra: certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '',
-        total_periodo: totalCertificadoPeriodo,
-        totalPeriodo: totalCertificadoPeriodo,
-        adelanto_descuento: descuentoAdelantoCert,
-        adelantoDescuento: descuentoAdelantoCert,
+        presupuesto_id: String(certPresupuestoId || ''),
+        certificado_nro: String(certificadoNro || '0'),
+        fecha: String(certFecha || ''),
+        cliente: clienteStr,
+        obra: obraStr,
+        orden_compra: ordenCompraStr,
+        total_periodo: Number(totalCertificadoPeriodo) || 0,
+        adelanto_descuento: Number(descuentoAdelantoCert) || 0,
         adicionales: Number(adicionalesMonto) || 0,
-        redeterminacion: montoRedetCalculado,
-        total_general: totalFinalLiquidacion,
-        totalGeneral: totalFinalLiquidacion,
-        proveedor_nombre: certRespProveedor?.nombre || '',
-        proveedorNombre: certRespProveedor?.nombre || '',
-        proveedor_cargo: certRespProveedor?.cargo || '',
-        proveedorCargo: certRespProveedor?.cargo || '',
-        cliente_nombre: certRespCliente?.nombre || '',
-        clienteNombre: certRespCliente?.nombre || '',
-        cliente_cargo: certRespCliente?.cargo || '',
-        clienteCargo: certRespCliente?.cargo || ''
+        redeterminacion: Number(montoRedetCalculado) || 0,
+        total_general: Number(totalFinalLiquidacion) || 0,
+        proveedor_nombre: String(certRespProveedor?.nombre || ''),
+        proveedor_cargo: String(certRespProveedor?.cargo || ''),
+        cliente_nombre: String(certRespCliente?.nombre || ''),
+        cliente_cargo: String(certRespCliente?.cargo || '')
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
