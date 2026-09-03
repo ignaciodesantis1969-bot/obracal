@@ -24,13 +24,11 @@ export default function CertificacionesTab({
   const [certificadoNro, setCertificadoNro] = useState('0');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
   
-  // Estados para cálculos financieros (Doble Binding)
   const [adelantoPct, setAdelantoPct] = useState(10);
   const [adelantoMonto, setAdelantoMonto] = useState(0);
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
-  // Estados para las firmas (Editables pero con aspecto estático)
   const [certRespProveedor, setCertRespProveedor] = useState({ nombre: '', cargo: '' });
   const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: '' });
   const [isSavingCert, setIsSavingCert] = useState(false);
@@ -56,24 +54,26 @@ export default function CertificacionesTab({
 
   const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
 
-  // Lógica ESTRICTA para no mezclar Razón Social con Nombre de Obra
   const resolverRazonSocialCliente = (pObj) => {
     if (!pObj) return '';
-    if (pObj.cliente && pObj.cliente !== '---' && isNaN(pObj.cliente)) return String(pObj.cliente);
-    if (pObj.razon_social && pObj.razon_social !== '---') return String(pObj.razon_social);
-    if (pObj.razonSocial && pObj.razonSocial !== '---') return String(pObj.razonSocial);
-    
-    // Si es un ID numérico, buscarlo en la base de clientes
-    const clientId = pObj.cliente_id || pObj.clienteId || pObj.id_cliente || pObj.cliente;
-    if (clientId && !isNaN(clientId) && fetchedClientes.length > 0) {
-      const match = fetchedClientes.find(c => String(c?.id || c?.ID || '') === String(clientId));
-      if (match) return match.razon_social || match.razonSocial || match.nombre || '';
+    if (typeof obtenerClienteDePresupuesto === 'function') {
+      const resProp = obtenerClienteDePresupuesto(pObj);
+      if (resProp && resProp !== '---' && String(resProp).trim() !== '') return String(resProp);
     }
-    
+    const keys = ['cliente', 'razon_social', 'razonSocial', 'cliente_nombre', 'nombre_cliente', 'clientName', 'client', 'empresa'];
+    for (const k of keys) {
+      if (pObj[k] != null && String(pObj[k]).trim() !== '' && String(pObj[k]) !== '---') {
+        return String(pObj[k]);
+      }
+    }
+    const clientId = pObj.cliente_id || pObj.clienteId || pObj.id_cliente;
+    if (clientId && fetchedClientes.length > 0) {
+      const match = fetchedClientes.find(c => String(c?.id || c?.ID || '') === String(clientId) || String(c?.codigo || '') === String(clientId));
+      if (match) return match.razon_social || match.razonSocial || match.nombre || match.cliente || '';
+    }
     return '';
   };
 
-  // Efecto que carga los datos exactos del presupuesto al seleccionarlo
   useEffect(() => {
     if (certPresupuestoId && certificadoPresupuestoObj) {
       setCertClienteNombre(resolverRazonSocialCliente(certificadoPresupuestoObj));
@@ -186,7 +186,6 @@ export default function CertificacionesTab({
     return { filasRender, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
-  // Actualiza el monto inicial del adelanto solo cuando cambia el presupuesto seleccionado
   useEffect(() => {
     if (certificadoCalculos?.totalPresupuestoCalc > 0 && certificadoNro === '0') {
       setAdelantoMonto(certificadoCalculos.totalPresupuestoCalc * (adelantoPct / 100));
@@ -419,19 +418,20 @@ export default function CertificacionesTab({
                   <tbody className="divide-y divide-slate-300">
                     {certificadoCalculos.filasRender.map((rubroObj) => (
                       <React.Fragment key={rubroObj.rIdx}>
-                        <tr className="bg-slate-100 font-extrabold text-slate-900 border-t border-slate-300">
-                          <td className="py-2 px-2 text-center border-r border-slate-300">{rubroObj.rIdx + 1}</td>
-                          <td className="py-2 px-3 uppercase border-r border-slate-300" colSpan="3">{rubroObj.nombre}</td>
-                          <td className="py-2 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.totalRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                          <td className="py-2 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                          <td className="py-2 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.rubroActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="py-2 px-1 text-center border-r border-slate-300">-</td>
-                          <td className="py-2 px-3 text-right whitespace-nowrap">$ {(rubroObj.rubroAnterior + rubroObj.rubroActual).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                        {/* RUBRO CON FONDO GRIS DESTACADO (bg-slate-200) */}
+                        <tr className="bg-slate-200 font-extrabold text-slate-900 border-t-2 border-slate-400">
+                          <td className="py-2.5 px-2 text-center border-r border-slate-300">{rubroObj.rIdx + 1}</td>
+                          <td className="py-2.5 px-3 uppercase border-r border-slate-300" colSpan="3">{rubroObj.nombre}</td>
+                          <td className="py-2.5 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.totalRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="py-2.5 px-1 text-center border-r border-slate-300">-</td>
+                          <td className="py-2.5 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="py-2.5 px-1 text-center border-r border-slate-300">-</td>
+                          <td className="py-2.5 px-3 text-right border-r border-slate-300 whitespace-nowrap">$ {rubroObj.rubroActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="py-2.5 px-1 text-center border-r border-slate-300">-</td>
+                          <td className="py-2.5 px-3 text-right whitespace-nowrap">$ {(rubroObj.rubroAnterior + rubroObj.rubroActual).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                         </tr>
                         {rubroObj.tareasFilas.map((t) => (
-                          <tr key={t.tIdx} className="hover:bg-amber-50/40 text-xs">
+                          <tr key={t.tIdx} className="hover:bg-amber-50/40 text-xs bg-white">
                             <td className="py-2 px-2 text-center font-bold text-slate-700 border-r border-slate-300">{t.rIdx + 1}.{t.tIdx + 1}</td>
                             <td className="py-2 px-3 text-slate-800 border-r border-slate-300 font-medium">{t.tarea}</td>
                             <td className="py-2 px-1 text-center text-slate-500 border-r border-slate-300">{t.unidad}</td>
@@ -491,7 +491,7 @@ export default function CertificacionesTab({
                                 onChange={(e) => {
                                   const pct = parseFloat(e.target.value) || 0;
                                   setAdelantoPct(pct);
-                                  setAdelantoMonto(totalPresupuestoBase * (pct / 100)); // Doble binding
+                                  setAdelantoMonto(totalPresupuestoBase * (pct / 100));
                                 }}
                                 className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1.5 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
                               />
@@ -507,7 +507,7 @@ export default function CertificacionesTab({
                                     const raw = e.target.value.replace(/\D/g, '');
                                     const monto = parseFloat(raw) || 0;
                                     setAdelantoMonto(monto);
-                                    setAdelantoPct(totalPresupuestoBase > 0 ? Number(((monto / totalPresupuestoBase) * 100).toFixed(2)) : 0); // Doble binding
+                                    setAdelantoPct(totalPresupuestoBase > 0 ? Number(((monto / totalPresupuestoBase) * 100).toFixed(2)) : 0);
                                   }}
                                   className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1.5 text-right font-bold text-amber-900 outline-none focus:border-amber-500 font-mono text-xs"
                                 />
@@ -567,7 +567,7 @@ export default function CertificacionesTab({
                                 onChange={(e) => {
                                   const pct = parseFloat(e.target.value) || 0;
                                   setRedeterminacionPct(pct);
-                                  setRedeterminacionMonto(netoACertificar * (pct / 100)); // Doble binding
+                                  setRedeterminacionMonto(netoACertificar * (pct / 100));
                                 }}
                                 className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono"
                               />
@@ -583,7 +583,7 @@ export default function CertificacionesTab({
                                     const raw = e.target.value.replace(/\D/g, '');
                                     const monto = parseFloat(raw) || 0;
                                     setRedeterminacionMonto(monto);
-                                    setRedeterminacionPct(netoACertificar > 0 ? Number(((monto / netoACertificar) * 100).toFixed(2)) : 0); // Doble binding
+                                    setRedeterminacionPct(netoACertificar > 0 ? Number(((monto / netoACertificar) * 100).toFixed(2)) : 0);
                                   }}
                                   className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono text-xs"
                                 />
@@ -602,10 +602,8 @@ export default function CertificacionesTab({
                 })()}
               </div>
 
-              {/* BLOQUE DE FIRMAS EXACTAMENTE IGUAL A LA IMAGEN */}
+              {/* BLOQUE DE FIRMAS */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 print:mt-10">
-                
-                {/* Caja Proveedor */}
                 <div className="border border-slate-400 rounded-lg overflow-hidden">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
                     Responsable Proveedor
@@ -637,7 +635,6 @@ export default function CertificacionesTab({
                   </div>
                 </div>
 
-                {/* Caja Cliente */}
                 <div className="border border-slate-400 rounded-lg overflow-hidden">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
                     Responsable Cliente
@@ -668,7 +665,6 @@ export default function CertificacionesTab({
                     </div>
                   </div>
                 </div>
-
               </div>
             </div>
           )}
@@ -688,7 +684,6 @@ export default function CertificacionesTab({
             </form>
           )}
 
-          {/* Resto de la UI para historial... */}
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4 mt-6 print:hidden">
             <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Certificados Emitidos (Presupuesto Actual)</h3>
             {!certPresupuestoId ? (
@@ -747,8 +742,7 @@ export default function CertificacionesTab({
           </div>
         </div>
       )}
-      
-      {/* Pestañas de Horas Hombre y Compra Materiales conservadas idénticas para no perderlas */}
+
       {tipoCertificadoSubTab === 'horas_hombre' && (
         <div className="space-y-4 pt-2">
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
