@@ -23,13 +23,16 @@ export default function CertificacionesTab({
   
   const [certificadoNro, setCertificadoNro] = useState('0');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
+  
+  // Estados para cálculos financieros (Doble Binding)
   const [adelantoPct, setAdelantoPct] = useState(10);
   const [adelantoMonto, setAdelantoMonto] = useState(0);
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
-  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: 'Jefe de Obra' });
-  const [certRespCliente, setCertRespCliente] = useState({ nombre: 'Cristian Matei', cargo: 'Gerente de Planta' });
+  // Estados para las firmas (Editables pero con aspecto estático)
+  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: '', cargo: '' });
+  const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: '' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
   useEffect(() => {
@@ -53,76 +56,43 @@ export default function CertificacionesTab({
 
   const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
 
-  const extraerClienteRobusto = (pObj) => {
-    if (!pObj) return '';
-    const posiblesClaves = [
-      'cliente', 'razon_social', 'razonSocial', 'cliente_razon_social', 
-      'nombre_cliente', 'clientName', 'client', 'razon', 'empresa', 
-      'razonsocial', 'client_name', 'clienteNombre', 'nombreCliente'
-    ];
-    for (const k of posiblesClaves) {
-      if (pObj[k] != null && String(pObj[k]).trim() !== '' && String(pObj[k]) !== '---') {
-        return String(pObj[k]);
-      }
-    }
-    for (const [k, v] of Object.entries(pObj)) {
-      const kl = k.toLowerCase();
-      if ((kl.includes('client') || kl.includes('razon') || kl.includes('empresa') || (kl.includes('nombre') && !kl.includes('obra') && !kl.includes('presupuesto'))) && v != null && String(v).trim() !== '' && String(v) !== '---') {
-        return String(v);
-      }
-    }
-    return '';
-  };
-
+  // Lógica ESTRICTA para no mezclar Razón Social con Nombre de Obra
   const resolverRazonSocialCliente = (pObj) => {
     if (!pObj) return '';
-    const textDirecto = extraerClienteRobusto(pObj);
-    if (textDirecto && isNaN(textDirecto)) {
-      return textDirecto;
+    if (pObj.cliente && pObj.cliente !== '---' && isNaN(pObj.cliente)) return String(pObj.cliente);
+    if (pObj.razon_social && pObj.razon_social !== '---') return String(pObj.razon_social);
+    if (pObj.razonSocial && pObj.razonSocial !== '---') return String(pObj.razonSocial);
+    
+    // Si es un ID numérico, buscarlo en la base de clientes
+    const clientId = pObj.cliente_id || pObj.clienteId || pObj.id_cliente || pObj.cliente;
+    if (clientId && !isNaN(clientId) && fetchedClientes.length > 0) {
+      const match = fetchedClientes.find(c => String(c?.id || c?.ID || '') === String(clientId));
+      if (match) return match.razon_social || match.razonSocial || match.nombre || '';
     }
-    const possibleIdKeys = ['cliente_id', 'clienteId', 'id_cliente', 'client_id', 'cliente'];
-    let foundId = '';
-    for (const k of possibleIdKeys) {
-      if (pObj[k] != null && String(pObj[k]).trim() !== '') {
-        foundId = String(pObj[k]).trim();
-        break;
-      }
-    }
-    if (foundId && fetchedClientes.length > 0) {
-      const match = fetchedClientes.find(c => 
-        String(c?.id || c?.ID || '') === foundId ||
-        String(c?.codigo || c?.code || '') === foundId ||
-        String(c?.razon_social || c?.nombre || '').toLowerCase() === foundId.toLowerCase()
-      );
-      if (match) {
-        return match.razon_social || match.razonSocial || match.nombre || match.cliente || foundId;
-      }
-    }
-    if (textDirecto) return textDirecto;
-    if (typeof obtenerClienteDePresupuesto === 'function') {
-      const resProp = obtenerClienteDePresupuesto(pObj);
-      if (resProp && resProp !== '---') return resProp;
-    }
+    
     return '';
   };
 
+  // Efecto que carga los datos exactos del presupuesto al seleccionarlo
   useEffect(() => {
     if (certPresupuestoId && certificadoPresupuestoObj) {
-      const clienteResuelto = resolverRazonSocialCliente(certificadoPresupuestoObj);
-      setCertClienteNombre(clienteResuelto);
+      setCertClienteNombre(resolverRazonSocialCliente(certificadoPresupuestoObj));
+
+      setCertRespProveedor({
+        nombre: certificadoPresupuestoObj.responsable_proveedor || certificadoPresupuestoObj.responsableProveedor || '',
+        cargo: certificadoPresupuestoObj.cargo_proveedor || certificadoPresupuestoObj.cargoProveedor || ''
+      });
+      setCertRespCliente({
+        nombre: certificadoPresupuestoObj.responsable_cliente || certificadoPresupuestoObj.responsableCliente || '',
+        cargo: certificadoPresupuestoObj.cargo_cliente || certificadoPresupuestoObj.cargoCliente || ''
+      });
+      
     } else if (!certPresupuestoId) {
       setCertClienteNombre('');
+      setCertRespProveedor({ nombre: '', cargo: '' });
+      setCertRespCliente({ nombre: '', cargo: '' });
     }
   }, [certPresupuestoId, certificadoPresupuestoObj, fetchedClientes]);
-
-  useEffect(() => {
-    if (certificadoPresupuestoObj) {
-      const respProv = buscarValorEnObjeto(certificadoPresupuestoObj, ['responsable_proveedor', 'responsableProveedor'], 'Alexander Torres Lopez');
-      const respCli = buscarValorEnObjeto(certificadoPresupuestoObj, ['responsable_cliente', 'responsableCliente'], 'Cristian Matei');
-      setCertRespProveedor({ nombre: respProv, cargo: 'Jefe de Obra' });
-      setCertRespCliente({ nombre: respCli, cargo: 'Gerente de Planta' });
-    }
-  }, [certPresupuestoId, certificadoPresupuestoObj]);
 
   const certificadosGuardadosSet = useMemo(() => {
     const set = new Set();
@@ -216,12 +186,12 @@ export default function CertificacionesTab({
     return { filasRender, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
+  // Actualiza el monto inicial del adelanto solo cuando cambia el presupuesto seleccionado
   useEffect(() => {
-    const totalPresupuestoBase = certificadoCalculos?.totalPresupuestoCalc || 0;
-    if (totalPresupuestoBase > 0) {
-      setAdelantoMonto(Math.round(totalPresupuestoBase * (adelantoPct / 100)));
+    if (certificadoCalculos?.totalPresupuestoCalc > 0 && certificadoNro === '0') {
+      setAdelantoMonto(certificadoCalculos.totalPresupuestoCalc * (adelantoPct / 100));
     }
-  }, [certificadoCalculos?.totalPresupuestoCalc, adelantoPct]);
+  }, [certificadoCalculos?.totalPresupuestoCalc, certPresupuestoId]);
 
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
@@ -230,12 +200,11 @@ export default function CertificacionesTab({
     try {
       const totalPresupuestoBase = certificadoCalculos?.totalPresupuestoCalc || 1;
       const totalCertificadoPeriodo = certificadoNro === '0' ? 0 : certificadoCalculos?.totalActualCalc;
-      let montoAdelantoCalculado = adelantoMonto;
-      if (certificadoNro === '0') montoAdelantoCalculado = totalPresupuestoBase * (adelantoPct / 100);
+      
       const descuentoAdelantoCert = certificadoNro !== '0' ? totalCertificadoPeriodo * (adelantoPct / 100) : 0;
       const netoACertificar = totalCertificadoPeriodo - (certificadoNro === '0' ? 0 : descuentoAdelantoCert) + Number(adicionalesMonto);
-      let montoRedetCalculado = redeterminacionPct > 0 ? netoACertificar * (redeterminacionPct / 100) : redeterminacionMonto;
-      const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
+      
+      const totalFinalLiquidacion = certificadoNro === '0' ? adelantoMonto : (netoACertificar + redeterminacionMonto);
 
       const payloadCert = {
         action: 'guardarCertificado',
@@ -243,14 +212,14 @@ export default function CertificacionesTab({
         presupuesto_id: String(certPresupuestoId),
         certificado_nro: String(certificadoNro),
         fecha: String(certFecha),
-        cliente: certClienteNombre || resolverRazonSocialCliente(certificadoPresupuestoObj),
+        cliente: certClienteNombre,
         obra: String(certificadoPresupuestoObj?.nombre || 'Obra'),
         orden_compra: obtenerOrdenDeCompra(certificadoPresupuestoObj),
         filas: certificadoCalculos.filasRender,
         total_periodo: totalCertificadoPeriodo,
         adelanto_descuento: descuentoAdelantoCert,
         adicionales: Number(adicionalesMonto),
-        redeterminacion: montoRedetCalculado,
+        redeterminacion: redeterminacionMonto,
         total_general: totalFinalLiquidacion,
         proveedor_nombre: certRespProveedor.nombre,
         proveedor_cargo: certRespProveedor.cargo,
@@ -502,20 +471,10 @@ export default function CertificacionesTab({
                   const totalPresupuestoBase = certificadoCalculos.totalPresupuestoCalc || 1;
                   const totalCertificadoPeriodo = certificadoNro === '0' ? 0 : certificadoCalculos.totalActualCalc;
 
-                  let montoAdelantoCalculado = adelantoMonto;
-                  if (certificadoNro === '0') {
-                    montoAdelantoCalculado = totalPresupuestoBase * (adelantoPct / 100);
-                  }
-
                   const descuentoAdelantoCert = certificadoNro !== '0' ? totalCertificadoPeriodo * (adelantoPct / 100) : 0;
                   const netoACertificar = totalCertificadoPeriodo - (certificadoNro === '0' ? 0 : descuentoAdelantoCert) + Number(adicionalesMonto);
                   
-                  let montoRedetCalculado = redeterminacionMonto;
-                  if (redeterminacionPct > 0) {
-                    montoRedetCalculado = netoACertificar * (redeterminacionPct / 100);
-                  }
-
-                  const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
+                  const totalFinalLiquidacion = certificadoNro === '0' ? adelantoMonto : (netoACertificar + redeterminacionMonto);
 
                   if (certificadoNro === '0') {
                     return (
@@ -527,12 +486,12 @@ export default function CertificacionesTab({
                               <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
                               <input
                                 type="number"
-                                step="1"
+                                step="any"
                                 value={adelantoPct}
                                 onChange={(e) => {
                                   const pct = parseFloat(e.target.value) || 0;
                                   setAdelantoPct(pct);
-                                  setAdelantoMonto(Math.round(totalPresupuestoBase * (pct / 100)));
+                                  setAdelantoMonto(totalPresupuestoBase * (pct / 100)); // Doble binding
                                 }}
                                 className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1.5 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
                               />
@@ -543,12 +502,12 @@ export default function CertificacionesTab({
                                 <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
                                 <input
                                   type="text"
-                                  value={adelantoMonto ? Number(adelantoMonto).toLocaleString('es-AR') : Math.round(montoAdelantoCalculado).toLocaleString('es-AR')}
+                                  value={adelantoMonto ? Math.round(adelantoMonto).toLocaleString('es-AR') : '0'}
                                   onChange={(e) => {
                                     const raw = e.target.value.replace(/\D/g, '');
                                     const monto = parseFloat(raw) || 0;
                                     setAdelantoMonto(monto);
-                                    setAdelantoPct(totalPresupuestoBase > 0 ? Number(((monto / totalPresupuestoBase) * 100).toFixed(2)) : 0);
+                                    setAdelantoPct(totalPresupuestoBase > 0 ? Number(((monto / totalPresupuestoBase) * 100).toFixed(2)) : 0); // Doble binding
                                   }}
                                   className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1.5 text-right font-bold text-amber-900 outline-none focus:border-amber-500 font-mono text-xs"
                                 />
@@ -559,7 +518,7 @@ export default function CertificacionesTab({
                         <div className="flex flex-col justify-center bg-slate-950 text-white p-4 rounded-xl shadow-md">
                           <span className="font-extrabold text-xs uppercase text-slate-400">TOTAL ADELANTO FINANCIERO A CERTIFICAR:</span>
                           <span className="font-black text-xl text-amber-400 mt-1 font-mono">
-                            $ {Math.round(montoAdelantoCalculado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                            $ {Math.round(adelantoMonto).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                           </span>
                         </div>
                       </div>
@@ -597,18 +556,18 @@ export default function CertificacionesTab({
 
                       <div className="space-y-3">
                         <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
-                          <span className="font-bold text-slate-700 block">Redeterminación de Precio:</span>
+                          <span className="font-bold text-slate-700 block uppercase">Redeterminación de Precio</span>
                           <div className="grid grid-cols-2 gap-2">
                             <div>
                               <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
                               <input
                                 type="number"
-                                step="1"
+                                step="any"
                                 value={redeterminacionPct}
                                 onChange={(e) => {
                                   const pct = parseFloat(e.target.value) || 0;
                                   setRedeterminacionPct(pct);
-                                  setRedeterminacionMonto(Math.round(netoACertificar * (pct / 100)));
+                                  setRedeterminacionMonto(netoACertificar * (pct / 100)); // Doble binding
                                 }}
                                 className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono"
                               />
@@ -619,12 +578,12 @@ export default function CertificacionesTab({
                                 <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
                                 <input
                                   type="text"
-                                  value={redeterminacionMonto ? Number(redeterminacionMonto).toLocaleString('es-AR') : Math.round(montoRedetCalculado).toLocaleString('es-AR')}
+                                  value={redeterminacionMonto ? Math.round(redeterminacionMonto).toLocaleString('es-AR') : '0'}
                                   onChange={(e) => {
                                     const raw = e.target.value.replace(/\D/g, '');
                                     const monto = parseFloat(raw) || 0;
                                     setRedeterminacionMonto(monto);
-                                    setRedeterminacionPct((monto / (netoACertificar || 1)) * 100);
+                                    setRedeterminacionPct(netoACertificar > 0 ? Number(((monto / netoACertificar) * 100).toFixed(2)) : 0); // Doble binding
                                   }}
                                   className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono text-xs"
                                 />
@@ -642,13 +601,82 @@ export default function CertificacionesTab({
                   );
                 })()}
               </div>
+
+              {/* BLOQUE DE FIRMAS EXACTAMENTE IGUAL A LA IMAGEN */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 print:mt-10">
+                
+                {/* Caja Proveedor */}
+                <div className="border border-slate-400 rounded-lg overflow-hidden">
+                  <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
+                    Responsable Proveedor
+                  </div>
+                  <div className="p-4 space-y-4 text-xs font-bold bg-white">
+                    <div>
+                      <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
+                      <input 
+                        type="text" 
+                        value={certRespProveedor.cargo} 
+                        onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} 
+                        className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" 
+                        placeholder="---" 
+                      />
+                    </div>
+                    <div>
+                      <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
+                      <input 
+                        type="text" 
+                        value={certRespProveedor.nombre} 
+                        onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} 
+                        className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" 
+                        placeholder="---" 
+                      />
+                    </div>
+                    <div className="pt-2">
+                      <span className="block text-slate-500 mb-6 text-[10px] tracking-wide">FIRMA:</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Caja Cliente */}
+                <div className="border border-slate-400 rounded-lg overflow-hidden">
+                  <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
+                    Responsable Cliente
+                  </div>
+                  <div className="p-4 space-y-4 text-xs font-bold bg-white">
+                    <div>
+                      <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
+                      <input 
+                        type="text" 
+                        value={certRespCliente.cargo} 
+                        onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} 
+                        className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" 
+                        placeholder="---" 
+                      />
+                    </div>
+                    <div>
+                      <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
+                      <input 
+                        type="text" 
+                        value={certRespCliente.nombre} 
+                        onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} 
+                        className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" 
+                        placeholder="---" 
+                      />
+                    </div>
+                    <div className="pt-2">
+                      <span className="block text-slate-500 mb-6 text-[10px] tracking-wide">FIRMA:</span>
+                    </div>
+                  </div>
+                </div>
+
+              </div>
             </div>
           )}
 
           {certificadoPresupuestoObj && (
-            <form onSubmit={aprobarYGuardarCertificado} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50 p-4 space-y-4 print:hidden">
+            <form onSubmit={aprobarYGuardarCertificado} className="border border-slate-300 rounded-xl overflow-hidden mt-6 bg-white p-4 space-y-4 shadow-sm print:hidden">
               <h4 className="font-black text-xs text-slate-900 uppercase">Aprobación y Firma del Certificado</h4>
-              <div className="flex justify-end gap-3 pt-2">
+              <div className="flex justify-end pt-2">
                 <button 
                   type="submit"
                   disabled={isSavingCert}
@@ -660,6 +688,7 @@ export default function CertificacionesTab({
             </form>
           )}
 
+          {/* Resto de la UI para historial... */}
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4 mt-6 print:hidden">
             <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Certificados Emitidos (Presupuesto Actual)</h3>
             {!certPresupuestoId ? (
@@ -718,7 +747,8 @@ export default function CertificacionesTab({
           </div>
         </div>
       )}
-
+      
+      {/* Pestañas de Horas Hombre y Compra Materiales conservadas idénticas para no perderlas */}
       {tipoCertificadoSubTab === 'horas_hombre' && (
         <div className="space-y-4 pt-2">
           <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
