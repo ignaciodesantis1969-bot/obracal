@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2 } from 'lucide-react';
+import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function CertificacionesTab({
@@ -30,8 +30,8 @@ export default function CertificacionesTab({
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
-  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: '' });
-  const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: '' });
+  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: 'JEFE DE OBRA' });
+  const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: 'RESPONSABLE TÉCNICO' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
   useEffect(() => {
@@ -199,8 +199,8 @@ export default function CertificacionesTab({
       
       const tareasFilas = tareasRubro.map((t, tIdx) => {
         const cant = Number(t?.cantidad) || 1;
-        // SE FORZA EL PRECIO DE VENTA (precio_venta, precioUnitarioVenta, precio, precio_unitario) ANTES QUE EL COSTO
-        const pUnit = Number(t?.precio_venta) || Number(t?.precioUnitarioVenta) || Number(t?.precio) || Number(t?.precio_unitario) || Number(t?.costo_unitario) || 0;
+        // EXCLUSIVO PRECIO DE VENTA (CERO COSTO)
+        const pUnit = Number(t?.precio_venta) || Number(t?.precio) || Number(t?.precio_unitario) || Number(t?.precioUnitarioVenta) || 0;
         const totalItem = cant * pUnit;
         totalRubro += totalItem;
 
@@ -459,19 +459,20 @@ export default function CertificacionesTab({
                     <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
                       <th className="py-2.5 px-2 border-r border-slate-700 w-10 text-center" rowSpan="2">Ítem</th>
                       <th className="py-2.5 px-3 border-r border-slate-700" rowSpan="2">Descripción del Rubro / Tarea</th>
-                      <th className="py-2.5 px-1 border-r border-slate-700 text-center w-10" rowSpan="2">Und</th>
-                      <th className="py-2.5 px-1 border-r border-slate-700 text-right w-12" rowSpan="2">Cant.</th>
+                      {/* REDUCIDO ESPACIO PARA UND Y CANT */}
+                      <th className="py-2.5 px-1 border-r border-slate-700 text-center w-8" rowSpan="2">Und</th>
+                      <th className="py-2.5 px-1 border-r border-slate-700 text-right w-10" rowSpan="2">Cant.</th>
                       <th className="py-2.5 px-3 border-r border-slate-700 text-right w-36 whitespace-nowrap" rowSpan="2">Total Cotizado</th>
                       <th className="py-2.5 px-1 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ANTERIOR</th>
                       <th className="py-2.5 px-1 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ACTUAL (PERÍODO)</th>
                       <th className="py-2.5 px-1 text-center bg-slate-700" colSpan="2">ACUMULADO</th>
                     </tr>
                     <tr className="bg-slate-700 text-white font-bold text-[9px]">
-                      <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
+                      <th className="py-1 px-1 text-center w-8 border-r border-slate-600">%</th>
                       <th className="py-1 px-3 text-right w-36 border-r border-slate-600 whitespace-nowrap">Importe ($)</th>
-                      <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
+                      <th className="py-1 px-1 text-center w-8 border-r border-slate-600">%</th>
                       <th className="py-1 px-3 text-right w-36 border-r border-slate-600 whitespace-nowrap">Importe ($)</th>
-                      <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
+                      <th className="py-1 px-1 text-center w-8 border-r border-slate-600">%</th>
                       <th className="py-1 px-3 text-right w-36 whitespace-nowrap">Importe ($)</th>
                     </tr>
                   </thead>
@@ -484,7 +485,7 @@ export default function CertificacionesTab({
 
                       return (
                         <React.Fragment key={rubroObj.rIdx}>
-                          {/* RUBROS CON FONDO GRIS DISTINTIVO Y TOTALES/PORCENTAJES TOTALIZADORES */}
+                          {/* FONDO GRIS EN RUBROS Y TOTALIZADORES */}
                           <tr className="bg-slate-300 font-black text-slate-950 border-t-2 border-slate-400">
                             <td className="py-2.5 px-2 text-center border-r border-slate-400">{rubroObj.rIdx + 1}</td>
                             <td className="py-2.5 px-3 uppercase border-r border-slate-400" colSpan="3">{rubroObj.nombre}</td>
@@ -505,7 +506,7 @@ export default function CertificacionesTab({
                               <td className="py-2 px-3 text-right font-bold text-slate-900 border-r border-slate-300 whitespace-nowrap">$ {t.totalItem.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               <td className="py-2 px-1 text-center border-r border-slate-300 text-slate-600">{t.pctAnterior}%</td>
                               <td className="py-2 px-3 text-right border-r border-slate-300 text-slate-600 whitespace-nowrap">$ {t.impAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                              {/* CAMPO DE ENTRADA CON MAYOR ESPACIO (w-16) */}
+                              {/* CAMPO DE ENTRADA CON MÁS ESPACIO (w-16) */}
                               <td className="py-2 px-1 text-center border-r border-slate-300 bg-amber-50/50">
                                 <input
                                   type="number"
@@ -670,7 +671,7 @@ export default function CertificacionesTab({
                 })()}
               </div>
 
-              {/* BLOQUE DE FIRMAS CON CARGOS MANUALES Y CHECKMARK DE VERIFICACIÓN */}
+              {/* BLOQUE DE FIRMAS */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 print:mt-10">
                 <div className="border border-slate-400 rounded-lg overflow-hidden bg-white">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
@@ -754,7 +755,8 @@ export default function CertificacionesTab({
                   disabled={isSavingCert}
                   className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
                 >
-                  <ShieldCheck className="w-4 h-4" /> Guardar Certificado en Sheets
+                  {isSavingCert ? <Loader2 className="w-4 h-4 animate-spin text-amber-300" /> : <ShieldCheck className="w-4 h-4" />}
+                  {isSavingCert ? 'Generando PDF y Guardando...' : 'Guardar Certificado en Sheets'}
                 </button>
               </div>
             </form>
