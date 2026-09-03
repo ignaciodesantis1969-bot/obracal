@@ -32,7 +32,7 @@ export default function Reportes(props) {
 
   const obras = props.obras || props.Obras || [];
   const presupuestos = props.presupuestos || props.Presupuestos || [];
-  const certificados = props.certificados || props.Certificados || [];
+  const certificadosProps = props.certificados || props.Certificados || [];
   const movimientos = props.movimientos || props.Movimientos || props.tesoreria || props.Tesoreria || [];
   const insumos = props.insumos || props.Insumos || [];
   const empleadosListProps = props.empleados || props.Empleados || props.personal || props.Personal || [];
@@ -153,6 +153,29 @@ export default function Reportes(props) {
     return defecto;
   };
 
+  const obtenerClienteDePresupuesto = (presupuesto) => {
+    if (!presupuesto) return '---';
+    const direct = buscarValorEnObjeto(presupuesto, [
+      'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial', 'empresa', 'Empresa'
+    ]);
+    if (direct) return direct;
+
+    const obraId = presupuesto.obra_id || presupuesto.Obra_id || presupuesto.obraId || presupuesto.id_obra;
+    if (obraId && Array.isArray(obras)) {
+      const obraEncontrada = obras.find(o => String(o.id || o.ID) === String(obraId));
+      if (obraEncontrada) {
+        const clienteObra = buscarValorEnObjeto(obraEncontrada, ['cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'razon_social', 'razonSocial']);
+        if (clienteObra) return clienteObra;
+      }
+    }
+    return '---';
+  };
+
+  const allCertificados = useMemo(() => {
+    const combined = [...certificadosProps, ...fetchedCertificados];
+    return combined;
+  }, [certificadosProps, fetchedCertificados]);
+
   const allReportesSice = useMemo(() => {
     let base = fetchedReportesSice.length > 0 ? fetchedReportesSice : reportesSiceListProps;
     return base;
@@ -182,6 +205,7 @@ export default function Reportes(props) {
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
   
   const [certificadoNro, setCertificadoNro] = useState('0');
+  const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
   const [adelantoPct, setAdelantoPct] = useState(10);
   const [adelantoMonto, setAdelantoMonto] = useState(0);
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
@@ -196,6 +220,30 @@ export default function Reportes(props) {
       setActiveTab('Reportes Diarios');
     }
   }, [esOperador]);
+
+  // Conjunto de certificados ya guardados para la combinación (PresupuestoId + CertificadoNro)
+  const certificadosGuardadosSet = useMemo(() => {
+    const set = new Set();
+    allCertificados.forEach(c => {
+      const pId = String(c.presupuestoId || c.presupuesto_id || '').trim();
+      const nro = String(c.certificadoNro || c.certificado_nro || '').trim();
+      if (pId && nro !== '') {
+        set.add(`${pId}_${nro}`);
+      }
+    });
+    return set;
+  }, [allCertificados]);
+
+  const presupuestosDisponiblesCert = useMemo(() => {
+    return presupuestos.filter(p => {
+      const est = String(p.estado_presupuesto || p.Estado_presupuesto || p.estado || '').toLowerCase().trim();
+      if (est !== 'aprobado' && est !== 'aprobada') return false;
+      
+      const pId = String(p.id || p.ID || '').trim();
+      const yaGrabado = certificadosGuardadosSet.has(`${pId}_${certificadoNro}`);
+      return !yaGrabado;
+    });
+  }, [presupuestos, certificadosGuardadosSet, certificadoNro]);
 
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
@@ -1105,16 +1153,14 @@ export default function Reportes(props) {
       }
       const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
 
-      const clienteNombreFinal = buscarValorEnObjeto(certificadoPresupuestoObj, [
-        'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial'
-      ]) || '---';
+      const clienteNombreFinal = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
 
       const payloadCert = {
         action: 'guardarYGenerarPDF',
         tabla: 'Certificaciones',
         presupuestoId: certPresupuestoId,
         certificadoNro: certificadoNro,
-        fecha: new Date().toISOString().slice(0, 10),
+        fecha: certFecha,
         cliente: clienteNombreFinal,
         obra: certificadoPresupuestoObj.nombre || certificadoPresupuestoObj.nombre_obra || '',
         ordenCompra: certificadoPresupuestoObj.orden_compra || certificadoPresupuestoObj.ordenCompra || certificadoPresupuestoObj.oc || '',
@@ -1243,6 +1289,15 @@ export default function Reportes(props) {
                       <option value="5">5</option>
                     </select>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-bold text-slate-700">Fecha Emisión:</label>
+                    <input
+                      type="date"
+                      value={certFecha}
+                      onChange={(e) => setCertFecha(e.target.value)}
+                      className="bg-white border border-slate-300 rounded-xl px-2 py-1 text-xs font-bold text-slate-800 outline-none focus:border-amber-500"
+                    />
+                  </div>
                 </div>
                 <div className="flex items-center gap-3 w-full sm:w-auto">
                   <select
@@ -1250,11 +1305,8 @@ export default function Reportes(props) {
                     onChange={(e) => setCertPresupuestoId(e.target.value)}
                     className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
                   >
-                    <option value="">-- Seleccionar Presupuesto Aprobado --</option>
-                    {presupuestos.filter(p => {
-                      const est = String(p.estado_presupuesto || p.Estado_presupuesto || p.estado || '').toLowerCase().trim();
-                      return est === 'aprobado' || est === 'aprobada';
-                    }).map(p => (
+                    <option value="">-- Seleccionar Presupuesto Aprobado ({presupuestosDisponiblesCert.length} disp.) --</option>
+                    {presupuestosDisponiblesCert.map(p => (
                       <option key={p.id || p.ID} value={p.id || p.ID}>
                         [{p.codigo || p.id}] {p.nombre || p.nombre_obra || 'Presupuesto'}
                       </option>
@@ -1273,7 +1325,7 @@ export default function Reportes(props) {
 
               {!certificadoPresupuestoObj ? (
                 <div className="p-16 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-                  Seleccione un presupuesto aprobado en el selector superior para desplegar el Certificado de Avance de Obra.
+                  Seleccione un presupuesto aprobado en el selector superior para desplegar el Certificado de Avance de Obra. (Los presupuestos ya certificados para el N° {certificadoNro} no aparecen en la lista).
                 </div>
               ) : (
                 <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
@@ -1296,9 +1348,7 @@ export default function Reportes(props) {
                     <div className="col-span-2">
                       <span className="text-slate-500 font-semibold block">Cliente:</span>
                       <strong className="text-slate-900">
-                        {buscarValorEnObjeto(certificadoPresupuestoObj, [
-                          'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial'
-                        ]) || '---'}
+                        {obtenerClienteDePresupuesto(certificadoPresupuestoObj)}
                       </strong>
                     </div>
                     <div>
@@ -1307,7 +1357,7 @@ export default function Reportes(props) {
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Fecha Emisión:</span>
-                      <strong className="text-slate-900">{new Date().toLocaleDateString('es-AR')}</strong>
+                      <strong className="text-slate-900">{certFecha}</strong>
                     </div>
                     <div className="col-span-2">
                       <span className="text-slate-500 font-semibold block">Obra:</span>
@@ -1320,25 +1370,25 @@ export default function Reportes(props) {
                   </div>
 
                   <div className="overflow-x-auto border border-slate-400 rounded-xl">
-                    <table className="w-full text-left text-xs border-collapse">
+                    <table className="w-full text-left text-xs border-collapse table-auto">
                       <thead>
                         <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
                           <th className="py-2.5 px-2 border-r border-slate-700 w-10 text-center" rowSpan="2">Ítem</th>
                           <th className="py-2.5 px-3 border-r border-slate-700" rowSpan="2">Descripción del Rubro / Tarea</th>
                           <th className="py-2.5 px-1 border-r border-slate-700 text-center w-10" rowSpan="2">Und</th>
-                          <th className="py-2.5 px-1 border-r border-slate-700 text-right w-8" rowSpan="2">Cant.</th>
-                          <th className="py-2.5 px-3 border-r border-slate-700 text-right min-w-[110px]" rowSpan="2">Total Cotizado</th>
+                          <th className="py-2.5 px-1 border-r border-slate-700 text-right w-12" rowSpan="2">Cant.</th>
+                          <th className="py-2.5 px-3 border-r border-slate-700 text-right w-36 whitespace-nowrap" rowSpan="2">Total Cotizado</th>
                           <th className="py-2.5 px-1 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ANTERIOR</th>
                           <th className="py-2.5 px-1 border-r border-slate-700 text-center bg-slate-700" colSpan="2">ACTUAL (PERÍODO)</th>
                           <th className="py-2.5 px-1 text-center bg-slate-700" colSpan="2">ACUMULADO</th>
                         </tr>
                         <tr className="bg-slate-700 text-white font-bold text-[9px]">
                           <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
-                          <th className="py-1 px-3 text-right min-w-[105px] border-r border-slate-600">Importe ($)</th>
+                          <th className="py-1 px-3 text-right w-36 border-r border-slate-600 whitespace-nowrap">Importe ($)</th>
                           <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
-                          <th className="py-1 px-3 text-right min-w-[105px] border-r border-slate-600">Importe ($)</th>
+                          <th className="py-1 px-3 text-right w-36 border-r border-slate-600 whitespace-nowrap">Importe ($)</th>
                           <th className="py-1 px-1 text-center w-10 border-r border-slate-600">%</th>
-                          <th className="py-1 px-3 text-right min-w-[105px]">Importe ($)</th>
+                          <th className="py-1 px-3 text-right w-36 whitespace-nowrap">Importe ($)</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-300">
@@ -1451,6 +1501,9 @@ export default function Reportes(props) {
                                       className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
                                     />
                                   </div>
+                                </div>
+                                <div className="text-right pt-1 font-black text-amber-900 text-xs">
+                                  Monto Adelanto: $ {Math.round(adelantoMonto || montoAdelantoCalculado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                                 </div>
                               </div>
                             ) : (
@@ -1597,6 +1650,69 @@ export default function Reportes(props) {
                   </form>
                 </div>
               )}
+
+              {/* Historial de Certificados al Pie */}
+              <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4 mt-6 print:hidden">
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Certificados Emitidos</h3>
+                {allCertificados.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-xl">
+                    No hay certificados guardados o emitidos previamente.
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200 text-[10px]">
+                          <th className="px-4 py-3">Certificado N°</th>
+                          <th className="px-4 py-3">Fecha</th>
+                          <th className="px-4 py-3">Cliente</th>
+                          <th className="px-4 py-3">Obra</th>
+                          <th className="px-4 py-3 text-right">Total General</th>
+                          <th className="px-4 py-3 text-center">Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {allCertificados.map((cert, idx) => {
+                          const nroCert = cert.certificadoNro !== undefined ? cert.certificadoNro : (cert.certificado_nro || '0');
+                          const fechaCert = cert.fecha || cert.fecha_emision || '---';
+                          const clienteCert = cert.cliente || '---';
+                          const obraCert = cert.obra || '---';
+                          const totalGen = Number(cert.totalGeneral || cert.total_general || 0);
+                          const pdfLink = cert.pdfUrl || cert.pdf_url;
+
+                          return (
+                            <tr key={cert.id || idx} className="hover:bg-slate-50">
+                              <td className="px-4 py-3 font-bold text-amber-800">
+                                Certificado #{nroCert} {nroCert === '0' ? '(Adelanto)' : ''}
+                              </td>
+                              <td className="px-4 py-3 text-slate-600">{fechaCert}</td>
+                              <td className="px-4 py-3 text-slate-800 font-semibold">{clienteCert}</td>
+                              <td className="px-4 py-3 text-slate-600">{obraCert}</td>
+                              <td className="px-4 py-3 text-right font-black text-slate-950">
+                                $ {totalGen.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                              </td>
+                              <td className="px-4 py-3 text-center">
+                                {pdfLink ? (
+                                  <a
+                                    href={pdfLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-[10px] inline-flex items-center gap-1 transition-colors"
+                                  >
+                                    <ExternalLink className="w-3 h-3" /> Ver PDF
+                                  </a>
+                                ) : (
+                                  <span className="text-slate-400 italic">Guardado</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
@@ -2477,8 +2593,8 @@ export default function Reportes(props) {
               </div>
               <div>
                 <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Cliente</h5>
-                <p><span className="text-slate-500">Cargo:</span> <strong>{parteVisualizando.cliente?.cargo}</strong></p>
-                <p><span className="text-slate-500">Nombre:</span> <strong>{parteVisualizando.cliente?.nombre}</strong></p>
+                <p><span className="text-slate-500">Cargo:</span> <strong className="text-slate-950">{parteVisualizando.cliente?.cargo}</strong></p>
+                <p><span className="text-slate-500">Nombre:</span> <strong className="text-slate-950">{parteVisualizando.cliente?.nombre}</strong></p>
                 <p className="text-emerald-700 font-semibold mt-1">✔ Firmado y Validado</p>
               </div>
             </div>
