@@ -187,17 +187,27 @@ function ReportesContent(props) {
 
   const obtenerClienteDePresupuesto = (presupuesto) => {
     if (!presupuesto) return '---';
-    const direct = buscarValorEnObjeto(presupuesto, [
+    const rawCliente = buscarValorEnObjeto(presupuesto, [
       'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial', 'empresa', 'Empresa'
     ]);
-    if (direct) return direct;
+    if (rawCliente) {
+      if (typeof rawCliente === 'object') {
+        return rawCliente.nombre || rawCliente.razon_social || rawCliente.empresa || '---';
+      }
+      return String(rawCliente);
+    }
 
     const obraId = presupuesto?.obra_id || presupuesto?.Obra_id || presupuesto?.obraId || presupuesto?.id_obra;
     if (obraId && obras.length > 0) {
       const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
       if (obraEncontrada) {
         const clienteObra = buscarValorEnObjeto(obraEncontrada, ['cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'razon_social', 'razonSocial']);
-        if (clienteObra) return clienteObra;
+        if (clienteObra) {
+          if (typeof clienteObra === 'object') {
+            return clienteObra.nombre || clienteObra.razon_social || clienteObra.empresa || '---';
+          }
+          return String(clienteObra);
+        }
       }
     }
     return '---';
@@ -1201,21 +1211,23 @@ function ReportesContent(props) {
       const clienteNombreFinal = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
 
       const payloadCert = {
-        action: 'guardarYGenerarPDF',
+        action: 'post',
         tabla: 'Certificaciones',
-        presupuestoId: certPresupuestoId,
-        certificadoNro: certificadoNro,
+        presupuesto_id: certPresupuestoId,
+        certificado_nro: certificadoNro,
         fecha: certFecha,
         cliente: clienteNombreFinal,
         obra: certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || '',
-        ordenCompra: certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '',
-        totalPeriodo: totalCertificadoPeriodo,
-        adelantoDescuento: descuentoAdelantoCert,
+        orden_compra: certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '',
+        total_periodo: totalCertificadoPeriodo,
+        adelanto_descuento: descuentoAdelantoCert,
         adicionales: Number(adicionalesMonto) || 0,
         redeterminacion: montoRedetCalculado,
-        totalGeneral: totalFinalLiquidacion,
-        proveedor: { nombre: certRespProveedor?.nombre, cargo: certRespProveedor?.cargo },
-        clienteResp: { nombre: certRespCliente?.nombre, cargo: certRespCliente?.cargo }
+        total_general: totalFinalLiquidacion,
+        proveedor_nombre: certRespProveedor?.nombre || '',
+        proveedor_cargo: certRespProveedor?.cargo || '',
+        cliente_nombre: certRespCliente?.nombre || '',
+        cliente_cargo: certRespCliente?.cargo || ''
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -1225,15 +1237,14 @@ function ReportesContent(props) {
       });
       const resultado = await res.json();
 
-      const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
-      if (resultado?.success === false || (resultado?.error && !pdfUrlFinal)) {
-        alert("Error al generar el certificado en Google Drive: " + (resultado?.error || 'Desconocido'));
+      if (resultado?.success === false) {
+        alert("Error al guardar el certificado en Sheets: " + (resultado?.error || 'Desconocido'));
         setIsSavingCert(false);
         return;
       }
 
-      setFetchedCertificados(prev => [{ ...payloadCert, id: `cert-${Date.now()}`, pdfUrl: pdfUrlFinal }, ...prev]);
-      alert("¡Certificado aprobado, PDF generado en Google Drive y guardado con éxito!");
+      setFetchedCertificados(prev => [{ ...payloadCert, id: `cert-${Date.now()}` }, ...prev]);
+      alert("¡Certificado guardado con éxito en el sistema y base de datos!");
     } catch (err) {
       console.error("Error al guardar certificado:", err);
       alert("Ocurrió un error al guardar el certificado.");
@@ -1688,7 +1699,7 @@ function ReportesContent(props) {
                         {isSavingCert ? (
                           <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Procesando...</>
                         ) : (
-                          <><ShieldCheck className="w-4 h-4" /> Aprobar y Guardar Certificado</>
+                          <><ShieldCheck className="w-4 h-4" /> Guardar Certificado en Sheets</>
                         )}
                       </button>
                     </div>
@@ -1721,7 +1732,6 @@ function ReportesContent(props) {
                           const nroCert = cert?.certificadoNro !== undefined ? cert.certificadoNro : (cert?.certificado_nro || '0');
                           const fechaCert = cert?.fecha || cert?.fecha_emision || '---';
                           
-                          // Manejo seguro para que no rompa si cliente o proveedor son objetos
                           const rawCliente = cert?.cliente;
                           const clienteCert = (rawCliente && typeof rawCliente === 'object') 
                             ? (rawCliente.nombre || '---') 
@@ -1753,7 +1763,7 @@ function ReportesContent(props) {
                                     <ExternalLink className="w-3 h-3" /> Ver PDF
                                   </a>
                                 ) : (
-                                  <span className="text-slate-400 italic">Guardado</span>
+                                  <span className="text-slate-400 italic">Guardado en Base de Datos</span>
                                 )}
                               </td>
                             </tr>
@@ -2228,7 +2238,6 @@ function ReportesContent(props) {
                 {sicePartesAprobados.map((parte, idx) => {
                   const parteId = parte?.id || parte?.nro || idx;
                   
-                  // Manejo seguro por si proveedor/cliente vienen como objetos o strings
                   const pObj = parte?.proveedor;
                   const pNombre = (pObj && typeof pObj === 'object') ? (pObj.nombre || '---') : (pObj || '---');
                   const pCargo = (pObj && typeof pObj === 'object') ? (pObj.cargo || '---') : '';
