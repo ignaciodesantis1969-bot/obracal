@@ -199,8 +199,8 @@ export default function CertificacionesTab({
       
       const tareasFilas = tareasRubro.map((t, tIdx) => {
         const cant = Number(t?.cantidad) || 1;
-        // MODIFICACIÓN APLICADA: Prioriza el precio de venta unitario del presupuesto sobre el costo
-        const pUnit = Number(t?.precio_unitario) || Number(t?.precio) || Number(t?.costo_unitario) || 0;
+        // SE FORZA EL PRECIO DE VENTA (precio_venta, precioUnitarioVenta, precio, precio_unitario) ANTES QUE EL COSTO
+        const pUnit = Number(t?.precio_venta) || Number(t?.precioUnitarioVenta) || Number(t?.precio) || Number(t?.precio_unitario) || Number(t?.costo_unitario) || 0;
         const totalItem = cant * pUnit;
         totalRubro += totalItem;
 
@@ -266,9 +266,9 @@ export default function CertificacionesTab({
         adicionales: Number(adicionalesMonto),
         redeterminacion: redeterminacionMonto,
         total_general: totalFinalLiquidacion,
-        proveedor_nombre: certRespProveedor.nombre || '',
+        proveedor_nombre: certRespProveedor.nombre || 'Alexander Torres Lopez',
         proveedor_cargo: certRespProveedor.cargo || '',
-        cliente_nombre: certRespCliente.nombre || '',
+        cliente_nombre: certRespCliente.nombre || certClienteNombre,
         cliente_cargo: certRespCliente.cargo || ''
       };
 
@@ -476,50 +476,58 @@ export default function CertificacionesTab({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-300">
-                    {certificadoCalculos.filasRender.map((rubroObj) => (
-                      <React.Fragment key={rubroObj.rIdx}>
-                        {/* RUBROS CON FONDO GRIS DISTINTIVO (bg-slate-300) */}
-                        <tr className="bg-slate-300 font-black text-slate-950 border-t-2 border-slate-400">
-                          <td className="py-2.5 px-2 text-center border-r border-slate-400">{rubroObj.rIdx + 1}</td>
-                          <td className="py-2.5 px-3 uppercase border-r border-slate-400" colSpan="3">{rubroObj.nombre}</td>
-                          <td className="py-2.5 px-3 text-right border-r border-slate-400 whitespace-nowrap">$ {rubroObj.totalRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="py-2.5 px-1 text-center border-r border-slate-400">-</td>
-                          <td className="py-2.5 px-3 text-right border-r border-slate-400 whitespace-nowrap">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="py-2.5 px-1 text-center border-r border-slate-400">-</td>
-                          <td className="py-2.5 px-3 text-right border-r border-slate-400 whitespace-nowrap">$ {rubroObj.rubroActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                          <td className="py-2.5 px-1 text-center border-r border-slate-400">-</td>
-                          <td className="py-2.5 px-3 text-right whitespace-nowrap">$ {(rubroObj.rubroAnterior + rubroObj.rubroActual).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                        </tr>
-                        {rubroObj.tareasFilas.map((t) => (
-                          <tr key={t.tIdx} className="hover:bg-amber-50/40 text-xs bg-white">
-                            <td className="py-2 px-2 text-center font-bold text-slate-700 border-r border-slate-300">{t.rIdx + 1}.{t.tIdx + 1}</td>
-                            <td className="py-2 px-3 text-slate-800 border-r border-slate-300 font-medium">{t.tarea}</td>
-                            <td className="py-2 px-1 text-center text-slate-500 border-r border-slate-300">{t.unidad}</td>
-                            <td className="py-2 px-1 text-right border-r border-slate-300">{t.cant}</td>
-                            <td className="py-2 px-3 text-right font-bold text-slate-900 border-r border-slate-300 whitespace-nowrap">$ {t.totalItem.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-1 text-center border-r border-slate-300 text-slate-600">{t.pctAnterior}%</td>
-                            <td className="py-2 px-3 text-right border-r border-slate-300 text-slate-600 whitespace-nowrap">$ {t.impAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-1 text-center border-r border-slate-300 bg-amber-50/50">
-                              <input
-                                type="number"
-                                step="1"
-                                min="0"
-                                max="100"
-                                value={t.pctActual}
-                                onChange={(e) => {
-                                  const val = parseFloat(e.target.value) || 0;
-                                  setAvanceActualMap({ ...avanceActualMap, [t.keyMap]: val });
-                                }}
-                                className="w-10 bg-white border border-slate-300 rounded px-1 py-0.5 text-center font-bold text-xs outline-none focus:border-amber-500"
-                              />
-                            </td>
-                            <td className="py-2 px-3 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50 whitespace-nowrap">$ {t.impActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-1 text-center border-r border-slate-300 font-bold text-slate-700">{t.pctAcumulado}%</td>
-                            <td className="py-2 px-3 text-right font-bold text-slate-950 whitespace-nowrap">$ {t.impAcumulado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                    {certificadoCalculos.filasRender.map((rubroObj) => {
+                      const pctRubroAnterior = rubroObj.totalRubro > 0 ? Math.round((rubroObj.rubroAnterior / rubroObj.totalRubro) * 100) : 0;
+                      const pctRubroActual = rubroObj.totalRubro > 0 ? Math.round((rubroObj.rubroActual / rubroObj.totalRubro) * 100) : 0;
+                      const rubroAcumulado = rubroObj.rubroAnterior + rubroObj.rubroActual;
+                      const pctRubroAcumulado = rubroObj.totalRubro > 0 ? Math.round((rubroAcumulado / rubroObj.totalRubro) * 100) : 0;
+
+                      return (
+                        <React.Fragment key={rubroObj.rIdx}>
+                          {/* RUBROS CON FONDO GRIS DISTINTIVO Y TOTALES/PORCENTAJES TOTALIZADORES */}
+                          <tr className="bg-slate-300 font-black text-slate-950 border-t-2 border-slate-400">
+                            <td className="py-2.5 px-2 text-center border-r border-slate-400">{rubroObj.rIdx + 1}</td>
+                            <td className="py-2.5 px-3 uppercase border-r border-slate-400" colSpan="3">{rubroObj.nombre}</td>
+                            <td className="py-2.5 px-3 text-right border-r border-slate-400 whitespace-nowrap">$ {rubroObj.totalRubro.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="py-2.5 px-1 text-center border-r border-slate-400 font-bold">{pctRubroAnterior}%</td>
+                            <td className="py-2.5 px-3 text-right border-r border-slate-400 whitespace-nowrap">$ {rubroObj.rubroAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="py-2.5 px-1 text-center border-r border-slate-400 font-bold">{pctRubroActual}%</td>
+                            <td className="py-2.5 px-3 text-right border-r border-slate-400 whitespace-nowrap">$ {rubroObj.rubroActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="py-2.5 px-1 text-center border-r border-slate-400 font-bold">{pctRubroAcumulado}%</td>
+                            <td className="py-2.5 px-3 text-right whitespace-nowrap">$ {rubroAcumulado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                           </tr>
-                        ))}
-                      </React.Fragment>
-                    ))}
+                          {rubroObj.tareasFilas.map((t) => (
+                            <tr key={t.tIdx} className="hover:bg-amber-50/40 text-xs bg-white">
+                              <td className="py-2 px-2 text-center font-bold text-slate-700 border-r border-slate-300">{t.rIdx + 1}.{t.tIdx + 1}</td>
+                              <td className="py-2 px-3 text-slate-800 border-r border-slate-300 font-medium">{t.tarea}</td>
+                              <td className="py-2 px-1 text-center text-slate-500 border-r border-slate-300">{t.unidad}</td>
+                              <td className="py-2 px-1 text-right border-r border-slate-300">{t.cant}</td>
+                              <td className="py-2 px-3 text-right font-bold text-slate-900 border-r border-slate-300 whitespace-nowrap">$ {t.totalItem.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                              <td className="py-2 px-1 text-center border-r border-slate-300 text-slate-600">{t.pctAnterior}%</td>
+                              <td className="py-2 px-3 text-right border-r border-slate-300 text-slate-600 whitespace-nowrap">$ {t.impAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                              {/* CAMPO DE ENTRADA CON MAYOR ESPACIO (w-16) */}
+                              <td className="py-2 px-1 text-center border-r border-slate-300 bg-amber-50/50">
+                                <input
+                                  type="number"
+                                  step="1"
+                                  min="0"
+                                  max="100"
+                                  value={t.pctActual}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value) || 0;
+                                    setAvanceActualMap({ ...avanceActualMap, [t.keyMap]: val });
+                                  }}
+                                  className="w-16 bg-white border border-slate-300 rounded px-1.5 py-1 text-center font-bold text-xs outline-none focus:border-amber-500"
+                                />
+                              </td>
+                              <td className="py-2 px-3 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50 whitespace-nowrap">$ {t.impActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                              <td className="py-2 px-1 text-center border-r border-slate-300 font-bold text-slate-700">{t.pctAcumulado}%</td>
+                              <td className="py-2 px-3 text-right font-bold text-slate-950 whitespace-nowrap">$ {t.impAcumulado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            </tr>
+                          ))}
+                        </React.Fragment>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
