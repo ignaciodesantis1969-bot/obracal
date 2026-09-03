@@ -188,9 +188,9 @@ function ReportesContent(props) {
   const obtenerClienteDePresupuesto = (presupuesto) => {
     if (!presupuesto) return '---';
     
-    // 1. Buscar campos explícitos de cliente
+    // 1. Buscar campos explícitos de cliente en el presupuesto
     const rawCliente = buscarValorEnObjeto(presupuesto, [
-      'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial', 'empresa', 'Empresa'
+      'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial', 'empresa', 'Empresa', 'clientenombre', 'nombrecliente'
     ]);
     if (rawCliente && rawCliente !== '---') {
       if (typeof rawCliente === 'object') {
@@ -199,23 +199,7 @@ function ReportesContent(props) {
       return String(rawCliente);
     }
 
-    // 2. Aplicar pista: los primeros 5 caracteres del código del presupuesto corresponden al cliente (Ej: CL002)
-    const codigoPres = String(presupuesto?.codigo || presupuesto?.Codigo || presupuesto?.id || '').trim();
-    if (codigoPres.length >= 5) {
-      const prefix = codigoPres.substring(0, 5).toUpperCase();
-      const mapaClientes = {
-        'CL001': 'Cliente 001',
-        'CL002': 'LDC Argentina S.A.',
-        'CL003': 'Cliente 003',
-        'CL004': 'Cliente 004'
-      };
-      if (mapaClientes[prefix]) {
-        return mapaClientes[prefix];
-      }
-      return prefix;
-    }
-
-    // 3. Buscar en la obra asociada
+    // 2. Buscar en la obra asociada
     const obraId = presupuesto?.obra_id || presupuesto?.Obra_id || presupuesto?.obraId || presupuesto?.id_obra;
     if (obraId && obras.length > 0) {
       const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
@@ -229,7 +213,23 @@ function ReportesContent(props) {
         }
       }
     }
-    return '---';
+
+    // 3. Aplicar pista por código o contratos si coincide
+    const codigoPres = String(presupuesto?.codigo || presupuesto?.Codigo || presupuesto?.id || '').trim();
+    if (codigoPres.length >= 5) {
+      const prefix = codigoPres.substring(0, 5).toUpperCase();
+      const mapaClientes = {
+        'CL001': 'Cliente 001',
+        'CL002': 'LDC Argentina S.A.',
+        'CL003': 'Cliente 003',
+        'CL004': 'Cliente 004'
+      };
+      if (mapaClientes[prefix]) {
+        return mapaClientes[prefix];
+      }
+    }
+
+    return 'LDC Argentina S.A.';
   };
 
   const allCertificados = useMemo(() => {
@@ -273,8 +273,8 @@ function ReportesContent(props) {
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
-  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: '', cargo: 'Jefe de Obra' });
-  const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: 'Gerente de Proyecto' });
+  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: 'Jefe de Obra' });
+  const [certRespCliente, setCertRespCliente] = useState({ nombre: 'Cristian Matei', cargo: 'Gerente de Proyecto' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
   useEffect(() => {
@@ -283,11 +283,22 @@ function ReportesContent(props) {
     }
   }, [esOperador]);
 
+  // Poblar responsables por defecto al seleccionar presupuesto
+  const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
+  
+  useEffect(() => {
+    if (certificadoPresupuestoObj) {
+      const clienteNombreDefault = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
+      setCertRespProveedor({ nombre: 'Alexander Torres Lopez', cargo: 'Jefe de Obra' });
+      setCertRespCliente({ nombre: clienteNombreDefault !== '---' ? clienteNombreDefault : 'Cristian Matei', cargo: 'Gerente de Planta' });
+    }
+  }, [certPresupuestoId, certificadoPresupuestoObj]);
+
   const certificadosGuardadosSet = useMemo(() => {
     const set = new Set();
     allCertificados.forEach(c => {
-      const pId = String(c?.presupuestoId || c?.presupuesto_id || '').trim();
-      const nro = String(c?.certificadoNro || c?.certificado_nro || '').trim();
+      const pId = String(c?.presupuestoId || c?.presupuesto_id || c?.id_presupuesto || '').trim();
+      const nro = String(c?.certificadoNro || c?.certificado_nro || c?.nro_certificado || '').trim();
       if (pId && nro !== '') {
         set.add(`${pId}_${nro}`);
       }
@@ -658,7 +669,6 @@ function ReportesContent(props) {
   });
 
   const presupuestoSeleccionado = presupuestos.find(p => String(p?.id || p?.ID) === String(compPresupuestoId));
-  const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
   
   const insumosOficialMap = {};
   if (Array.isArray(insumos)) {
@@ -1156,12 +1166,14 @@ function ReportesContent(props) {
         const totalItem = cant * pUnit;
         totalRubro += totalItem;
 
-        const pctAnterior = 50;
+        const pctAnterior = certificadoNro === '1' ? 0 : 50;
         const impAnterior = totalItem * (pctAnterior / 100);
         rubroAnterior += impAnterior;
 
         const keyMap = `${rIdx}-${tIdx}`;
-        const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : 30;
+        // Requerimiento 3: en certificado 1 el porcentaje actual va en 0 por defecto
+        const defaultPctActual = certificadoNro === '1' ? 0 : 30;
+        const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : defaultPctActual;
         const impActual = totalItem * (pctActual / 100);
         rubroActual += impActual;
 
@@ -1203,7 +1215,7 @@ function ReportesContent(props) {
     });
 
     return { filasRender, sumaTotalPresupuesto, sumaTotalAnterior, sumaTotalActual, sumaTotalAcumulado, totalPresupuestoCalc, totalActualCalc };
-  }, [certificadoPresupuestoObj, avanceActualMap]);
+  }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro]);
 
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
@@ -1239,24 +1251,28 @@ function ReportesContent(props) {
         : String(clienteNombreFinal || '---');
 
       const obraStr = String(certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra Albañilería');
-      const ordenCompraStr = String(certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '---');
+      // Requerimiento 4: Traer bien el número de la orden de compra desde el presupuesto aprobado
+      const ordenCompraStr = String(certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || certificadoPresupuestoObj?.nro_orden_compra || '---');
 
       const payloadCert = {
         action: 'guardarCertificado',
         tabla: 'Certificaciones',
         presupuesto_id: String(certPresupuestoId || ''),
+        presupuestoId: String(certPresupuestoId || ''),
         certificado_nro: String(certificadoNro || '0'),
+        certificadoNro: String(certificadoNro || '0'),
         fecha: String(certFecha || ''),
         cliente: clienteStr,
         obra: obraStr,
         orden_compra: ordenCompraStr,
-        filas: certificadoCalculos.filasRender, // <-- Envía el detalle completo para que el backend renderice la tabla idéntica
+        filas: certificadoCalculos.filasRender,
         total_periodo: Number(totalCertificadoPeriodo) || 0,
         adelanto_descuento: Number(descuentoAdelantoCert) || 0,
         adicionales: Number(adicionalesMonto) || 0,
         acicionales: Number(adicionalesMonto) || 0,
         redeterminacion: Number(montoRedetCalculado) || 0,
         total_general: Number(totalFinalLiquidacion) || 0,
+        totalGeneral: Number(totalFinalLiquidacion) || 0,
         proveedor_nombre: String(certRespProveedor?.nombre || ''),
         proveedor_cargo: String(certRespProveedor?.cargo || ''),
         cliente_nombre: String(certRespCliente?.nombre || ''),
@@ -1286,6 +1302,35 @@ function ReportesContent(props) {
       setIsSavingCert(false);
     }
   };
+
+  const eliminarCertificadoServidor = async (certId) => {
+    if (!window.confirm("¿Está seguro de eliminar este certificado?")) return;
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'Certificaciones',
+          action: 'delete',
+          id: certId
+        })
+      });
+      setFetchedCertificados(prev => prev.filter(c => String(c?.id || c?.presupuesto_id + '_' + c?.certificado_nro) !== String(certId)));
+      alert("Certificado eliminado exitosamente.");
+    } catch (err) {
+      console.error("Error al eliminar certificado:", err);
+      alert("Ocurrió un error al intentar eliminar el certificado.");
+    }
+  };
+
+  // Requerimiento 6: Filtrar historial únicamente para el presupuesto que estamos trabajando
+  const certificadosDelPresupuestoActual = useMemo(() => {
+    if (!certPresupuestoId) return [];
+    return allCertificados.filter(c => {
+      const pId = String(c?.presupuestoId || c?.presupuesto_id || c?.id_presupuesto || '').trim();
+      return pId === String(certPresupuestoId).trim();
+    });
+  }, [allCertificados, certPresupuestoId]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -1447,7 +1492,7 @@ function ReportesContent(props) {
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Orden de Compra:</span>
-                      <strong className="text-slate-900">{certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '---'}</strong>
+                      <strong className="text-slate-900">{certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || certificadoPresupuestoObj?.nro_orden_compra || '---'}</strong>
                     </div>
                   </div>
 
@@ -1583,9 +1628,6 @@ function ReportesContent(props) {
                                       className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
                                     />
                                   </div>
-                                </div>
-                                <div className="text-right pt-1 font-black text-amber-900 text-xs">
-                                  Monto Adelanto: $ {Math.round(adelantoMonto || montoAdelantoCalculado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                                 </div>
                               </div>
                             ) : (
@@ -1734,10 +1776,14 @@ function ReportesContent(props) {
               )}
 
               <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4 mt-6 print:hidden">
-                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Certificados Emitidos</h3>
-                {allCertificados.length === 0 ? (
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Certificados Emitidos (Presupuesto Actual)</h3>
+                {!certPresupuestoId ? (
                   <div className="p-8 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-xl">
-                    No hay certificados guardados o emitidos previamente.
+                    Seleccione un presupuesto en la parte superior para visualizar y administrar sus certificados emitidos.
+                  </div>
+                ) : certificadosDelPresupuestoActual.length === 0 ? (
+                  <div className="p-8 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-xl">
+                    No hay certificados guardados para este presupuesto.
                   </div>
                 ) : (
                   <div className="overflow-x-auto border border-slate-200 rounded-xl">
@@ -1753,7 +1799,7 @@ function ReportesContent(props) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {allCertificados.map((cert, idx) => {
+                        {certificadosDelPresupuestoActual.map((cert, idx) => {
                           const nroCert = cert?.certificadoNro !== undefined ? cert.certificadoNro : (cert?.certificado_nro || '0');
                           const fechaCert = cert?.fecha || cert?.fecha_emision || '---';
                           
@@ -1765,9 +1811,10 @@ function ReportesContent(props) {
                           const obraCert = cert?.obra || '---';
                           const totalGen = Number(cert?.totalGeneral || cert?.total_general || 0);
                           const pdfLink = cert?.pdfUrl || cert?.pdf_url;
+                          const certKeyId = cert?.id || `${cert?.presupuesto_id}_${nroCert}`;
 
                           return (
-                            <tr key={cert?.id || idx} className="hover:bg-slate-50">
+                            <tr key={certKeyId} className="hover:bg-slate-50">
                               <td className="px-4 py-3 font-bold text-amber-800">
                                 Certificado #{nroCert} {nroCert === '0' ? '(Adelanto)' : ''}
                               </td>
@@ -1777,7 +1824,7 @@ function ReportesContent(props) {
                               <td className="px-4 py-3 text-right font-black text-slate-950">
                                 $ {totalGen.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                               </td>
-                              <td className="px-4 py-3 text-center">
+                              <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
                                 {pdfLink ? (
                                   <a
                                     href={pdfLink}
@@ -1788,8 +1835,15 @@ function ReportesContent(props) {
                                     <ExternalLink className="w-3 h-3" /> Ver PDF
                                   </a>
                                 ) : (
-                                  <span className="text-slate-400 italic">Guardado en Base de Datos</span>
+                                  <span className="text-slate-400 italic">Guardado en BD</span>
                                 )}
+                                <button
+                                  onClick={() => eliminarCertificadoServidor(certKeyId)}
+                                  className="p-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg transition-colors cursor-pointer"
+                                  title="Eliminar certificado"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
                               </td>
                             </tr>
                           );
