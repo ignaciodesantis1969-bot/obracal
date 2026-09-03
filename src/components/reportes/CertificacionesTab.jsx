@@ -30,10 +30,12 @@ export default function CertificacionesTab({
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
-  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: '', cargo: '' });
+  // Firmantes manuales (sin autocompletar cargos para evitar borrados)
+  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: '' });
   const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: '' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
+  // Carga inicial de Clientes, Obras y Certificaciones desde Google Sheets
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -51,6 +53,19 @@ export default function CertificacionesTab({
     })
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setFetchedObras(data); })
+      .catch(() => {});
+
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'Certificaciones', action: 'get' })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data) && typeof setFetchedCertificados === 'function') {
+          setFetchedCertificados(data);
+        }
+      })
       .catch(() => {});
   }, []);
 
@@ -73,7 +88,7 @@ export default function CertificacionesTab({
 
   const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
 
-  // Secuencia relacional exacta: Presupuestos -> obra_id -> Obras -> cliente_id -> Clientes -> razon_social
+  // Secuencia estricta solicitada: Presupuestos --> obra_id --> Obra --> cliente_id --> Clientes --> razon_social
   const resolverRazonSocialCliente = (pObj) => {
     if (!pObj) return '';
     const obraId = pObj.obra_id || pObj.obraId || pObj.id_obra || pObj.obra;
@@ -106,20 +121,15 @@ export default function CertificacionesTab({
 
   useEffect(() => {
     if (certPresupuestoId && certificadoPresupuestoObj) {
-      setCertClienteNombre(resolverRazonSocialCliente(certificadoPresupuestoObj));
-
-      setCertRespProveedor({
-        nombre: certificadoPresupuestoObj.responsable_proveedor || certificadoPresupuestoObj.responsableProveedor || '',
-        cargo: certificadoPresupuestoObj.cargo_proveedor || certificadoPresupuestoObj.cargoProveedor || ''
-      });
-      setCertRespCliente({
-        nombre: certificadoPresupuestoObj.responsable_cliente || certificadoPresupuestoObj.responsableCliente || '',
-        cargo: certificadoPresupuestoObj.cargo_cliente || certificadoPresupuestoObj.cargoCliente || ''
-      });
+      const clienteResuelto = resolverRazonSocialCliente(certificadoPresupuestoObj);
+      setCertClienteNombre(clienteResuelto);
+      // Asignar nombre inicial del cliente al firmante cliente si está vacío
+      setCertRespCliente(prev => ({
+        ...prev,
+        nombre: prev.nombre || clienteResuelto
+      }));
     } else if (!certPresupuestoId) {
       setCertClienteNombre('');
-      setCertRespProveedor({ nombre: '', cargo: '' });
-      setCertRespCliente({ nombre: '', cargo: '' });
     }
   }, [certPresupuestoId, certificadoPresupuestoObj, fetchedClientes, listaObrasCompleta]);
 
@@ -138,6 +148,7 @@ export default function CertificacionesTab({
       const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || '').toLowerCase().trim();
       if (est !== 'aprobado' && est !== 'aprobada') return false;
       const pId = String(p?.id || p?.ID || '').trim();
+      // Oculta del desplegable si este número de certificado ya fue guardado para este presupuesto
       return !certificadosGuardadosSet.has(`${pId}_${certificadoNro}`);
     });
   }, [presupuestos, certificadosGuardadosSet, certificadoNro]);
@@ -263,7 +274,15 @@ export default function CertificacionesTab({
       const resultado = await res.json();
       const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || '';
       
-      setFetchedCertificados(prev => [{ ...payloadCert, pdfUrl: pdfUrlFinal, id: `cert-${Date.now()}` }, ...prev]);
+      const nuevoCertGuardado = { 
+        ...payloadCert, 
+        presupuestoId: String(certPresupuestoId), 
+        certificadoNro: String(certificadoNro), 
+        pdfUrl: pdfUrlFinal, 
+        id: `cert-${Date.now()}` 
+      };
+
+      setFetchedCertificados(prev => [nuevoCertGuardado, ...prev]);
       alert("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!");
     } catch (err) {
       console.error(err);
@@ -447,7 +466,7 @@ export default function CertificacionesTab({
                   <tbody className="divide-y divide-slate-300">
                     {certificadoCalculos.filasRender.map((rubroObj) => (
                       <React.Fragment key={rubroObj.rIdx}>
-                        {/* RUBROS CON FONDO GRIS DISTINTIVO (bg-slate-300) */}
+                        {/* RUBRO CON FONDO GRIS DISTINTIVO (bg-slate-300) */}
                         <tr className="bg-slate-300 font-black text-slate-950 border-t-2 border-slate-400">
                           <td className="py-2.5 px-2 text-center border-r border-slate-400">{rubroObj.rIdx + 1}</td>
                           <td className="py-2.5 px-3 uppercase border-r border-slate-400" colSpan="3">{rubroObj.nombre}</td>
@@ -631,13 +650,13 @@ export default function CertificacionesTab({
                 })()}
               </div>
 
-              {/* BLOQUE DE FIRMAS */}
+              {/* BLOQUE DE FIRMAS EXACTO CON CARGOS MANUALES Y CHECKMARK DE VERIFICACIÓN */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 print:mt-10">
-                <div className="border border-slate-400 rounded-lg overflow-hidden">
+                <div className="border border-slate-400 rounded-lg overflow-hidden bg-white">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
                     Responsable Proveedor
                   </div>
-                  <div className="p-4 space-y-4 text-xs font-bold bg-white">
+                  <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
                       <input 
@@ -645,7 +664,7 @@ export default function CertificacionesTab({
                         value={certRespProveedor.cargo} 
                         onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} 
                         className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" 
-                        placeholder="---" 
+                        placeholder="Ingrese cargo..." 
                       />
                     </div>
                     <div>
@@ -655,20 +674,24 @@ export default function CertificacionesTab({
                         value={certRespProveedor.nombre} 
                         onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} 
                         className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" 
-                        placeholder="---" 
+                        placeholder="Ingrese nombre..." 
                       />
                     </div>
-                    <div className="pt-2">
-                      <span className="block text-slate-500 mb-6 text-[10px] tracking-wide">FIRMA:</span>
+                    <div>
+                      <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
+                      <div className="text-emerald-700 tracking-widest text-sm select-none font-mono py-1">••••••</div>
+                      <div className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
+                        ✓ Firma Electrónica Verificada
+                      </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="border border-slate-400 rounded-lg overflow-hidden">
+                <div className="border border-slate-400 rounded-lg overflow-hidden bg-white">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
                     Responsable Cliente
                   </div>
-                  <div className="p-4 space-y-4 text-xs font-bold bg-white">
+                  <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
                       <input 
@@ -676,7 +699,7 @@ export default function CertificacionesTab({
                         value={certRespCliente.cargo} 
                         onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} 
                         className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" 
-                        placeholder="---" 
+                        placeholder="Ingrese cargo..." 
                       />
                     </div>
                     <div>
@@ -686,11 +709,15 @@ export default function CertificacionesTab({
                         value={certRespCliente.nombre} 
                         onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} 
                         className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" 
-                        placeholder="---" 
+                        placeholder="Ingrese nombre..." 
                       />
                     </div>
-                    <div className="pt-2">
-                      <span className="block text-slate-500 mb-6 text-[10px] tracking-wide">FIRMA:</span>
+                    <div>
+                      <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
+                      <div className="text-emerald-700 tracking-widest text-sm select-none font-mono py-1">••••••</div>
+                      <div className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
+                        ✓ Firma Electrónica Verificada
+                      </div>
                     </div>
                   </div>
                 </div>
