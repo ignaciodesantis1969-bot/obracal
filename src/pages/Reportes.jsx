@@ -1814,7 +1814,7 @@ function ReportesContent(props) {
                         <tr key={parteId} className="hover:bg-slate-50">
                           <td className="px-4 py-3 font-bold text-amber-800">Parte #{parte?.nro || '00001'}</td>
                           <td className="px-4 py-3 text-slate-600">{parte?.fecha || '---'}</td>
-                          <td className="px-4 py-3 text-800 font-semibold">{parte?.contratoid || 'Contrato SICE General'}</td>
+                          <td className="px-4 py-3 text-slate-800 font-semibold">{parte?.contratoid || 'Contrato SICE General'}</td>
                           <td className="px-4 py-3 text-center font-black text-emerald-700">{totalHs} hs</td>
                           <td className="px-4 py-3 text-center">
                             {parte?.pdfUrl || parte?.pdf_url ? (
