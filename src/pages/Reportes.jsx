@@ -2376,7 +2376,29 @@ function ReportesContent(props) {
               {ordenCategorias.map(cat => {
                 const itemsCat = insumosGenerales[cat] || [];
                 if (itemsCat.length === 0) return null;
-                const totalCat = itemsCat.reduce((acc, i) => acc + (Number(i?.total) || 0), 0);
+
+                // Agrupamiento por nombre de insumo
+                const agrupadosMap = {};
+                itemsCat.forEach(it => {
+                  const nombreKey = String(it?.nombre || '').trim().toLowerCase();
+                  if (!agrupadosMap[nombreKey]) {
+                    agrupadosMap[nombreKey] = {
+                      nombre: it?.nombre || 'Sin nombre',
+                      unidad: it?.unidad || 'un',
+                      cantidad: 0,
+                      costo_unitario: Number(it?.costo_unitario) || 0,
+                      total: 0
+                    };
+                  }
+                  agrupadosMap[nombreKey].cantidad += Number(it?.cantidad) || 0;
+                  agrupadosMap[nombreKey].total += Number(it?.total) || 0;
+                });
+                const itemsAgrupados = Object.values(agrupadosMap).map(item => ({
+                  ...item,
+                  costo_unitario: item.cantidad > 0 ? item.total / item.cantidad : item.costo_unitario
+                }));
+
+                const totalCat = itemsAgrupados.reduce((acc, i) => acc + (Number(i?.total) || 0), 0);
                 return (
                   <div key={cat} className="space-y-2 border border-slate-200 rounded-xl p-4 bg-slate-50/50">
                     <div className="flex justify-between items-center border-b border-slate-200 pb-2">
@@ -2386,7 +2408,6 @@ function ReportesContent(props) {
                     <table className="w-full text-left text-xs">
                       <thead>
                         <tr className="text-slate-500 font-bold uppercase text-[10px]">
-                          <th className="py-2 px-2">Rubro / Tarea</th>
                           <th className="py-2 px-2">Insumo / Artículo</th>
                           <th className="py-2 px-2 text-center">Unidad</th>
                           <th className="py-2 px-2 text-right">Cant.</th>
@@ -2395,14 +2416,13 @@ function ReportesContent(props) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {itemsCat.map((it, iIdx) => (
+                        {itemsAgrupados.map((it, iIdx) => (
                           <tr key={iIdx} className="hover:bg-white">
-                            <td className="py-2 px-2 text-slate-600 font-medium">{it?.rubro} / {it?.tarea}</td>
                             <td className="py-2 px-2 font-bold text-slate-900">{it?.nombre}</td>
                             <td className="py-2 px-2 text-center text-slate-500">{it?.unidad}</td>
                             <td className="py-2 px-2 text-right">{it?.cantidad}</td>
                             <td className="py-2 px-2 text-right">$ {Number(it?.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                            <td className="py-2 px-2 text-right font-bold text-slate-900">$ {Number(it?.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                            <td className="py-2 px-2 text-right font-black text-slate-900">$ {Number(it?.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                           </tr>
                         ))}
                       </tbody>
