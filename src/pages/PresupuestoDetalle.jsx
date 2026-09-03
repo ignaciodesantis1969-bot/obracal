@@ -71,8 +71,6 @@ export default function PresupuestoDetalle() {
   const [rubrosColapsados, setRubrosColapsados] = useState({});
   const [rubrosConOrden, setRubrosConOrden] = useState([]);
 
-  
-
   const cargarDatosDetalle = async () => {
     setIsLoading(true);
     try {
@@ -641,7 +639,7 @@ export default function PresupuestoDetalle() {
           <Lock className={`w-5 h-5 shrink-0 ${esAprobado ? 'text-emerald-600' : esRechazado ? 'text-red-600' : 'text-purple-600'}`} />
           <div className="text-xs">
             <span className="font-extrabold uppercase tracking-wide block">Presupuesto Bloqueado ({estadoActual})</span>
-            {esEntregado && "Este presupuesto se encuentra en estado Entregado. Para modificarlo, debe generar una nueva versión desde la lista principal."}
+            {esEntregado && "Este presupuesto se encuentra en estado Entregado. Para modificarlo, debe generar una nueva versión desde la lista principal o cambiar su estado a Aprobado/Rechazado."}
             {esAprobado && "Este presupuesto ha sido Aprobado y no puede ser modificado."}
             {esRechazado && "Este presupuesto fue Rechazado y no puede ser modificado."}
           </div>
@@ -660,11 +658,20 @@ export default function PresupuestoDetalle() {
             </span>
 
           </div>
-          <p className="text-slate-500 text-sm mt-1.5 flex items-center gap-4">
+          <p className="text-slate-500 text-sm mt-1.5 flex items-center gap-4 flex-wrap">
             <span><strong>Obra:</strong> {obra?.nombre || obra?.nombre_obra || 'Sin obra asignada'}</span>
             <span>•</span>
             <span><strong>Cliente:</strong> {cliente?.razon_social || cliente?.nombre || 'Sin cliente asignado'}</span>
           </p>
+
+          {/* 🟢 MOSTRAR ORDEN DE COMPRA Y RESPONSABLES SI YA ESTÁ APROBADO */}
+          {(presupuesto?.orden_compra || presupuesto?.responsable_cliente || presupuesto?.responsable_proveedor) && (
+            <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex items-center gap-4 text-xs text-slate-600 flex-wrap">
+              {presupuesto?.orden_compra && <span><strong>Orden de Compra:</strong> {presupuesto.orden_compra}</span>}
+              {presupuesto?.responsable_cliente && <span><strong>Resp. Cliente:</strong> {presupuesto.responsable_cliente}</span>}
+              {presupuesto?.responsable_proveedor && <span><strong>Resp. Proveedor:</strong> {presupuesto.responsable_proveedor}</span>}
+            </div>
+          )}
         </div>
 
         <div className="flex gap-2">

@@ -15,6 +15,15 @@ export default function Presupuestos() {
   // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSaving, setIsSaving] = useState(false);
 
+  // 📋 ESTADOS PARA EL MODAL DE APROBACIÓN (Orden de Compra y Responsables)
+  const [isAprobacionModalOpen, setIsAprobacionModalOpen] = useState(false);
+  const [presupuestoAprobarId, setPresupuestoAprobarId] = useState(null);
+  const [datosAprobacion, setDatosAprobacion] = useState({
+    orden_compra: '',
+    responsable_cliente: '',
+    responsable_proveedor: ''
+  });
+
   // Vistas de Pestañas: 'workspace' (Borrador + Entregado) | 'aprobados' (Aprobado) | 'archivados' (Rechazado + Versiones viejas)
   const [activeTab, setActiveTab] = useState('workspace');
 
@@ -27,7 +36,6 @@ export default function Presupuestos() {
     version: 'v1'
   });
 
- 
   const fetchData = async () => {
     setIsLoading(true);
     try {
@@ -134,15 +142,7 @@ export default function Presupuestos() {
     }
   };
 
-  const handleCambiarEstado = async (id, nuevoEstado) => {
-    const p = presupuestos.find(presu => String(presu.id) === String(id));
-    const estadoActual = String(p?.estado_presupuesto || p?.estado || 'borrador').toLowerCase();
-
-    if (estadoActual === 'entregado' || estadoActual === 'aprobado' || estadoActual === 'rechazado') {
-      alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede cambiar su estado directamente.`);
-      return;
-    }
-
+  const ejecutarActualizacionEstado = async (id, datosActualizacion) => {
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -151,7 +151,7 @@ export default function Presupuestos() {
           tabla: 'Presupuestos',
           action: 'update',
           id: id,
-          data: { estado_presupuesto: nuevoEstado }
+          data: datosActualizacion
         })
       });
       const data = await res.json();
@@ -163,6 +163,57 @@ export default function Presupuestos() {
     } catch (err) {
       console.error("Error al cambiar estado:", err);
       alert("Error de conexión al cambiar el estado.");
+    }
+  };
+
+  const handleCambiarEstado = async (id, nuevoEstado) => {
+    const p = presupuestos.find(presu => String(presu.id) === String(id));
+    const estadoActual = String(p?.estado_presupuesto || p?.estado || 'borrador').toLowerCase();
+
+    // Bloquear si ya está aprobado o rechazado
+    if (estadoActual === 'aprobado' || estadoActual === 'rechazado') {
+      alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede cambiar su estado.`);
+      return;
+    }
+
+    // Si está entregado, no permitir volver a borrador
+    if (estadoActual === 'entregado' && nuevoEstado === 'borrador') {
+      alert(`⚠️ Un presupuesto entregado no puede volver a estado borrador. Solo puede pasar a Aprobado o Rechazado.`);
+      return;
+    }
+
+    // 🟢 SI EL NUEVO ESTADO ES APROBADO -> ABRIR MODAL DE DATOS ADICIONALES
+    if (nuevoEstado === 'aprobado') {
+      setPresupuestoAprobarId(id);
+      setDatosAprobacion({
+        orden_compra: p?.orden_compra || '',
+        responsable_cliente: p?.responsable_cliente || '',
+        responsable_proveedor: p?.responsable_proveedor || ''
+      });
+      setIsAprobacionModalOpen(true);
+      return;
+    }
+
+    // Para otros estados (entregado, rechazado) actualizar de forma directa
+    await ejecutarActualizacionEstado(id, { estado_presupuesto: nuevoEstado });
+  };
+
+  const handleConfirmarAprobacion = async (e) => {
+    e.preventDefault();
+    if (!presupuestoAprobarId) return;
+
+    setIsSaving(true);
+    try {
+      await ejecutarActualizacionEstado(presupuestoAprobarId, {
+        estado_presupuesto: 'aprobado',
+        orden_compra: datosAprobacion.orden_compra,
+        responsable_cliente: datosAprobacion.responsable_cliente,
+        responsable_proveedor: datosAprobacion.responsable_proveedor
+      });
+      setIsAprobacionModalOpen(false);
+      setPresupuestoAprobarId(null);
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -457,20 +508,20 @@ export default function Presupuestos() {
                     <td className="w-[10%] px-2 py-4 text-center">
                       <select
                         value={estadoActual}
-                        disabled={estadoActual === 'entregado' || estadoActual === 'aprobado' || estadoActual === 'rechazado'}
+                        disabled={estadoActual === 'aprobado' || estadoActual === 'rechazado'}
                         onChange={(e) => handleCambiarEstado(p.id, e.target.value)}
                         className={`w-full px-2 py-1 rounded-full font-bold text-[10px] uppercase border outline-none transition-colors ${
                           estadoActual === 'entregado' 
-                            ? 'bg-purple-100 text-purple-800 border-purple-300 cursor-not-allowed opacity-75' 
+                            ? 'bg-purple-100 text-purple-800 border-purple-300 cursor-pointer' 
                             : estadoActual === 'aprobado' 
                             ? 'bg-emerald-100 text-emerald-800 border-emerald-300 cursor-not-allowed opacity-75'
                             : estadoActual === 'rechazado'
                             ? 'bg-red-100 text-red-800 border-red-300 cursor-not-allowed opacity-75'
                             : 'bg-slate-100 text-slate-700 border-slate-300 cursor-pointer'
                         }`}
-                        title={estadoActual !== 'borrador' ? "Estado bloqueado por regla de negocio" : "Cambiar estado"}
+                        title={estadoActual === 'aprobado' || estadoActual === 'rechazado' ? "Estado bloqueado por regla de negocio" : "Cambiar estado"}
                       >
-                        <option value="borrador">Borrador</option>
+                        <option value="borrador" disabled={estadoActual === 'entregado'}>Borrador</option>
                         <option value="entregado">Entregado</option>
                         <option value="aprobado">Aprobado</option>
                         <option value="rechazado">Rechazado</option>
@@ -513,6 +564,7 @@ export default function Presupuestos() {
         )}
       </div>
 
+      {/* MODAL NUEVO PRESUPUESTO */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
@@ -579,6 +631,67 @@ export default function Presupuestos() {
                 <button type="button" onClick={() => setIsModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
                 <button type="submit" disabled={isSaving} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
                   {isSaving ? <><Loader2 className="w-4 h-4 animate-spin"/> Creando...</> : 'Crear Presupuesto'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL DE APROBACIÓN (PIDE ORDEN DE COMPRA Y RESPONSABLES) */}
+      {isAprobacionModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-emerald-50">
+              <h3 className="font-bold text-emerald-900 flex items-center gap-2">
+                <CheckCircle2 className="w-5 h-5 text-emerald-600" /> Aprobar Presupuesto
+              </h3>
+              <button onClick={() => setIsAprobacionModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
+            </div>
+            <form onSubmit={handleConfirmarAprobacion} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Orden de Compra *</label>
+                <input 
+                  type="text"
+                  required
+                  disabled={isSaving}
+                  placeholder="Ej: OC-2026-001"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-emerald-500 font-semibold disabled:bg-slate-100"
+                  value={datosAprobacion.orden_compra}
+                  onChange={(e) => setDatosAprobacion({...datosAprobacion, orden_compra: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Responsable de Cliente *</label>
+                <input 
+                  type="text"
+                  required
+                  disabled={isSaving}
+                  placeholder="Nombre del responsable del cliente"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-emerald-500 font-semibold disabled:bg-slate-100"
+                  value={datosAprobacion.responsable_cliente}
+                  onChange={(e) => setDatosAprobacion({...datosAprobacion, responsable_cliente: e.target.value})}
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Responsable de Proveedor *</label>
+                <input 
+                  type="text"
+                  required
+                  disabled={isSaving}
+                  placeholder="Nombre del responsable interno"
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-emerald-500 font-semibold disabled:bg-slate-100"
+                  value={datosAprobacion.responsable_proveedor}
+                  onChange={(e) => setDatosAprobacion({...datosAprobacion, responsable_proveedor: e.target.value})}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t">
+                <button type="button" onClick={() => setIsAprobacionModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
+                  {isSaving ? <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</> : 'Confirmar y Aprobar'}
                 </button>
               </div>
             </form>
