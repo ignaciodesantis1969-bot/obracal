@@ -188,7 +188,6 @@ function ReportesContent(props) {
   const obtenerClienteDePresupuesto = (presupuesto) => {
     if (!presupuesto) return '---';
     
-    // Búsqueda dinámica en todas las propiedades del presupuesto
     for (const [k, v] of Object.entries(presupuesto)) {
       const lowerK = String(k).toLowerCase();
       if ((lowerK.includes('client') || lowerK.includes('razon') || lowerK.includes('empresa') || lowerK.includes('comitente')) && v !== undefined && v !== null && String(v).trim() !== '') {
@@ -200,7 +199,6 @@ function ReportesContent(props) {
       }
     }
 
-    // Búsqueda en la obra asociada
     const obraId = presupuesto?.obra_id || presupuesto?.Obra_id || presupuesto?.obraId || presupuesto?.id_obra;
     if (obraId && obras.length > 0) {
       const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
@@ -294,8 +292,11 @@ function ReportesContent(props) {
   
   useEffect(() => {
     if (certificadoPresupuestoObj) {
-      setCertRespProveedor({ nombre: 'Alexander Torres Lopez', cargo: 'Jefe de Obra' });
-      setCertRespCliente({ nombre: 'Cristian Matei', cargo: 'Gerente de Planta' });
+      const respProv = buscarValorEnObjeto(certificadoPresupuestoObj, ['responsable_proveedor', 'responsableProveedor', 'proveedor_responsable'], 'Alexander Torres Lopez');
+      const respCli = buscarValorEnObjeto(certificadoPresupuestoObj, ['responsable_cliente', 'responsableCliente', 'cliente_responsable'], 'Cristian Matei');
+
+      setCertRespProveedor({ nombre: respProv, cargo: 'Jefe de Obra' });
+      setCertRespCliente({ nombre: respCli, cargo: 'Gerente de Planta' });
     }
   }, [certPresupuestoId, certificadoPresupuestoObj]);
 
