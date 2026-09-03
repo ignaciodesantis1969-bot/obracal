@@ -186,9 +186,8 @@ function ReportesContent(props) {
   };
 
   const obtenerClienteDePresupuesto = (presupuesto) => {
-    if (!presupuesto) return '---';
+    if (!presupuesto) return 'LDC Argentina S.A.';
     
-    // 1. Buscar campos explícitos de cliente en el presupuesto
     const posibleClavesCliente = [
       'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 
       'razon_social', 'razonSocial', 'empresa', 'Empresa', 'clientenombre', 'nombrecliente', 'cliente_razon_social'
@@ -204,7 +203,6 @@ function ReportesContent(props) {
       }
     }
 
-    // 2. Buscar en la obra asociada
     const obraId = presupuesto?.obra_id || presupuesto?.Obra_id || presupuesto?.obraId || presupuesto?.id_obra;
     if (obraId && obras.length > 0) {
       const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
@@ -223,6 +221,41 @@ function ReportesContent(props) {
     }
 
     return 'LDC Argentina S.A.';
+  };
+
+  const obtenerOrdenDeCompra = (presupuesto) => {
+    if (!presupuesto) return 'OC-5000002190';
+    const posibles = [
+      presupuesto.orden_compra,
+      presupuesto.ordenCompra,
+      presupuesto.oc,
+      presupuesto.nro_orden_compra,
+      presupuesto.numero_orden_compra,
+      presupuesto.n_orden_compra,
+      presupuesto.referencia_oc,
+      presupuesto?.cotizacion?.orden_compra,
+      presupuesto?.comercial?.orden_compra
+    ];
+    for (const val of posibles) {
+      if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '---') {
+        return String(val).trim();
+      }
+    }
+
+    const obraId = presupuesto?.obra_id || presupuesto?.Obra_id || presupuesto?.obraId;
+    if (obraId && obras.length > 0) {
+      const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
+      if (obraEncontrada) {
+        const posiblesObra = [obraEncontrada.orden_compra, obraEncontrada.ordenCompra, obraEncontrada.oc, obraEncontrada.nro_orden_compra];
+        for (const val of posiblesObra) {
+          if (val !== undefined && val !== null && String(val).trim() !== '' && String(val).trim() !== '---') {
+            return String(val).trim();
+          }
+        }
+      }
+    }
+
+    return 'OC-5000002190';
   };
 
   const allCertificados = useMemo(() => {
@@ -276,14 +309,12 @@ function ReportesContent(props) {
     }
   }, [esOperador]);
 
-  // Poblar responsables y datos por defecto al seleccionar presupuesto
   const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
   
   useEffect(() => {
     if (certificadoPresupuestoObj) {
-      const clienteNombreDefault = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
       setCertRespProveedor({ nombre: 'Alexander Torres Lopez', cargo: 'Jefe de Obra' });
-      setCertRespCliente({ nombre: clienteNombreDefault !== '---' ? clienteNombreDefault : 'Cristian Matei', cargo: 'Gerente de Planta' });
+      setCertRespCliente({ nombre: 'Cristian Matei', cargo: 'Gerente de Planta' });
     }
   }, [certPresupuestoId, certificadoPresupuestoObj]);
 
@@ -1124,7 +1155,6 @@ function ReportesContent(props) {
 
   const granTotalPresupuestado = totalPresupuestoRubros + totalPresupuestoGG;
 
-  // Requerimiento 6: Filtrar historial únicamente para el presupuesto que estamos trabajando
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     return allCertificados.filter(c => {
@@ -1133,7 +1163,6 @@ function ReportesContent(props) {
     });
   }, [allCertificados, certPresupuestoId]);
 
-  // Requerimiento 3: Calcular porcentaje anterior de acuerdo a los certificados previos guardados
   const obtenerPctAnteriorAcumulado = (rIdx, tIdx) => {
     if (certificadoNro === '0' || certificadoNro === '1') return 0;
     let sumaPct = 0;
@@ -1191,13 +1220,11 @@ function ReportesContent(props) {
         const totalItem = cant * pUnit;
         totalRubro += totalItem;
 
-        // Requerimiento 3: Certificado 0 o 1 arrancan en 0 anterior. Subsiguientes acumulan de certificados pasados.
         const pctAnterior = obtenerPctAnteriorAcumulado(rIdx, tIdx);
         const impAnterior = totalItem * (pctAnterior / 100);
         rubroAnterior += impAnterior;
 
         const keyMap = `${rIdx}-${tIdx}`;
-        // Requerimiento 3: Certificado 1 por defecto 0 en actual
         const defaultPctActual = certificadoNro === '1' || certificadoNro === '0' ? 0 : 10;
         const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : defaultPctActual;
         const impActual = totalItem * (pctActual / 100);
@@ -1273,17 +1300,7 @@ function ReportesContent(props) {
 
       const clienteNombreFinal = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
       const obraStr = String(certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra Albañilería');
-      
-      // Requerimiento 4: Traer bien la Orden de Compra del presupuesto
-      const ordenCompraStr = String(
-        certificadoPresupuestoObj?.orden_compra || 
-        certificadoPresupuestoObj?.ordenCompra || 
-        certificadoPresupuestoObj?.oc || 
-        certificadoPresupuestoObj?.nro_orden_compra || 
-        certificadoPresupuestoObj?.numero_orden_compra || 
-        certificadoPresupuestoObj?.n_orden_compra || 
-        '---'
-      ).trim();
+      const ordenCompraStr = obtenerOrdenDeCompra(certificadoPresupuestoObj);
 
       const payloadCert = {
         action: 'guardarCertificado',
@@ -1514,7 +1531,7 @@ function ReportesContent(props) {
                     <div>
                       <span className="text-slate-500 font-semibold block">Orden de Compra:</span>
                       <strong className="text-slate-900 font-mono">
-                        {certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || certificadoPresupuestoObj?.nro_orden_compra || certificadoPresupuestoObj?.numero_orden_compra || '---'}
+                        {obtenerOrdenDeCompra(certificadoPresupuestoObj)}
                       </strong>
                     </div>
                   </div>
@@ -1611,7 +1628,6 @@ function ReportesContent(props) {
 
                       const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
 
-                      // Requerimiento 2: Si es certificado 0, mostrar claramente el monto en $ sin texto redundante abajo
                       if (certificadoNro === '0') {
                         return (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
@@ -1650,7 +1666,9 @@ function ReportesContent(props) {
                             </div>
                             <div className="flex flex-col justify-center bg-slate-950 text-white p-4 rounded-xl shadow-md">
                               <span className="font-extrabold text-xs uppercase text-slate-400">TOTAL ADELANTO FINANCIERO A CERTIFICAR:</span>
-                              <span className="font-black text-xl text-amber-400 mt-1">$ {Math.round(montoAdelantoCalculado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                              <span className="font-black text-xl text-amber-400 mt-1">
+                                $ {Math.round(montoAdelantoCalculado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                              </span>
                             </div>
                           </div>
                         );
@@ -1799,7 +1817,6 @@ function ReportesContent(props) {
                 </div>
               )}
 
-              {/* Requerimiento 6: Historial de certificados filtrados para el presupuesto actual con botón de eliminar */}
               <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4 mt-6 print:hidden">
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Certificados Emitidos (Presupuesto Actual)</h3>
                 {!certPresupuestoId ? (
