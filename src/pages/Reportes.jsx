@@ -16,7 +16,7 @@ const CONTRATO_DEFAULT = [
     proveedorCargo: "Oficial a cargo del Site",
     proveedorNombre: "Alexander Torres Lopez",
     clienteCargo: "Gerente de Planta",
-    clienteNombre: "Cristian Matei",
+    clienteName: "Cristian Matei",
     descripcion: "Proveer el servicio mantenimiento correctivo edilicio en la planta de logistica de algodon"
   }
 ];
@@ -224,12 +224,18 @@ function ReportesContent(props) {
   const proveedorNombreMap = useMemo(() => {
     const map = {};
     proveedoresList.forEach(prov => {
-      const pId = String(prov?.id || prov?.ID || '').trim();
-      const pCod = String(prov?.codigo || prov?.Codigo || '').trim();
-      const pRazon = String(prov?.razon_social || prov?.razonSocial || prov?.nombre || prov?.nombre_proveedor || '').trim();
+      if (!prov) return;
+      const pId = String(prov?.id || prov?.ID || prov?.Id || '').trim();
+      const pCod = String(prov?.codigo || prov?.Codigo || prov?.CODIGO || '').trim();
+      const pRazon = String(
+        prov?.razon_social || prov?.razonSocial || prov?.Razon_Social || 
+        prov?.nombre || prov?.Nombre || prov?.nombre_proveedor || 
+        prov?.nombreProveedor || prov?.empresa || ''
+      ).trim();
       if (pRazon) {
         if (pId) map[pId] = pRazon;
         if (pCod) map[pCod] = pRazon;
+        map[pRazon.toLowerCase()] = pRazon;
       }
     });
     return map;
@@ -754,9 +760,22 @@ function ReportesContent(props) {
       const tipoOriginal = String(insGlobal?.tipo || insGlobal?.Tipo || insGlobal?.tipo_insumo || 'Material').trim().toLowerCase();
       
       const provId = String(insGlobal?.proveedor_id || insGlobal?.proveedorId || insGlobal?.id_proveedor || '').trim();
-      const proveedorDirecto = insGlobal?.proveedor || insGlobal?.proveedor_nombre || insGlobal?.proveedorNombre || insGlobal?.razon_social || '';
+      const proveedorDirecto = String(
+        insGlobal?.proveedor || insGlobal?.proveedor_nombre || insGlobal?.proveedorNombre || 
+        insGlobal?.razon_social || insGlobal?.razonSocial || ''
+      ).trim();
       
-      const proveedorResuelto = provId ? (proveedorNombreMap[provId] || proveedorDirecto) : proveedorDirecto;
+      let proveedorResuelto = '---';
+      if (provId && proveedorNombreMap[provId]) {
+        proveedorResuelto = proveedorNombreMap[provId];
+      } else if (proveedorDirecto) {
+        proveedorResuelto = proveedorNombreMap[proveedorDirecto.toLowerCase()] || proveedorDirecto;
+      } else if (provId) {
+        proveedorResuelto = provId;
+      } else if (proveedorDirecto) {
+        proveedorResuelto = proveedorDirecto;
+      }
+
       const nombreGl = String(insGlobal?.nombre || insGlobal?.nombre_articulo || insGlobal?.concepto || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
 
       if (gId) {
@@ -878,10 +897,23 @@ function ReportesContent(props) {
           const nombreInsClean = limpiarTexto(nombreInsStr);
 
           const provIdIns = String(ins?.proveedor_id || ins?.proveedorId || ins?.id_proveedor || '').trim();
-          const provDirectoIns = ins?.proveedor || ins?.proveedor_nombre || ins?.proveedorNombre || '';
-          const proveedorResueltoIns = provIdIns ? (proveedorNombreMap[provIdIns] || provDirectoIns) : provDirectoIns;
+          const provDirectoIns = String(
+            ins?.proveedor || ins?.proveedor_nombre || ins?.proveedorNombre || 
+            ins?.razon_social || ins?.razonSocial || ''
+          ).trim();
 
-          const proveedorIns = proveedorResueltoIns || insumosProveedorMap[insId] || insumosNombreProveedorMap[nombreInsClean] || '---';
+          let proveedorResueltoIns = '---';
+          if (provIdIns && proveedorNombreMap[provIdIns]) {
+            proveedorResueltoIns = proveedorNombreMap[provIdIns];
+          } else if (provDirectoIns) {
+            proveedorResueltoIns = proveedorNombreMap[provDirectoIns.toLowerCase()] || provDirectoIns;
+          } else if (provIdIns) {
+            proveedorResueltoIns = provIdIns;
+          } else if (provDirectoIns) {
+            proveedorResueltoIns = provDirectoIns;
+          }
+
+          const proveedorIns = proveedorResueltoIns !== '---' ? proveedorResueltoIns : (insumosProveedorMap[insId] || insumosNombreProveedorMap[nombreInsClean] || '---');
 
           const itemProcesado = {
             rubro: nombreRubro,
