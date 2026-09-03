@@ -1720,7 +1720,13 @@ function ReportesContent(props) {
                         {allCertificados.map((cert, idx) => {
                           const nroCert = cert?.certificadoNro !== undefined ? cert.certificadoNro : (cert?.certificado_nro || '0');
                           const fechaCert = cert?.fecha || cert?.fecha_emision || '---';
-                          const clienteCert = cert?.cliente || '---';
+                          
+                          // Manejo seguro para que no rompa si cliente o proveedor son objetos
+                          const rawCliente = cert?.cliente;
+                          const clienteCert = (rawCliente && typeof rawCliente === 'object') 
+                            ? (rawCliente.nombre || '---') 
+                            : (rawCliente || '---');
+
                           const obraCert = cert?.obra || '---';
                           const totalGen = Number(cert?.totalGeneral || cert?.total_general || 0);
                           const pdfLink = cert?.pdfUrl || cert?.pdf_url;
@@ -1793,7 +1799,7 @@ function ReportesContent(props) {
                         <tr key={parteId} className="hover:bg-slate-50">
                           <td className="px-4 py-3 font-bold text-amber-800">Parte #{parte?.nro || '00001'}</td>
                           <td className="px-4 py-3 text-slate-600">{parte?.fecha || '---'}</td>
-                          <td className="px-4 py-3 text-slate-800 font-semibold">{parte?.contratoid || 'Contrato SICE General'}</td>
+                          <td className="px-4 py-3 text-800 font-semibold">{parte?.contratoid || 'Contrato SICE General'}</td>
                           <td className="px-4 py-3 text-center font-black text-emerald-700">{totalHs} hs</td>
                           <td className="px-4 py-3 text-center">
                             {parte?.pdfUrl || parte?.pdf_url ? (
@@ -2221,6 +2227,16 @@ function ReportesContent(props) {
               <div className="space-y-3">
                 {sicePartesAprobados.map((parte, idx) => {
                   const parteId = parte?.id || parte?.nro || idx;
+                  
+                  // Manejo seguro por si proveedor/cliente vienen como objetos o strings
+                  const pObj = parte?.proveedor;
+                  const pNombre = (pObj && typeof pObj === 'object') ? (pObj.nombre || '---') : (pObj || '---');
+                  const pCargo = (pObj && typeof pObj === 'object') ? (pObj.cargo || '---') : '';
+
+                  const cObj = parte?.cliente;
+                  const cNombre = (cObj && typeof cObj === 'object') ? (cObj.nombre || '---') : (cObj || '---');
+                  const cCargo = (cObj && typeof cObj === 'object') ? (cObj.cargo || '---') : '';
+
                   return (
                     <div key={parteId} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                       <div>
@@ -2230,7 +2246,7 @@ function ReportesContent(props) {
                           <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte?.totalHorasSuma} hs</span>
                         </div>
                         <p className="text-slate-700 text-xs mt-2">
-                          Proveedor: <strong>{parte?.proveedor?.nombre}</strong> ({parte?.proveedor?.cargo}) | Cliente: <strong>{parte?.cliente?.nombre}</strong> ({parte?.cliente?.cargo})
+                          Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cCargo})
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
