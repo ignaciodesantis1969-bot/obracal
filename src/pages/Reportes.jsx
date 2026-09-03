@@ -355,6 +355,7 @@ function ReportesContent(props) {
   const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: 'Jefe de Obra' });
   const [certRespCliente, setCertRespCliente] = useState({ nombre: 'Cristian Matei', cargo: 'Gerente de Planta' });
   const [isSavingCert, setIsSavingCert] = useState(false);
+  const [isSavingInsumosPdf, setIsSavingInsumosPdf] = useState(false);
 
   useEffect(() => {
     if (esOperador) {
@@ -936,6 +937,54 @@ function ReportesContent(props) {
 
     return { insumosPorRubro: porRubro, insumosGenerales: general };
   }, [presupuestoInsumosSeleccionado, insumosOficialMap, insumosProveedorMap, insumosNombreProveedorMap, proveedorNombreMap]);
+
+  const exportarInsumosPDF = async () => {
+    if (!presupuestoInsumosSeleccionado) {
+      alert("Por favor seleccione un presupuesto aprobado.");
+      return;
+    }
+    setIsSavingInsumosPdf(true);
+    try {
+      const payload = {
+        action: 'guardarYGenerarPDF',
+        tabla: 'Insumos',
+        presupuesto_id: String(presupuestoInsumosSeleccionado?.id || presupuestoInsumosSeleccionado?.ID || ''),
+        presupuestoId: String(presupuestoInsumosSeleccionado?.id || presupuestoInsumosSeleccionado?.ID || ''),
+        codigo: String(presupuestoInsumosSeleccionado?.codigo || ''),
+        nombre: String(presupuestoInsumosSeleccionado?.nombre || presupuestoInsumosSeleccionado?.nombre_obra || ''),
+        cliente: obtenerClienteDePresupuesto(presupuestoInsumosSeleccionado),
+        vista: vistaGeneralInsumos ? 'general' : 'rubros',
+        insumosGenerales: vistaGeneralInsumos ? insumosGenerales : null,
+        insumosPorRubro: !vistaGeneralInsumos ? insumosPorRubro : null
+      };
+
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const resultado = await res.json();
+
+      const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
+      if (resultado?.success === false || (resultado?.error && !pdfUrlFinal)) {
+        alert("Error al generar el PDF de insumos en Google Drive: " + (resultado?.error || 'Desconocido'));
+        setIsSavingInsumosPdf(false);
+        return;
+      }
+
+      if (pdfUrlFinal) {
+        window.open(pdfUrlFinal, '_blank');
+        alert("¡PDF de insumos generado con éxito en Google Drive!");
+      } else {
+        alert("PDF generado, pero no se obtuvo el enlace de Drive.");
+      }
+    } catch (err) {
+      console.error("Error al exportar insumos PDF:", err);
+      alert("Ocurrió un error al generar el PDF de insumos.");
+    } finally {
+      setIsSavingInsumosPdf(false);
+    }
+  };
 
   const ordenCategorias = ['MANO DE OBRA', 'MATERIALES', 'SUBCONTRATOS', 'EQUIPOS / HERRAMIENTAS', 'OTROS'];
 
@@ -2415,7 +2464,7 @@ function ReportesContent(props) {
                           <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte?.totalHorasSuma} hs</span>
                         </div>
                         <p className="text-slate-700 text-xs mt-2">
-                          Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cCargo})
+                          Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cargo})
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
@@ -2487,10 +2536,21 @@ function ReportesContent(props) {
                 {vistaGeneralInsumos ? 'Ver por Rubros' : 'Ver Vista General'}
               </button>
               <button
-                onClick={() => window.print()}
-                className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs hover:bg-amber-600 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+                onClick={exportarInsumosPDF}
+                disabled={isSavingInsumosPdf}
+                className={`px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs hover:bg-amber-600 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs ${isSavingInsumosPdf ? 'opacity-70 cursor-not-allowed' : ''}`}
               >
-                <Printer className="w-4 h-4" /> Exportar a PDF / Imprimir
+                {isSavingInsumosPdf ? (
+                  <><div className="w-3.5 h-3.5 border-2 border-slate-950 border-t-transparent rounded-full animate-spin"></div> Generando PDF...</>
+                ) : (
+                  <><FileText className="w-4 h-4" /> Exportar PDF (Drive)</>
+                )}
+              </button>
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-slate-100 text-slate-800 font-bold rounded-xl text-xs hover:bg-slate-200 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <Printer className="w-4 h-4" /> Imprimir
               </button>
             </div>
           </div>
@@ -2554,7 +2614,7 @@ function ReportesContent(props) {
                             <td className="py-2 px-2 font-bold text-slate-900">{it?.nombre}</td>
                             <td className="py-2 px-2 text-slate-700 font-medium">{it?.proveedor}</td>
                             <td className="py-2 px-2 text-center text-slate-500">{it?.unidad}</td>
-                            <td className="py-2 px-2 text-right">{it?.cantidad}</td>
+                            <td className="py-2 px-2 text-right">{Number(it?.cantidad || 0).toFixed(2)}</td>
                             <td className="py-2 px-2 text-right">$ {Number(it?.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                             <td className="py-2 px-2 text-right font-black text-slate-900">$ {Number(it?.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                           </tr>
@@ -2602,7 +2662,7 @@ function ReportesContent(props) {
                                   <td className="py-1.5 px-2 font-bold text-slate-900">{it?.nombre}</td>
                                   <td className="py-1.5 px-2 text-slate-700 font-medium">{it?.proveedor}</td>
                                   <td className="py-1.5 px-2 text-center text-slate-500">{it?.unidad}</td>
-                                  <td className="py-1.5 px-2 text-right">{it?.cantidad}</td>
+                                  <td className="py-1.5 px-2 text-right">{Number(it?.cantidad || 0).toFixed(2)}</td>
                                   <td className="py-1.5 px-2 text-right">$ {Number(it?.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                   <td className="py-1.5 px-2 text-right font-bold text-slate-900">$ {Number(it?.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                                 </tr>
