@@ -187,16 +187,35 @@ function ReportesContent(props) {
 
   const obtenerClienteDePresupuesto = (presupuesto) => {
     if (!presupuesto) return '---';
+    
+    // 1. Buscar campos explícitos de cliente
     const rawCliente = buscarValorEnObjeto(presupuesto, [
       'cliente', 'Cliente', 'cliente_nombre', 'clienteNombre', 'nombre_cliente', 'nombreCliente', 'razon_social', 'razonSocial', 'empresa', 'Empresa'
     ]);
-    if (rawCliente) {
+    if (rawCliente && rawCliente !== '---') {
       if (typeof rawCliente === 'object') {
-        return rawCliente.nombre || rawCliente.razon_social || rawCliente.empresa || '---';
+        return rawCliente.nombre || rawCliente.razon_social || rawCliente.empresa || rawCliente.razonSocial || '---';
       }
       return String(rawCliente);
     }
 
+    // 2. Aplicar pista: los primeros 5 caracteres del código del presupuesto corresponden al cliente (Ej: CL002)
+    const codigoPres = String(presupuesto?.codigo || presupuesto?.Codigo || presupuesto?.id || '').trim();
+    if (codigoPres.length >= 5) {
+      const prefix = codigoPres.substring(0, 5).toUpperCase();
+      const mapaClientes = {
+        'CL001': 'Cliente 001',
+        'CL002': 'LDC Argentina S.A.',
+        'CL003': 'Cliente 003',
+        'CL004': 'Cliente 004'
+      };
+      if (mapaClientes[prefix]) {
+        return mapaClientes[prefix];
+      }
+      return prefix;
+    }
+
+    // 3. Buscar en la obra asociada
     const obraId = presupuesto?.obra_id || presupuesto?.Obra_id || presupuesto?.obraId || presupuesto?.id_obra;
     if (obraId && obras.length > 0) {
       const obraEncontrada = obras.find(o => String(o?.id || o?.ID) === String(obraId));
@@ -1231,6 +1250,7 @@ function ReportesContent(props) {
         cliente: clienteStr,
         obra: obraStr,
         orden_compra: ordenCompraStr,
+        filas: certificadoCalculos.filasRender, // <-- Envía el detalle completo para que el backend renderice la tabla idéntica
         total_periodo: Number(totalCertificadoPeriodo) || 0,
         adelanto_descuento: Number(descuentoAdelantoCert) || 0,
         adicionales: Number(adicionalesMonto) || 0,
