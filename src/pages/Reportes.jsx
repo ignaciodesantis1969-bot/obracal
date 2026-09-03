@@ -1211,23 +1211,33 @@ function ReportesContent(props) {
       const clienteNombreFinal = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
 
       const payloadCert = {
-        action: 'guardar',
+        action: 'guardarYGenerarPDF',
         tabla: 'Certificaciones',
         presupuesto_id: certPresupuestoId,
+        presupuestoId: certPresupuestoId,
         certificado_nro: certificadoNro,
+        certificadoNro: certificadoNro,
         fecha: certFecha,
         cliente: clienteNombreFinal,
         obra: certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || '',
         orden_compra: certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '',
+        ordenCompra: certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '',
         total_periodo: totalCertificadoPeriodo,
+        totalPeriodo: totalCertificadoPeriodo,
         adelanto_descuento: descuentoAdelantoCert,
+        adelantoDescuento: descuentoAdelantoCert,
         adicionales: Number(adicionalesMonto) || 0,
         redeterminacion: montoRedetCalculado,
         total_general: totalFinalLiquidacion,
+        totalGeneral: totalFinalLiquidacion,
         proveedor_nombre: certRespProveedor?.nombre || '',
+        proveedorNombre: certRespProveedor?.nombre || '',
         proveedor_cargo: certRespProveedor?.cargo || '',
+        proveedorCargo: certRespProveedor?.cargo || '',
         cliente_nombre: certRespCliente?.nombre || '',
-        cliente_cargo: certRespCliente?.cargo || ''
+        clienteNombre: certRespCliente?.nombre || '',
+        cliente_cargo: certRespCliente?.cargo || '',
+        clienteCargo: certRespCliente?.cargo || ''
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -1237,14 +1247,15 @@ function ReportesContent(props) {
       });
       const resultado = await res.json();
 
-      if (resultado?.success === false) {
+      const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
+      if (resultado?.success === false || (resultado?.error && !pdfUrlFinal)) {
         alert("Error al guardar el certificado en Sheets: " + (resultado?.error || 'Desconocido'));
         setIsSavingCert(false);
         return;
       }
 
-      setFetchedCertificados(prev => [{ ...payloadCert, id: `cert-${Date.now()}` }, ...prev]);
-      alert("¡Certificado guardado con éxito en el sistema y base de datos!");
+      setFetchedCertificados(prev => [{ ...payloadCert, pdfUrl: pdfUrlFinal, id: `cert-${Date.now()}` }, ...prev]);
+      alert("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!");
     } catch (err) {
       console.error("Error al guardar certificado:", err);
       alert("Ocurrió un error al guardar el certificado.");
