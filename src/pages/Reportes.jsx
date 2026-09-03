@@ -341,6 +341,9 @@ function ReportesContent(props) {
   const [activeTab, setActiveTab] = useState('Reportes Diarios');
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
+  
+  // MODIFICACIÓN 1: Estado para el nombre del cliente obtenido del script
+  const [certClienteNombre, setCertClienteNombre] = useState('');
 
   const [avanceActualMap, setAvanceActualMap] = useState({});
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
@@ -362,6 +365,45 @@ function ReportesContent(props) {
       setActiveTab('Reportes Diarios');
     }
   }, [esOperador]);
+
+  // MODIFICACIÓN 2: Función para consultar la razón social del cliente directamente al script
+  const fetchClientNameFromScript = async (pId) => {
+    if (!pId) {
+      setCertClienteNombre('');
+      return;
+    }
+    try {
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'obtenerCliente',
+          presupuestoId: pId,
+          presupuesto_id: pId
+        })
+      });
+      const resultado = await response.json();
+      if (resultado && (resultado.cliente || resultado.razonSocial || resultado.razon_social)) {
+        setCertClienteNombre(resultado.cliente || resultado.razonSocial || resultado.razon_social);
+      } else {
+        // Fallback local si el script no retorna explícitamente el campo
+        const obj = presupuestos.find(p => String(p?.id || p?.ID) === String(pId));
+        setCertClienteNombre(obtenerClienteDePresupuesto(obj));
+      }
+    } catch (error) {
+      console.error("Error al obtener el cliente desde el script:", error);
+      const obj = presupuestos.find(p => String(p?.id || p?.ID) === String(pId));
+      setCertClienteNombre(obtenerClienteDePresupuesto(obj));
+    }
+  };
+
+  useEffect(() => {
+    if (certPresupuestoId) {
+      fetchClientNameFromScript(certPresupuestoId);
+    } else {
+      setCertClienteNombre('');
+    }
+  }, [certPresupuestoId]);
 
   const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
   
@@ -1373,7 +1415,8 @@ function ReportesContent(props) {
       }
       const totalFinalLiquidacion = certificadoNro === '0' ? montoAdelantoCalculado : (netoACertificar + montoRedetCalculado);
 
-      const clienteNombreFinal = obtenerClienteDePresupuesto(certificadoPresupuestoObj);
+      // MODIFICACIÓN 3: Incluir el cliente obtenido del script en el payload
+      const clienteNombreFinal = certClienteNombre || obtenerClienteDePresupuesto(certificadoPresupuestoObj);
       const obraStr = String(certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra Albañilería');
       const ordenCompraStr = obtenerOrdenDeCompra(certificadoPresupuestoObj);
 
@@ -1609,10 +1652,15 @@ function ReportesContent(props) {
 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
                     <div className="col-span-2">
-                      <span className="text-slate-500 font-semibold block">Cliente:</span>
-                      <strong className="text-slate-900 text-sm">
-                        {obtenerClienteDePresupuesto(certificadoPresupuestoObj)}
-                      </strong>
+                      <span className="text-slate-500 font-semibold block">Cliente (Razón Social):</span>
+                      {/* MODIFICACIÓN 4: Campo editable/visual del cliente obtenido del script */}
+                      <input
+                        type="text"
+                        value={certClienteNombre}
+                        onChange={(e) => setCertClienteNombre(e.target.value)}
+                        placeholder="Razón social del cliente"
+                        className="mt-0.5 w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                      />
                     </div>
                     <div>
                       <span className="text-slate-500 font-semibold block">Presupuesto Nro:</span>
