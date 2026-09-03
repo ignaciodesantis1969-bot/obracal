@@ -705,11 +705,15 @@ function ReportesContent(props) {
   
   const insumosOficialMap = {};
   const insumosProveedorMap = {};
+  const insumosNombreProveedorMap = {};
+
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
       const gId = String(insGlobal?.id || insGlobal?.ID || insGlobal?.insumo_id || '').trim();
       const tipoOriginal = String(insGlobal?.tipo || insGlobal?.Tipo || insGlobal?.tipo_insumo || 'Material').trim().toLowerCase();
-      const proveedorOriginal = insGlobal?.proveedor || insGlobal?.proveedor_nombre || insGlobal?.proveedorNombre || insGlobal?.razon_social || '---';
+      const proveedorOriginal = insGlobal?.proveedor || insGlobal?.proveedor_nombre || insGlobal?.proveedorNombre || insGlobal?.razon_social || '';
+      const nombreGl = String(insGlobal?.nombre || insGlobal?.nombre_articulo || insGlobal?.concepto || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "").trim();
+
       if (gId) {
         let tipoNorm = 'Materiales';
         if (tipoOriginal.includes('mano')) tipoNorm = 'Mano de Obra';
@@ -718,7 +722,12 @@ function ReportesContent(props) {
         else tipoNorm = 'Materiales';
 
         insumosOficialMap[gId] = tipoNorm;
-        insumosProveedorMap[gId] = proveedorOriginal;
+        if (proveedorOriginal && proveedorOriginal !== '---') {
+          insumosProveedorMap[gId] = proveedorOriginal;
+        }
+      }
+      if (nombreGl && proveedorOriginal && proveedorOriginal !== '---') {
+        insumosNombreProveedorMap[nombreGl] = proveedorOriginal;
       }
     });
   }
@@ -819,12 +828,15 @@ function ReportesContent(props) {
           const cUnitIns = Number(ins?.costo_unitario) || Number(ins?.costo) || costoTarea;
           const cantidadTotal = cantIns * (ins && ins.cantidad ? 1 : cantTarea);
           const totalInsumo = cantidadTotal * cUnitIns;
-          const proveedorIns = insumosProveedorMap[insId] || ins?.proveedor || ins?.proveedor_nombre || '---';
+          
+          const nombreInsStr = ins?.nombre || ins?.nombre_del_articulo || ins?.concepto || tarea?.tarea || 'Insumo sin nombre';
+          const nombreInsClean = limpiarTexto(nombreInsStr);
+          const proveedorIns = ins?.proveedor || ins?.proveedor_nombre || ins?.proveedorNombre || insumosProveedorMap[insId] || insumosNombreProveedorMap[nombreInsClean] || '---';
 
           const itemProcesado = {
             rubro: nombreRubro,
             tarea: tarea?.tarea || 'Sin tarea',
-            nombre: ins?.nombre || ins?.nombre_del_articulo || ins?.concepto || tarea?.tarea || 'Insumo sin nombre',
+            nombre: nombreInsStr,
             unidad: ins?.unidad || tarea?.unidad || 'un',
             cantidad: cantidadTotal,
             costo_unitario: cUnitIns,
@@ -841,7 +853,7 @@ function ReportesContent(props) {
     });
 
     return { insumosPorRubro: porRubro, insumosGenerales: general };
-  }, [presupuestoInsumosSeleccionado, insumosOficialMap, insumosProveedorMap]);
+  }, [presupuestoInsumosSeleccionado, insumosOficialMap, insumosProveedorMap, insumosNombreProveedorMap]);
 
   const ordenCategorias = ['MANO DE OBRA', 'MATERIALES', 'SUBCONTRATOS', 'EQUIPOS / HERRAMIENTAS', 'OTROS'];
 
@@ -1304,6 +1316,29 @@ function ReportesContent(props) {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
+      <style dangerouslySetInnerHTML={{__html: `
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          #printable-insumos-container, #printable-insumos-container * {
+            visibility: visible !important;
+          }
+          #printable-insumos-container {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 10px !important;
+            background: white !important;
+          }
+          .print\\:hidden {
+            display: none !important;
+          }
+        }
+      `}} />
+
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:hidden">
         <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes</h1>
         <p className="text-slate-500 text-sm mt-1">
@@ -2339,7 +2374,7 @@ function ReportesContent(props) {
       )}
 
       {!esOperador && activeTab === 'Listado de Insumos' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
+        <div id="printable-insumos-container" className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
