@@ -677,7 +677,9 @@ export default function Reportes(props) {
         ? JSON.parse(presupuestoInsumosSeleccionado.items_detalle) 
         : presupuestoInsumosSeleccionado.items_detalle;
       
-      itemsDetalle = parsed?.rubros || parsed || [];
+      if (Array.isArray(parsed)) itemsDetalle = parsed;
+      else if (parsed?.rubros && Array.isArray(parsed.rubros)) itemsDetalle = parsed.rubros;
+      else itemsDetalle = [];
     } catch (e) {
       itemsDetalle = [];
     }
@@ -823,8 +825,10 @@ export default function Reportes(props) {
         ? JSON.parse(presupuestoSeleccionado.items_detalle) 
         : presupuestoSeleccionado.items_detalle;
       
-      if (parsedDetalle && parsedDetalle.rubros) {
-        rubrosPresupuestoDetalle = parsedDetalle.rubros.map((rubroItem, rIdx) => {
+      const rubrosArray = Array.isArray(parsedDetalle) ? parsedDetalle : (parsedDetalle?.rubros || []);
+
+      if (rubrosArray.length > 0) {
+        rubrosPresupuestoDetalle = rubrosArray.map((rubroItem, rIdx) => {
           const tareasList = rubroItem.tareas || [];
           let totalRubro = 0;
           
@@ -1053,7 +1057,10 @@ export default function Reportes(props) {
       const parsed = typeof certificadoPresupuestoObj.items_detalle === 'string'
         ? JSON.parse(certificadoPresupuestoObj.items_detalle)
         : certificadoPresupuestoObj.items_detalle;
-      itemsDetalle = parsed?.rubros || parsed || [];
+      
+      if (Array.isArray(parsed)) itemsDetalle = parsed;
+      else if (parsed?.rubros && Array.isArray(parsed.rubros)) itemsDetalle = parsed.rubros;
+      else itemsDetalle = [];
     } catch (e) {
       itemsDetalle = [];
     }
