@@ -190,6 +190,7 @@ function ReportesContent(props) {
     
     for (const [k, v] of Object.entries(presupuesto)) {
       const lowerK = String(k).toLowerCase();
+      if (lowerK.includes('responsable')) continue; // Excluir campos de responsable
       if ((lowerK.includes('client') || lowerK.includes('razon') || lowerK.includes('empresa') || lowerK.includes('comitente')) && v !== undefined && v !== null && String(v).trim() !== '') {
         if (typeof v === 'object') {
           const resObj = v.nombre || v.razon_social || v.empresa || v.razonSocial;
@@ -205,6 +206,7 @@ function ReportesContent(props) {
       if (obraEncontrada) {
         for (const [k, v] of Object.entries(obraEncontrada)) {
           const lowerK = String(k).toLowerCase();
+          if (lowerK.includes('responsable')) continue;
           if ((lowerK.includes('client') || lowerK.includes('razon') || lowerK.includes('empresa') || lowerK.includes('comitente')) && v !== undefined && v !== null && String(v).trim() !== '') {
             if (typeof v === 'object') {
               const resObj = v.nombre || v.razon_social || v.empresa || v.razonSocial;
@@ -1251,6 +1253,14 @@ function ReportesContent(props) {
 
     return { filasRender, sumaTotalPresupuesto, sumaTotalAnterior, sumaTotalActual, sumaTotalAcumulado, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
+
+  // Sincronizar automáticamente el monto del adelanto en $ al cambiar el presupuesto o el porcentaje
+  useEffect(() => {
+    const totalPresupuestoBase = certificadoCalculos?.totalPresupuestoCalc || 0;
+    if (totalPresupuestoBase > 0) {
+      setAdelantoMonto(Math.round(totalPresupuestoBase * (adelantoPct / 100)));
+    }
+  }, [certificadoCalculos?.totalPresupuestoCalc, adelantoPct]);
 
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
