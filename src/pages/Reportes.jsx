@@ -1223,7 +1223,7 @@ function ReportesContent(props) {
       const ordenCompraStr = String(certificadoPresupuestoObj?.orden_compra || certificadoPresupuestoObj?.ordenCompra || certificadoPresupuestoObj?.oc || '---');
 
       const payloadCert = {
-        action: 'guardarYGenerarPDF',
+        action: 'guardarCertificado',
         tabla: 'Certificaciones',
         presupuesto_id: String(certPresupuestoId || ''),
         certificado_nro: String(certificadoNro || '0'),
@@ -1234,6 +1234,7 @@ function ReportesContent(props) {
         total_periodo: Number(totalCertificadoPeriodo) || 0,
         adelanto_descuento: Number(descuentoAdelantoCert) || 0,
         adicionales: Number(adicionalesMonto) || 0,
+        acicionales: Number(adicionalesMonto) || 0,
         redeterminacion: Number(montoRedetCalculado) || 0,
         total_general: Number(totalFinalLiquidacion) || 0,
         proveedor_nombre: String(certRespProveedor?.nombre || ''),
@@ -1381,14 +1382,6 @@ function ReportesContent(props) {
                       </option>
                     ))}
                   </select>
-                  {certificadoPresupuestoObj && (
-                    <button 
-                      onClick={() => window.print()}
-                      className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm cursor-pointer whitespace-nowrap"
-                    >
-                      <Printer className="w-4 h-4" /> Imprimir / PDF
-                    </button>
-                  )}
                 </div>
               </div>
 
@@ -1720,7 +1713,6 @@ function ReportesContent(props) {
                 </div>
               )}
 
-              {/* Historial de Certificados al Pie */}
               <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4 mt-6 print:hidden">
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Certificados Emitidos</h3>
                 {allCertificados.length === 0 ? (
