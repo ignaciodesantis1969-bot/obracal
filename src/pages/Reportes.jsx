@@ -704,10 +704,12 @@ function ReportesContent(props) {
   const presupuestoSeleccionado = presupuestos.find(p => String(p?.id || p?.ID) === String(compPresupuestoId));
   
   const insumosOficialMap = {};
+  const insumosProveedorMap = {};
   if (Array.isArray(insumos)) {
     insumos.forEach(insGlobal => {
       const gId = String(insGlobal?.id || insGlobal?.ID || insGlobal?.insumo_id || '').trim();
       const tipoOriginal = String(insGlobal?.tipo || insGlobal?.Tipo || insGlobal?.tipo_insumo || 'Material').trim().toLowerCase();
+      const proveedorOriginal = insGlobal?.proveedor || insGlobal?.proveedor_nombre || insGlobal?.proveedorNombre || insGlobal?.razon_social || '---';
       if (gId) {
         let tipoNorm = 'Materiales';
         if (tipoOriginal.includes('mano')) tipoNorm = 'Mano de Obra';
@@ -716,6 +718,7 @@ function ReportesContent(props) {
         else tipoNorm = 'Materiales';
 
         insumosOficialMap[gId] = tipoNorm;
+        insumosProveedorMap[gId] = proveedorOriginal;
       }
     });
   }
@@ -796,7 +799,8 @@ function ReportesContent(props) {
             tipo: tipoInsumoDerivado,
             unidad: unidadDerivada,
             cantidad: cantTarea,
-            costo_unitario: costoTarea
+            costo_unitario: costoTarea,
+            proveedor: '---'
           }];
         }
 
@@ -815,6 +819,7 @@ function ReportesContent(props) {
           const cUnitIns = Number(ins?.costo_unitario) || Number(ins?.costo) || costoTarea;
           const cantidadTotal = cantIns * (ins && ins.cantidad ? 1 : cantTarea);
           const totalInsumo = cantidadTotal * cUnitIns;
+          const proveedorIns = insumosProveedorMap[insId] || ins?.proveedor || ins?.proveedor_nombre || '---';
 
           const itemProcesado = {
             rubro: nombreRubro,
@@ -823,7 +828,8 @@ function ReportesContent(props) {
             unidad: ins?.unidad || tarea?.unidad || 'un',
             cantidad: cantidadTotal,
             costo_unitario: cUnitIns,
-            total: totalInsumo
+            total: totalInsumo,
+            proveedor: proveedorIns
           };
 
           if (!porRubro[nombreRubro][catNormalizada]) porRubro[nombreRubro][catNormalizada] = [];
@@ -835,7 +841,7 @@ function ReportesContent(props) {
     });
 
     return { insumosPorRubro: porRubro, insumosGenerales: general };
-  }, [presupuestoInsumosSeleccionado, insumosOficialMap]);
+  }, [presupuestoInsumosSeleccionado, insumosOficialMap, insumosProveedorMap]);
 
   const ordenCategorias = ['MANO DE OBRA', 'MATERIALES', 'SUBCONTRATOS', 'EQUIPOS / HERRAMIENTAS', 'OTROS'];
 
@@ -2334,14 +2340,14 @@ function ReportesContent(props) {
 
       {!esOperador && activeTab === 'Listado de Insumos' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
                 <Package className="w-4 h-4 text-amber-500" /> Listado de Insumos por Presupuesto
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">Seleccione un presupuesto aprobado para desglosar sus insumos y materiales.</p>
             </div>
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
               <select
                 value={insumoPresupuestoId}
                 onChange={(e) => setInsumoPresupuestoId(e.target.value)}
@@ -2363,6 +2369,12 @@ function ReportesContent(props) {
               >
                 {vistaGeneralInsumos ? 'Ver por Rubros' : 'Ver Vista General'}
               </button>
+              <button
+                onClick={() => window.print()}
+                className="px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs hover:bg-amber-600 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+              >
+                <Printer className="w-4 h-4" /> Exportar a PDF / Imprimir
+              </button>
             </div>
           </div>
 
@@ -2377,13 +2389,13 @@ function ReportesContent(props) {
                 const itemsCat = insumosGenerales[cat] || [];
                 if (itemsCat.length === 0) return null;
 
-                // Agrupamiento por nombre de insumo
                 const agrupadosMap = {};
                 itemsCat.forEach(it => {
                   const nombreKey = String(it?.nombre || '').trim().toLowerCase();
                   if (!agrupadosMap[nombreKey]) {
                     agrupadosMap[nombreKey] = {
                       nombre: it?.nombre || 'Sin nombre',
+                      proveedor: it?.proveedor || '---',
                       unidad: it?.unidad || 'un',
                       cantidad: 0,
                       costo_unitario: Number(it?.costo_unitario) || 0,
@@ -2392,6 +2404,9 @@ function ReportesContent(props) {
                   }
                   agrupadosMap[nombreKey].cantidad += Number(it?.cantidad) || 0;
                   agrupadosMap[nombreKey].total += Number(it?.total) || 0;
+                  if ((agrupadosMap[nombreKey].proveedor === '---' || !agrupadosMap[nombreKey].proveedor) && it?.proveedor && it?.proveedor !== '---') {
+                    agrupadosMap[nombreKey].proveedor = it.proveedor;
+                  }
                 });
                 const itemsAgrupados = Object.values(agrupadosMap).map(item => ({
                   ...item,
@@ -2409,6 +2424,7 @@ function ReportesContent(props) {
                       <thead>
                         <tr className="text-slate-500 font-bold uppercase text-[10px]">
                           <th className="py-2 px-2">Insumo / Artículo</th>
+                          <th className="py-2 px-2">Proveedor</th>
                           <th className="py-2 px-2 text-center">Unidad</th>
                           <th className="py-2 px-2 text-right">Cant.</th>
                           <th className="py-2 px-2 text-right">C. Unit.</th>
@@ -2419,6 +2435,7 @@ function ReportesContent(props) {
                         {itemsAgrupados.map((it, iIdx) => (
                           <tr key={iIdx} className="hover:bg-white">
                             <td className="py-2 px-2 font-bold text-slate-900">{it?.nombre}</td>
+                            <td className="py-2 px-2 text-slate-700 font-medium">{it?.proveedor}</td>
                             <td className="py-2 px-2 text-center text-slate-500">{it?.unidad}</td>
                             <td className="py-2 px-2 text-right">{it?.cantidad}</td>
                             <td className="py-2 px-2 text-right">$ {Number(it?.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
@@ -2454,6 +2471,7 @@ function ReportesContent(props) {
                               <tr className="text-slate-500 font-bold uppercase text-[10px]">
                                 <th className="py-1.5 px-2">Tarea</th>
                                 <th className="py-1.5 px-2">Insumo</th>
+                                <th className="py-1.5 px-2">Proveedor</th>
                                 <th className="py-1.5 px-2 text-center">Unidad</th>
                                 <th className="py-1.5 px-2 text-right">Cant.</th>
                                 <th className="py-1.5 px-2 text-right">C. Unit.</th>
@@ -2465,6 +2483,7 @@ function ReportesContent(props) {
                                 <tr key={iIdx} className="hover:bg-white">
                                   <td className="py-1.5 px-2 text-slate-600">{it?.tarea}</td>
                                   <td className="py-1.5 px-2 font-bold text-slate-900">{it?.nombre}</td>
+                                  <td className="py-1.5 px-2 text-slate-700 font-medium">{it?.proveedor}</td>
                                   <td className="py-1.5 px-2 text-center text-slate-500">{it?.unidad}</td>
                                   <td className="py-1.5 px-2 text-right">{it?.cantidad}</td>
                                   <td className="py-1.5 px-2 text-right">$ {Number(it?.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
