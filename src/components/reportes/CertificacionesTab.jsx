@@ -30,12 +30,10 @@ export default function CertificacionesTab({
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
-  // Firmantes manuales (sin autocompletar cargos para evitar borrados)
   const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: '' });
   const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: '' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
-  // Carga inicial de Clientes, Obras y Certificaciones desde Google Sheets
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -88,7 +86,6 @@ export default function CertificacionesTab({
 
   const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
 
-  // Secuencia estricta solicitada: Presupuestos --> obra_id --> Obra --> cliente_id --> Clientes --> razon_social
   const resolverRazonSocialCliente = (pObj) => {
     if (!pObj) return '';
     const obraId = pObj.obra_id || pObj.obraId || pObj.id_obra || pObj.obra;
@@ -123,7 +120,6 @@ export default function CertificacionesTab({
     if (certPresupuestoId && certificadoPresupuestoObj) {
       const clienteResuelto = resolverRazonSocialCliente(certificadoPresupuestoObj);
       setCertClienteNombre(clienteResuelto);
-      // Asignar nombre inicial del cliente al firmante cliente si está vacío
       setCertRespCliente(prev => ({
         ...prev,
         nombre: prev.nombre || clienteResuelto
@@ -133,33 +129,40 @@ export default function CertificacionesTab({
     }
   }, [certPresupuestoId, certificadoPresupuestoObj, fetchedClientes, listaObrasCompleta]);
 
-  const certificadosGuardadosSet = useMemo(() => {
-    const set = new Set();
-    allCertificados.forEach(c => {
-      const pId = String(c?.presupuestoId || c?.presupuesto_id || '').trim();
-      const nro = String(c?.certificadoNro || c?.certificado_nro || '').trim();
-      if (pId && nro !== '') set.add(`${pId}_${nro}`);
-    });
-    return set;
-  }, [allCertificados]);
-
-  const presupuestosDisponiblesCert = useMemo(() => {
-    return presupuestos.filter(p => {
-      const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || '').toLowerCase().trim();
-      if (est !== 'aprobado' && est !== 'aprobada') return false;
-      const pId = String(p?.id || p?.ID || '').trim();
-      // Oculta del desplegable si este número de certificado ya fue guardado para este presupuesto
-      return !certificadosGuardadosSet.has(`${pId}_${certificadoNro}`);
-    });
-  }, [presupuestos, certificadosGuardadosSet, certificadoNro]);
-
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
-    return allCertificados.filter(c => String(c?.presupuestoId || c?.presupuesto_id || '').trim() === String(certPresupuestoId).trim());
+    return allCertificados.filter(c => {
+      const pId = String(c?.presupuestoId || c?.presupuesto_id || '').trim();
+      return pId === String(certPresupuestoId).trim();
+    });
   }, [allCertificados, certPresupuestoId]);
 
+  const numerosCertificadosGuardadosActuales = useMemo(() => {
+    const set = new Set();
+    certificadosDelPresupuestoActual.forEach(c => {
+      const nro = String(c?.certificadoNro !== undefined ? c.certificadoNro : (c?.certificado_nro || '')).trim();
+      if (nro !== '') set.add(nro);
+    });
+    return set;
+  }, [certificadosDelPresupuestoActual]);
+
+  const opcionesCertificadoNro = useMemo(() => {
+    const todas = ['0', '1', '2', '3', '4', '5'];
+    if (!certPresupuestoId) return todas;
+    return todas.filter(nro => !numerosCertificadosGuardadosActuales.has(nro));
+  }, [certPresupuestoId, numerosCertificadosGuardadosActuales]);
+
+  useEffect(() => {
+    if (certPresupuestoId && numerosCertificadosGuardadosActuales.has(certificadoNro)) {
+      const disponible = opcionesCertificadoNro[0];
+      if (disponible !== undefined) {
+        setCertificadoNro(disponible);
+      }
+    }
+  }, [certPresupuestoId, numerosCertificadosGuardadosActuales, certificadoNro, opcionesCertificadoNro]);
+
   const obtenerPctAnteriorAcumulado = (rIdx, tIdx) => {
-    if (certificadoNro === '0' || certificadoNro === '1') return 0;
+    if (String(certificadoNro).trim() === '0' || String(certificadoNro).trim() === '1') return 0;
     let sumaPct = 0;
     const nroActual = parseInt(certificadoNro, 10) || 1;
     certificadosDelPresupuestoActual.forEach(cert => {
@@ -196,7 +199,8 @@ export default function CertificacionesTab({
       
       const tareasFilas = tareasRubro.map((t, tIdx) => {
         const cant = Number(t?.cantidad) || 1;
-        const pUnit = Number(t?.costo_unitario) || Number(t?.precio_unitario) || 0;
+        // MODIFICACIÓN APLICADA: Prioriza el precio de venta unitario del presupuesto sobre el costo
+        const pUnit = Number(t?.precio_unitario) || Number(t?.precio) || Number(t?.costo_unitario) || 0;
         const totalItem = cant * pUnit;
         totalRubro += totalItem;
 
@@ -205,7 +209,8 @@ export default function CertificacionesTab({
         rubroAnterior += impAnterior;
 
         const keyMap = `${rIdx}-${tIdx}`;
-        const defaultPctActual = certificadoNro === '1' || certificadoNro === '0' ? 0 : 10;
+        const isCertZeroOrOne = String(certificadoNro).trim() === '0' || String(certificadoNro).trim() === '1';
+        const defaultPctActual = isCertZeroOrOne ? 0 : 10;
         const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : defaultPctActual;
         const impActual = totalItem * (pctActual / 100);
         rubroActual += impActual;
@@ -227,7 +232,7 @@ export default function CertificacionesTab({
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
   useEffect(() => {
-    if (certificadoCalculos?.totalPresupuestoCalc > 0 && certificadoNro === '0') {
+    if (certificadoCalculos?.totalPresupuestoCalc > 0 && String(certificadoNro).trim() === '0') {
       setAdelantoMonto(certificadoCalculos.totalPresupuestoCalc * (adelantoPct / 100));
     }
   }, [certificadoCalculos?.totalPresupuestoCalc, certPresupuestoId]);
@@ -238,12 +243,13 @@ export default function CertificacionesTab({
     setIsSavingCert(true);
     try {
       const totalPresupuestoBase = certificadoCalculos?.totalPresupuestoCalc || 1;
-      const totalCertificadoPeriodo = certificadoNro === '0' ? 0 : certificadoCalculos?.totalActualCalc;
+      const isCertZero = String(certificadoNro).trim() === '0';
+      const totalCertificadoPeriodo = isCertZero ? 0 : certificadoCalculos?.totalActualCalc;
       
-      const descuentoAdelantoCert = certificadoNro !== '0' ? totalCertificadoPeriodo * (adelantoPct / 100) : 0;
-      const netoACertificar = totalCertificadoPeriodo - (certificadoNro === '0' ? 0 : descuentoAdelantoCert) + Number(adicionalesMonto);
+      const descuentoAdelantoCert = !isCertZero ? totalCertificadoPeriodo * (adelantoPct / 100) : 0;
+      const netoACertificar = totalCertificadoPeriodo - (isCertZero ? 0 : descuentoAdelantoCert) + Number(adicionalesMonto);
       
-      const totalFinalLiquidacion = certificadoNro === '0' ? adelantoMonto : (netoACertificar + redeterminacionMonto);
+      const totalFinalLiquidacion = isCertZero ? adelantoMonto : (netoACertificar + redeterminacionMonto);
 
       const payloadCert = {
         action: 'guardarCertificado',
@@ -260,10 +266,10 @@ export default function CertificacionesTab({
         adicionales: Number(adicionalesMonto),
         redeterminacion: redeterminacionMonto,
         total_general: totalFinalLiquidacion,
-        proveedor_nombre: certRespProveedor.nombre,
-        proveedor_cargo: certRespProveedor.cargo,
-        cliente_nombre: certRespCliente.nombre,
-        cliente_cargo: certRespCliente.cargo
+        proveedor_nombre: certRespProveedor.nombre || '',
+        proveedor_cargo: certRespProveedor.cargo || '',
+        cliente_nombre: certRespCliente.nombre || '',
+        cliente_cargo: certRespCliente.cargo || ''
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -357,12 +363,15 @@ export default function CertificacionesTab({
                   onChange={(e) => setCertificadoNro(e.target.value)}
                   className="bg-white border border-slate-300 rounded-xl px-2 py-1 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
                 >
-                  <option value="0">0 (Adelanto Financiero)</option>
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                  <option value="4">4</option>
-                  <option value="5">5</option>
+                  {opcionesCertificadoNro.length === 0 ? (
+                    <option value="" disabled>Todos emitidos</option>
+                  ) : (
+                    opcionesCertificadoNro.map(nro => (
+                      <option key={nro} value={nro}>
+                        {nro === '0' ? '0 (Adelanto Financiero)' : nro}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
               <div className="flex items-center gap-2">
@@ -382,7 +391,10 @@ export default function CertificacionesTab({
                 className="bg-white border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer w-full"
               >
                 <option value="">-- Seleccionar Presupuesto Aprobado --</option>
-                {presupuestosDisponiblesCert.map(p => (
+                {presupuestos.filter(p => {
+                  const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || '').toLowerCase().trim();
+                  return est === 'aprobado' || est === 'aprobada';
+                }).map(p => (
                   <option key={p?.id || p?.ID} value={p?.id || p?.ID}>
                     [{p?.codigo || p?.id}] {p?.nombre || 'Presupuesto'}
                   </option>
@@ -404,8 +416,8 @@ export default function CertificacionesTab({
                 </div>
                 <div className="text-right">
                   <h2 className="text-2xl font-black text-slate-900 tracking-wide uppercase">CERTIFICADO POR AVANCE DE OBRA</h2>
-                  <p className={`text-sm font-bold mt-1 ${certificadoNro === '0' ? 'text-blue-600' : 'text-slate-700'}`}>
-                    Certificado Nro.: {certificadoNro} {certificadoNro === '0' ? '(Adelanto Financiero)' : ''}
+                  <p className={`text-sm font-bold mt-1 ${String(certificadoNro).trim() === '0' ? 'text-blue-600' : 'text-slate-700'}`}>
+                    Certificado Nro.: {certificadoNro} {String(certificadoNro).trim() === '0' ? '(Adelanto Financiero)' : ''}
                   </p>
                 </div>
               </div>
@@ -466,7 +478,7 @@ export default function CertificacionesTab({
                   <tbody className="divide-y divide-slate-300">
                     {certificadoCalculos.filasRender.map((rubroObj) => (
                       <React.Fragment key={rubroObj.rIdx}>
-                        {/* RUBRO CON FONDO GRIS DISTINTIVO (bg-slate-300) */}
+                        {/* RUBROS CON FONDO GRIS DISTINTIVO (bg-slate-300) */}
                         <tr className="bg-slate-300 font-black text-slate-950 border-t-2 border-slate-400">
                           <td className="py-2.5 px-2 text-center border-r border-slate-400">{rubroObj.rIdx + 1}</td>
                           <td className="py-2.5 px-3 uppercase border-r border-slate-400" colSpan="3">{rubroObj.nombre}</td>
@@ -517,14 +529,9 @@ export default function CertificacionesTab({
                 
                 {(() => {
                   const totalPresupuestoBase = certificadoCalculos.totalPresupuestoCalc || 1;
-                  const totalCertificadoPeriodo = certificadoNro === '0' ? 0 : certificadoCalculos.totalActualCalc;
+                  const isCertZero = String(certificadoNro).trim() === '0';
 
-                  const descuentoAdelantoCert = certificadoNro !== '0' ? totalCertificadoPeriodo * (adelantoPct / 100) : 0;
-                  const netoACertificar = totalCertificadoPeriodo - (certificadoNro === '0' ? 0 : descuentoAdelantoCert) + Number(adicionalesMonto);
-                  
-                  const totalFinalLiquidacion = certificadoNro === '0' ? adelantoMonto : (netoACertificar + redeterminacionMonto);
-
-                  if (certificadoNro === '0') {
+                  if (isCertZero) {
                     return (
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
                         <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-300">
@@ -572,6 +579,11 @@ export default function CertificacionesTab({
                       </div>
                     );
                   }
+
+                  const totalCertificadoPeriodo = certificadoCalculos.totalActualCalc;
+                  const descuentoAdelantoCert = totalCertificadoPeriodo * (adelantoPct / 100);
+                  const netoACertificar = totalCertificadoPeriodo - descuentoAdelantoCert + Number(adicionalesMonto);
+                  const totalFinalLiquidacion = netoACertificar + redeterminacionMonto;
 
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
@@ -650,7 +662,7 @@ export default function CertificacionesTab({
                 })()}
               </div>
 
-              {/* BLOQUE DE FIRMAS EXACTO CON CARGOS MANUALES Y CHECKMARK DE VERIFICACIÓN */}
+              {/* BLOQUE DE FIRMAS CON CARGOS MANUALES Y CHECKMARK DE VERIFICACIÓN */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 print:mt-10">
                 <div className="border border-slate-400 rounded-lg overflow-hidden bg-white">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
