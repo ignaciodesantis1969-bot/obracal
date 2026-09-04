@@ -1,20 +1,22 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { useObraData } from '../../hooks/useObraData';
-import { OBRAS_CONFIG } from '../../config/constants';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-import { Printer, Trash2, Plus, FileText, ExternalLink } from 'lucide-react';
+import { Printer, Plus, Trash2, ShieldCheck, ExternalLink, Eye, X, Users, Calendar } from 'lucide-react';
 
 export default function ReportesDiariosTab({
-  contratosList,
-  allReportesSice,
-  setFetchedReportesSice,
-  listaEmpleadosActivos,
-  esOperador,
-  buscarValorEnObjeto
+  contratosList = [],
+  allReportesSice = [],
+  setFetchedReportesSice = () => {},
+  listaEmpleadosActivos = [],
+  esOperador = false,
+  buscarValorEnObjeto = (obj, keys) => {
+    if (!obj) return '';
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
+    }
+    return '';
+  }
 }) {
-  const { isLoading: isLoadingReportes } = useObraData(OBRAS_CONFIG.TABLAS.REPORTES_SICE);
-  
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   const [siceParteNro, setSiceParteNro] = useState('00005');
@@ -25,8 +27,9 @@ export default function ReportesDiariosTab({
   const [siceRespProveedor, setSiceRespProveedor] = useState({ cargo: '', nombre: '', clave: '' });
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
   const [isSavingSice, setIsSavingSice] = useState(false);
+  const [parteVisualizando, setParteVisualizando] = useState(null);
 
-  const calcularTotalHorasSice = (inicio, fin) => {
+  const calcularTotalHorasSice = useCallback((inicio, fin) => {
     if (!inicio || !fin) return 0;
     const [hIni, mIni] = String(inicio).split(':').map(Number);
     const [hFin, mFin] = String(fin).split(':').map(Number);
@@ -36,13 +39,17 @@ export default function ReportesDiariosTab({
     if (horasEfectivas <= 0) return 0;
     const horasConProporcional = horasEfectivas * (11 / 9);
     return Number(horasConProporcional.toFixed(2));
-  };
+  }, []);
+
+  const totalHorasDefaultCalculado = useMemo(() => {
+    return siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it?.horaComienzo, it?.horaFin), 0);
+  }, [siceItems, calcularTotalHorasSice]);
 
   useEffect(() => {
     if (listaEmpleadosActivos.length > 0 && operariosSeleccionados.length === 0) {
       const iniciales = listaEmpleadosActivos.slice(0, 1).map(emp => {
         const nombreEmp = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || 'Operario';
-        const abrevEmp = OBRAS_CONFIG.determinarCategoriaEmpleado(nombreEmp);
+        const abrevEmp = OBRAS_CONFIG?.determinarCategoriaEmpleado ? OBRAS_CONFIG.determinarCategoriaEmpleado(nombreEmp) : 'OE';
         return {
           id: buscarValorEnObjeto(emp, ['id', 'ID']) || Math.random().toString(),
           nombre: nombreEmp,
@@ -54,7 +61,7 @@ export default function ReportesDiariosTab({
     }
   }, [listaEmpleadosActivos, operariosSeleccionados.length, buscarValorEnObjeto]);
 
-  const extraerDatosContrato = (contrato) => {
+  const extraerDatosContrato = useCallback((contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
     let objData = { ...contrato };
     ['descripcion', 'detalle', 'config', 'datos'].forEach(campo => {
@@ -82,7 +89,7 @@ export default function ReportesDiariosTab({
     let cKey = buscarValorEnObjeto(objData, ['cliente_key', 'clienteKey', 'claveCliente']) || objData?.cliente?.key || 'CM7030';
 
     return { pCargo, pNombre, pKey, cCargo, cNombre, cKey };
-  };
+  }, [buscarValorEnObjeto]);
 
   const clavesContratoActual = useMemo(() => {
     const contratoActivo = contratosList.find(c => {
@@ -94,7 +101,7 @@ export default function ReportesDiariosTab({
       return { proveedorKey: extracted.pKey, clienteKey: extracted.cKey };
     }
     return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
-  }, [contratosList, contratoSeleccionadoId, buscarValorEnObjeto]);
+  }, [contratosList, contratoSeleccionadoId, buscarValorEnObjeto, extraerDatosContrato]);
 
   useEffect(() => {
     if (contratoSeleccionadoId) {
@@ -108,7 +115,7 @@ export default function ReportesDiariosTab({
         setSiceRespCliente(prev => ({ cargo: cCargo, nombre: cNombre, clave: prev?.clave || '' }));
       }
     }
-  }, [contratoSeleccionadoId, contratosList, buscarValorEnObjeto]);
+  }, [contratoSeleccionadoId, contratosList, buscarValorEnObjeto, extraerDatosContrato]);
 
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
@@ -303,239 +310,520 @@ export default function ReportesDiariosTab({
 
   return (
     <div className="space-y-6">
-      <div className="bg-white p-6 rounded-2xl border shadow-sm">
-        <h2 className="text-xl font-bold text-slate-900 mb-4">Gestión de Reportes Diarios SICE</h2>
-        
-        {/* Selector de Contrato */}
-        <div className="mb-4">
-          <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contrato de Mantenimiento Asociado:</label>
-          <select
-            value={contratoSeleccionadoId}
-            onChange={(e) => setContratoSeleccionadoId(e.target.value)}
-            className="w-full p-2.5 border rounded-xl text-sm bg-slate-50 font-medium"
-          >
-            <option value="">-- Seleccione un Contrato --</option>
-            {contratosList.map(c => {
-              const cId = buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo']);
-              const cNombre = buscarValorEnObjeto(c, ['nombre', 'nombre_contrato', 'Nombre']);
-              const cCliente = buscarValorEnObjeto(c, ['cliente', 'Cliente']);
-              return (
-                <option key={cId} value={cId}>
-                  {cId} - {cNombre} ({cCliente})
-                </option>
-              );
-            })}
-          </select>
+      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
+          <div>
+            <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-amber-500" /> Parte Diario de Actividades (SICE S.A.)
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">Asocie un contrato, complete los operarios activos, los ítems y corrobore las claves.</p>
+          </div>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <select
+              value={contratoSeleccionadoId}
+              onChange={(e) => setContratoSeleccionadoId(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+            >
+              <option value="">-- Seleccionar Contrato ({contratosList.length} disponibles) --</option>
+              {contratosList.map((c, i) => {
+                const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo']) || i);
+                const cCod = buscarValorEnObjeto(c, ['codigo', 'Codigo']) || 'S/C';
+                const cNom = buscarValorEnObjeto(c, ['nombre', 'nombre_contrato', 'Nombre_contrato', 'nombreContrato', 'cliente', 'Cliente']) || 'Contrato';
+                const cEst = buscarValorEnObjeto(c, ['estado', 'Estado']) || 'Activo';
+                return (
+                  <option key={cId} value={cId}>
+                    [{cCod}] {cNom} ({cEst})
+                  </option>
+                );
+              })}
+            </select>
+            <button 
+              onClick={() => window.print()}
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm cursor-pointer whitespace-nowrap"
+            >
+              <Printer className="w-4 h-4" /> Imprimir / PDF
+            </button>
+          </div>
         </div>
 
-        {/* Formulario de carga de parte */}
-        <form onSubmit={aprobarYArchivarParteSice} className="space-y-4 border-t pt-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha del Parte:</label>
-              <input
-                type="date"
-                value={siceFecha}
-                onChange={(e) => setSiceFecha(e.target.value)}
-                className="w-full p-2.5 border rounded-xl text-sm"
-                required
-              />
+        <div className="bg-white p-6 rounded-2xl border border-slate-400 space-y-6 text-slate-900">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
+            <div className="flex items-center gap-3">
+              <img src="/logo-07.png" alt="SICE S.A." className="h-24 object-contain" />
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Número de Parte:</label>
-              <input
-                type="text"
-                value={siceParteNro}
-                onChange={(e) => setSiceParteNro(e.target.value)}
-                className="w-full p-2.5 border rounded-xl text-sm font-mono"
-                required
-              />
-            </div>
+            <h2 className="text-xl font-black text-slate-900 tracking-wide">PARTE DIARIO DE ACTIVIDADES</h2>
           </div>
 
-          {/* Tabla de ítems diarios */}
-          <div className="space-y-2">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xs font-bold uppercase text-slate-600">Ítems de Actividades</h3>
-              <button
-                type="button"
-                onClick={agregarFilaSice}
-                className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 flex items-center gap-1"
-              >
-                <Plus size={14} /> Agregar Ítem
-              </button>
-            </div>
-            {siceItems.map((item, idx) => (
-              <div key={item.id || idx} className="flex gap-2 items-center bg-slate-50 p-3 rounded-xl border">
-                <input
-                  type="text"
-                  placeholder="Descripción de la tarea"
-                  value={item.descripcion}
-                  onChange={(e) => actualizarItemSice(idx, 'descripcion', e.target.value)}
-                  className="flex-1 p-2 border rounded-lg text-xs bg-white"
-                  required
+          <div className="text-xs space-y-1 border-b border-slate-300 pb-4">
+            <p className="font-extrabold text-blue-900 text-sm">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
+              <div><span className="text-slate-500 font-semibold">C.U.I.T. Nro.:</span> <span className="font-bold">30-71573431-8</span></div>
+              <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
+              <div>
+                <span className="text-slate-500 font-semibold">Fecha:</span>{' '}
+                <input 
+                  type="date" 
+                  value={siceFecha} 
+                  onChange={(e) => setSiceFecha(e.target.value)}
+                  className="bg-slate-50 border border-slate-300 rounded px-2 py-0.5 font-bold text-xs outline-none focus:border-amber-500"
                 />
-                <input
-                  type="time"
-                  value={item.horaComienzo}
-                  onChange={(e) => actualizarItemSice(idx, 'horaComienzo', e.target.value)}
-                  className="p-2 border rounded-lg text-xs bg-white w-24"
-                />
-                <input
-                  type="time"
-                  value={item.horaFin}
-                  onChange={(e) => actualizarItemSice(idx, 'horaFin', e.target.value)}
-                  className="p-2 border rounded-lg text-xs bg-white w-24"
-                />
-                <select
-                  value={item.terminoTarea}
-                  onChange={(e) => actualizarItemSice(idx, 'terminoTarea', e.target.value)}
-                  className="p-2 border rounded-lg text-xs bg-white w-20"
-                >
-                  <option value="SI">SI</option>
-                  <option value="NO">NO</option>
-                </select>
-                {siceItems.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() => setSiceItems(siceItems.filter((_, i) => i !== idx))}
-                    className="text-rose-500 hover:text-rose-700 p-1"
-                  >
-                    <Trash2 size={16} />
-                  </button>
-                )}
               </div>
-            ))}
+              <div><span className="text-slate-500 font-semibold">Número de Proveedor Nro.:</span> <span className="font-bold">1490175</span></div>
+              <div><span className="text-slate-500 font-semibold">Contrato Nro.:</span> <span className="font-bold">5000002190</span></div>
+              <div>
+                <span className="text-slate-500 font-semibold">Parte Nro.:</span>
+                <span className="font-black text-amber-600 font-mono text-sm">{siceParteNro}</span>
+              </div>
+            </div>
           </div>
 
-          {/* Operarios */}
-          <div className="space-y-2 pt-2">
+          <div className="space-y-3 pt-2">
             <div className="flex justify-between items-center">
-              <h3 className="text-xs font-bold uppercase text-slate-600">Personal Operativo Presente</h3>
+              <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
+                <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes ({listaEmpleadosActivos.length} activos disponibles)
+              </h3>
               <button
                 type="button"
                 onClick={agregarOperarioFila}
-                className="px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 flex items-center gap-1"
+                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-[11px] transition-colors flex items-center gap-1 shadow-sm cursor-pointer print:hidden"
               >
-                <Plus size={14} /> Agregar Operario
+                <Plus className="w-3.5 h-3.5" /> Agregar Operario
               </button>
             </div>
-            {operariosSeleccionados.map((op, idx) => (
-              <div key={op.id || idx} className="flex gap-2 items-center bg-slate-50 p-3 rounded-xl border">
-                <input
-                  type="text"
-                  placeholder="Nombre del operario"
-                  value={op.nombre}
-                  onChange={(e) => actualizarOperarioFila(idx, 'nombre', e.target.value)}
-                  className="flex-1 p-2 border rounded-lg text-xs bg-white"
-                />
-                <input
-                  type="text"
-                  placeholder="Abrev (S / OE)"
-                  value={op.abreviacion}
-                  onChange={(e) => actualizarOperarioFila(idx, 'abreviacion', e.target.value)}
-                  className="w-24 p-2 border rounded-lg text-xs bg-white uppercase text-center font-bold"
-                />
-                <input
-                  type="number"
-                  placeholder="Horas"
-                  value={op.horas}
-                  onChange={(e) => actualizarOperarioFila(idx, 'horas', e.target.value)}
-                  className="w-24 p-2 border rounded-lg text-xs bg-white"
-                />
-                <button
-                  type="button"
-                  onClick={() => eliminarOperarioFila(idx)}
-                  className="text-rose-500 hover:text-rose-700 p-1"
-                >
-                  <Trash2 size={16} />
-                </button>
+
+            <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-50/50 p-3 space-y-2">
+              {operariosSeleccionados.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-2">No hay operarios añadidos. Haga clic en "Agregar Operario".</p>
+              ) : (
+                operariosSeleccionados.map((op, idx) => (
+                  <div key={op?.id || idx} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
+                    <div className="w-full sm:flex-1">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Empleado (RRHH Activos)</label>
+                      <select
+                        value={op?.nombre}
+                        onChange={(e) => {
+                          const nombreVal = e.target.value;
+                          const isCallapina = nombreVal.toLowerCase().includes('callapiña') || nombreVal.toLowerCase().includes('callapina');
+                          const abrevVal = isCallapina ? 'S' : 'OE';
+
+                          const actualizados = [...operariosSeleccionados];
+                          actualizados[idx] = { ...actualizados[idx], nombre: nombreVal, abreviacion: abrevVal };
+                          setOperariosSeleccionados(actualizados);
+                        }}
+                        className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+                      >
+                        <option value="">-- Seleccionar Operario (RRHH Activos) --</option>
+                        {listaEmpleadosActivos.map((emp, eIdx) => {
+                          const empNom = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || `Operario ${eIdx + 1}`;
+                          const isSelectedElsewhere = operariosSeleccionados.some((oItem, oIdx) => oIdx !== idx && oItem?.nombre === empNom);
+
+                          return (
+                            <option key={eIdx} value={empNom} disabled={isSelectedElsewhere}>
+                              {empNom} {isSelectedElsewhere ? '(Ya seleccionado)' : ''}
+                            </option>
+                          );
+                        })}
+                      </select>
+                    </div>
+
+                    <div className="w-24 text-center">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Abrev.</label>
+                      <input
+                        type="text"
+                        value={op?.abreviacion}
+                        onChange={(e) => actualizarOperarioFila(idx, 'abreviacion', e.target.value.toUpperCase())}
+                        title="Abreviación de categoría (S para Callapiña, OE para el resto)"
+                        className="w-full bg-amber-100/70 border border-slate-300 rounded px-2 py-1.5 text-xs font-black text-amber-950 text-center uppercase focus:bg-white focus:outline-none focus:border-amber-500"
+                      />
+                    </div>
+
+                    <div className="w-32">
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Horas</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={op?.horas}
+                        onChange={(e) => actualizarOperarioFila(idx, 'horas', e.target.value)}
+                        placeholder={`${totalHorasDefaultCalculado} hs (Def.)`}
+                        className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-black text-slate-900 text-center outline-none focus:border-amber-500"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => eliminarOperarioFila(idx)}
+                      className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg transition-colors cursor-pointer print:hidden"
+                      title="Eliminar operario"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto border border-slate-400 rounded-lg">
+            <table className="w-full text-left text-xs border-collapse">
+              <thead>
+                <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
+                  <th className="py-2.5 px-2 border-r border-slate-700 w-12 text-center">Item</th>
+                  <th className="py-2.5 px-3 border-r border-slate-700">Descripción del Servicio</th>
+                  <th className="py-2.5 px-2 border-r border-slate-700 text-center w-28">Hora Comienzo</th>
+                  <th className="py-2.5 px-2 border-r border-slate-700 text-center w-28">Hora Fin</th>
+                  <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Total Horas</th>
+                  <th className="py-2.5 px-3 border-r border-slate-700">Observaciones</th>
+                  <th className="py-2.5 px-2 text-center w-28">Terminó Tarea</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-300">
+                {siceItems.map((row, index) => {
+                  const totalHs = calcularTotalHorasSice(row?.horaComienzo, row?.horaFin);
+                  return (
+                    <tr key={index} className="bg-amber-50/60 hover:bg-amber-50 transition-colors">
+                      <td className="py-2 px-2 text-center font-bold border-r border-slate-300 text-slate-700">{row?.id}</td>
+                      <td className="py-1.5 px-2 border-r border-slate-300">
+                        <input 
+                          type="text" 
+                          value={row?.descripcion}
+                          onChange={(e) => actualizarItemSice(index, 'descripcion', e.target.value)}
+                          placeholder="Descripción de labores..."
+                          className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2 border-r border-slate-300 text-center">
+                        <input 
+                          type="time" 
+                          value={row?.horaComienzo}
+                          onChange={(e) => actualizarItemSice(index, 'horaComienzo', e.target.value)}
+                          className="bg-amber-100/50 border border-slate-300 rounded px-1.5 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2 border-r border-slate-300 text-center">
+                        <input 
+                          type="time" 
+                          value={row?.horaFin}
+                          onChange={(e) => actualizarItemSice(index, 'horaFin', e.target.value)}
+                          className="bg-amber-100/50 border border-slate-300 rounded px-1.5 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2 border-r border-slate-300 text-center font-extrabold text-amber-900 bg-amber-100/80">
+                        {totalHs} hs
+                      </td>
+                      <td className="py-1.5 px-2 border-r border-slate-300">
+                        <input 
+                          type="text" 
+                          value={row?.observaciones}
+                          onChange={(e) => actualizarItemSice(index, 'observaciones', e.target.value)}
+                          placeholder="Observaciones..."
+                          className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
+                        />
+                      </td>
+                      <td className="py-1.5 px-2 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => actualizarItemSice(index, 'terminoTarea', 'SI')}
+                            className={`px-2.5 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row?.terminoTarea === 'SI' ? 'bg-emerald-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
+                          >
+                            SI
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => actualizarItemSice(index, 'terminoTarea', 'NO')}
+                            className={`px-2.5 py-1 rounded text-[10px] font-black transition-all cursor-pointer ${row?.terminoTarea === 'NO' ? 'bg-rose-600 text-white shadow' : 'bg-slate-200 text-slate-700'}`}
+                          >
+                            NO
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <div className="flex justify-between items-center print:hidden">
+            <button 
+              type="button" 
+              onClick={agregarFilaSice}
+              className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Agregar Ítem (Fila)
+            </button>
+            <span className="text-xs text-slate-500 font-semibold">Total filas: {siceItems.length} / 10</span>
+          </div>
+
+          <form onSubmit={aprobarYArchivarParteSice} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50">
+            <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
+              <div className="p-4 space-y-3">
+                <h4 className="font-black text-xs text-slate-900 uppercase bg-slate-200 p-2 rounded">RESPONSABLE PROVEEDOR</h4>
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-0.5">CARGO:</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={siceRespProveedor.cargo}
+                      onChange={(e) => setSiceRespProveedor({...siceRespProveedor, cargo: e.target.value})}
+                      className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO:</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={siceRespProveedor.nombre}
+                      onChange={(e) => setSiceRespProveedor({...siceRespProveedor, nombre: e.target.value})}
+                      className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: AB1234):</label>
+                    <input 
+                      type="password" 
+                      required
+                      maxLength={6}
+                      placeholder="Ej: AB1234"
+                      value={siceRespProveedor.clave}
+                      onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
+                      className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
               </div>
-            ))}
-          </div>
 
-          {/* Claves de aprobación */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t">
-            <div className="bg-amber-50/50 p-4 rounded-xl border border-amber-200">
-              <h4 className="text-xs font-bold uppercase text-amber-900 mb-2">Firma Proveedor ({siceRespProveedor.nombre || 'Sin asignar'})</h4>
-              <input
-                type="password"
-                placeholder="Clave (Ej: AT1020)"
-                maxLength={6}
-                value={siceRespProveedor.clave}
-                onChange={(e) => setSiceRespProveedor({ ...siceRespProveedor, clave: e.target.value })}
-                className="w-full p-2.5 border rounded-xl text-sm font-mono uppercase bg-white"
-                required
-              />
+              <div className="p-4 space-y-3">
+                <h4 className="font-black text-xs text-slate-900 uppercase bg-slate-200 p-2 rounded">RESPONSABLE CLIENTE</h4>
+                <div className="space-y-2 text-xs">
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-0.5">CARGO:</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={siceRespCliente.cargo}
+                      onChange={(e) => setSiceRespCliente({...siceRespCliente, cargo: e.target.value})}
+                      className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO:</label>
+                    <input 
+                      type="text" 
+                      required
+                      value={siceRespCliente.nombre}
+                      onChange={(e) => setSiceRespCliente({...siceRespCliente, nombre: e.target.value})}
+                      className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: CD5678):</label>
+                    <input 
+                      type="password" 
+                      required
+                      maxLength={6}
+                      placeholder="Ej: CD5678"
+                      value={siceRespCliente.clave}
+                      onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
+                      className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+              </div>
             </div>
-            <div className="bg-sky-50/50 p-4 rounded-xl border border-sky-200">
-              <h4 className="text-xs font-bold uppercase text-sky-900 mb-2">Firma Cliente ({siceRespCliente.nombre || 'Sin asignar'})</h4>
-              <input
-                type="password"
-                placeholder="Clave (Ej: CM7030)"
-                maxLength={6}
-                value={siceRespCliente.clave}
-                onChange={(e) => setSiceRespCliente({ ...siceRespCliente, clave: e.target.value })}
-                className="w-full p-2.5 border rounded-xl text-sm font-mono uppercase bg-white"
-                required
-              />
-            </div>
-          </div>
 
-          <button
-            type="submit"
-            disabled={isSavingSice}
-            className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow transition-all uppercase tracking-wider disabled:opacity-50"
-          >
-            {isSavingSice ? 'Generando PDF y Guardando...' : 'Aprobar, Generar PDF en Drive y Guardar Parte'}
-          </button>
-        </form>
+            <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
+              <p className="text-xs text-slate-500">Ingrese sus claves para firmar y validar el parte diario.</p>
+              <button 
+                type="submit"
+                disabled={isSavingSice}
+                className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2 ${isSavingSice ? 'opacity-70 cursor-not-allowed' : ''}`}
+              >
+                {isSavingSice ? (
+                  <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Procesando...</>
+                ) : (
+                  <><ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Guardar Reporte</>
+                )}
+              </button>
+            </div>
+          </form>
+        </div>
       </div>
 
-      {/* Historial de Partes Diarios SICE */}
-      <div className="bg-white p-6 rounded-2xl border shadow-sm">
-        <h3 className="text-lg font-bold text-slate-900 mb-4">Historial de Partes Diarios SICE Aprobados</h3>
-        {isLoadingReportes ? (
-          <p className="text-xs text-slate-500 animate-pulse">Cargando partes...</p>
-        ) : sicePartesAprobados.length === 0 ? (
-          <p className="text-xs text-slate-500">No hay partes diarios registrados para este contrato.</p>
+      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
+        <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados</h3>
+        {sicePartesAprobados.length === 0 ? (
+          <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
+            No hay partes diarios aprobados ni archivados en el sistema.
+          </div>
         ) : (
           <div className="space-y-3">
-            {sicePartesAprobados.map(parte => (
-              <div key={parte.id} className="flex items-center justify-between p-4 rounded-xl border bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-bold text-slate-800">Parte N° {parte.nro}</span>
-                    <span className="text-xs text-slate-500">({parte.fecha})</span>
+            {sicePartesAprobados.map((parte, idx) => {
+              const parteId = parte?.id || parte?.nro || idx;
+              const pObj = parte?.proveedor;
+              const pNombre = (pObj && typeof pObj === 'object') ? (pObj.nombre || '---') : (pObj || '---');
+              const pCargo = (pObj && typeof pObj === 'object') ? (pObj.cargo || '---') : '';
+
+              const cObj = parte?.cliente;
+              const cNombre = (cObj && typeof cObj === 'object') ? (cObj.nombre || '---') : (cObj || '---');
+              const cCargo = (cObj && typeof cObj === 'object') ? (cObj.cargo || '---') : '';
+
+              return (
+                <div key={parteId} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte?.nro}</span>
+                      <span className="text-xs font-medium text-slate-500">Fecha: {parte?.fecha}</span>
+                      <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte?.totalHorasSuma} hs</span>
+                    </div>
+                    <p className="text-slate-700 text-xs mt-2">
+                      Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cCargo})
+                    </p>
                   </div>
-                  <p className="text-xs text-slate-600 mt-1">Total Horas: <strong className="text-slate-900">{parte.totalHorasSuma} hs</strong></p>
+                  <div className="flex items-center gap-2">
+                    {parte?.pdfUrl ? (
+                      <a 
+                        href={parte.pdfUrl}
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                      >
+                        <ExternalLink className="w-4 h-4" /> Ver PDF en Drive
+                      </a>
+                    ) : (
+                      <button 
+                        onClick={() => setParteVisualizando(parte)}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
+                      >
+                        <Eye className="w-4 h-4" /> Visualizar
+                      </button>
+                    )}
+                    {!esOperador && (
+                      <button 
+                        onClick={() => eliminarParteServidor(parteId)}
+                        className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
+                        title="Eliminar reporte"
+                      >
+                        <Trash2 className="w-4 h-4" /> Borrar
+                      </button>
+                    )}
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  {parte.pdfUrl && (
-                    <a
-                      href={parte.pdfUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="px-3 py-1.5 bg-sky-50 text-sky-700 border border-sky-200 rounded-lg text-xs font-bold hover:bg-sky-100 flex items-center gap-1 transition-colors"
-                    >
-                      <ExternalLink size={14} /> Ver PDF
-                    </a>
-                  )}
-                  {!esOperador && (
-                    <button
-                      onClick={() => eliminarParteServidor(parte.id)}
-                      className="p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 rounded-lg transition-colors"
-                      title="Eliminar parte"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
+
+      {parteVisualizando && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-300 p-6 space-y-6 text-slate-900 relative">
+            <button
+              onClick={() => setParteVisualizando(null)}
+              className="absolute top-4 right-4 p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full transition-colors cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+
+            <div className="flex items-center justify-between border-b-2 border-slate-800 pb-4 pr-12">
+              <img src="/logo-07.png" alt="SICE S.A." className="h-20 object-contain" />
+              <h2 className="text-lg font-black text-slate-900 tracking-wide text-right">PARTE DIARIO DE ACTIVIDADES</h2>
+            </div>
+
+            <div className="text-xs space-y-2 border-b border-slate-300 pb-4">
+              <p className="font-extrabold text-blue-900 text-sm">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
+                <div><span className="text-slate-500 font-semibold">C.U.I.T.:</span> <span className="font-bold">30-71573431-8</span></div>
+                <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
+                <div><span className="text-slate-500 font-semibold">Fecha:</span> <span className="font-bold">{parteVisualizando?.fecha}</span></div>
+                <div><span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono">{parteVisualizando?.nro}</span></div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="text-xs font-black text-slate-900 uppercase flex items-center gap-1.5">
+                <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes
+              </h4>
+              <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-50 p-3 space-y-1">
+                {Array.isArray(parteVisualizando?.operarios) && parteVisualizando.operarios.length > 0 ? (
+                  parteVisualizando.operarios.map((op, oIdx) => (
+                    <div key={oIdx} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-slate-200">
+                      <span className="font-bold text-slate-800">{op?.nombre}</span>
+                      <div className="flex gap-4">
+                        <span className="text-slate-600">Cat./Abrev: <strong>{op?.abreviacion}</strong></span>
+                        <span className="text-amber-800 font-black">{op?.horas} hs</span>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-slate-400 text-center py-1">Registrado con operario principal.</p>
+                )}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto border border-slate-300 rounded-xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
+                    <th className="py-2.5 px-3 border-r border-slate-700 w-12 text-center">Item</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700">Descripción del Servicio</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-28">Comienzo</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-28">Fin</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-24">Total</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700">Observaciones</th>
+                    <th className="py-2.5 px-3 text-center w-24">Terminó</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200">
+                  {Array.isArray(parteVisualizando?.items) && parteVisualizando.items.map((it, iIdx) => (
+                    <tr key={iIdx} className="bg-white">
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">{it?.id || iIdx + 1}</td>
+                      <td className="py-2.5 px-3 font-semibold text-slate-800">{it?.descripcion || '---'}</td>
+                      <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaComienzo || '08:00'}</td>
+                      <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaFin || '17:00'}</td>
+                      <td className="py-2.5 px-3 text-center font-extrabold text-amber-900 bg-amber-50">{calcularTotalHorasSice(it?.horaComienzo, it?.horaFin)} hs</td>
+                      <td className="py-2.5 px-3 text-slate-600">{it?.observaciones || '---'}</td>
+                      <td className="py-2.5 px-3 text-center font-bold text-slate-800">{it?.terminoTarea || 'SI'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 text-xs">
+              <div>
+                <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Proveedor</h5>
+                <p><span className="text-slate-500">Cargo:</span> <strong>{parteVisualizando?.proveedor?.cargo}</strong></p>
+                <p><span className="text-slate-500">Nombre:</span> <strong>{parteVisualizando?.proveedor?.nombre}</strong></p>
+                <p className="text-emerald-700 font-semibold mt-1">✔ Firmado y Validado</p>
+              </div>
+              <div>
+                <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Cliente</h5>
+                <p><span className="text-slate-500">Cargo:</span> <strong className="text-slate-950">{parteVisualizando?.cliente?.cargo}</strong></p>
+                <p><span className="text-slate-500">Nombre:</span> <strong className="text-slate-950">{parteVisualizando?.cliente?.nombre}</strong></p>
+                <p className="text-emerald-700 font-semibold mt-1">✔ Firmado y Validado</p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
+              <button
+                onClick={() => window.print()}
+                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow cursor-pointer"
+              >
+                <Printer className="w-4 h-4" /> Imprimir Documento
+              </button>
+              <button
+                onClick={() => setParteVisualizando(null)}
+                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer shadow"
+              >
+                Cerrar Ventana
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
