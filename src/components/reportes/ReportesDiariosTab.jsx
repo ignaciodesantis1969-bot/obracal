@@ -25,9 +25,39 @@ export default function ReportesDiariosTab({
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: personalSheet } = useObraData('Personal');
 
-  const contratosList = propContratos.length > 0 ? propContratos : contratosSheet;
-  const allReportesSice = propReportes.length > 0 ? propReportes : reportesSheet;
-  const listaEmpleadosActivos = propEmpleados.length > 0 ? propEmpleados : personalSheet;
+  // Procesamiento robusto para asegurar que extraemos arrays sin importar cómo los devuelva el hook o las props
+  const extraerArrayDatos = (fuente) => {
+    if (Array.isArray(fuente)) return fuente;
+    if (fuente && typeof fuente === 'object') {
+      if (Array.isArray(fuente.data)) return fuente.data;
+      if (Array.isArray(fuente.items)) return fuente.items;
+      if (Array.isArray(fuente.result)) return fuente.result;
+      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+      if (posibleArray) return posibleArray;
+    }
+    return [];
+  };
+
+  const contratosList = useMemo(() => {
+    const p = extraerArrayDatos(propContratos);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(contratosSheet);
+  }, [propContratos, contratosSheet]);
+
+  const allReportesSice = useMemo(() => {
+    const p = extraerArrayDatos(propReportes);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(reportesSheet);
+  }, [propReportes, reportesSheet]);
+
+  const listaEmpleadosActivos = useMemo(() => {
+    const p = extraerArrayDatos(propEmpleados);
+    if (p.length > 0) return p;
+    const s = extraerArrayDatos(personalSheet);
+    if (s.length > 0) return s;
+    return extraerArrayDatos(propPersonal);
+  }, [propEmpleados, personalSheet, propPersonal]);
+
   const personal = propPersonal;
 
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
@@ -44,11 +74,13 @@ export default function ReportesDiariosTab({
 
   const empleadosActivosFiltrados = useMemo(() => {
     const fuenteDatos = listaEmpleadosActivos.length > 0 ? listaEmpleadosActivos : personal;
-    if (!Array.isArray(fuenteDatos)) return [];
+    const arrayFuente = extraerArrayDatos(fuenteDatos);
+    if (arrayFuente.length === 0) return [];
     
-    return fuenteDatos.filter(emp => {
+    return arrayFuente.filter(emp => {
       const estadoEmp = String(emp?.estado || emp?.Estado || buscarValorEnObjeto(emp, ['estado', 'Estado']) || '').toLowerCase().trim();
-      return estadoEmp === 'activo';
+      // Si no especifica estado o está vacío, por seguridad también lo dejamos disponible, o filtramos si dice 'activo'
+      return estadoEmp === 'activo' || estadoEmp === '' || estadoEmp === 'alta';
     });
   }, [listaEmpleadosActivos, personal, buscarValorEnObjeto]);
 
@@ -76,11 +108,11 @@ export default function ReportesDiariosTab({
   useEffect(() => {
     if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
       const iniciales = empleadosActivosFiltrados.slice(0, 1).map(emp => {
-        const nombreEmp = String(buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || 'Operario').trim();
+        const nombreEmp = String(buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido', 'razon_social']) || 'Operario').trim();
         return {
           id: buscarValorEnObjeto(emp, ['id', 'ID']) || Math.random().toString(),
           nombre: nombreEmp,
-          abreviacion: OBRAS_CONFIG.determinarCategoriaEmpleado(nombreEmp),
+          abreviacion: OBRAS_CONFIG?.determinarCategoriaEmpleado ? OBRAS_CONFIG.determinarCategoriaEmpleado(nombreEmp) : 'OE',
           horas: ''
         };
       });
@@ -201,7 +233,9 @@ export default function ReportesDiariosTab({
     if (actualizados[index]) {
       actualizados[index][campo] = valor;
       if (campo === 'nombre') {
-        actualizados[index]['abreviacion'] = OBRAS_CONFIG.determinarCategoriaEmpleado(valor);
+        actualizados[index]['abreviacion'] = OBRAS_CONFIG?.determinarCategoriaEmpleado 
+          ? OBRAS_CONFIG.determinarCategoriaEmpleado(valor) 
+          : 'OE';
       }
       setOperariosSeleccionados(actualizados);
     }

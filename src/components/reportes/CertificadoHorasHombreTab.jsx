@@ -11,8 +11,30 @@ export default function CertificadoHorasHombreTab({
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
 
-  const contratosList = propContratos.length > 0 ? propContratos : contratosSheet;
-  const allReportesSice = propReportes.length > 0 ? propReportes : reportesSheet;
+  // Procesador robusto para asegurar que extraemos arrays sin importar cómo los envuelva Apps Script o el Hook
+  const extraerArrayDatos = (fuente) => {
+    if (Array.isArray(fuente)) return fuente;
+    if (fuente && typeof fuente === 'object') {
+      if (Array.isArray(fuente.data)) return fuente.data;
+      if (Array.isArray(fuente.items)) return fuente.items;
+      if (Array.isArray(fuente.result)) return fuente.result;
+      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+      if (posibleArray) return posibleArray;
+    }
+    return [];
+  };
+
+  const contratosList = useMemo(() => {
+    const p = extraerArrayDatos(propContratos);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(contratosSheet);
+  }, [propContratos, contratosSheet]);
+
+  const allReportesSice = useMemo(() => {
+    const p = extraerArrayDatos(propReportes);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(reportesSheet);
+  }, [propReportes, reportesSheet]);
 
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('00005');
