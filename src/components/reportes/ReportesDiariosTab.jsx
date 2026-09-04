@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-import { Printer, Plus, Trash2, ShieldCheck, ExternalLink, Eye, X, Users, Calendar } from 'lucide-react';
+import { Printer, Plus, Trash2, ShieldCheck, ExternalLink, Eye, X, Users, Calendar, Calculator } from 'lucide-react';
 
 export default function ReportesDiariosTab({
   contratosList = [],
@@ -29,7 +29,6 @@ export default function ReportesDiariosTab({
   const [isSavingSice, setIsSavingSice] = useState(false);
   const [parteVisualizando, setParteVisualizando] = useState(null);
 
-  // Filtrar estrictamente empleados con estado 'activo' desde la pestaña Personal
   const empleadosActivosFiltrados = useMemo(() => {
     if (!Array.isArray(listaEmpleadosActivos)) return [];
     return listaEmpleadosActivos.filter(emp => {
@@ -53,6 +52,11 @@ export default function ReportesDiariosTab({
   const totalHorasDefaultCalculado = useMemo(() => {
     return siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it?.horaComienzo, it?.horaFin), 0);
   }, [siceItems, calcularTotalHorasSice]);
+
+  const granTotalHorasHombre = useMemo(() => {
+    const cantOperarios = operariosSeleccionados.length > 0 ? operariosSeleccionados.length : 1;
+    return Number((totalHorasDefaultCalculado * cantOperarios).toFixed(2));
+  }, [totalHorasDefaultCalculado, operariosSeleccionados.length]);
 
   useEffect(() => {
     if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
@@ -189,23 +193,6 @@ export default function ReportesDiariosTab({
     setOperariosSeleccionados(operariosSeleccionados.filter((_, i) => i !== index));
   };
 
-  const eliminarParteServidor = async (idParte) => {
-    if (esOperador) return;
-    if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
-    const toastId = toast.loading('Eliminando parte diario...');
-    try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'ReportesSice', action: 'delete', id: idParte })
-      });
-      setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
-      toast.success('Parte diario eliminado exitosamente', { id: toastId });
-    } catch (err) {
-      toast.error('Ocurrió un error al intentar eliminar el parte', { id: toastId });
-    }
-  };
-
   const agregarFilaSice = () => {
     if (siceItems.length >= 10) {
       toast.error('El parte diario SICE permite un máximo de 10 ítems por documento.');
@@ -251,11 +238,10 @@ export default function ReportesDiariosTab({
       return;
     }
 
-    const totalHsSuma = siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it?.horaComienzo, it?.horaFin), 0);
     const operariosFinales = operariosSeleccionados.map(op => ({
       nombre: String(op?.nombre || ''),
       abreviacion: String(op?.abreviacion || 'OE'),
-      horas: op?.horas !== '' ? Number(op?.horas) : totalHsSuma
+      horas: op?.horas !== '' ? Number(op?.horas) : totalHorasDefaultCalculado
     }));
 
     setIsSavingSice(true);
@@ -272,7 +258,7 @@ export default function ReportesDiariosTab({
         operarios: operariosFinales,
         proveedor: { cargo: String(siceRespProveedor.cargo || ''), nombre: String(siceRespProveedor.nombre || '') },
         cliente: { cargo: String(siceRespCliente.cargo || ''), nombre: String(siceRespCliente.nombre || '') },
-        totalHorasSuma: Number(totalHsSuma)
+        totalHorasSuma: Number(granTotalHorasHombre)
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -298,7 +284,7 @@ export default function ReportesDiariosTab({
         operarios: operariosFinales,
         proveedor: { cargo: String(siceRespProveedor.cargo), nombre: String(siceRespProveedor.nombre) },
         cliente: { cargo: String(siceRespCliente.cargo), nombre: String(siceRespCliente.nombre) },
-        totalHorasSuma: Number(totalHsSuma),
+        totalHorasSuma: Number(granTotalHorasHombre),
         pdfUrl: pdfUrlFinal
       };
 
@@ -332,16 +318,13 @@ export default function ReportesDiariosTab({
               onChange={(e) => setContratoSeleccionadoId(e.target.value)}
               className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
             >
-              <option value="">-- Seleccionar Contrato ({contratosList.length} disponibles) --</option>
+              <option value="">-- Seleccionar Contrato ({contratosList.length} disp.) --</option>
               {contratosList.map((c, i) => {
                 const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo']) || i);
                 const cCod = buscarValorEnObjeto(c, ['codigo', 'Codigo']) || 'S/C';
                 const cNom = buscarValorEnObjeto(c, ['nombre', 'nombre_contrato', 'Nombre_contrato', 'nombreContrato', 'cliente', 'Cliente']) || 'Contrato';
-                const cEst = buscarValorEnObjeto(c, ['estado', 'Estado']) || 'Activo';
                 return (
-                  <option key={cId} value={cId}>
-                    [{cCod}] {cNom} ({cEst})
-                  </option>
+                  <option key={cId} value={cId}>[{cCod}] {cNom}</option>
                 );
               })}
             </select>
@@ -401,21 +384,18 @@ export default function ReportesDiariosTab({
 
             <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-50/50 p-3 space-y-2">
               {operariosSeleccionados.length === 0 ? (
-                <p className="text-xs text-slate-400 text-center py-2">No hay operarios añadidos. Haga clic en "Agregar Operario".</p>
+                <p className="text-xs text-slate-400 text-center py-2">No hay operarios añadidos.</p>
               ) : (
                 operariosSeleccionados.map((op, idx) => (
                   <div key={op?.id || idx} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
                     <div className="w-full sm:flex-1">
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Empleado (Personal Activo)</label>
                       <select
                         value={op?.nombre}
                         onChange={(e) => {
                           const nombreVal = e.target.value;
                           const isCallapina = nombreVal.toLowerCase().includes('callapiña') || nombreVal.toLowerCase().includes('callapina');
-                          const abrevVal = isCallapina ? 'S' : 'OE';
-
                           const actualizados = [...operariosSeleccionados];
-                          actualizados[idx] = { ...actualizados[idx], nombre: nombreVal, abreviacion: abrevVal };
+                          actualizados[idx] = { ...actualizados[idx], nombre: nombreVal, abreviacion: isCallapina ? 'S' : 'OE' };
                           setOperariosSeleccionados(actualizados);
                         }}
                         className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
@@ -424,10 +404,9 @@ export default function ReportesDiariosTab({
                         {empleadosActivosFiltrados.map((emp, eIdx) => {
                           const empNom = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || `Operario ${eIdx + 1}`;
                           const isSelectedElsewhere = operariosSeleccionados.some((oItem, oIdx) => oIdx !== idx && oItem?.nombre === empNom);
-
                           return (
                             <option key={eIdx} value={empNom} disabled={isSelectedElsewhere}>
-                              {empNom} {isSelectedElsewhere ? '(Ya seleccionado)' : ''}
+                              {empNom} {isSelectedElsewhere ? '(Seleccionado)' : ''}
                             </option>
                           );
                         })}
@@ -435,18 +414,16 @@ export default function ReportesDiariosTab({
                     </div>
 
                     <div className="w-24 text-center">
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Abrev.</label>
                       <input
                         type="text"
                         value={op?.abreviacion}
                         onChange={(e) => actualizarOperarioFila(idx, 'abreviacion', e.target.value.toUpperCase())}
-                        title="Abreviación de categoría (S para Callapiña, OE para el resto)"
+                        title="Abreviación de categoría"
                         className="w-full bg-amber-100/70 border border-slate-300 rounded px-2 py-1.5 text-xs font-black text-amber-950 text-center uppercase focus:bg-white focus:outline-none focus:border-amber-500"
                       />
                     </div>
 
                     <div className="w-32">
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Horas</label>
                       <input
                         type="number"
                         step="0.01"
@@ -461,7 +438,6 @@ export default function ReportesDiariosTab({
                       type="button"
                       onClick={() => eliminarOperarioFila(idx)}
                       className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg transition-colors cursor-pointer print:hidden"
-                      title="Eliminar operario"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -563,6 +539,21 @@ export default function ReportesDiariosTab({
             <span className="text-xs text-slate-500 font-semibold">Total filas: {siceItems.length} / 10</span>
           </div>
 
+          {/* RECUADRO TOTAL DE HORAS HOMBRE */}
+          <div className="bg-amber-100/60 border-2 border-amber-300 rounded-xl p-4 flex justify-between items-center mt-2 shadow-sm">
+            <div className="space-y-1">
+              <p className="text-amber-900 font-bold text-xs flex items-center gap-2">
+                <Calculator className="w-4 h-4" /> Resumen de Imputación:
+              </p>
+              <p className="text-amber-800 text-[11px] font-medium">Total Horas Demandadas (Tareas): <strong>{totalHorasDefaultCalculado} hs</strong></p>
+              <p className="text-amber-800 text-[11px] font-medium">Operarios Activos Seleccionados: <strong>{operariosSeleccionados.length}</strong></p>
+            </div>
+            <div className="text-right bg-amber-500 text-slate-950 px-6 py-2 rounded-lg shadow-sm">
+              <p className="font-extrabold text-[10px] uppercase tracking-wide opacity-80">Total Horas Hombre</p>
+              <p className="font-black text-2xl">{granTotalHorasHombre} <span className="text-sm">hs</span></p>
+            </div>
+          </div>
+
           <form onSubmit={aprobarYArchivarParteSice} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50">
             <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
               <div className="p-4 space-y-3">
@@ -659,179 +650,6 @@ export default function ReportesDiariosTab({
           </form>
         </div>
       </div>
-
-      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
-        <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Partes Diarios SICE Aprobados</h3>
-        {sicePartesAprobados.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-            No hay partes diarios aprobados ni archivados en el sistema.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {sicePartesAprobados.map((parte, idx) => {
-              const parteId = parte?.id || parte?.nro || idx;
-              const pObj = parte?.proveedor;
-              const pNombre = (pObj && typeof pObj === 'object') ? (pObj.nombre || '---') : (pObj || '---');
-              const pCargo = (pObj && typeof pObj === 'object') ? (pObj.cargo || '---') : '';
-
-              const cObj = parte?.cliente;
-              const cNombre = (cObj && typeof cObj === 'object') ? (cObj.nombre || '---') : (cObj || '---');
-              const cCargo = (cObj && typeof cObj === 'object') ? (cObj.cargo || '---') : '';
-
-              return (
-                <div key={parteId} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                  <div>
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte?.nro}</span>
-                      <span className="text-xs font-medium text-slate-500">Fecha: {parte?.fecha}</span>
-                      <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte?.totalHorasSuma} hs</span>
-                    </div>
-                    <p className="text-slate-700 text-xs mt-2">
-                      Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cCargo})
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {parte?.pdfUrl ? (
-                      <a 
-                        href={parte.pdfUrl}
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
-                      >
-                        <ExternalLink className="w-4 h-4" /> Ver PDF en Drive
-                      </a>
-                    ) : (
-                      <button 
-                        onClick={() => setParteVisualizando(parte)}
-                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
-                      >
-                        <Eye className="w-4 h-4" /> Visualizar
-                      </button>
-                    )}
-                    {!esOperador && (
-                      <button 
-                        onClick={() => eliminarParteServidor(parteId)}
-                        className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
-                        title="Eliminar reporte"
-                      >
-                        <Trash2 className="w-4 h-4" /> Borrar
-                      </button>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {parteVisualizando && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-300 p-6 space-y-6 text-slate-900 relative">
-            <button
-              onClick={() => setParteVisualizando(null)}
-              className="absolute top-4 right-4 p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-full transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-
-            <div className="flex items-center justify-between border-b-2 border-slate-800 pb-4 pr-12">
-              <img src="/logo-07.png" alt="SICE S.A." className="h-20 object-contain" />
-              <h2 className="text-lg font-black text-slate-900 tracking-wide text-right">PARTE DIARIO DE ACTIVIDADES</h2>
-            </div>
-
-            <div className="text-xs space-y-2 border-b border-slate-300 pb-4">
-              <p className="font-extrabold text-blue-900 text-sm">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-                <div><span className="text-slate-500 font-semibold">C.U.I.T.:</span> <span className="font-bold">30-71573431-8</span></div>
-                <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
-                <div><span className="text-slate-500 font-semibold">Fecha:</span> <span className="font-bold">{parteVisualizando?.fecha}</span></div>
-                <div><span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono">{parteVisualizando?.nro}</span></div>
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <h4 className="text-xs font-black text-slate-900 uppercase flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes
-              </h4>
-              <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-50 p-3 space-y-1">
-                {Array.isArray(parteVisualizando?.operarios) && parteVisualizando.operarios.length > 0 ? (
-                  parteVisualizando.operarios.map((op, oIdx) => (
-                    <div key={oIdx} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-slate-200">
-                      <span className="font-bold text-slate-800">{op?.nombre}</span>
-                      <div className="flex gap-4">
-                        <span className="text-slate-600">Cat./Abrev: <strong>{op?.abreviacion}</strong></span>
-                        <span className="text-amber-800 font-black">{op?.horas} hs</span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-slate-400 text-center py-1">Registrado con operario principal.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="overflow-x-auto border border-slate-300 rounded-xl">
-              <table className="w-full text-left text-xs border-collapse">
-                <thead>
-                  <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
-                    <th className="py-2.5 px-3 border-r border-slate-700 w-12 text-center">Item</th>
-                    <th className="py-2.5 px-3 border-r border-slate-700">Descripción del Servicio</th>
-                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-28">Comienzo</th>
-                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-28">Fin</th>
-                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-24">Total</th>
-                    <th className="py-2.5 px-3 border-r border-slate-700">Observaciones</th>
-                    <th className="py-2.5 px-3 text-center w-24">Terminó</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {Array.isArray(parteVisualizando?.items) && parteVisualizando.items.map((it, iIdx) => (
-                    <tr key={iIdx} className="bg-white">
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">{it?.id || iIdx + 1}</td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-800">{it?.descripcion || '---'}</td>
-                      <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaComienzo || '08:00'}</td>
-                      <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaFin || '17:00'}</td>
-                      <td className="py-2.5 px-3 text-center font-extrabold text-amber-900 bg-amber-50">{calcularTotalHorasSice(it?.horaComienzo, it?.horaFin)} hs</td>
-                      <td className="py-2.5 px-3 text-slate-600">{it?.observaciones || '---'}</td>
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-800">{it?.terminoTarea || 'SI'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 text-xs">
-              <div>
-                <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Proveedor</h5>
-                <p><span className="text-slate-500">Cargo:</span> <strong>{parteVisualizando?.proveedor?.cargo}</strong></p>
-                <p><span className="text-slate-500">Nombre:</span> <strong>{parteVisualizando?.proveedor?.nombre}</strong></p>
-                <p className="text-emerald-700 font-semibold mt-1">✔ Firmado y Validado</p>
-              </div>
-              <div>
-                <h5 className="font-black text-slate-900 uppercase border-b border-slate-300 pb-1 mb-2">Responsable Cliente</h5>
-                <p><span className="text-slate-500">Cargo:</span> <strong className="text-slate-950">{parteVisualizando?.cliente?.cargo}</strong></p>
-                <p><span className="text-slate-500">Nombre:</span> <strong className="text-slate-950">{parteVisualizando?.cliente?.nombre}</strong></p>
-                <p className="text-emerald-700 font-semibold mt-1">✔ Firmado y Validado</p>
-              </div>
-            </div>
-
-            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-              <button
-                onClick={() => window.print()}
-                className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow cursor-pointer"
-              >
-                <Printer className="w-4 h-4" /> Imprimir Documento
-              </button>
-              <button
-                onClick={() => setParteVisualizando(null)}
-                className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer shadow"
-              >
-                Cerrar Ventana
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
