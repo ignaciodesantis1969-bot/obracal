@@ -20,12 +20,10 @@ export default function ReportesDiariosTab({
     return '';
   }
 }) {
-  // Carga automática desde Google Sheets usando el hook personalizado
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: personalSheet } = useObraData('Personal');
 
-  // Procesamiento robusto para asegurar que extraemos arrays sin importar cómo los devuelva el hook o las props
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
     if (fuente && typeof fuente === 'object') {
@@ -79,7 +77,6 @@ export default function ReportesDiariosTab({
     
     return arrayFuente.filter(emp => {
       const estadoEmp = String(emp?.estado || emp?.Estado || buscarValorEnObjeto(emp, ['estado', 'Estado']) || '').toLowerCase().trim();
-      // Si no especifica estado o está vacío, por seguridad también lo dejamos disponible, o filtramos si dice 'activo'
       return estadoEmp === 'activo' || estadoEmp === '' || estadoEmp === 'alta';
     });
   }, [listaEmpleadosActivos, personal, buscarValorEnObjeto]);
@@ -110,7 +107,7 @@ export default function ReportesDiariosTab({
       const iniciales = empleadosActivosFiltrados.slice(0, 1).map(emp => {
         const nombreEmp = String(buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido', 'razon_social']) || 'Operario').trim();
         return {
-          id: buscarValorEnObjeto(emp, ['id', 'ID']) || Math.random().toString(),
+          id: buscarValorEnObjeto(emp, ['id', 'ID']) || `op-${Math.random()}`,
           nombre: nombreEmp,
           abreviacion: OBRAS_CONFIG?.determinarCategoriaEmpleado ? OBRAS_CONFIG.determinarCategoriaEmpleado(nombreEmp) : 'OE',
           horas: ''
@@ -224,7 +221,7 @@ export default function ReportesDiariosTab({
   const agregarOperarioFila = () => {
     setOperariosSeleccionados([
       ...operariosSeleccionados,
-      { id: Math.random().toString(), nombre: '', abreviacion: 'OE', horas: '' }
+      { id: `op-${Math.random()}`, nombre: '', abreviacion: 'OE', horas: '' }
     ]);
   };
 
@@ -456,7 +453,7 @@ export default function ReportesDiariosTab({
                 <p className="text-xs text-slate-400 text-center py-2">No hay operarios añadidos.</p>
               ) : (
                 operariosSeleccionados.map((op, idx) => (
-                  <div key={op?.id || idx} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
+                  <div key={op?.id || `op-row-${idx}`} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
                     <div className="w-full sm:flex-1">
                       <select
                         value={op?.nombre || ''}
@@ -474,7 +471,7 @@ export default function ReportesDiariosTab({
                           );
 
                           return (
-                            <option key={emp?.id || emp?.ID || eIdx} value={empNom} disabled={isSelectedElsewhere}>
+                            <option key={emp?.id || emp?.ID || `emp-${eIdx}`} value={empNom} disabled={isSelectedElsewhere}>
                               {empNom} {isSelectedElsewhere ? '(Seleccionado)' : ''}
                             </option>
                           );
@@ -533,7 +530,7 @@ export default function ReportesDiariosTab({
                 {siceItems.map((row, index) => {
                   const totalHs = calcularTotalHorasSice(row?.horaComienzo, row?.horaFin);
                   return (
-                    <tr key={index} className="bg-amber-50/60 hover:bg-amber-50 transition-colors">
+                    <tr key={`sice-item-${index}`} className="bg-amber-50/60 hover:bg-amber-50 transition-colors">
                       <td className="py-2 px-2 text-center font-bold border-r border-slate-300 text-slate-700">{row?.id}</td>
                       <td className="py-1.5 px-2 border-r border-slate-300">
                         <input 
@@ -728,7 +725,7 @@ export default function ReportesDiariosTab({
         ) : (
           <div className="space-y-3">
             {sicePartesAprobados.map((parte, idx) => {
-              const parteId = parte?.id || parte?.nro || idx;
+              const parteId = parte?.id || parte?.nro || `parte-${idx}`;
               const pObj = parte?.proveedor;
               const pNombre = (pObj && typeof pObj === 'object') ? (pObj.nombre || '---') : (pObj || '---');
               const pCargo = (pObj && typeof pObj === 'object') ? (pObj.cargo || '---') : '';
@@ -816,7 +813,7 @@ export default function ReportesDiariosTab({
               <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-50 p-3 space-y-1">
                 {Array.isArray(parteVisualizando?.operarios) && parteVisualizando.operarios.length > 0 ? (
                   parteVisualizando.operarios.map((op, oIdx) => (
-                    <div key={oIdx} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-slate-200">
+                    <div key={`modal-op-${oIdx}`} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-slate-200">
                       <span className="font-bold text-slate-800">{op?.nombre}</span>
                       <div className="flex gap-4">
                         <span className="text-slate-600">Cat./Abrev: <strong>{op?.abreviacion}</strong></span>
@@ -845,7 +842,7 @@ export default function ReportesDiariosTab({
                 </thead>
                 <tbody className="divide-y divide-slate-200">
                   {Array.isArray(parteVisualizando?.items) && parteVisualizando.items.map((it, iIdx) => (
-                    <tr key={iIdx} className="bg-white">
+                    <tr key={`modal-item-${iIdx}`} className="bg-white">
                       <td className="py-2.5 px-3 text-center font-bold text-slate-700">{it?.id || iIdx + 1}</td>
                       <td className="py-2.5 px-3 font-semibold text-slate-800">{it?.descripcion || '---'}</td>
                       <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaComienzo || '08:00'}</td>

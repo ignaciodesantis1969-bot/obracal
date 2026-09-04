@@ -47,6 +47,18 @@ export default function ComparativoTab({
       rubrosList = [rubrosList];
     }
 
+    // Extraer un valor de hora estimado del presupuesto si existe, o usar un fallback dinámico
+    let valorHoraReferencia = 15000;
+    try {
+      const primerRubro = rubrosList[0];
+      const primeraTarea = primerRubro?.tareas?.[0] || primerRubro?.items?.[0];
+      if (primeraTarea?.costo_unitario) {
+        valorHoraReferencia = Number(primeraTarea.costo_unitario) || 15000;
+      }
+    } catch (e) {
+      // Usar valor por defecto
+    }
+
     return rubrosList.map((r, rIdx) => {
       const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
       let tareasList = r?.tareas || r?.items || r?.subitems || [];
@@ -54,7 +66,6 @@ export default function ComparativoTab({
         try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
       }
 
-      // Estructura para almacenar presupuestado, real y desvío por subcategoría
       const categoriasMap = {};
       ordenCategorias.forEach(cat => {
         categoriasMap[cat] = { presupuestado: 0, real: 0, desvio: 0 };
@@ -95,7 +106,7 @@ export default function ComparativoTab({
         });
       }
 
-      // 2. CARGA DE REAL IMPUTADO POR CATEGORÍA (Mano de Obra de SICE)
+      // 2. CARGA DE REAL IMPUTADO POR CATEGORÍA (Mano de Obra de SICE con valor dinámico)
       const normRubro = limpiarTexto(nombreRubro);
       let totalHsSice = 0;
       allReportesSice.forEach(rep => {
@@ -103,7 +114,7 @@ export default function ComparativoTab({
           if (limpiarTexto(it?.descripcion).includes(normRubro)) totalHsSice += Number(rep?.totalHorasSuma || 0);
         });
       });
-      categoriasMap['Mano de Obra'].real += (totalHsSice * 5000);
+      categoriasMap['Mano de Obra'].real += (totalHsSice * valorHoraReference);
 
       // 3. CARGA DE REAL IMPUTADO POR CATEGORÍA (Facturas asociadas al Rubro)
       const facturasRubro = facturas.filter(f => {
@@ -115,7 +126,7 @@ export default function ComparativoTab({
 
       facturasRubro.forEach(f => {
         const catOriginal = limpiarTexto(f?.categoria || f?.categoria_insumo || f?.tipo || 'materiales');
-        let catDestino = 'Materiales'; // Default
+        let catDestino = 'Materiales';
         
         if (catOriginal.includes('mano') || catOriginal.includes('obra')) catDestino = 'Mano de Obra';
         else if (catOriginal.includes('equipo') || catOriginal.includes('herramienta')) catDestino = 'Equipos';
@@ -132,7 +143,6 @@ export default function ComparativoTab({
         totalRealRubro += categoriasMap[cat].real;
       });
 
-      // Si el presupuesto general tiene un monto total asignado por rubro y no coincide con el desglose, lo priorizamos
       const montoRubroBase = totalRubroPresupuestado > 0 ? totalRubroPresupuestado : Number(r?.total || 0);
 
       return {
@@ -238,7 +248,6 @@ export default function ComparativoTab({
               <tbody className="divide-y divide-slate-200 bg-white">
                 {analisisRubrosDetallado.map((rubro) => (
                   <React.Fragment key={rubro.id}>
-                    {/* ENCABEZADO DE RUBRO */}
                     <tr className="bg-slate-800 text-white font-extrabold uppercase text-[11px]">
                       <td className="px-4 py-2.5">{rubro.nombre}</td>
                       <td className="px-4 py-2.5 text-right">$ {rubro.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
@@ -248,10 +257,8 @@ export default function ComparativoTab({
                       </td>
                     </tr>
                     
-                    {/* DESGLOSE POR SUBCATEGORÍA (Mano de Obra, Materiales, etc.) */}
                     {ordenCategorias.map(cat => {
                       const catData = rubro.categorias[cat];
-                      // Mostrar solo si hay monto presupuestado O si hubo imputación real a esta categoría
                       if (catData.presupuestado === 0 && catData.real === 0) return null;
                       
                       return (

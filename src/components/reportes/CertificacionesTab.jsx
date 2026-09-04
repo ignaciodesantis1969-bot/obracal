@@ -144,7 +144,8 @@ export default function CertificacionesTab({
     } else if (!certPresupuestoId) {
       setCertClienteNombre('');
     }
-  }, [certPresupuestoId, certificadoPresupuestoObj, fetchedClientes, listaObrasCompleta]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [certPresupuestoId, certificadoPresupuestoObj]);
 
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
@@ -309,7 +310,9 @@ export default function CertificacionesTab({
         id: `cert-${Date.now()}` 
       };
 
-      setFetchedCertificados(prev => [nuevoCertGuardado, ...prev]);
+      if (typeof setFetchedCertificados === 'function') {
+        setFetchedCertificados(prev => [nuevoCertGuardado, ...prev]);
+      }
       alert("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!");
     } catch (err) {
       console.error(err);
@@ -327,7 +330,9 @@ export default function CertificacionesTab({
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ tabla: 'Certificaciones', action: 'delete', id: certId })
       });
-      setFetchedCertificados(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
+      if (typeof setFetchedCertificados === 'function') {
+        setFetchedCertificados(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
+      }
       alert("Certificado eliminado.");
     } catch (err) { console.error(err); }
   };
@@ -517,7 +522,7 @@ export default function CertificacionesTab({
                             <td className="py-2.5 px-3 text-right whitespace-nowrap">$ {rubroAcumulado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                           </tr>
                           {rubroObj.tareasFilas.map((t) => (
-                            <tr key={t.tIdx} className="hover:bg-amber-50/40 text-xs bg-white">
+                            <tr key={t.keyMap} className="hover:bg-amber-50/40 text-xs bg-white">
                               <td className="py-2 px-2 text-center font-bold text-slate-700 border-r border-slate-300">{t.rIdx + 1}.{t.tIdx + 1}</td>
                               <td className="py-2 px-3 text-slate-800 border-r border-slate-300 font-medium">{t.tarea}</td>
                               <td className="py-2 px-1 text-center text-slate-500 border-r border-slate-300">{t.unidad}</td>

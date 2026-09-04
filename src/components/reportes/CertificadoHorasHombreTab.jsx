@@ -1,53 +1,11 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Plus, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
+import { Clock, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function CertificadoHorasHombreTab({ 
-  contratosList: propContratos = [], 
-  allReportesSice: propReportes = [] 
+  contratosList = [], 
+  allReportesSice = [] 
 }) {
-  const [contratosRemotos, setContratosRemotos] = useState([]);
-  const [reportesRemotos, setReportesRemotos] = useState([]);
-  const [cargandoRemoto, setCargandoRemoto] = useState(false);
-
-  // Sincronización directa usando TU acción 'cargarDetalleCompleto'
-  useEffect(() => {
-    let activo = true;
-    async function sincronizarBackend() {
-      if (!GOOGLE_SCRIPT_URL) return;
-      setCargandoRemoto(true);
-      try {
-        const res = await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          // Usamos la acción exacta que definiste en tu Code.gs
-          body: JSON.stringify({ action: 'cargarDetalleCompleto' })
-        });
-        const json = await res.json();
-        
-        if (activo && json && json.success) {
-          console.log("🔍 [DEBUG] Datos recibidos del backend:", json);
-          // Usamos las claves exactas que devuelve tu Code.gs en las líneas 119 y 120
-          if (Array.isArray(json.contratos_mantenimiento)) {
-            setContratosRemotos(json.contratos_mantenimiento);
-          }
-          if (Array.isArray(json.reportes_sice)) {
-            setReportesRemotos(json.reportes_sice);
-          }
-        }
-      } catch (err) {
-        console.error("Error al sincronizar con cargarDetalleCompleto:", err);
-      } finally {
-        if (activo) setCargandoRemoto(false);
-      }
-    }
-    sincronizarBackend();
-    return () => { activo = false; };
-  }, []);
-
-  const contratosList = propContratos.length > 0 ? propContratos : contratosRemotos;
-  const allReportesSice = propReportes.length > 0 ? propReportes : reportesRemotos;
-
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('00005');
   const [fechaEmision, setFechaEmision] = useState(new Date().toISOString().slice(0, 10));
@@ -75,7 +33,6 @@ export default function CertificadoHorasHombreTab({
 
   useEffect(() => {
     if (contratoActual) {
-      // Usamos las columnas de tu hoja de Google Sheets
       const clienteNombre = contratoActual.cliente || '';
       const clienteCargo = contratoActual.cliente_cargo || 'Gerente de Plant';
       
@@ -98,11 +55,11 @@ export default function CertificadoHorasHombreTab({
 
   const agregarParteFila = (parteObj) => {
     const clasificacionOperario = parteObj?.clasificacion || parteObj?.categoria || 'General';
-    let valorHora = Number(contratoActual?.valor_hora || contratoActual?.precio_hora || 15000);
+    const valorHora = Number(contratoActual?.valor_hora || contratoActual?.precio_hora || 15000);
 
     const totalHoras = Number(parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
     const nuevoItem = {
-      id: `parte-item-${Date.now()}-${Math.random()}`,
+      id: `parte-item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
       nroParte: parteObj?.nro || parteObj?.id || '001',
       fecha: parteObj?.fecha || fechaEmision,
       totalHoras,
@@ -202,8 +159,8 @@ export default function CertificadoHorasHombreTab({
         <div className="sm:col-span-2 space-y-1">
           <span className="text-slate-500 font-semibold block flex items-center justify-between">
             <span>Seleccionar Contrato ({contratosDisponibles.length} disponibles):</span>
-            {cargandoRemoto && <span className="text-amber-600 font-bold animate-pulse">Consultando base de datos...</span>}
           </span>
+
           <select
             value={contratoIdSeleccionado}
             onChange={(e) => setContratoIdSeleccionado(e.target.value)}

@@ -255,7 +255,6 @@ export default function ListadoInsumosTab({
 
             return (
               <div key={cat} className="border border-slate-300 rounded-xl overflow-hidden bg-white shadow-sm space-y-0">
-                {/* TÍTULO DE CATEGORÍA CON FONDO OSCURO */}
                 <div className="flex justify-between items-center bg-slate-900 px-4 py-3 border-b border-slate-800">
                   <span className="font-black text-xs text-white uppercase tracking-wide">{cat}</span>
                   <span className="font-black text-xs text-amber-400">$ {totalCat.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
@@ -272,8 +271,8 @@ export default function ListadoInsumosTab({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {itemsAgrupados.map((it, iIdx) => (
-                      <tr key={iIdx} className="hover:bg-slate-50 transition-colors">
+                    {itemsAgrupados.map((it) => (
+                      <tr key={`${cat}-${it.nombre}-${it.proveedor}`} className="hover:bg-slate-50 transition-colors">
                         <td className="py-3 px-4 font-bold text-slate-800 leading-tight">{it?.nombre}</td>
                         <td className="py-3 px-4 text-slate-600 font-medium leading-tight">{it?.proveedor}</td>
                         <td className="py-3 px-4 text-center text-slate-500">{it?.unidad}</td>
@@ -328,7 +327,7 @@ export default function ListadoInsumosTab({
                         </thead>
                         <tbody className="divide-y divide-slate-50">
                           {itemsCat.map((it, iIdx) => (
-                            <tr key={iIdx} className="hover:bg-slate-50 transition-colors">
+                            <tr key={`${nombreRubro}-${cat}-${iIdx}`} className="hover:bg-slate-50 transition-colors">
                               <td className="py-2 px-4 font-bold text-slate-800 leading-tight">{it?.nombre}</td>
                               <td className="py-2 px-4 text-slate-600 font-medium leading-tight">{it?.proveedor}</td>
                               <td className="py-2 px-4 text-center text-slate-500">{it?.unidad}</td>
