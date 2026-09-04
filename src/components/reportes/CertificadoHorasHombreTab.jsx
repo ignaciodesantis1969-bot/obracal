@@ -1,118 +1,111 @@
-import React, { useState, useMemo, useCallback } from 'react';
-import { Printer, ShieldCheck, FileText, CalendarRange } from 'lucide-react';
-import toast from 'react-hot-toast';
+import React, { useState, useMemo } from 'react';
+import { Clock, Plus, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
-export default function CertificadoHorasHombreTab({ 
-  contratosList = [], 
-  allReportesSice = [],
-  buscarValorEnObjeto = (obj, keys) => {
-    if (!obj) return '';
-    for (const key of keys) {
-      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
-    }
-    return '';
-  }
-}) {
-  const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
-  const [fechaEmision, setFechaEmision] = useState(new Date().toISOString().slice(0, 10));
+export default function CertificadoHorasHombreTab({ contratosList = [], allReportesSice = [] }) {
+  const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('00005');
+  const [fechaEmision, setFechaEmision] = useState(new Date().toISOString().slice(0, 10));
+  
   const [periodoDesde, setPeriodoDesde] = useState('');
   const [periodoHasta, setPeriodoHasta] = useState('');
-  
-  const [valorHora, setValorHora] = useState(8500); // Valor de la hora modificable
+
+  const [partesSeleccionados, setPartesSeleccionados] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Leer cargos y nombres directamente del contrato
-  const extraerDatosContrato = useCallback((contrato) => {
-    if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
-    let objData = { ...contrato };
-    ['descripcion', 'detalle', 'config', 'datos'].forEach(campo => {
-      if (typeof contrato[campo] === 'string') {
-        try {
-          if (contrato[campo].includes('{')) {
-            const parsed = JSON.parse('{' + contrato[campo].split(/[{]/).slice(1).join('{'));
-            objData = { ...objData, ...parsed };
-          }
-        } catch (e) {}
-      }
-    });
-
-    return {
-      pCargo: buscarValorEnObjeto(objData, ['proveedor_cargo', 'proveedorCargo', 'cargo_proveedor']) || objData?.proveedor?.cargo || '',
-      pNombre: buscarValorEnObjeto(objData, ['proveedor_nombre', 'proveedorNombre', 'nombre_proveedor']) || objData?.proveedor?.nombre || '',
-      pKey: buscarValorEnObjeto(objData, ['proveedor_key', 'proveedorKey']) || 'AT1020',
-      cCargo: buscarValorEnObjeto(objData, ['cliente_cargo', 'clienteCargo', 'cargo_cliente']) || objData?.cliente?.cargo || '',
-      cNombre: buscarValorEnObjeto(objData, ['cliente_nombre', 'clienteNombre', 'nombre_cliente']) || objData?.cliente?.nombre || '',
-      cKey: buscarValorEnObjeto(objData, ['cliente_key', 'clienteKey']) || 'CM7030'
-    };
-  }, [buscarValorEnObjeto]);
+  const [respProveedor, setRespProveedor] = useState({ cargo: 'JEFE DE OBRA', nombre: 'Alexander Torres Lopez', firma: '' });
+  const [respCliente, setRespCliente] = useState({ cargo: '', nombre: '', firma: '' });
 
   const contratoActual = useMemo(() => {
-    if (!contratoSeleccionadoId) return null;
-    return contratosList.find(c => String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo'])).trim() === String(contratoSeleccionadoId).trim());
-  }, [contratoSeleccionadoId, contratosList, buscarValorEnObjeto]);
+    return contratosList.find(c => String(c?.id || c?.ID || c?.codigo) === String(contratoIdSeleccionado));
+  }, [contratosList, contratoIdSeleccionado]);
 
-  const responsables = useMemo(() => extraerDatosContrato(contratoActual), [contratoActual, extraerDatosContrato]);
-
-  const [respFirmas, setRespFirmas] = useState({ proveedor: '', cliente: '' });
-
-  // Filtrado de reportes por contrato y fechas (desde/hasta)
-  const reportesFiltrados = useMemo(() => {
-    if (!contratoSeleccionadoId) return [];
-    
-    return allReportesSice.filter(r => {
-      const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id'])).trim();
-      const rFecha = buscarValorEnObjeto(r, ['fecha', 'Fecha']);
-      
-      if (rContratoId !== String(contratoSeleccionadoId).trim() && 
-          !Object.values(r).map(v => String(v).trim()).includes(String(contratoSeleccionadoId).trim())) {
-        return false;
+  // Cargar datos del contrato seleccionado automáticamente
+  React.useEffect(() => {
+    if (contratoActual) {
+      if (contratoActual.cliente || contratoActual.razon_social) {
+        setRespCliente(prev => ({
+          ...prev,
+          nombre: contratoActual.cliente_nombre || contratoActual.cliente || prev.nombre,
+          cargo: contratoActual.cliente_cargo || 'RESPONSABLE TÉCNICO'
+        }));
       }
-      
-      if (periodoDesde && rFecha < periodoDesde) return false;
-      if (periodoHasta && rFecha > periodoHasta) return false;
+      if (contratoActual.responsable_proveedor || contratoActual.proveedor_cargo) {
+        setRespProveedor(prev => ({
+          ...prev,
+          cargo: contratoActual.responsable_proveedor_cargo || prev.cargo,
+          nombre: contratoActual.responsable_proveedor || prev.nombre
+        }));
+      }
+    }
+  }, [contratoActual]);
 
-      return true;
-    }).map(r => ({
-      id: buscarValorEnObjeto(r, ['id', 'ID']) || `sice-${Math.random()}`,
-      nro: buscarValorEnObjeto(r, ['nro', 'Nro', 'numero']) || '---',
-      fecha: buscarValorEnObjeto(r, ['fecha', 'Fecha']) || '---',
-      totalHorasSuma: Number(buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma']) || 0),
-      items: (typeof r.items === 'string' ? JSON.parse(r.items || '[]') : r.items) || []
-    })).sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
-  }, [allReportesSice, contratoSeleccionadoId, periodoDesde, periodoHasta, buscarValorEnObjeto]);
+  const agregarParteFila = (parteObj) => {
+    // Buscar precio hora según clasificación del operario en el contrato si aplica, o valor por defecto
+    const clasificacionOperario = parteObj?.clasificacion || parteObj?.categoria || 'General';
+    let valorHora = 0;
+    if (contratoActual?.tarifas && typeof contratoActual.tarifas === 'object') {
+      valorHora = Number(contratoActual.tarifas[clasificacionOperario] || contratoActual.tarifas['General'] || 0);
+    } else {
+      valorHora = Number(contratoActual?.valor_hora || contratoActual?.precioHora || 15000);
+    }
 
-  const totales = useMemo(() => {
-    let hs = 0;
-    reportesFiltrados.forEach(r => hs += r.totalHorasSuma);
-    return { horas: hs, valorTotal: hs * valorHora };
-  }, [reportesFiltrados, valorHora]);
+    const totalHoras = Number(parteObj?.totalHorasSuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
+    const nuevoItem = {
+      id: `parte-item-${Date.now()}-${Math.random()}`,
+      nroParte: parteObj?.nro || parteObj?.id || '001',
+      fecha: parteObj?.fecha || fechaEmision,
+      totalHoras,
+      valorHora,
+      valorTotal: totalHoras * valorHora,
+      clasificacion: clasificacionOperario
+    };
+    setPartesSeleccionados(prev => [...prev, nuevoItem]);
+  };
 
-  const firmarYCertificar = async (e) => {
+  const eliminarFila = (id) => {
+    setPartesSeleccionados(prev => prev.filter(item => item.id !== id));
+  };
+
+  const actualizarFila = (id, campo, valor) => {
+    setPartesSeleccionados(prev => prev.map(item => {
+      if (item.id === id) {
+        const actualizado = { ...item, [campo]: valor };
+        if (campo === 'totalHoras' || campo === 'valorHora') {
+          const h = campo === 'totalHoras' ? Number(valor) || 0 : item.totalHoras;
+          const v = campo === 'valorHora' ? Number(valor) || 0 : item.valorHora;
+          actualizado.valorTotal = h * v;
+        }
+        return actualizado;
+      }
+      return item;
+    }));
+  };
+
+  const totalGeneralMonto = useMemo(() => {
+    return partesSeleccionados.reduce((acc, curr) => acc + (Number(curr.valorTotal) || 0), 0);
+  }, [partesSeleccionados]);
+
+  const guardarCertificadoHoras = async (e) => {
     e.preventDefault();
-    if (!contratoSeleccionadoId) return toast.error('Seleccione un Contrato.');
-    if (respFirmas.proveedor.toUpperCase() !== responsables.pKey.toUpperCase()) return toast.error('Clave Proveedor inválida.');
-    if (respFirmas.cliente.toUpperCase() !== responsables.cKey.toUpperCase()) return toast.error('Clave Cliente inválida.');
-    
+    if (!contratoActual) return alert("Seleccione un contrato válido.");
+    if (partesSeleccionados.length === 0) return alert("Agregue al menos un parte diario al certificado.");
+
     setIsSaving(true);
-    const toastId = toast.loading('Procesando Certificado en Drive...');
-    
     try {
       const payload = {
-        action: 'guardarYGenerarPDF',
-        tabla: 'CertificadosSice',
-        tipo: 'HorasHombre',
-        contratoId: String(contratoSeleccionadoId),
-        nroCertificado: String(certificadoNro),
-        fechaEmision: String(fechaEmision),
-        periodoDesde,
-        periodoHasta,
-        valorHoraBase: Number(valorHora),
-        totales,
-        reportesAsociados: reportesFiltrados,
-        proveedor: { cargo: responsables.pCargo, nombre: responsables.pNombre },
-        cliente: { cargo: responsables.cCargo, nombre: responsables.cNombre }
+        tabla: 'CertificacionesHoras',
+        action: 'guardar',
+        contrato_id: String(contratoIdSeleccionado),
+        certificado_nro: certificadoNro,
+        fecha_emision: fechaEmision,
+        periodo_desde: periodoDesde,
+        periodo_hasta: periodoHasta,
+        cliente: contratoActual?.cliente || contratoActual?.razon_social || 'Cliente',
+        filas: partesSeleccionados,
+        total_general: totalGeneralMonto,
+        responsable_proveedor: respProveedor,
+        responsable_cliente: respCliente
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -120,217 +113,311 @@ export default function CertificadoHorasHombreTab({
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
       });
-      const resultado = await res.json();
-
-      if (resultado?.success === false) throw new Error(resultado?.error || 'Fallo al certificar');
-      
-      toast.success('¡Certificado emitido y guardado exitosamente!', { id: toastId });
-      setCertificadoNro(String(Number(certificadoNro) + 1).padStart(5, '0'));
-      setRespFirmas({ proveedor: '', cliente: '' });
-      if (resultado.pdfUrl) window.open(resultado.pdfUrl, '_blank');
-
+      const data = await res.json();
+      alert("¡Certificado mensual de horas hombre guardado con éxito!");
     } catch (err) {
-      toast.error(err.message || 'Error de conexión al procesar.', { id: toastId });
+      console.error(err);
+      alert("Error al guardar el certificado.");
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
+    <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
+      {/* ENCABEZADO */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
         <div>
-          <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
-            <FileText className="w-4 h-4 text-amber-500" /> Certificación Mensual de Horas Hombre
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">Consolide los partes diarios aprobados para la facturación mensual del contrato.</p>
+          <img src="/logo-07.png" alt="SICE S.A." className="h-16 object-contain mb-2" />
+          <p className="font-extrabold text-blue-900 text-xs">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
         </div>
-        <div className="flex items-center gap-2 w-full sm:w-auto">
-          <select
-            value={contratoSeleccionadoId}
-            onChange={(e) => setContratoSeleccionadoId(e.target.value)}
-            className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[250px]"
-          >
-            <option value="">-- Seleccionar Contrato ({contratosList.length} disp.) --</option>
-            {contratosList.map((c, i) => {
-              const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo']) || i);
-              const cCod = buscarValorEnObjeto(c, ['codigo', 'Codigo']) || 'S/C';
-              const cNom = buscarValorEnObjeto(c, ['nombre', 'cliente']) || 'Contrato';
-              return <option key={cId} value={cId}>[{cCod}] {cNom}</option>;
-            })}
-          </select>
-          <button 
-            onClick={() => window.print()}
-            className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm cursor-pointer whitespace-nowrap"
-          >
-            <Printer className="w-4 h-4" /> Imprimir / PDF
-          </button>
+        <div className="text-right">
+          <h2 className="text-xl font-black text-slate-900 tracking-wide uppercase">CERTIFICADO MENSUAL DE HORAS HOMBRE</h2>
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <label className="text-xs font-bold text-slate-600">Certificado Nro.:</label>
+            <input
+              type="text"
+              value={certificadoNro}
+              onChange={(e) => setCertificadoNro(e.target.value)}
+              className="w-24 bg-slate-50 border border-slate-300 rounded px-2 py-0.5 text-xs font-bold text-amber-600 text-right outline-none"
+            />
+          </div>
         </div>
       </div>
 
-      <div className="bg-white p-6 rounded-2xl border border-slate-400 space-y-6 text-slate-900">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
-          <div className="flex items-center gap-3">
-            <img src="/logo-07.png" alt="SICE S.A." className="h-24 object-contain" />
-          </div>
-          <h2 className="text-xl font-black text-slate-900 tracking-wide text-right">CERTIFICADO MENSUAL DE HORAS HOMBRE</h2>
+      {/* DATOS GENERALES Y SELECCIÓN DE CONTRATO */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
+        <div className="sm:col-span-2 space-y-1">
+          <span className="text-slate-500 font-semibold block">Seleccionar Contrato:</span>
+          <select
+            value={contratoIdSeleccionado}
+            onChange={(e) => setContratoIdSeleccionado(e.target.value)}
+            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+          >
+            <option value="">-- Seleccionar Contrato / Mantenimiento --</option>
+            {contratosList.map(c => (
+              <option key={c?.id || c?.ID} value={c?.id || c?.ID}>
+                [{c?.codigo || c?.id}] {c?.nombre || c?.cliente || 'Contrato'}
+              </option>
+            ))}
+          </select>
         </div>
 
-        <div className="text-xs space-y-1 border-b border-slate-300 pb-4">
-          <p className="font-extrabold text-blue-900 text-sm">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
-            <div><span className="text-slate-500 font-semibold">C.U.I.T. Nro.:</span> <span className="font-bold">30-71573431-8</span></div>
-            <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
-            <div>
-              <span className="text-slate-500 font-semibold">Fecha:</span>{' '}
-              <input 
-                type="date" 
-                value={fechaEmision} 
-                onChange={(e) => setFechaEmision(e.target.value)}
-                className="bg-slate-50 border border-slate-300 rounded px-2 py-0.5 font-bold text-xs outline-none focus:border-amber-500"
-              />
-            </div>
-            <div><span className="text-slate-500 font-semibold">Número de Proveedor Nro.:</span> <span className="font-bold">1490175</span></div>
-            <div><span className="text-slate-500 font-semibold">Contrato Nro.:</span> <span className="font-bold">5000002190</span></div>
-            <div>
-              <span className="text-slate-500 font-semibold">Certificado Nro.:</span>
-              <span className="font-black text-amber-600 font-mono text-sm">{certificadoNro}</span>
-            </div>
-          </div>
+        <div>
+          <span className="text-slate-500 font-semibold block">C.U.I.T. Nro.:</span>
+          <strong className="text-slate-900 block mt-1">30-71573431-8</strong>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-300 print:bg-white print:border-b">
-          <CalendarRange className="w-5 h-5 text-slate-500 print:hidden" />
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-black uppercase text-slate-800">PERÍODO: Desde</span>
-            <input 
-              type="date" 
-              value={periodoDesde} 
-              onChange={(e) => setPeriodoDesde(e.target.value)}
-              className="bg-white border border-slate-300 rounded px-2 py-1 text-xs font-bold focus:border-amber-500 outline-none"
-            />
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-black uppercase text-slate-800">Hasta</span>
-            <input 
-              type="date" 
-              value={periodoHasta} 
-              onChange={(e) => setPeriodoHasta(e.target.value)}
-              className="bg-white border border-slate-300 rounded px-2 py-1 text-xs font-bold focus:border-amber-500 outline-none"
-            />
-          </div>
+        <div>
+          <span className="text-slate-500 font-semibold block">Número de Proveedor Nro.:</span>
+          <strong className="text-slate-900 block mt-1">1490175</strong>
         </div>
 
-        <div className="overflow-x-auto border border-slate-400 rounded-lg">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
-                <th className="py-2.5 px-3 border-r border-slate-700 w-12 text-center">Item</th>
-                <th className="py-2.5 px-3 border-r border-slate-700 text-center">Fecha</th>
-                <th className="py-2.5 px-3 border-r border-slate-700 text-center">Nro Parte</th>
-                <th className="py-2.5 px-3 border-r border-slate-700 text-center text-amber-300">Total Horas</th>
-                <th className="py-2.5 px-3 border-r border-slate-700 text-right">Valor Hora</th>
-                <th className="py-2.5 px-4 text-right">Valor Total</th>
+        <div>
+          <span className="text-slate-500 font-semibold block">Cliente:</span>
+          <strong className="text-slate-900 block mt-1">
+            {contratoActual?.cliente || contratoActual?.razon_social || '---'}
+          </strong>
+        </div>
+
+        <div>
+          <span className="text-slate-500 font-semibold block">Contrato Nro.:</span>
+          <strong className="text-slate-900 block mt-1 font-mono">
+            {contratoActual?.codigo || contratoActual?.id || '---'}
+          </strong>
+        </div>
+
+        <div>
+          <span className="text-slate-500 font-semibold block">Fecha Emisión:</span>
+          <input
+            type="date"
+            value={fechaEmision}
+            onChange={(e) => setFechaEmision(e.target.value)}
+            className="mt-1 bg-white border border-slate-300 rounded px-2 py-0.5 text-xs font-bold text-slate-800 outline-none"
+          />
+        </div>
+      </div>
+
+      {/* PERÍODO */}
+      <div className="bg-slate-50 border border-slate-300 p-4 rounded-xl flex flex-wrap items-center gap-4">
+        <span className="font-black text-xs text-slate-800 uppercase flex items-center gap-2">
+          <Clock className="w-4 h-4 text-amber-600" /> PERÍODO:
+        </span>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-bold text-slate-600">DESDE</label>
+          <input
+            type="date"
+            value={periodoDesde}
+            onChange={(e) => setPeriodoDesde(e.target.value)}
+            className="bg-white border border-slate-300 rounded px-2 py-1 text-xs font-bold text-slate-800 outline-none"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="text-xs font-bold text-slate-600">HASTA</label>
+          <input
+            type="date"
+            value={periodoHasta}
+            onChange={(e) => setPeriodoHasta(e.target.value)}
+            className="bg-white border border-slate-300 rounded px-2 py-1 text-xs font-bold text-slate-800 outline-none"
+          />
+        </div>
+      </div>
+
+      {/* SELECTOR RÁPIDO PARA AGREGAR PARTES SICE */}
+      <div className="flex justify-between items-center bg-slate-100 p-3 rounded-xl border border-slate-300">
+        <span className="text-xs font-bold text-slate-700">Partes Diarios Disponibles para Incorporar:</span>
+        <select
+          onChange={(e) => {
+            const parteId = e.target.value;
+            if (!parteId) return;
+            const parteEncontrado = allReportesSice.find(p => String(p?.id || p?.nro) === String(parteId));
+            if (parteEncontrado) {
+              agregarParteFila(parteEncontrado);
+            }
+            e.target.value = '';
+          }}
+          className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none cursor-pointer"
+        >
+          <option value="">+ Seleccionar parte diario aprobado...</option>
+          {allReportesSice.map((p, idx) => (
+            <option key={idx} value={p?.id || p?.nro}>
+              Parte #{p?.nro || idx + 1} ({p?.fecha}) - {p?.totalHorasSuma || p?.total_horas_suma || 0} hs
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* TABLA DE ITEMS */}
+      <div className="overflow-x-auto border border-slate-400 rounded-xl">
+        <table className="w-full text-left text-xs border-collapse">
+          <thead>
+            <tr className="bg-slate-900 text-white font-extrabold uppercase text-[10px]">
+              <th className="py-3 px-3 text-center w-12 border-r border-slate-700">ÍTEM</th>
+              <th className="py-3 px-3 border-r border-slate-700">FECHA</th>
+              <th className="py-3 px-3 border-r border-slate-700">NRO PARTE</th>
+              <th className="py-3 px-3 text-center border-r border-slate-700">TOTAL HORAS</th>
+              <th className="py-3 px-3 text-right border-r border-slate-700">VALOR HORA ($)</th>
+              <th className="py-3 px-3 text-right border-r border-slate-700">VALOR TOTAL ($)</th>
+              <th className="py-3 px-3 text-center w-16">ACCIONES</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-slate-300 bg-white">
+            {partesSeleccionados.length === 0 ? (
+              <tr>
+                <td colSpan="7" className="py-12 text-center text-slate-400 italic">
+                  No hay partes diarios incorporados en este certificado. Seleccione uno arriba para comenzar.
+                </td>
               </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-300">
-              {reportesFiltrados.length === 0 ? (
-                <tr>
-                  <td colSpan="6" className="py-8 text-center text-slate-400 italic font-semibold">
-                    No hay partes diarios aprobados para este contrato en el período seleccionado.
+            ) : (
+              partesSeleccionados.map((item, index) => (
+                <tr key={item.id} className="hover:bg-amber-50/40">
+                  <td className="py-2.5 px-3 text-center font-bold text-slate-700 border-r border-slate-300">
+                    {index + 1}
+                  </td>
+                  <td className="py-2.5 px-3 border-r border-slate-300 font-medium">
+                    {item.fecha}
+                  </td>
+                  <td className="py-2.5 px-3 border-r border-slate-300 font-mono font-bold">
+                    Parte #{item.nroParte}
+                  </td>
+                  <td className="py-2.5 px-3 text-center border-r border-slate-300">
+                    <input
+                      type="number"
+                      value={item.totalHoras}
+                      onChange={(e) => actualizarFila(item.id, 'totalHoras', e.target.value)}
+                      className="w-16 bg-slate-50 border border-slate-300 rounded px-1 py-1 text-center font-bold text-xs"
+                    />
+                  </td>
+                  <td className="py-2.5 px-3 text-right border-r border-slate-300">
+                    <input
+                      type="number"
+                      value={item.valorHora}
+                      onChange={(e) => actualizarFila(item.id, 'valorHora', e.target.value)}
+                      className="w-24 bg-slate-50 border border-slate-300 rounded px-1 py-1 text-right font-bold text-xs font-mono"
+                    />
+                  </td>
+                  <td className="py-2.5 px-3 text-right border-r border-slate-300 font-black text-slate-900 font-mono">
+                    $ {Number(item.valorTotal).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                  </td>
+                  <td className="py-2.5 px-3 text-center">
+                    <button
+                      type="button"
+                      onClick={() => eliminarFila(item.id)}
+                      className="p-1.5 bg-rose-600 text-white rounded-lg hover:bg-rose-700 cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
                   </td>
                 </tr>
-              ) : (
-                reportesFiltrados.map((rep, idx) => (
-                  <tr key={rep.id} className="bg-white hover:bg-slate-50">
-                    <td className="py-2 px-3 text-center font-bold text-slate-700 border-r border-slate-300">{idx + 1}</td>
-                    <td className="py-2 px-3 text-center font-semibold border-r border-slate-300">{rep.fecha}</td>
-                    <td className="py-2 px-3 text-center font-mono border-r border-slate-300 text-slate-600">{rep.nro}</td>
-                    <td className="py-2 px-3 text-center font-black text-amber-800 border-r border-slate-300 bg-amber-50">{rep.totalHorasSuma.toFixed(2)} hs</td>
-                    <td className="py-2 px-3 text-right font-medium text-slate-600 border-r border-slate-300">
-                      $ <input 
-                          type="number"
-                          value={valorHora}
-                          onChange={(e) => setValorHora(Number(e.target.value))}
-                          className="w-20 text-right bg-transparent outline-none font-bold text-slate-800 hover:bg-amber-100 rounded px-1"
-                        />
-                    </td>
-                    <td className="py-2 px-4 text-right font-bold text-slate-900">$ {(rep.totalHorasSuma * valorHora).toLocaleString('es-AR', { maximumFractionDigits: 2 })}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-            {reportesFiltrados.length > 0 && (
-              <tfoot>
-                <tr className="bg-slate-200 border-t-2 border-slate-800">
-                  <td colSpan="3" className="py-3 px-4 text-right font-black uppercase text-slate-900">TOTAL CERTIFICADO</td>
-                  <td className="py-3 px-3 text-center font-black text-amber-900 bg-amber-200">{totales.horas.toFixed(2)} hs</td>
-                  <td className="py-3 px-3 border-r border-slate-300"></td>
-                  <td className="py-3 px-4 text-right font-black text-slate-900 text-sm bg-slate-300">$ {totales.valorTotal.toLocaleString('es-AR', { maximumFractionDigits: 2 })}</td>
-                </tr>
-              </tfoot>
+              ))
             )}
-          </table>
+          </tbody>
+          {partesSeleccionados.length > 0 && (
+            <tfoot>
+              <tr className="bg-slate-900 text-white font-black">
+                <td colSpan="5" className="py-3 px-4 text-right uppercase text-xs">TOTAL GENERAL A CERTIFICAR:</td>
+                <td className="py-3 px-4 text-right text-amber-400 font-mono text-sm" colSpan="2">
+                  $ {totalGeneralMonto.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                </td>
+              </tr>
+            </tfoot>
+          )}
+        </table>
+      </div>
+
+      {/* BLOQUE DE FIRMAS */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+        <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
+          <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
+            RESPONSABLE PROVEEDOR
+          </div>
+          <div className="p-4 space-y-3 text-xs font-bold">
+            <div>
+              <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
+              <input 
+                type="text" 
+                value={respProveedor.cargo} 
+                onChange={(e) => setRespProveedor({...respProveedor, cargo: e.target.value})} 
+                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800" 
+              />
+            </div>
+            <div>
+              <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
+              <input 
+                type="text" 
+                value={respProveedor.nombre} 
+                onChange={(e) => setRespProveedor({...respProveedor, nombre: e.target.value})} 
+                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black" 
+              />
+            </div>
+            <div>
+              <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres, Ej: AB1234):</span>
+              <input 
+                type="text" 
+                maxLength={6}
+                value={respProveedor.firma} 
+                onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value})} 
+                placeholder="EJ: AB1234"
+                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold" 
+              />
+            </div>
+          </div>
         </div>
 
-        <form onSubmit={firmarYCertificar} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50">
-          <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
-            <div className="p-4 space-y-3">
-              <h4 className="font-black text-xs text-slate-900 uppercase bg-slate-200 p-2 rounded">RESPONSABLE PROVEEDOR</h4>
-              <div className="space-y-2 text-xs">
-                <div>
-                  <label className="block font-semibold text-slate-600 mb-0.5">CARGO (TRAER DESDE SHEETS):</label>
-                  <input type="text" readOnly value={responsables.pCargo} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed outline-none" />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO (IDEM):</label>
-                  <input type="text" readOnly value={responsables.pNombre} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed outline-none" />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: AB1234):</label>
-                  <input 
-                    type="password" required maxLength={6} placeholder="Ej: AB1234" 
-                    value={respFirmas.proveedor} onChange={(e) => setRespFirmas({...respFirmas, proveedor: e.target.value.toUpperCase()})} 
-                    className="w-full bg-white border border-slate-400 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500" 
-                  />
-                </div>
-              </div>
+        <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
+          <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
+            RESPONSABLE CLIENTE
+          </div>
+          <div className="p-4 space-y-3 text-xs font-bold">
+            <div>
+              <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
+              <input 
+                type="text" 
+                value={respCliente.cargo} 
+                onChange={(e) => setRespCliente({...respCliente, cargo: e.target.value})} 
+                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800" 
+                placeholder="Ingrese cargo..."
+              />
             </div>
-
-            <div className="p-4 space-y-3">
-              <h4 className="font-black text-xs text-slate-900 uppercase bg-slate-200 p-2 rounded">RESPONSABLE CLIENTE</h4>
-              <div className="space-y-2 text-xs">
-                <div>
-                  <label className="block font-semibold text-slate-600 mb-0.5">CARGO (IDEM):</label>
-                  <input type="text" readOnly value={responsables.cCargo} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed outline-none" />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO (IDEM):</label>
-                  <input type="text" readOnly value={responsables.cNombre} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed outline-none" />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: CD5678):</label>
-                  <input 
-                    type="password" required maxLength={6} placeholder="Ej: CD5678" 
-                    value={respFirmas.cliente} onChange={(e) => setRespFirmas({...respFirmas, cliente: e.target.value.toUpperCase()})} 
-                    className="w-full bg-white border border-slate-400 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500" 
-                  />
-                </div>
-              </div>
+            <div>
+              <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
+              <input 
+                type="text" 
+                value={respCliente.nombre} 
+                onChange={(e) => setRespCliente({...respCliente, nombre: e.target.value})} 
+                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black" 
+                placeholder="Ingrese nombre..."
+              />
+            </div>
+            <div>
+              <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres, Ej: CD5678):</span>
+              <input 
+                type="text" 
+                maxLength={6}
+                value={respCliente.firma} 
+                onChange={(e) => setRespCliente({...respCliente, firma: e.target.value})} 
+                placeholder="EJ: CD5678"
+                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold" 
+              />
             </div>
           </div>
+        </div>
+      </div>
 
-          <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
-            <p className="text-xs text-slate-500">Ingrese sus claves para firmar y validar el certificado de horas hombre.</p>
-            <button 
-              type="submit" 
-              disabled={isSaving || reportesFiltrados.length === 0} 
-              className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2 ${isSaving || reportesFiltrados.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              {isSaving ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Procesando...</> : <><ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Guardar Certificado</>}
-            </button>
-          </div>
-        </form>
+      {/* BOTÓN DE ACCIÓN */}
+      <div className="flex flex-col sm:flex-row justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-300 gap-4">
+        <span className="text-xs text-slate-500 font-medium">
+          Ingrese sus claves para firmar y validar el certificado de horas hombre.
+        </span>
+        <button
+          type="button"
+          onClick={guardarCertificadoHoras}
+          disabled={isSaving}
+          className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
+        >
+          {isSaving ? <Loader2 className="w-4 h-4 animate-spin text-amber-300" /> : <ShieldCheck className="w-4 h-4" />}
+          {isSaving ? 'Guardando Certificado...' : 'Aprobar, Firmar y Guardar Certificado'}
+        </button>
       </div>
     </div>
   );
