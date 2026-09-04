@@ -15,7 +15,7 @@ export default function ListadoInsumosTab({
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
       const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || p?.Estado || '').toLowerCase().trim();
-      return est === 'aprobado' || est === 'aprobada';
+      return est === 'aprobado' || est === 'aprobada' || est === ''; // Permite listar incluso si el estado está vacío
     });
   }, [presupuestos]);
 
@@ -26,20 +26,47 @@ export default function ListadoInsumosTab({
 
   const insumosPorRubro = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return {};
+
+    // 1. Buscar de forma exhaustiva cualquier propiedad que contenga la lista
+    let rubrosList = [];
+    const posiblesKeys = ['rubros', 'detalles', 'items', 'presupuesto_detalles', 'tareas', 'contenido', 'data', 'filas'];
     
-    // Buscar cualquier clave posible donde vengan los datos del presupuesto
-    let rubrosList = presupuestoInsumosSeleccionado?.rubros || 
-                     presupuestoInsumosSeleccionado?.detalles || 
-                     presupuestoInsumosSeleccionado?.items || 
-                     presupuestoInsumosSeleccionado?.presupuesto_detalles || [];
-                     
+    for (const key of posiblesKeys) {
+      if (presupuestoInsumosSeleccionado[key]) {
+        rubrosList = presupuestoInsumosSeleccionado[key];
+        break;
+      }
+    }
+
     if (typeof rubrosList === 'string') {
       try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; }
     }
 
-    // Si viene como una lista plana de tareas/ítems sin rubros agrupados
-    if (Array.isArray(rubrosList) && rubrosList.length > 0 && !rubrosList[0]?.nombre && !rubrosList[0]?.rubro && (rubrosList[0]?.descripcion || rubrosList[0]?.tarea)) {
-      rubrosList = [{ nombre: 'Presupuesto General', tareas: rubrosList }];
+    // Si no encontró nada en las keys comunes, buscar cualquier propiedad que sea un arreglo o string JSON
+    if (!Array.isArray(rubrosList) || rubrosList.length === 0) {
+      for (const val of Object.values(presupuestoInsumosSeleccionado)) {
+        if (Array.isArray(val) && val.length > 0) {
+          rubrosList = val;
+          break;
+        }
+        if (typeof val === 'string' && val.trim().startsWith('[')) {
+          try {
+            const parsed = JSON.parse(val);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              rubrosList = parsed;
+              break;
+            }
+          } catch (e) {}
+        }
+      }
+    }
+
+    // Si aún es plano, convertirlo en un rubro general
+    if (Array.isArray(rubrosList) && rubrosList.length > 0) {
+      const primerElemento = rubrosList[0];
+      if (!primerElemento?.nombre && !primerElemento?.rubro && !primerElemento?.tareas) {
+        rubrosList = [{ nombre: 'Presupuesto General', tareas: rubrosList }];
+      }
     }
 
     const mapRubros = {};
@@ -47,9 +74,13 @@ export default function ListadoInsumosTab({
 
     rubrosList.forEach((r, rIdx) => {
       const nombreRubro = r?.nombre || r?.rubro || r?.descripcion || `Rubro ${rIdx + 1}`;
-      let tareasList = r?.tareas || r?.items || r?.subitems || [];
+      let tareasList = r?.tareas || r?.items || r?.subitems || r?.detalle || [];
       if (typeof tareasList === 'string') {
         try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
+      }
+
+      if (!Array.isArray(tareasList) && typeof r === 'object') {
+        tareasList = [r]; // Si el rubro en sí es la tarea
       }
 
       const catsMap = {};
@@ -91,6 +122,7 @@ export default function ListadoInsumosTab({
       }
       mapRubros[nombreRubro] = catsMap;
     });
+
     return mapRubros;
   }, [presupuestoInsumosSeleccionado, ordenCategorias]);
 
@@ -158,8 +190,8 @@ export default function ListadoInsumosTab({
             onChange={(e) => setInsumoPresupuestoId(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
           >
-            <option value="">-- Seleccionar Presupuesto Aprobado ({presupuestosAprobados.length} disp.) --</option>
-            {presupuestosAprobados.map(p => {
+            <option value="">-- Seleccionar Presupuesto ({presupuestos.length} totales) --</option>
+            {presupuestos.map(p => {
               const pId = p?.id || p?.ID || p?.codigo;
               const pCod = p?.codigo || pId;
               const pNom = p?.nombre || p?.nombre_obra || 'Presupuesto';
@@ -198,7 +230,7 @@ export default function ListadoInsumosTab({
 
       {!presupuestoInsumosSeleccionado ? (
         <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-          Por favor, seleccione un presupuesto aprobado para visualizar sus insumos.
+          Por favor, seleccione un presupuesto para visualizar sus insumos.
         </div>
       ) : vistaGeneralInsumos ? (
         <div className="space-y-6">
