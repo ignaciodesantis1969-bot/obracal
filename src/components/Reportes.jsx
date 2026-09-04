@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import toast from 'react-hot-toast';
 import { useObraData } from '../../hooks/useObraData';
 import { OBRAS_CONFIG } from '../../config/constants';
 import ReportesDiariosTab from './ReportesDiariosTab';
 import ListadoInsumosTab from './ListadoInsumosTab';
 import ComparativoTab from './ComparativoTab';
+import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
 import { FileText, Building2, Clock, Package, TrendingUp, Calendar, ShieldCheck, Printer, Trash2, Eye, X, ExternalLink } from 'lucide-react';
 
 class ErrorBoundary extends React.Component {
@@ -25,7 +27,7 @@ class ErrorBoundary extends React.Component {
           <p className="text-xs text-slate-500">Ocurrió un error inesperado al renderizar los reportes.</p>
           <button 
             onClick={() => window.location.reload()} 
-            className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold"
+            className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold cursor-pointer"
           >
             Recargar Página
           </button>
@@ -280,7 +282,7 @@ function ReportesContent({
             <button
               key={tab} 
               onClick={() => setActiveTab(tab)} 
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === tab ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === tab ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
             >
               {tab}
             </button>
@@ -800,7 +802,7 @@ function ReportesContent({
                                     href={pdfLink}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-[10px] inline-flex items-center gap-1 transition-colors"
+                                    className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-[10px] inline-flex items-center gap-1 transition-colors cursor-pointer"
                                   >
                                     <ExternalLink className="w-3 h-3" /> Ver PDF
                                   </a>
@@ -827,60 +829,10 @@ function ReportesContent({
           )}
 
           {tipoCertificadoSubTab === 'horas_hombre' && (
-            <div className="space-y-4 pt-2">
-              <div className="flex justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-200">
-                <div>
-                  <h4 className="text-xs font-black text-slate-900 uppercase">Certificado de Horas Hombre - Contrato</h4>
-                  <p className="text-[11px] text-slate-500">Consolidado de horas trabajadas y validadas a partir del historial de partes diarios SICE.</p>
-                </div>
-              </div>
-
-              {allReportesSice.length === 0 ? (
-                <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-                  No hay partes diarios o registros de horas hombre aprobados para certificar.
-                </div>
-              ) : (
-                <table className="w-full text-left text-xs border border-slate-200 rounded-xl overflow-hidden">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200 text-[10px]">
-                      <th className="px-4 py-3">Parte Nro</th>
-                      <th className="px-4 py-3">Fecha</th>
-                      <th className="px-4 py-3">Contrato Asociado</th>
-                      <th className="px-4 py-3 text-center">Total Horas Validadas</th>
-                      <th className="px-4 py-3 text-center">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {allReportesSice.map((parte, idx) => {
-                      const parteId = parte?.id || parte?.nro || idx;
-                      const totalHs = parte?.totalHorasSuma || parte?.total_horas_suma || 0;
-                      return (
-                        <tr key={parteId} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 font-bold text-amber-800">Parte #{parte?.nro || '00001'}</td>
-                          <td className="px-4 py-3 text-slate-600">{parte?.fecha || '---'}</td>
-                          <td className="px-4 py-3 text-slate-800 font-semibold">{parte?.contratoid || 'Contrato SICE General'}</td>
-                          <td className="px-4 py-3 text-center font-black text-emerald-700">{totalHs} hs</td>
-                          <td className="px-4 py-3 text-center">
-                            {parte?.pdfUrl || parte?.pdf_url ? (
-                              <a
-                                href={parte?.pdfUrl || parte?.pdf_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-lg text-[10px] inline-flex items-center gap-1 transition-colors"
-                              >
-                                <ExternalLink className="w-3 h-3" /> Ver Certificado PDF
-                              </a>
-                            ) : (
-                              <span className="text-slate-400 italic">Generado en sistema</span>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              )}
-            </div>
+            <CertificadoHorasHombreTab
+              contratosList={contratosList}
+              allReportesSice={allReportesSice}
+            />
           )}
 
           {tipoCertificadoSubTab === 'compra_materiales' && (
