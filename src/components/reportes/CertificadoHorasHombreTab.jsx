@@ -63,6 +63,15 @@ export default function CertificadoHorasHombreTab({
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
   useEffect(() => {
+    useEffect(() => {
+    console.log("CONTRATOS PROPS:", propContratos);
+    console.log("CONTRATOS SHEET (Hook):", contratosSheet);
+    console.log("CONTRATOS FINALES CALCULADOS:", contratosList);
+
+    if (contratoActual) {
+      // ... resto de tu código existente ...
+    }
+  }, [contratoActual, contratosSheet, propContratos, contratosList]);
     if (contratoActual) {
       const clienteNombre = contratoActual.cliente || contratoActual.Cliente || '';
       const clienteCargo = contratoActual.cliente_cargo || contratoActual.clienteCargo || 'Gerente de Plant';
