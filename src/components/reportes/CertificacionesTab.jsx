@@ -121,7 +121,7 @@ export default function CertificacionesTab({
       const clienteResuelto = resolverRazonSocialCliente(certificadoPresupuestoObj);
       setCertClienteNombre(clienteResuelto);
       
-      // AUTO-RELLENAR EL RESPONSABLE CLIENTE DESDE EL PRESUPUESTO (responsable_cliente)
+      // Auto-rellenar responsable cliente
       const respClienteSheet = certificadoPresupuestoObj.responsable_cliente || certificadoPresupuestoObj.responsableCliente || '';
       const cargoClienteSheet = certificadoPresupuestoObj.cargo_cliente || certificadoPresupuestoObj.cargoCliente || 'RESPONSABLE TÉCNICO';
 
@@ -130,6 +130,17 @@ export default function CertificacionesTab({
         nombre: respClienteSheet || prev.nombre || clienteResuelto,
         cargo: cargoClienteSheet || prev.cargo
       }));
+
+      // Auto-rellenar responsable proveedor
+      const respProveedorSheet = certificadoPresupuestoObj.responsable_proveedor || certificadoPresupuestoObj.responsableProveedor || '';
+      const cargoProveedorSheet = certificadoPresupuestoObj.cargo_proveedor || certificadoPresupuestoObj.cargoProveedor || 'JEFE DE OBRA';
+
+      setCertRespProveedor(prev => ({
+        ...prev,
+        nombre: respProveedorSheet || prev.nombre || 'Alexander Torres Lopez',
+        cargo: cargoProveedorSheet || prev.cargo
+      }));
+
     } else if (!certPresupuestoId) {
       setCertClienteNombre('');
     }
@@ -196,6 +207,9 @@ export default function CertificacionesTab({
       itemsDetalle = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.rubros) ? parsed.rubros : []);
     } catch (e) { itemsDetalle = []; }
 
+    // Coeficiente de pase para calcular precio de venta a partir del costo si no viene explícito
+    const coefPase = Number(certificadoPresupuestoObj?.coeficiente_pase || certificadoPresupuestoObj?.coeficiente || 1);
+
     let totalPresupuestoCalc = 0;
     let totalActualCalc = 0;
 
@@ -205,9 +219,12 @@ export default function CertificacionesTab({
       
       const tareasFilas = tareasRubro.map((t, tIdx) => {
         const cant = Number(t?.cantidad) || Number(t?.cant) || 1;
-        // EXCLUSIVO PRECIO DE VENTA / PRECIO UNITARIO (NO COSTO)
-        const pUnit = Number(t?.precio_venta) || Number(t?.precioVenta) || Number(t?.precioUnitarioVenta) || Number(t?.precio_unitario) || Number(t?.precioUnitario) || Number(t?.precio) || 0;
-        const totalItem = cant * pUnit;
+        const costoUnit = Number(t?.costo_unitario || t?.costoUnitario || t?.costo || 0);
+        
+        // CORRECCIÓN: Tomar precio de venta / cotizado correcto o calcular con el coeficiente del presupuesto
+        const pUnit = Number(t?.precio_venta) || Number(t?.precioVenta) || Number(t?.precioUnitarioVenta) || Number(t?.precio_unitario) || Number(t?.precioUnitario) || Number(t?.precio) || (costoUnit * coefPase);
+        const totalItem = Number(t?.total || t?.subtotal || (cant * pUnit));
+        
         totalRubro += totalItem;
 
         const pctAnterior = obtenerPctAnteriorAcumulado(rIdx, tIdx);
