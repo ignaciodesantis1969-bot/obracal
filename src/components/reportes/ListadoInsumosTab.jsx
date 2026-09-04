@@ -4,7 +4,14 @@ import { GOOGLE_SCRIPT_URL } from '@/api';
 import { Package, FileText, Printer } from 'lucide-react';
 
 export default function ListadoInsumosTab({
-  presupuestos = []
+  presupuestos = [],
+  buscarValorEnObjeto = (obj, keys) => {
+    if (!obj) return '';
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
+    }
+    return '';
+  }
 }) {
   const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
   const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(false);
@@ -12,21 +19,30 @@ export default function ListadoInsumosTab({
 
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Varios'], []);
 
+  const presupuestosAprobados = useMemo(() => {
+    return presupuestos.filter(p => {
+      const est = String(buscarValorEnObjeto(p, ['estado_presupuesto', 'Estado_presupuesto', 'estado', 'Estado'])).toLowerCase().trim();
+      return est === 'aprobado' || est === 'aprobada';
+    });
+  }, [presupuestos, buscarValorEnObjeto]);
+
   const presupuestoInsumosSeleccionado = useMemo(() => {
     if (!insumoPresupuestoId) return null;
-    return presupuestos.find(p => String(p?.id || p?.ID) === String(insumoPresupuestoId));
-  }, [insumoPresupuestoId, presupuestos]);
+    return presupuestos.find(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'codigo'])) === String(insumoPresupuestoId));
+  }, [insumoPresupuestoId, presupuestos, buscarValorEnObjeto]);
 
   const insumosPorRubro = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return {};
-    let rubrosList = presupuestoInsumosSeleccionado?.rubros || presupuestoInsumosSeleccionado?.detalles || [];
+    let rubrosList = buscarValorEnObjeto(presupuestoInsumosSeleccionado, ['rubros', 'detalles', 'items']) || [];
     if (typeof rubrosList === 'string') {
       try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; }
     }
 
     const mapRubros = {};
-    rubrosList.forEach(r => {
-      const nombreRubro = r?.nombre || r?.rubro || 'Rubro General';
+    if (!Array.isArray(rubrosList)) return mapRubros;
+
+    rubrosList.forEach((r, rIdx) => {
+      const nombreRubro = r?.nombre || r?.rubro || `Rubro ${rIdx + 1}`;
       let tareasList = r?.tareas || r?.items || [];
       if (typeof tareasList === 'string') {
         try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
@@ -35,42 +51,44 @@ export default function ListadoInsumosTab({
       const catsMap = {};
       ordenCategorias.forEach(c => catsMap[c] = []);
 
-      tareasList.forEach(t => {
-        let insumosList = t?.insumos || t?.materiales || [];
-        if (typeof insumosList === 'string') {
-          try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
-        }
+      if (Array.isArray(tareasList)) {
+        tareasList.forEach(t => {
+          let insumosList = t?.insumos || t?.materiales || [];
+          if (typeof insumosList === 'string') {
+            try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
+          }
 
-        if (insumosList.length === 0) {
-          catsMap['Materiales'].push({
-            tarea: t?.descripcion || t?.tarea || 'Labor',
-            nombre: t?.descripcion || t?.tarea || 'Ítem general',
-            proveedor: 'SICE S.A.',
-            unidad: t?.unidad || 'un',
-            cantidad: Number(t?.cantidad || 1),
-            costo_unitario: Number(t?.costo_unitario || t?.total || 0),
-            total: Number(t?.total || 0)
-          });
-        } else {
-          insumosList.forEach(ins => {
-            const catIns = ins?.categoria || ins?.tipo || 'Materiales';
-            const catDestino = ordenCategorias.includes(catIns) ? catIns : 'Materiales';
-            catsMap[catDestino].push({
-              tarea: t?.descripcion || t?.tarea || 'Labor',
-              nombre: ins?.nombre || ins?.descripcion || 'Insumo',
-              proveedor: ins?.proveedor || 'Proveedor SICE',
-              unidad: ins?.unidad || 'un',
-              cantidad: Number(ins?.cantidad || 1),
-              costo_unitario: Number(ins?.costo_unitario || ins?.precio || 0),
-              total: Number(ins?.total || (Number(ins?.cantidad || 1) * Number(ins?.costo_unitario || ins?.precio || 0)))
+          if (!Array.isArray(insumosList) || insumosList.length === 0) {
+            catsMap['Materiales'].push({
+              tarea: t?.descripcion || t?.tarea || 'Labor general',
+              nombre: t?.descripcion || t?.tarea || 'Ítem general',
+              proveedor: 'SICE S.A.',
+              unidad: t?.unidad || 'un',
+              cantidad: Number(t?.cantidad || 1),
+              costo_unitario: Number(t?.costo_unitario || t?.total || 0),
+              total: Number(t?.total || (Number(t?.cantidad || 1) * Number(t?.costo_unitario || 0)))
             });
-          });
-        }
-      });
+          } else {
+            insumosList.forEach(ins => {
+              const catIns = ins?.categoria || ins?.tipo || 'Materiales';
+              const catDestino = ordenCategorias.includes(catIns) ? catIns : 'Materiales';
+              catsMap[catDestino].push({
+                tarea: t?.descripcion || t?.tarea || 'Labor',
+                nombre: ins?.nombre || ins?.descripcion || 'Insumo',
+                proveedor: ins?.proveedor || 'Proveedor SICE',
+                unidad: ins?.unidad || 'un',
+                cantidad: Number(ins?.cantidad || 1),
+                costo_unitario: Number(ins?.costo_unitario || ins?.precio || 0),
+                total: Number(ins?.total || (Number(ins?.cantidad || 1) * Number(ins?.costo_unitario || ins?.precio || 0)))
+              });
+            });
+          }
+        });
+      }
       mapRubros[nombreRubro] = catsMap;
     });
     return mapRubros;
-  }, [presupuestoInsumosSeleccionado, ordenCategorias]);
+  }, [presupuestoInsumosSeleccionado, ordenCategorias, buscarValorEnObjeto]);
 
   const insumosGenerales = useMemo(() => {
     const catsMap = {};
@@ -136,15 +154,17 @@ export default function ListadoInsumosTab({
             onChange={(e) => setInsumoPresupuestoId(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
           >
-            <option value="">-- Seleccionar Presupuesto Aprobado --</option>
-            {presupuestos.filter(p => {
-              const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || '').toLowerCase().trim();
-              return est === 'aprobado' || est === 'aprobada';
-            }).map(p => (
-              <option key={p?.id || p?.ID} value={p?.id || p?.ID}>
-                [{p?.codigo || p?.id}] {p?.nombre || p?.nombre_obra || 'Presupuesto'}
-              </option>
-            ))}
+            <option value="">-- Seleccionar Presupuesto Aprobado ({presupuestosAprobados.length} disp.) --</option>
+            {presupuestosAprobados.map(p => {
+              const pId = p?.id || p?.ID;
+              const pCod = p?.codigo || pId;
+              const pNom = p?.nombre || p?.nombre_obra || 'Presupuesto';
+              return (
+                <option key={pId} value={pId}>
+                  [{pCod}] {pNom}
+                </option>
+              );
+            })}
           </select>
           <button
             onClick={() => setVistaGeneralInsumos(!vistaGeneralInsumos)}

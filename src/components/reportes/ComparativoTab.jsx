@@ -5,46 +5,55 @@ export default function ComparativoTab({
   presupuestos = [],
   facturas = [],
   allReportesSice = [],
-  obras = []
+  obras = [],
+  buscarValorEnObjeto = (obj, keys) => {
+    if (!obj) return '';
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
+    }
+    return '';
+  }
 }) {
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
 
   const presupuestosCompFiltrados = useMemo(() => {
     let lista = presupuestos.filter(p => {
-      const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || '').toLowerCase().trim();
+      const est = String(buscarValorEnObjeto(p, ['estado_presupuesto', 'Estado_presupuesto', 'estado', 'Estado'])).toLowerCase().trim();
       return est === 'aprobado' || est === 'aprobada';
     });
     if (compObraId && compObraId !== 'todas') {
-      lista = lista.filter(p => String(p?.obra_id || p?.obraId || p?.obra) === String(compObraId));
+      lista = lista.filter(p => String(buscarValorEnObjeto(p, ['obra_id', 'obraId', 'obra'])) === String(compObraId));
     }
     return lista;
-  }, [presupuestos, compObraId]);
+  }, [presupuestos, compObraId, buscarValorEnObjeto]);
 
   const presupuestoSeleccionado = useMemo(() => {
     if (!compPresupuestoId) return null;
-    return presupuestos.find(p => String(p?.id || p?.ID) === String(compPresupuestoId));
-  }, [compPresupuestoId, presupuestos]);
+    return presupuestos.find(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'codigo'])) === String(compPresupuestoId));
+  }, [compPresupuestoId, presupuestos, buscarValorEnObjeto]);
 
   const rubrosPresupuestoDetalle = useMemo(() => {
     if (!presupuestoSeleccionado) return [];
-    let rubros = presupuestoSeleccionado?.rubros || presupuestoSeleccionado?.detalles || [];
+    let rubros = buscarValorEnObjeto(presupuestoSeleccionado, ['rubros', 'detalles', 'items']) || [];
     if (typeof rubros === 'string') {
       try { rubros = JSON.parse(rubros); } catch { rubros = []; }
     }
+    if (!Array.isArray(rubros)) return [];
+
     return rubros.map((r, idx) => {
       let tareas = r?.tareas || r?.items || [];
       if (typeof tareas === 'string') {
         try { tareas = JSON.parse(tareas); } catch { tareas = []; }
       }
-      const totalRubro = tareas.reduce((acc, t) => acc + Number(t?.total || (Number(t?.cantidad || 1) * Number(t?.costo_unitario || 0))), 0);
+      const totalRubro = Array.isArray(tareas) ? tareas.reduce((acc, t) => acc + Number(t?.total || (Number(t?.cantidad || 1) * Number(t?.costo_unitario || 0))), 0) : 0;
       return {
         id: r?.id || idx,
         nombre: r?.nombre || r?.rubro || `Rubro ${idx + 1}`,
         total: totalRubro
       };
     });
-  }, [presupuestoSeleccionado]);
+  }, [presupuestoSeleccionado, buscarValorEnObjeto]);
 
   const granTotalPresupuestado = useMemo(() => {
     return rubrosPresupuestoDetalle.reduce((acc, r) => acc + (r?.total || 0), 0);
@@ -71,15 +80,19 @@ export default function ComparativoTab({
 
   const facturasPresupuesto = useMemo(() => {
     if (!presupuestoSeleccionado) return facturas;
-    const pCodigo = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.id || '').trim();
+    const pCodigo = String(buscarValorEnObjeto(presupuestoSeleccionado, ['codigo', 'id', 'ID'])).trim();
     return facturas.filter(f => {
-      const fPresupuesto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
+      const fPresupuesto = String(buscarValorEnObjeto(f, ['presupuesto_id', 'presupuestoId', 'presupuesto'])).trim();
       return fPresupuesto === pCodigo || fPresupuesto === String(presupuestoSeleccionado?.id);
     });
-  }, [presupuestoSeleccionado, facturas]);
+  }, [presupuestoSeleccionado, facturas, buscarValorEnObjeto]);
 
   const gastosGeneralesDetalle = useMemo(() => {
-    const totalFacturasGG = facturasPresupuesto.filter(f => limpiarTexto(f?.rubro || f?.categoria).includes('general') || limpiarTexto(f?.rubro || f?.categoria).includes('gastos')).reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
+    const totalFacturasGG = facturasPresupuesto.filter(f => {
+      const rubroFac = limpiarTexto(f?.rubro || f?.categoria || f?.rubro_presupuesto);
+      return rubroFac.includes('general') || rubroFac.includes('gastos');
+    }).reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
+
     return [
       { id: 1, concepto: 'Logística y Movilidad', total: 150000, real: totalFacturasGG > 0 ? totalFacturasGG * 0.4 : 45000, desvio: 150000 - (totalFacturasGG > 0 ? totalFacturasGG * 0.4 : 45000) },
       { id: 2, concepto: 'Seguridad e Higiene', total: 100000, real: totalFacturasGG > 0 ? totalFacturasGG * 0.6 : 30000, desvio: 100000 - (totalFacturasGG > 0 ? totalFacturasGG * 0.6 : 30000) }
@@ -105,9 +118,11 @@ export default function ComparativoTab({
             className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
           >
             <option value="todas">-- Todas las Obras --</option>
-            {obras.map(o => (
-              <option key={o?.id || o?.ID} value={o?.id || o?.ID}>{o?.nombre || o?.nombre_obra || 'Obra'}</option>
-            ))}
+            {obras.map(o => {
+              const oId = o?.id || o?.ID;
+              const oNom = o?.nombre || o?.nombre_obra || 'Obra';
+              return <option key={oId} value={oId}>{oNom}</option>;
+            })}
           </select>
           <select
             value={compPresupuestoId}
@@ -115,9 +130,12 @@ export default function ComparativoTab({
             className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
           >
             <option value="">-- Seleccionar Presupuesto Aprobado --</option>
-            {presupuestosCompFiltrados.map(p => (
-              <option key={p?.id || p?.ID} value={p?.id || p?.ID}>[{p?.codigo || p?.id}] {p?.nombre || p?.nombre_obra || 'Presupuesto'}</option>
-            ))}
+            {presupuestosCompFiltrados.map(p => {
+              const pId = p?.id || p?.ID;
+              const pCod = p?.codigo || pId;
+              const pNom = p?.nombre || p?.nombre_obra || 'Presupuesto';
+              return <option key={pId} value={pId}>[{pCod}] {pNom}</option>;
+            })}
           </select>
         </div>
       </div>
@@ -138,7 +156,7 @@ export default function ComparativoTab({
               {(() => {
                 const totalRealRubros = rubrosPresupuestoDetalle.reduce((sum, r) => {
                   const salariosRubro = obtenerSalariosPorRubro(r?.nombre);
-                  const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f?.rubro_presupuesto || f?.rubro || '') === limpiarTexto(r?.nombre)).reduce((acc, f) => acc + Number(f?.subtotal || f?.Subtotal || 0), 0);
+                  const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f?.rubro_presupuesto || f?.rubro || '') === limpiarTexto(r?.nombre)).reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
                   return sum + salariosRubro + facturasRubro;
                 }, 0);
                 const totalRealGG = gastosGeneralesDetalle.reduce((acc, g) => acc + (g?.real || 0), 0);
@@ -151,7 +169,7 @@ export default function ComparativoTab({
               {(() => {
                 const totalRealRubros = rubrosPresupuestoDetalle.reduce((sum, r) => {
                   const salariosRubro = obtenerSalariosPorRubro(r?.nombre);
-                  const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f?.rubro_presupuesto || f?.rubro || '') === limpiarTexto(r?.nombre)).reduce((acc, f) => acc + Number(f?.subtotal || f?.Subtotal || 0), 0);
+                  const facturasRubro = facturasPresupuesto.filter(f => limpiarTexto(f?.rubro_presupuesto || f?.rubro || '') === limpiarTexto(r?.nombre)).reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
                   return sum + salariosRubro + facturasRubro;
                 }, 0);
                 const totalRealGG = gastosGeneralesDetalle.reduce((acc, g) => acc + (g?.real || 0), 0);
@@ -184,7 +202,7 @@ export default function ComparativoTab({
                   {rubrosPresupuestoDetalle.map(rubro => {
                     const salariosRubro = obtenerSalariosPorRubro(rubro?.nombre);
                     const facturasRubroTotal = facturasPresupuesto.filter(f => limpiarTexto(f?.rubro_presupuesto || f?.rubro || '') === limpiarTexto(rubro?.nombre));
-                    const facturasRubroSuma = facturasRubroTotal.reduce((acc, f) => acc + Number(f?.subtotal || f?.Subtotal || 0), 0);
+                    const facturasRubroSuma = facturasRubroTotal.reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
                     const totalRealRubro = salariosRubro + facturasRubroSuma;
                     const desvioRubro = (rubro?.total || 0) - totalRealRubro;
 
