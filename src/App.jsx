@@ -1,5 +1,4 @@
-import { useState, useEffect } from 'react';
-// Cambiamos la importación del Toaster a la nueva librería que instalamos
+import { useState, useEffect, lazy, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
@@ -15,23 +14,23 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider } from '@/lib/AuthContext';
 import { useAuth } from '@/hooks/useAuth';
 
-// Pages
-import Login from '@/pages/Login';
-import Dashboard from '@/pages/Dashboard';
-import Clientes from '@/pages/Clientes';
-import Proveedores from '@/pages/Proveedores';
-import Obras from '@/pages/Obras';
-import Insumos from '@/pages/Insumos';
-import Presupuestos from '@/pages/Presupuestos';
-import PresupuestoDetalle from '@/pages/PresupuestoDetalle';
-import Planificacion from '@/pages/Planificacion';
-import Rrhh from '@/pages/Rrhh';
-import Compras from '@/pages/Compras';
-import Tesoreria from '@/pages/Tesoreria';
-import Reportes from '@/pages/Reportes';
-import Usuarios from '@/pages/Usuarios';
-import TareasTemplate from '@/pages/TareasTemplate';
-import ContratosMantenimiento from '@/pages/ContratosMantenimiento';
+// Pages con Lazy Loading para optimizar el rendimiento inicial
+const Login = lazy(() => import('@/pages/Login'));
+const Dashboard = lazy(() => import('@/pages/Dashboard'));
+const Clientes = lazy(() => import('@/pages/Clientes'));
+const Proveedores = lazy(() => import('@/pages/Proveedores'));
+const Obras = lazy(() => import('@/pages/Obras'));
+const Insumos = lazy(() => import('@/pages/Insumos'));
+const Presupuestos = lazy(() => import('@/pages/Presupuestos'));
+const PresupuestoDetalle = lazy(() => import('@/pages/PresupuestoDetalle'));
+const Planificacion = lazy(() => import('@/pages/Planificacion'));
+const Rrhh = lazy(() => import('@/pages/Rrhh'));
+const Compras = lazy(() => import('@/pages/Compras'));
+const Tesoreria = lazy(() => import('@/pages/Tesoreria'));
+const Reportes = lazy(() => import('@/pages/Reportes'));
+const Usuarios = lazy(() => import('@/pages/Usuarios'));
+const TareasTemplate = lazy(() => import('@/pages/TareasTemplate'));
+const ContratosMantenimiento = lazy(() => import('@/pages/ContratosMantenimiento'));
 
 const AuthenticatedApp = () => {
   const { user, setUser } = useAuth();
@@ -156,172 +155,178 @@ const AuthenticatedApp = () => {
   }
 
   if (!user) {
-    return <Login GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} onLoginSuccess={handleLoginSuccess} />;
+    return (
+      <Suspense fallback={<div className="min-h-screen bg-[#070e1b] flex items-center justify-center text-white">Cargando login...</div>}>
+        <Login GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} onLoginSuccess={handleLoginSuccess} />
+      </Suspense>
+    );
   }
 
   const userRole = String(user.role || user.rol || '').toLowerCase();
   const esOperador = userRole.includes('operador') || userRole === 'operator';
 
-  if (esOperador) {
-    return (
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#070e1b] flex items-center justify-center text-white font-medium">
+        Cargando módulo...
+      </div>
+    }>
       <Routes>
         <Route element={<Layout />}>
-          <Route 
-            path="*" 
-            element={
-              <Reportes 
-                userRole={userRole}
-                obras={globalData.obras}
-                presupuestos={globalData.presupuestos}
-                movimientos={globalData.movimientos}
-                insumos={globalData.insumos}
-                rubros={globalData.rubros}
-                facturas={globalData.facturas}
-                maestroTareasRubros={globalData.maestroTareasRubros}
-                contratosMantenimiento={globalData.contratosMantenimiento}
-              />
-            } 
-          />
-        </Route>
-      </Routes>
-    );
-  }
-
-  return (
-    <Routes>
-      <Route element={<Layout />}>
-        <Route 
-          path="/" 
-          element={
-            <Dashboard 
-              movimientos={globalData.movimientos}
-              facturas={globalData.facturas}
-              obras={globalData.obras}
-              presupuestos={globalData.presupuestos}
-              clientes={globalData.clientes}
-              proveedores={globalData.proveedores}
+          {esOperador ? (
+            <Route 
+              path="*" 
+              element={
+                <Reportes 
+                  userRole={userRole}
+                  obras={globalData.obras}
+                  presupuestos={globalData.presupuestos}
+                  movimientos={globalData.movimientos}
+                  insumos={globalData.insumos}
+                  rubros={globalData.rubros}
+                  facturas={globalData.facturas}
+                  maestroTareasRubros={globalData.maestroTareasRubros}
+                  contratosMantenimiento={globalData.contratosMantenimiento}
+                />
+              } 
             />
-          } 
-        />
-        
-        <Route 
-          path="/clientes" 
-          element={
-            <RequirePermiso modulo="clientes">
-              <Clientes clientesIniciales={globalData.clientes} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} />
-            </RequirePermiso>
-          } 
-        />
-        
-        <Route 
-          path="/proveedores" 
-          element={
-            <RequirePermiso modulo="proveedores">
-              <Proveedores proveedoresIniciales={globalData.proveedores} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} />
-            </RequirePermiso>
-          } 
-        />
-
-        <Route path="/obras" element={<RequirePermiso modulo="obras"><Obras /></RequirePermiso>} />
-        <Route path="/insumos" element={<RequirePermiso modulo="insumos"><Insumos /></RequirePermiso>} />
-        <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
-        <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
-        <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
-        
-        <Route 
-          path="/rrhh" 
-          element={
-            <RequirePermiso modulo="rrhh">
-              <Rrhh 
-                GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
-                personalInicial={globalData.personal}
-                insumos={globalData.insumos}
-                obras={globalData.obras}
-                rubros={globalData.rubros}
-                presupuestos={globalData.presupuestos}
-                legajosInicial={globalData.legajos}
-                cargarDatos={cargarDatos}
+          ) : (
+            <>
+              <Route 
+                path="/" 
+                element={
+                  <Dashboard 
+                    movimientos={globalData.movimientos}
+                    facturas={globalData.facturas}
+                    obras={globalData.obras}
+                    presupuestos={globalData.presupuestos}
+                    clientes={globalData.clientes}
+                    proveedores={globalData.proveedores}
+                  />
+                } 
               />
-            </RequirePermiso>
-          } 
-        />
-
-        <Route 
-          path="/compras" 
-          element={
-            <RequirePermiso modulo="compras">
-              <Compras 
-                GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} 
-                facturas={globalData.facturas}
-                ordenesCompra={globalData.ordenesCompra}
-                proveedores={globalData.proveedores}
-                obras={globalData.obras}
-                presupuestos={globalData.presupuestos}
-                insumosList={globalData.insumos}
-                rubros={globalData.rubros}
-                cargarDatos={cargarDatos}
+              
+              <Route 
+                path="/clientes" 
+                element={
+                  <RequirePermiso modulo="clientes">
+                    <Clientes clientesIniciales={globalData.clientes} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} />
+                  </RequirePermiso>
+                } 
               />
-            </RequirePermiso>
-          } 
-        />
-
-        <Route 
-          path="/tesoreria" 
-          element={
-            <RequirePermiso modulo="tesoreria">
-              <Tesoreria 
-                GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
-                movimientos={globalData.movimientos}
-                facturas={globalData.facturas}
-                facturasVenta={globalData.facturasVenta}
-                proveedores={globalData.proveedores}
-                obras={globalData.obras}
-                presupuestos={globalData.presupuestos}
-                clientes={globalData.clientes}
-                cargarDatos={cargarDatos}
+              
+              <Route 
+                path="/proveedores" 
+                element={
+                  <RequirePermiso modulo="proveedores">
+                    <Proveedores proveedoresIniciales={globalData.proveedores} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} />
+                  </RequirePermiso>
+                } 
               />
-            </RequirePermiso>
-          } 
-        />
 
-        <Route 
-          path="/reportes" 
-          element={
-            <RequirePermiso modulo="reportes">
-              <Reportes 
-                obras={globalData.obras}
-                presupuestos={globalData.presupuestos}
-                movimientos={globalData.movimientos}
-                insumos={globalData.insumos}
-                rubros={globalData.rubros}
-                facturas={globalData.facturas}
-                maestroTareasRubros={globalData.maestroTareasRubros}
-                contratosMantenimiento={globalData.contratosMantenimiento}
+              <Route path="/obras" element={<RequirePermiso modulo="obras"><Obras /></RequirePermiso>} />
+              <Route path="/insumos" element={<RequirePermiso modulo="insumos"><Insumos /></RequirePermiso>} />
+              <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
+              <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
+              <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
+              
+              <Route 
+                path="/rrhh" 
+                element={
+                  <RequirePermiso modulo="rrhh">
+                    <Rrhh 
+                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
+                      personalInicial={globalData.personal}
+                      insumos={globalData.insumos}
+                      obras={globalData.obras}
+                      rubros={globalData.rubros}
+                      presupuestos={globalData.presupuestos}
+                      legajosInicial={globalData.legajos}
+                      cargarDatos={cargarDatos}
+                    />
+                  </RequirePermiso>
+                } 
               />
-            </RequirePermiso>
-          } 
-        />
 
-        <Route 
-          path="/contratos-mantenimiento" 
-          element={
-            <RequirePermiso modulo="contratos_mantenimiento">
-              <ContratosMantenimiento 
-                GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
-                contratos={globalData.contratosMantenimiento}
-                proveedores={globalData.proveedores}
-                obras={globalData.obras}
-                cargarDatos={cargarDatos}
+              <Route 
+                path="/compras" 
+                element={
+                  <RequirePermiso modulo="compras">
+                    <Compras 
+                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} 
+                      facturas={globalData.facturas}
+                      ordenesCompra={globalData.ordenesCompra}
+                      proveedores={globalData.proveedores}
+                      obras={globalData.obras}
+                      presupuestos={globalData.presupuestos}
+                      insumosList={globalData.insumos}
+                      rubros={globalData.rubros}
+                      cargarDatos={cargarDatos}
+                    />
+                  </RequirePermiso>
+                } 
               />
-            </RequirePermiso>
-          } 
-        />
 
-        <Route path="/usuarios" element={<Usuarios />} />
-        <Route path="/tareas-template" element={<RequirePermiso modulo="presupuestos"><TareasTemplate /></RequirePermiso>} />
-      </Route>
-      <Route path="*" element={<PageNotFound />} />
-    </Routes>
+              <Route 
+                path="/tesoreria" 
+                element={
+                  <RequirePermiso modulo="tesoreria">
+                    <Tesoreria 
+                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
+                      movimientos={globalData.movimientos}
+                      facturas={globalData.facturas}
+                      facturasVenta={globalData.facturasVenta}
+                      proveedores={globalData.proveedores}
+                      obras={globalData.obras}
+                      presupuestos={globalData.presupuestos}
+                      clientes={globalData.clientes}
+                      cargarDatos={cargarDatos}
+                    />
+                  </RequirePermiso>
+                } 
+              />
+
+              <Route 
+                path="/reportes" 
+                element={
+                  <RequirePermiso modulo="reportes">
+                    <Reportes 
+                      obras={globalData.obras}
+                      presupuestos={globalData.presupuestos}
+                      movimientos={globalData.movimientos}
+                      insumos={globalData.insumos}
+                      rubros={globalData.rubros}
+                      facturas={globalData.facturas}
+                      maestroTareasRubros={globalData.maestroTareasRubros}
+                      contratosMantenimiento={globalData.contratosMantenimiento}
+                    />
+                  </RequirePermiso>
+                } 
+              />
+
+              <Route 
+                path="/contratos-mantenimiento" 
+                element={
+                  <RequirePermiso modulo="contratos_mantenimiento">
+                    <ContratosMantenimiento 
+                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
+                      contratos={globalData.contratosMantenimiento}
+                      proveedores={globalData.proveedores}
+                      obras={globalData.obras}
+                      cargarDatos={cargarDatos}
+                    />
+                  </RequirePermiso>
+                } 
+              />
+
+              <Route path="/usuarios" element={<Usuarios />} />
+              <Route path="/tareas-template" element={<RequirePermiso modulo="presupuestos"><TareasTemplate /></RequirePermiso>} />
+            </>
+          )}
+        </Route>
+        <Route path="*" element={<PageNotFound />} />
+      </Routes>
+    </Suspense>
   );
 };
 
@@ -332,7 +337,6 @@ export default function App() {
         <Router>
           <AuthenticatedApp />
         </Router>
-        {/* Aquí es donde se renderizan las alertas flotantes en toda la app */}
         <Toaster />
       </QueryClientProvider>
     </AuthProvider>
