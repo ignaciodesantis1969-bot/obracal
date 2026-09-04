@@ -1,14 +1,16 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
-import { GOOGLE_SCRIPT_URL } from '@/api';
 import { Printer, Plus, Trash2, ShieldCheck, ExternalLink, Eye, X, Users, Calendar, Calculator } from 'lucide-react';
+import { GOOGLE_SCRIPT_URL } from '@/api';
+import { useObraData } from '@/hooks/useObraData';
+import { OBRAS_CONFIG } from '@/config/obrasConfig';
 
 export default function ReportesDiariosTab({
-  contratosList = [],
-  allReportesSice = [],
+  contratosList: propContratos = [],
+  allReportesSice: propReportes = [],
   setFetchedReportesSice = () => {},
-  listaEmpleadosActivos = [],
-  personal = [],
+  listaEmpleadosActivos: propEmpleados = [],
+  personal: propPersonal = [],
   esOperador = false,
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
@@ -18,6 +20,16 @@ export default function ReportesDiariosTab({
     return '';
   }
 }) {
+  // Carga automática desde Google Sheets usando el hook personalizado
+  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
+  const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
+  const { data: personalSheet } = useObraData('Personal');
+
+  const contratosList = propContratos.length > 0 ? propContratos : contratosSheet;
+  const allReportesSice = propReportes.length > 0 ? propReportes : reportesSheet;
+  const listaEmpleadosActivos = propEmpleados.length > 0 ? propEmpleados : personalSheet;
+  const personal = propPersonal;
+
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   const [siceParteNro, setSiceParteNro] = useState('00005');
@@ -42,9 +54,9 @@ export default function ReportesDiariosTab({
 
   const calcularTotalHorasSice = useCallback((inicio, fin) => {
     if (!inicio || !fin) return 0;
-    const [hIni, mIni] = String(inicio).split(':').map(Number);
-    const [hFin, mFin] = String(fin).split(':').map(Number);
-    let diffMinutos = ((hFin || 0) * 60 + (mFin || 0)) - ((hIni || 0) * 60 + (mIni || 0));
+    const [hIni] = String(inicio).split(':').map(Number);
+    const [hFin] = String(fin).split(':').map(Number);
+    let diffMinutos = ((hFin || 0) * 60) - ((hIni || 0) * 60);
     if (diffMinutos < 0) diffMinutos += 24 * 60;
     const horasEfectivas = diffMinutos / 60;
     if (horasEfectivas <= 0) return 0;
@@ -68,7 +80,7 @@ export default function ReportesDiariosTab({
         return {
           id: buscarValorEnObjeto(emp, ['id', 'ID']) || Math.random().toString(),
           nombre: nombreEmp,
-          abreviacion: 'OE',
+          abreviacion: OBRAS_CONFIG.determinarCategoriaEmpleado(nombreEmp),
           horas: ''
         };
       });
@@ -188,6 +200,9 @@ export default function ReportesDiariosTab({
     const actualizados = [...operariosSeleccionados];
     if (actualizados[index]) {
       actualizados[index][campo] = valor;
+      if (campo === 'nombre') {
+        actualizados[index]['abreviacion'] = OBRAS_CONFIG.determinarCategoriaEmpleado(valor);
+      }
       setOperariosSeleccionados(actualizados);
     }
   };
@@ -204,7 +219,7 @@ export default function ReportesDiariosTab({
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'ReportesSice', action: 'delete', id: idParte })
+        body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', action: 'delete', id: idParte })
       });
       setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
       toast.success('Parte diario eliminado exitosamente', { id: toastId });
@@ -270,7 +285,7 @@ export default function ReportesDiariosTab({
     try {
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
-        tabla: 'ReportesSice',
+        tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice',
         contratoId: String(contratoSeleccionadoId),
         fecha: String(siceFecha),
         nro: String(siceParteNro),
@@ -411,17 +426,7 @@ export default function ReportesDiariosTab({
                     <div className="w-full sm:flex-1">
                       <select
                         value={op?.nombre || ''}
-                        onChange={(e) => {
-                          const nombreVal = e.target.value;
-                          const isCallapina = nombreVal.toLowerCase().includes('callapiña') || nombreVal.toLowerCase().includes('callapina');
-                          const actualizados = [...operariosSeleccionados];
-                          actualizados[idx] = { 
-                            ...actualizados[idx], 
-                            nombre: nombreVal, 
-                            abreviacion: isCallapina ? 'S' : 'OE' 
-                          };
-                          setOperariosSeleccionados(actualizados);
-                        }}
+                        onChange={(e) => actualizarOperarioFila(idx, 'nombre', e.target.value)}
                         className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
                       >
                         <option value="">-- Seleccionar Operario (Personal Activo) --</option>

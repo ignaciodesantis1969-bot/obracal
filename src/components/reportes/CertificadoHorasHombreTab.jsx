@@ -1,8 +1,17 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Clock, Plus, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
+import { useObraData } from '@/hooks/useObraData';
+import { OBRAS_CONFIG } from '@/config/obrasConfig';
 
-export default function CertificadoHorasHombreTab({ contratosList = [], allReportesSice = [] }) {
+export default function CertificadoHorasHombreTab({ contratosList: propContratos = [], allReportesSice: propReportes = [] }) {
+  // Carga automática desde Google Sheets usando el hook personalizado si las props están vacías
+  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
+  const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
+
+  const contratosList = propContratos.length > 0 ? propContratos : contratosSheet;
+  const allReportesSice = propReportes.length > 0 ? propReportes : reportesSheet;
+
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('00005');
   const [fechaEmision, setFechaEmision] = useState(new Date().toISOString().slice(0, 10));
@@ -24,7 +33,7 @@ export default function CertificadoHorasHombreTab({ contratosList = [], allRepor
   const contratoActual = useMemo(() => {
     if (!contratoIdSeleccionado) return null;
     return contratosDisponibles.find(c => {
-      const cId = String(c?.id || c?.ID || c?.codigo || c?.contrato_id || c?.nro_contrato || '').trim();
+      const cId = String(c?.id || c?.ID || c?.codigo || c?.contrato_id || c?.nro_contrato || c?._id || '').trim();
       return cId === String(contratoIdSeleccionado).trim();
     });
   }, [contratosDisponibles, contratoIdSeleccionado]);
@@ -168,7 +177,7 @@ export default function CertificadoHorasHombreTab({ contratosList = [], allRepor
           >
             <option value="">-- Seleccionar Contrato / Mantenimiento --</option>
             {contratosDisponibles.map((c, idx) => {
-              const cId = c?.id || c?.ID || c?.codigo || c?.contrato_id || c?.nro_contrato || idx;
+              const cId = String(c?.id || c?.ID || c?.codigo || c?.contrato_id || c?.nro_contrato || c?._id || idx);
               const cNombre = c?.nombre || c?.cliente || c?.razon_social || c?.descripcion || `Contrato #${idx + 1}`;
               const cCodigo = c?.codigo || c?.nro_contrato || c?.id || '';
               return (
