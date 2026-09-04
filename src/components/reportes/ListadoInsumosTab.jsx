@@ -12,13 +12,6 @@ export default function ListadoInsumosTab({
 
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Varios'], []);
 
-  const presupuestosAprobados = useMemo(() => {
-    return presupuestos.filter(p => {
-      const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || p?.Estado || '').toLowerCase().trim();
-      return est === 'aprobado' || est === 'aprobada' || est === ''; // Permite listar incluso si el estado está vacío
-    });
-  }, [presupuestos]);
-
   const presupuestoInsumosSeleccionado = useMemo(() => {
     if (!insumoPresupuestoId) return null;
     return presupuestos.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(insumoPresupuestoId));
@@ -27,60 +20,31 @@ export default function ListadoInsumosTab({
   const insumosPorRubro = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return {};
 
-    // 1. Buscar de forma exhaustiva cualquier propiedad que contenga la lista
-    let rubrosList = [];
-    const posiblesKeys = ['rubros', 'detalles', 'items', 'presupuesto_detalles', 'tareas', 'contenido', 'data', 'filas'];
-    
-    for (const key of posiblesKeys) {
-      if (presupuestoInsumosSeleccionado[key]) {
-        rubrosList = presupuestoInsumosSeleccionado[key];
-        break;
-      }
+    // Extraer desde items_detalle (columna H de tu Sheets) o rubros
+    let rawDetalle = presupuestoInsumosSeleccionado?.items_detalle || 
+                     presupuestoInsumosSeleccionado?.itemsDetalle || 
+                     presupuestoInsumosSeleccionado?.rubros || 
+                     presupuestoInsumosSeleccionado?.detalles || [];
+
+    if (typeof rawDetalle === 'string') {
+      try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = []; }
     }
 
+    let rubrosList = rawDetalle?.rubros || rawDetalle;
     if (typeof rubrosList === 'string') {
       try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; }
     }
 
-    // Si no encontró nada en las keys comunes, buscar cualquier propiedad que sea un arreglo o string JSON
-    if (!Array.isArray(rubrosList) || rubrosList.length === 0) {
-      for (const val of Object.values(presupuestoInsumosSeleccionado)) {
-        if (Array.isArray(val) && val.length > 0) {
-          rubrosList = val;
-          break;
-        }
-        if (typeof val === 'string' && val.trim().startsWith('[')) {
-          try {
-            const parsed = JSON.parse(val);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              rubrosList = parsed;
-              break;
-            }
-          } catch (e) {}
-        }
-      }
-    }
-
-    // Si aún es plano, convertirlo en un rubro general
-    if (Array.isArray(rubrosList) && rubrosList.length > 0) {
-      const primerElemento = rubrosList[0];
-      if (!primerElemento?.nombre && !primerElemento?.rubro && !primerElemento?.tareas) {
-        rubrosList = [{ nombre: 'Presupuesto General', tareas: rubrosList }];
-      }
+    if (!Array.isArray(rubrosList)) {
+      rubrosList = [rubrosList];
     }
 
     const mapRubros = {};
-    if (!Array.isArray(rubrosList)) return mapRubros;
-
     rubrosList.forEach((r, rIdx) => {
-      const nombreRubro = r?.nombre || r?.rubro || r?.descripcion || `Rubro ${rIdx + 1}`;
-      let tareasList = r?.tareas || r?.items || r?.subitems || r?.detalle || [];
+      const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
+      let tareasList = r?.tareas || r?.items || r?.subitems || [];
       if (typeof tareasList === 'string') {
         try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
-      }
-
-      if (!Array.isArray(tareasList) && typeof r === 'object') {
-        tareasList = [r]; // Si el rubro en sí es la tarea
       }
 
       const catsMap = {};
@@ -95,8 +59,8 @@ export default function ListadoInsumosTab({
 
           if (!Array.isArray(insumosList) || insumosList.length === 0) {
             catsMap['Materiales'].push({
-              tarea: t?.descripcion || t?.tarea || t?.nombre || 'Labor general',
-              nombre: t?.descripcion || t?.tarea || t?.nombre || 'Ítem general',
+              tarea: t?.descripcion || t?.tarea || 'Labor general',
+              nombre: t?.descripcion || t?.tarea || 'Ítem general',
               proveedor: t?.proveedor || 'SICE S.A.',
               unidad: t?.unidad || 'un',
               cantidad: Number(t?.cantidad || t?.cant || 1),
@@ -113,8 +77,8 @@ export default function ListadoInsumosTab({
                 proveedor: ins?.proveedor || 'Proveedor SICE',
                 unidad: ins?.unidad || 'un',
                 cantidad: Number(ins?.cantidad || ins?.cant || 1),
-                costo_unitario: Number(ins?.costo_unitario || ins?.precio || ins?.precio_unitario || 0),
-                total: Number(ins?.total || (Number(ins?.cantidad || ins?.cant || 1) * Number(ins?.costo_unitario || ins?.precio || 0)))
+                costo_unitario: Number(ins?.costo_unitario || ins?.precio || 0),
+                total: Number(ins?.total || (Number(ins?.cantidad || 1) * Number(ins?.costo_unitario || 0)))
               });
             });
           }
@@ -182,7 +146,7 @@ export default function ListadoInsumosTab({
           <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
             <Package className="w-4 h-4 text-amber-500" /> Listado de Insumos por Presupuesto
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">Seleccione un presupuesto aprobado para desglosar sus insumos y materiales.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Seleccione un presupuesto para desglosar sus insumos y materiales.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <select
@@ -190,14 +154,15 @@ export default function ListadoInsumosTab({
             onChange={(e) => setInsumoPresupuestoId(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
           >
-            <option value="">-- Seleccionar Presupuesto ({presupuestos.length} totales) --</option>
+            <option value="">-- Seleccionar Presupuesto ({presupuestos.length} disponibles) --</option>
             {presupuestos.map(p => {
               const pId = p?.id || p?.ID || p?.codigo;
               const pCod = p?.codigo || pId;
               const pNom = p?.nombre || p?.nombre_obra || 'Presupuesto';
+              const pEst = p?.estado_presupuesto || p?.estado || 's/estado';
               return (
                 <option key={pId} value={pId}>
-                  [{pCod}] {pNom}
+                  [{pCod}] {pNom} ({pEst})
                 </option>
               );
             })}
