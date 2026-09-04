@@ -121,7 +121,6 @@ export default function CertificacionesTab({
       const clienteResuelto = resolverRazonSocialCliente(certificadoPresupuestoObj);
       setCertClienteNombre(clienteResuelto);
       
-      // Auto-rellenar responsable cliente
       const respClienteSheet = certificadoPresupuestoObj.responsable_cliente || certificadoPresupuestoObj.responsableCliente || '';
       const cargoClienteSheet = certificadoPresupuestoObj.cargo_cliente || certificadoPresupuestoObj.cargoCliente || 'RESPONSABLE TÉCNICO';
 
@@ -131,7 +130,6 @@ export default function CertificacionesTab({
         cargo: cargoClienteSheet || prev.cargo
       }));
 
-      // Auto-rellenar responsable proveedor
       const respProveedorSheet = certificadoPresupuestoObj.responsable_proveedor || certificadoPresupuestoObj.responsableProveedor || '';
       const cargoProveedorSheet = certificadoPresupuestoObj.cargo_proveedor || certificadoPresupuestoObj.cargoProveedor || 'JEFE DE OBRA';
 
@@ -207,7 +205,6 @@ export default function CertificacionesTab({
       itemsDetalle = Array.isArray(parsed) ? parsed : (Array.isArray(parsed?.rubros) ? parsed.rubros : []);
     } catch (e) { itemsDetalle = []; }
 
-    // Coeficiente de pase para calcular precio de venta a partir del costo si no viene explícito
     const coefPase = Number(certificadoPresupuestoObj?.coeficiente_pase || certificadoPresupuestoObj?.coeficiente || 1);
 
     let totalPresupuestoCalc = 0;
@@ -221,7 +218,6 @@ export default function CertificacionesTab({
         const cant = Number(t?.cantidad) || Number(t?.cant) || 1;
         const costoUnit = Number(t?.costo_unitario || t?.costoUnitario || t?.costo || 0);
         
-        // CORRECCIÓN: Tomar precio de venta / cotizado correcto o calcular con el coeficiente del presupuesto
         const pUnit = Number(t?.precio_venta) || Number(t?.precioVenta) || Number(t?.precioUnitarioVenta) || Number(t?.precio_unitario) || Number(t?.precioUnitario) || Number(t?.precio) || (costoUnit * coefPase);
         const totalItem = Number(t?.total || t?.subtotal || (cant * pUnit));
         
@@ -439,13 +435,13 @@ export default function CertificacionesTab({
                 </div>
                 <div className="text-right">
                   <h2 className="text-2xl font-black text-slate-900 tracking-wide uppercase">CERTIFICADO POR AVANCE DE OBRA</h2>
-                  <p className={`text-sm font-bold mt-1 ${String(certificadoNro).trim() === '0' ? 'text-blue-600' : 'text-slate-700'}`}>
+                  <p className={`text-sm font-bold mt-1 text-blue-600`}>
                     Certificado Nro.: {certificadoNro} {String(certificadoNro).trim() === '0' ? '(Adelanto Financiero)' : ''}
                   </p>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[10px] border-b border-slate-300 pb-3 bg-slate-50 p-3 rounded-xl">
                 <div className="col-span-2">
                   <span className="text-slate-500 font-semibold block">Cliente (Razón Social):</span>
                   <input
@@ -453,7 +449,7 @@ export default function CertificacionesTab({
                     value={certClienteNombre}
                     onChange={(e) => setCertClienteNombre(e.target.value)}
                     placeholder="Razón social del cliente"
-                    className="mt-0.5 w-full bg-white border border-slate-300 rounded px-2 py-1 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                    className="mt-0.5 w-full bg-white border border-slate-300 rounded px-1.5 py-0.5 text-[10px] font-bold text-slate-900 outline-none focus:border-amber-500"
                   />
                 </div>
                 <div>
