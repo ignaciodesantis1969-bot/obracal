@@ -441,7 +441,7 @@ export default function CertificacionesTab({
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-[10px] border-b border-slate-300 pb-3 bg-slate-50 p-3 rounded-xl">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs border-b border-slate-300 pb-3 bg-slate-50 p-3 rounded-xl">
                 <div className="col-span-2">
                   <span className="text-slate-500 font-semibold block">Cliente (Razón Social):</span>
                   <input
@@ -449,7 +449,7 @@ export default function CertificacionesTab({
                     value={certClienteNombre}
                     onChange={(e) => setCertClienteNombre(e.target.value)}
                     placeholder="Razón social del cliente"
-                    className="mt-0.5 w-full bg-white border border-slate-300 rounded px-1.5 py-0.5 text-[10px] font-bold text-slate-900 outline-none focus:border-amber-500"
+                    className="mt-0.5 w-full bg-white border border-slate-300 rounded px-1.5 py-0.5 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                   />
                 </div>
                 <div>
@@ -471,7 +471,7 @@ export default function CertificacionesTab({
                   </strong>
                 </div>
               </div>
-
+              
               <div className="overflow-x-auto border border-slate-400 rounded-xl">
                 <table className="w-full text-left text-xs border-collapse table-auto">
                   <thead>
