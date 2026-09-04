@@ -8,7 +8,7 @@ export default function ReportesDiariosTab({
   allReportesSice = [],
   setFetchedReportesSice = () => {},
   listaEmpleadosActivos = [],
-  personal = [], // Añadido como respaldo por si el componente padre usa este nombre
+  personal = [],
   esOperador = false,
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
@@ -30,7 +30,6 @@ export default function ReportesDiariosTab({
   const [isSavingSice, setIsSavingSice] = useState(false);
   const [parteVisualizando, setParteVisualizando] = useState(null);
 
-  // Filtro robusto: usa listaEmpleadosActivos o personal indistintamente
   const empleadosActivosFiltrados = useMemo(() => {
     const fuenteDatos = listaEmpleadosActivos.length > 0 ? listaEmpleadosActivos : personal;
     if (!Array.isArray(fuenteDatos)) return [];
@@ -65,7 +64,7 @@ export default function ReportesDiariosTab({
   useEffect(() => {
     if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
       const iniciales = empleadosActivosFiltrados.slice(0, 1).map(emp => {
-        const nombreEmp = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || 'Operario';
+        const nombreEmp = String(buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || 'Operario').trim();
         return {
           id: buscarValorEnObjeto(emp, ['id', 'ID']) || Math.random().toString(),
           nombre: nombreEmp,
@@ -109,7 +108,7 @@ export default function ReportesDiariosTab({
 
   const clavesContratoActual = useMemo(() => {
     const contratoActivo = contratosList.find(c => {
-      const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo'])).trim();
+      const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id'])).trim();
       return cId === String(contratoSeleccionadoId).trim();
     });
     if (contratoActivo) {
@@ -122,7 +121,7 @@ export default function ReportesDiariosTab({
   useEffect(() => {
     if (contratoSeleccionadoId) {
       const contrato = contratosList.find(c => {
-        const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo'])).trim();
+        const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id'])).trim();
         return cId === String(contratoSeleccionadoId).trim();
       });
       if (contrato) {
@@ -341,9 +340,9 @@ export default function ReportesDiariosTab({
             >
               <option value="">-- Seleccionar Contrato ({contratosList.length} disp.) --</option>
               {contratosList.map((c, i) => {
-                const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo']) || i);
-                const cCod = buscarValorEnObjeto(c, ['codigo', 'Codigo']) || 'S/C';
-                const cNom = buscarValorEnObjeto(c, ['nombre', 'nombre_contrato', 'Nombre_contrato', 'nombreContrato', 'cliente', 'Cliente']) || 'Contrato';
+                const cId = String(c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id || c?._id || i);
+                const cCod = c?.codigo || c?.Codigo || c?.nro_contrato || 'S/C';
+                const cNom = c?.nombre || c?.nombre_contrato || c?.Nombre_contrato || c?.nombreContrato || c?.cliente || c?.Cliente || 'Contrato';
                 return (
                   <option key={cId} value={cId}>[{cCod}] {cNom}</option>
                 );
@@ -411,22 +410,32 @@ export default function ReportesDiariosTab({
                   <div key={op?.id || idx} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
                     <div className="w-full sm:flex-1">
                       <select
-                        value={op?.nombre}
+                        value={op?.nombre || ''}
                         onChange={(e) => {
                           const nombreVal = e.target.value;
                           const isCallapina = nombreVal.toLowerCase().includes('callapiña') || nombreVal.toLowerCase().includes('callapina');
                           const actualizados = [...operariosSeleccionados];
-                          actualizados[idx] = { ...actualizados[idx], nombre: nombreVal, abreviacion: isCallapina ? 'S' : 'OE' };
+                          actualizados[idx] = { 
+                            ...actualizados[idx], 
+                            nombre: nombreVal, 
+                            abreviacion: isCallapina ? 'S' : 'OE' 
+                          };
                           setOperariosSeleccionados(actualizados);
                         }}
                         className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
                       >
                         <option value="">-- Seleccionar Operario (Personal Activo) --</option>
                         {empleadosActivosFiltrados.map((emp, eIdx) => {
-                          const empNom = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || `Operario ${eIdx + 1}`;
-                          const isSelectedElsewhere = operariosSeleccionados.some((oItem, oIdx) => oIdx !== idx && oItem?.nombre === empNom);
+                          const empNom = String(
+                            emp?.nombre || emp?.Nombre || emp?.empleado || emp?.apellido || emp?.razon_social || `Operario ${eIdx + 1}`
+                          ).trim();
+                          
+                          const isSelectedElsewhere = operariosSeleccionados.some(
+                            (oItem, oIdx) => oIdx !== idx && String(oItem?.nombre || '').trim() === empNom
+                          );
+
                           return (
-                            <option key={eIdx} value={empNom} disabled={isSelectedElsewhere}>
+                            <option key={emp?.id || emp?.ID || eIdx} value={empNom} disabled={isSelectedElsewhere}>
                               {empNom} {isSelectedElsewhere ? '(Seleccionado)' : ''}
                             </option>
                           );
@@ -560,7 +569,6 @@ export default function ReportesDiariosTab({
             <span className="text-xs text-slate-500 font-semibold">Total filas: {siceItems.length} / 10</span>
           </div>
 
-          {/* RECUADRO TOTAL DE HORAS HOMBRE */}
           <div className="bg-amber-100/60 border-2 border-amber-300 rounded-xl p-4 flex justify-between items-center mt-2 shadow-sm">
             <div className="space-y-1">
               <p className="text-amber-900 font-bold text-xs flex items-center gap-2">

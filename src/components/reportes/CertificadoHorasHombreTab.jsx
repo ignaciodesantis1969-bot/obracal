@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Clock, Plus, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
@@ -16,38 +16,50 @@ export default function CertificadoHorasHombreTab({ contratosList = [], allRepor
   const [respProveedor, setRespProveedor] = useState({ cargo: 'JEFE DE OBRA', nombre: 'Alexander Torres Lopez', firma: '' });
   const [respCliente, setRespCliente] = useState({ cargo: '', nombre: '', firma: '' });
 
+  // Lista de contratos normalizada para evitar fallos de coincidencia
+  const contratosDisponibles = useMemo(() => {
+    return Array.isArray(contratosList) ? contratosList : [];
+  }, [contratosList]);
+
   const contratoActual = useMemo(() => {
-    return contratosList.find(c => String(c?.id || c?.ID || c?.codigo) === String(contratoIdSeleccionado));
-  }, [contratosList, contratoIdSeleccionado]);
+    if (!contratoIdSeleccionado) return null;
+    return contratosDisponibles.find(c => {
+      const cId = String(c?.id || c?.ID || c?.codigo || c?.contrato_id || c?.nro_contrato || '').trim();
+      return cId === String(contratoIdSeleccionado).trim();
+    });
+  }, [contratosDisponibles, contratoIdSeleccionado]);
 
   // Cargar datos del contrato seleccionado automáticamente
-  React.useEffect(() => {
+  useEffect(() => {
     if (contratoActual) {
-      if (contratoActual.cliente || contratoActual.razon_social) {
-        setRespCliente(prev => ({
-          ...prev,
-          nombre: contratoActual.cliente_nombre || contratoActual.cliente || prev.nombre,
-          cargo: contratoActual.cliente_cargo || 'RESPONSABLE TÉCNICO'
-        }));
-      }
-      if (contratoActual.responsable_proveedor || contratoActual.proveedor_cargo) {
-        setRespProveedor(prev => ({
-          ...prev,
-          cargo: contratoActual.responsable_proveedor_cargo || prev.cargo,
-          nombre: contratoActual.responsable_proveedor || prev.nombre
-        }));
-      }
+      const clienteNombre = contratoActual.cliente_nombre || contratoActual.cliente || contratoActual.razon_social || contratoActual.razonSocial || '';
+      const clienteCargo = contratoActual.cliente_cargo || contratoActual.cargo_cliente || 'RESPONSABLE TÉCNICO';
+      
+      const provNombre = contratoActual.responsable_proveedor || contratoActual.proveedor_nombre || 'Alexander Torres Lopez';
+      const provCargo = contratoActual.responsable_proveedor_cargo || contratoActual.proveedor_cargo || 'JEFE DE OBRA';
+
+      setRespCliente(prev => ({
+        ...prev,
+        nombre: clienteNombre || prev.nombre,
+        cargo: clienteCargo || prev.cargo
+      }));
+
+      setRespProveedor(prev => ({
+        ...prev,
+        cargo: provCargo || prev.cargo,
+        nombre: provNombre || prev.nombre
+      }));
     }
   }, [contratoActual]);
 
   const agregarParteFila = (parteObj) => {
-    // Buscar precio hora según clasificación del operario en el contrato si aplica, o valor por defecto
     const clasificacionOperario = parteObj?.clasificacion || parteObj?.categoria || 'General';
     let valorHora = 0;
+    
     if (contratoActual?.tarifas && typeof contratoActual.tarifas === 'object') {
       valorHora = Number(contratoActual.tarifas[clasificacionOperario] || contratoActual.tarifas['General'] || 0);
     } else {
-      valorHora = Number(contratoActual?.valor_hora || contratoActual?.precioHora || 15000);
+      valorHora = Number(contratoActual?.valor_hora || contratoActual?.precioHora || contratoActual?.tarifa || 15000);
     }
 
     const totalHoras = Number(parteObj?.totalHorasSuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
@@ -113,7 +125,7 @@ export default function CertificadoHorasHombreTab({ contratosList = [], allRepor
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      await res.json();
       alert("¡Certificado mensual de horas hombre guardado con éxito!");
     } catch (err) {
       console.error(err);
@@ -155,11 +167,16 @@ export default function CertificadoHorasHombreTab({ contratosList = [], allRepor
             className="w-full bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
           >
             <option value="">-- Seleccionar Contrato / Mantenimiento --</option>
-            {contratosList.map(c => (
-              <option key={c?.id || c?.ID} value={c?.id || c?.ID}>
-                [{c?.codigo || c?.id}] {c?.nombre || c?.cliente || 'Contrato'}
-              </option>
-            ))}
+            {contratosDisponibles.map((c, idx) => {
+              const cId = c?.id || c?.ID || c?.codigo || c?.contrato_id || c?.nro_contrato || idx;
+              const cNombre = c?.nombre || c?.cliente || c?.razon_social || c?.descripcion || `Contrato #${idx + 1}`;
+              const cCodigo = c?.codigo || c?.nro_contrato || c?.id || '';
+              return (
+                <option key={cId} value={cId}>
+                  {cCodigo ? `[${cCodigo}] ` : ''}{cNombre}
+                </option>
+              );
+            })}
           </select>
         </div>
 
@@ -176,14 +193,14 @@ export default function CertificadoHorasHombreTab({ contratosList = [], allRepor
         <div>
           <span className="text-slate-500 font-semibold block">Cliente:</span>
           <strong className="text-slate-900 block mt-1">
-            {contratoActual?.cliente || contratoActual?.razon_social || '---'}
+            {contratoActual?.cliente || contratoActual?.razon_social || contratoActual?.razonSocial || '---'}
           </strong>
         </div>
 
         <div>
           <span className="text-slate-500 font-semibold block">Contrato Nro.:</span>
           <strong className="text-slate-900 block mt-1 font-mono">
-            {contratoActual?.codigo || contratoActual?.id || '---'}
+            {contratoActual?.codigo || contratoActual?.nro_contrato || contratoActual?.id || '---'}
           </strong>
         </div>
 
