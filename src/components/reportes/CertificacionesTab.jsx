@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
+import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
 
 export default function CertificacionesTab({
   presupuestos,
@@ -12,7 +13,8 @@ export default function CertificacionesTab({
   obtenerOrdenDeCompra,
   buscarValorEnObjeto,
   allReportesSice = [],
-  facturas = []
+  facturas = [],
+  contratosList = []
 }) {
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
@@ -838,38 +840,10 @@ export default function CertificacionesTab({
       )}
 
       {tipoCertificadoSubTab === 'horas_hombre' && (
-        <div className="space-y-4 pt-2">
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-            <h4 className="text-xs font-black text-slate-900 uppercase">Certificación Horas Hombre (Contrato Mantenimiento)</h4>
-            <p className="text-[11px] text-slate-500">Consolidado de horas trabajadas y validadas a partir del historial de partes diarios SICE.</p>
-          </div>
-          {allReportesSice.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed rounded-2xl">No hay partes diarios aprobados para certificar.</div>
-          ) : (
-            <table className="w-full text-left text-xs border rounded-xl overflow-hidden">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
-                  <th className="px-4 py-3">Parte Nro</th>
-                  <th className="px-4 py-3">Fecha</th>
-                  <th className="px-4 py-3 text-center">Total Horas Validadas</th>
-                  <th className="px-4 py-3 text-center">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {allReportesSice.map((parte, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-bold">Parte #{parte?.nro}</td>
-                    <td className="px-4 py-3 text-slate-600">{parte?.fecha}</td>
-                    <td className="px-4 py-3 text-center font-black text-emerald-700 font-mono">{parte?.totalHorasSuma || parte?.total_horas_suma} hs</td>
-                    <td className="px-4 py-3 text-center">
-                      {(parte?.pdfUrl || parte?.pdf_url) && <a href={parte.pdfUrl || parte.pdf_url} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-amber-500 font-bold rounded-lg text-[10px]">Ver PDF</a>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <CertificadoHorasHombreTab 
+          contratosList={contratosList} 
+          allReportesSice={allReportesSice} 
+        />
       )}
 
       {tipoCertificadoSubTab === 'compra_materiales' && (

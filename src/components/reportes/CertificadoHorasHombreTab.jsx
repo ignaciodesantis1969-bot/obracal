@@ -20,9 +20,10 @@ export default function CertificadoHorasHombreTab({
   const [periodoDesde, setPeriodoDesde] = useState('');
   const [periodoHasta, setPeriodoHasta] = useState('');
   
-  const [valorHora, setValorHora] = useState(8500); // Valor hora base por defecto
+  const [valorHora, setValorHora] = useState(8500); // Valor de la hora modificable
   const [isSaving, setIsSaving] = useState(false);
 
+  // Leer cargos y nombres directamente del contrato
   const extraerDatosContrato = useCallback((contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
     let objData = { ...contrato };
@@ -56,6 +57,7 @@ export default function CertificadoHorasHombreTab({
 
   const [respFirmas, setRespFirmas] = useState({ proveedor: '', cliente: '' });
 
+  // Filtrado de reportes por contrato y fechas (desde/hasta)
   const reportesFiltrados = useMemo(() => {
     if (!contratoSeleccionadoId) return [];
     
@@ -63,13 +65,11 @@ export default function CertificadoHorasHombreTab({
       const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id'])).trim();
       const rFecha = buscarValorEnObjeto(r, ['fecha', 'Fecha']);
       
-      // Filtro por Contrato
       if (rContratoId !== String(contratoSeleccionadoId).trim() && 
           !Object.values(r).map(v => String(v).trim()).includes(String(contratoSeleccionadoId).trim())) {
         return false;
       }
       
-      // Filtro por Período
       if (periodoDesde && rFecha < periodoDesde) return false;
       if (periodoHasta && rFecha > periodoHasta) return false;
 
@@ -149,7 +149,7 @@ export default function CertificadoHorasHombreTab({
           <select
             value={contratoSeleccionadoId}
             onChange={(e) => setContratoSeleccionadoId(e.target.value)}
-            className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+            className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[250px]"
           >
             <option value="">-- Seleccionar Contrato ({contratosList.length} disp.) --</option>
             {contratosList.map((c, i) => {
@@ -173,7 +173,7 @@ export default function CertificadoHorasHombreTab({
           <div className="flex items-center gap-3">
             <img src="/logo-07.png" alt="SICE S.A." className="h-24 object-contain" />
           </div>
-          <h2 className="text-xl font-black text-slate-900 tracking-wide">CERTIFICADO MENSUAL DE HORAS HOMBRE</h2>
+          <h2 className="text-xl font-black text-slate-900 tracking-wide text-right">CERTIFICADO MENSUAL DE HORAS HOMBRE</h2>
         </div>
 
         <div className="text-xs space-y-1 border-b border-slate-300 pb-4">
@@ -199,8 +199,8 @@ export default function CertificadoHorasHombreTab({
           </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-300">
-          <CalendarRange className="w-5 h-5 text-slate-500" />
+        <div className="flex flex-col sm:flex-row items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-300 print:bg-white print:border-b">
+          <CalendarRange className="w-5 h-5 text-slate-500 print:hidden" />
           <div className="flex items-center gap-2">
             <span className="text-xs font-black uppercase text-slate-800">PERÍODO: Desde</span>
             <input 
@@ -228,7 +228,7 @@ export default function CertificadoHorasHombreTab({
                 <th className="py-2.5 px-3 border-r border-slate-700 w-12 text-center">Item</th>
                 <th className="py-2.5 px-3 border-r border-slate-700 text-center">Fecha</th>
                 <th className="py-2.5 px-3 border-r border-slate-700 text-center">Nro Parte</th>
-                <th className="py-2.5 px-3 border-r border-slate-700 text-center text-amber-300">Horas</th>
+                <th className="py-2.5 px-3 border-r border-slate-700 text-center text-amber-300">Total Horas</th>
                 <th className="py-2.5 px-3 border-r border-slate-700 text-right">Valor Hora</th>
                 <th className="py-2.5 px-4 text-right">Valor Total</th>
               </tr>
@@ -246,16 +246,16 @@ export default function CertificadoHorasHombreTab({
                     <td className="py-2 px-3 text-center font-bold text-slate-700 border-r border-slate-300">{idx + 1}</td>
                     <td className="py-2 px-3 text-center font-semibold border-r border-slate-300">{rep.fecha}</td>
                     <td className="py-2 px-3 text-center font-mono border-r border-slate-300 text-slate-600">{rep.nro}</td>
-                    <td className="py-2 px-3 text-center font-black text-amber-800 border-r border-slate-300 bg-amber-50">{rep.totalHorasSuma} hs</td>
+                    <td className="py-2 px-3 text-center font-black text-amber-800 border-r border-slate-300 bg-amber-50">{rep.totalHorasSuma.toFixed(2)} hs</td>
                     <td className="py-2 px-3 text-right font-medium text-slate-600 border-r border-slate-300">
                       $ <input 
                           type="number"
                           value={valorHora}
                           onChange={(e) => setValorHora(Number(e.target.value))}
-                          className="w-20 text-right bg-transparent outline-none font-bold text-slate-800"
+                          className="w-20 text-right bg-transparent outline-none font-bold text-slate-800 hover:bg-amber-100 rounded px-1"
                         />
                     </td>
-                    <td className="py-2 px-4 text-right font-bold text-slate-900">$ {(rep.totalHorasSuma * valorHora).toLocaleString('es-AR')}</td>
+                    <td className="py-2 px-4 text-right font-bold text-slate-900">$ {(rep.totalHorasSuma * valorHora).toLocaleString('es-AR', { maximumFractionDigits: 2 })}</td>
                   </tr>
                 ))
               )}
@@ -264,9 +264,9 @@ export default function CertificadoHorasHombreTab({
               <tfoot>
                 <tr className="bg-slate-200 border-t-2 border-slate-800">
                   <td colSpan="3" className="py-3 px-4 text-right font-black uppercase text-slate-900">TOTAL CERTIFICADO</td>
-                  <td className="py-3 px-3 text-center font-black text-amber-900 bg-amber-200">{totales.horas} hs</td>
-                  <td className="py-3 px-3"></td>
-                  <td className="py-3 px-4 text-right font-black text-slate-900 text-sm">$ {totales.valorTotal.toLocaleString('es-AR')}</td>
+                  <td className="py-3 px-3 text-center font-black text-amber-900 bg-amber-200">{totales.horas.toFixed(2)} hs</td>
+                  <td className="py-3 px-3 border-r border-slate-300"></td>
+                  <td className="py-3 px-4 text-right font-black text-slate-900 text-sm bg-slate-300">$ {totales.valorTotal.toLocaleString('es-AR', { maximumFractionDigits: 2 })}</td>
                 </tr>
               </tfoot>
             )}
@@ -280,15 +280,19 @@ export default function CertificadoHorasHombreTab({
               <div className="space-y-2 text-xs">
                 <div>
                   <label className="block font-semibold text-slate-600 mb-0.5">CARGO (TRAER DESDE SHEETS):</label>
-                  <input type="text" readOnly value={responsables.pCargo} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed" />
+                  <input type="text" readOnly value={responsables.pCargo} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed outline-none" />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO (IDEM):</label>
-                  <input type="text" readOnly value={responsables.pNombre} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed" />
+                  <input type="text" readOnly value={responsables.pNombre} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed outline-none" />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: AB1234):</label>
-                  <input type="password" required maxLength={6} placeholder="Ej: AB1234" value={respFirmas.proveedor} onChange={(e) => setRespFirmas({...respFirmas, proveedor: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-400 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500" />
+                  <input 
+                    type="password" required maxLength={6} placeholder="Ej: AB1234" 
+                    value={respFirmas.proveedor} onChange={(e) => setRespFirmas({...respFirmas, proveedor: e.target.value.toUpperCase()})} 
+                    className="w-full bg-white border border-slate-400 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500" 
+                  />
                 </div>
               </div>
             </div>
@@ -298,15 +302,19 @@ export default function CertificadoHorasHombreTab({
               <div className="space-y-2 text-xs">
                 <div>
                   <label className="block font-semibold text-slate-600 mb-0.5">CARGO (IDEM):</label>
-                  <input type="text" readOnly value={responsables.cCargo} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed" />
+                  <input type="text" readOnly value={responsables.cCargo} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed outline-none" />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO (IDEM):</label>
-                  <input type="text" readOnly value={responsables.cNombre} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed" />
+                  <input type="text" readOnly value={responsables.cNombre} className="w-full bg-slate-100 border border-slate-300 rounded px-3 py-1.5 font-bold text-slate-600 cursor-not-allowed outline-none" />
                 </div>
                 <div>
                   <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: CD5678):</label>
-                  <input type="password" required maxLength={6} placeholder="Ej: CD5678" value={respFirmas.cliente} onChange={(e) => setRespFirmas({...respFirmas, cliente: e.target.value.toUpperCase()})} className="w-full bg-white border border-slate-400 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500" />
+                  <input 
+                    type="password" required maxLength={6} placeholder="Ej: CD5678" 
+                    value={respFirmas.cliente} onChange={(e) => setRespFirmas({...respFirmas, cliente: e.target.value.toUpperCase()})} 
+                    className="w-full bg-white border border-slate-400 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500" 
+                  />
                 </div>
               </div>
             </div>
@@ -314,7 +322,11 @@ export default function CertificadoHorasHombreTab({
 
           <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
             <p className="text-xs text-slate-500">Ingrese sus claves para firmar y validar el certificado de horas hombre.</p>
-            <button type="submit" disabled={isSaving || reportesFiltrados.length === 0} className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2 ${isSaving || reportesFiltrados.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}>
+            <button 
+              type="submit" 
+              disabled={isSaving || reportesFiltrados.length === 0} 
+              className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2 ${isSaving || reportesFiltrados.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
               {isSaving ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div> Procesando...</> : <><ShieldCheck className="w-4 h-4" /> Aprobar, Firmar y Guardar Certificado</>}
             </button>
           </div>
