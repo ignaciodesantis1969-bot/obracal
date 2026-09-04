@@ -18,6 +18,7 @@ export default function CertificadoHorasHombreTab({
       if (Array.isArray(fuente.data)) return fuente.data;
       if (Array.isArray(fuente.items)) return fuente.items;
       if (Array.isArray(fuente.result)) return fuente.result;
+      if (Array.isArray(fuente.ContratosMantenimiento)) return fuente.ContratosMantenimiento;
       const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
       if (posibleArray) return posibleArray;
     }
@@ -62,11 +63,6 @@ export default function CertificadoHorasHombreTab({
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
   useEffect(() => {
-    console.log("CONTRATOS PROPS:", propContratos);
-    console.log("CONTRATOS SHEET (Hook):", contratosSheet);
-    console.log("CONTRATOS FINALES CALCULADOS:", contratosList);
-
-
     if (contratoActual) {
       const clienteNombre = contratoActual.cliente || contratoActual.Cliente || '';
       const clienteCargo = contratoActual.cliente_cargo || contratoActual.clienteCargo || 'Gerente de Plant';
