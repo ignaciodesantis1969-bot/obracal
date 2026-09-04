@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Toaster } from "@/components/ui/toaster";
+// Cambiamos la importación del Toaster a la nueva librería que instalamos
+import { Toaster } from 'react-hot-toast';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
 import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
@@ -331,6 +332,7 @@ export default function App() {
         <Router>
           <AuthenticatedApp />
         </Router>
+        {/* Aquí es donde se renderizan las alertas flotantes en toda la app */}
         <Toaster />
       </QueryClientProvider>
     </AuthProvider>
