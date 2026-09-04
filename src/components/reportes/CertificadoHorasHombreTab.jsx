@@ -1,11 +1,41 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Clock, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
+import { useObraData } from '@/hooks/useObraData';
+import { OBRAS_CONFIG } from '@/config/obrasConfig';
 
 export default function CertificadoHorasHombreTab({ 
-  contratosList = [], 
-  allReportesSice = [] 
+  contratosList: propContratos = [], 
+  allReportesSice: propReportes = [] 
 }) {
+  // Carga automática por hook como respaldo por si el padre no pasa las props
+  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
+  const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
+
+  const extraerArrayDatos = (fuente) => {
+    if (Array.isArray(fuente)) return fuente;
+    if (fuente && typeof fuente === 'object') {
+      if (Array.isArray(fuente.data)) return fuente.data;
+      if (Array.isArray(fuente.items)) return fuente.items;
+      if (Array.isArray(fuente.result)) return fuente.result;
+      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+      if (posibleArray) return posibleArray;
+    }
+    return [];
+  };
+
+  const contratosList = useMemo(() => {
+    const p = extraerArrayDatos(propContratos);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(contratosSheet);
+  }, [propContratos, contratosSheet]);
+
+  const allReportesSice = useMemo(() => {
+    const p = extraerArrayDatos(propReportes);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(reportesSheet);
+  }, [propReportes, reportesSheet]);
+
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('00005');
   const [fechaEmision, setFechaEmision] = useState(new Date().toISOString().slice(0, 10));
@@ -26,18 +56,18 @@ export default function CertificadoHorasHombreTab({
   const contratoActual = useMemo(() => {
     if (!contratoIdSeleccionado) return null;
     return contratosDisponibles.find(c => {
-      const cId = String(c?.id || c?.codigo || '').trim();
+      const cId = String(c?.id || c?.ID || c?.codigo || c?.Codigo || '').trim();
       return cId === String(contratoIdSeleccionado).trim();
     });
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
   useEffect(() => {
     if (contratoActual) {
-      const clienteNombre = contratoActual.cliente || '';
-      const clienteCargo = contratoActual.cliente_cargo || 'Gerente de Plant';
+      const clienteNombre = contratoActual.cliente || contratoActual.Cliente || '';
+      const clienteCargo = contratoActual.cliente_cargo || contratoActual.clienteCargo || 'Gerente de Plant';
       
-      const provNombre = contratoActual.proveedor_nombre || 'Alexander Torres Lopez';
-      const provCargo = contratoActual.proveedor_cargo || 'Oficial a cargo del Site';
+      const provNombre = contratoActual.proveedor_nombre || contratoActual.proveedorNombre || 'Alexander Torres Lopez';
+      const provCargo = contratoActual.proveedor_cargo || contratoActual.proveedorCargo || 'Oficial a cargo del Site';
 
       setRespCliente(prev => ({
         ...prev,
@@ -108,7 +138,7 @@ export default function CertificadoHorasHombreTab({
         fecha_emision: fechaEmision,
         periodo_desde: periodoDesde,
         periodo_hasta: periodoHasta,
-        cliente: contratoActual?.cliente || 'Cliente',
+        cliente: contratoActual?.cliente || contratoActual?.Cliente || 'Cliente',
         filas: partesSeleccionados,
         total_general: totalGeneralMonto,
         responsable_proveedor: respProveedor,
@@ -168,9 +198,9 @@ export default function CertificadoHorasHombreTab({
           >
             <option value="">-- Seleccionar Contrato / Mantenimiento --</option>
             {contratosDisponibles.map((c, idx) => {
-              const cId = String(c?.id || c?.codigo || idx);
-              const cNombre = c?.nombre_contrato || c?.descripcion || `Contrato #${idx + 1}`;
-              const cCodigo = c?.codigo || '';
+              const cId = String(c?.id || c?.ID || c?.codigo || c?.Codigo || idx);
+              const cNombre = c?.nombre_contrato || c?.nombre || c?.descripcion || `Contrato #${idx + 1}`;
+              const cCodigo = c?.codigo || c?.Codigo || '';
               return (
                 <option key={cId} value={cId}>
                   {cCodigo ? `[${cCodigo}] ` : ''}{cNombre}
@@ -193,14 +223,14 @@ export default function CertificadoHorasHombreTab({
         <div>
           <span className="text-slate-500 font-semibold block">Cliente:</span>
           <strong className="text-slate-900 block mt-1">
-            {contratoActual?.cliente || '---'}
+            {contratoActual?.cliente || contratoActual?.Cliente || '---'}
           </strong>
         </div>
 
         <div>
           <span className="text-slate-500 font-semibold block">Contrato Nro.:</span>
           <strong className="text-slate-900 block mt-1 font-mono">
-            {contratoActual?.codigo || contratoActual?.id || '---'}
+            {contratoActual?.codigo || contratoActual?.Codigo || contratoActual?.id || '---'}
           </strong>
         </div>
 
