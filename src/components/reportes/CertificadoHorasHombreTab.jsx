@@ -1,40 +1,52 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Clock, Plus, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-import { useObraData } from '@/hooks/useObraData';
-import { OBRAS_CONFIG } from '@/config/obrasConfig';
 
 export default function CertificadoHorasHombreTab({ 
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [] 
 }) {
-  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
-  const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
+  const [contratosRemotos, setContratosRemotos] = useState([]);
+  const [reportesRemotos, setReportesRemotos] = useState([]);
+  const [cargandoRemoto, setCargandoRemoto] = useState(false);
 
-  // Procesador universal adaptado a tus columnas reales de Sheets
-  const extraerArray = (fuente) => {
-    if (Array.isArray(fuente)) return fuente;
-    if (fuente && typeof fuente === 'object') {
-      if (Array.isArray(fuente.data)) return fuente.data;
-      if (Array.isArray(fuente.items)) return fuente.items;
-      if (Array.isArray(fuente.result)) return fuente.result;
-      const found = Object.values(fuente).find(v => Array.isArray(v));
-      if (found) return found;
+  // Sincronización directa usando TU acción 'cargarDetalleCompleto'
+  useEffect(() => {
+    let activo = true;
+    async function sincronizarBackend() {
+      if (!GOOGLE_SCRIPT_URL) return;
+      setCargandoRemoto(true);
+      try {
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          // Usamos la acción exacta que definiste en tu Code.gs
+          body: JSON.stringify({ action: 'cargarDetalleCompleto' })
+        });
+        const json = await res.json();
+        
+        if (activo && json && json.success) {
+          console.log("🔍 [DEBUG] Datos recibidos del backend:", json);
+          // Usamos las claves exactas que devuelve tu Code.gs en las líneas 119 y 120
+          if (Array.isArray(json.contratos_mantenimiento)) {
+            setContratosRemotos(json.contratos_mantenimiento);
+          }
+          if (Array.isArray(json.reportes_sice)) {
+            setReportesRemotos(json.reportes_sice);
+          }
+        }
+      } catch (err) {
+        console.error("Error al sincronizar con cargarDetalleCompleto:", err);
+      } finally {
+        if (activo) setCargandoRemoto(false);
+      }
     }
-    return [];
-  };
+    sincronizarBackend();
+    return () => { activo = false; };
+  }, []);
 
-  const contratosList = useMemo(() => {
-    const p = extraerArray(propContratos);
-    if (p.length > 0) return p;
-    return extraerArray(contratosSheet);
-  }, [propContratos, contratosSheet]);
-
-  const allReportesSice = useMemo(() => {
-    const p = extraerArray(propReportes);
-    if (p.length > 0) return p;
-    return extraerArray(reportesSheet);
-  }, [propReportes, reportesSheet]);
+  const contratosList = propContratos.length > 0 ? propContratos : contratosRemotos;
+  const allReportesSice = propReportes.length > 0 ? propReportes : reportesRemotos;
 
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('00005');
@@ -56,14 +68,15 @@ export default function CertificadoHorasHombreTab({
   const contratoActual = useMemo(() => {
     if (!contratoIdSeleccionado) return null;
     return contratosDisponibles.find(c => {
-      const cId = String(c?.id || c?.ID || c?.codigo || c?.contrato_id || c?._id || '').trim();
+      const cId = String(c?.id || c?.codigo || '').trim();
       return cId === String(contratoIdSeleccionado).trim();
     });
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
   useEffect(() => {
     if (contratoActual) {
-      const clienteNombre = contratoActual.cliente_nombre || contratoActual.cliente || '';
+      // Usamos las columnas de tu hoja de Google Sheets
+      const clienteNombre = contratoActual.cliente || '';
       const clienteCargo = contratoActual.cliente_cargo || 'Gerente de Plant';
       
       const provNombre = contratoActual.proveedor_nombre || 'Alexander Torres Lopez';
@@ -85,9 +98,9 @@ export default function CertificadoHorasHombreTab({
 
   const agregarParteFila = (parteObj) => {
     const clasificacionOperario = parteObj?.clasificacion || parteObj?.categoria || 'General';
-    let valorHora = Number(contratoActual?.valor_hora || contratoActual?.precioHora || contratoActual?.tarifa || 15000);
+    let valorHora = Number(contratoActual?.valor_hora || contratoActual?.precio_hora || 15000);
 
-    const totalHoras = Number(parteObj?.totalHorasSuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
+    const totalHoras = Number(parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
     const nuevoItem = {
       id: `parte-item-${Date.now()}-${Math.random()}`,
       nroParte: parteObj?.nro || parteObj?.id || '001',
@@ -187,8 +200,9 @@ export default function CertificadoHorasHombreTab({
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
         <div className="sm:col-span-2 space-y-1">
-          <span className="text-slate-500 font-semibold block">
-            Seleccionar Contrato ({contratosDisponibles.length} disponibles):
+          <span className="text-slate-500 font-semibold block flex items-center justify-between">
+            <span>Seleccionar Contrato ({contratosDisponibles.length} disponibles):</span>
+            {cargandoRemoto && <span className="text-amber-600 font-bold animate-pulse">Consultando base de datos...</span>}
           </span>
           <select
             value={contratoIdSeleccionado}
@@ -197,8 +211,8 @@ export default function CertificadoHorasHombreTab({
           >
             <option value="">-- Seleccionar Contrato / Mantenimiento --</option>
             {contratosDisponibles.map((c, idx) => {
-              const cId = String(c?.id || c?.ID || c?.codigo || idx);
-              const cNombre = c?.nombre_contrato || c?.nombre || c?.descripcion || `Contrato #${idx + 1}`;
+              const cId = String(c?.id || c?.codigo || idx);
+              const cNombre = c?.nombre_contrato || c?.descripcion || `Contrato #${idx + 1}`;
               const cCodigo = c?.codigo || '';
               return (
                 <option key={cId} value={cId}>
@@ -287,7 +301,7 @@ export default function CertificadoHorasHombreTab({
           <option value="">+ Seleccionar parte diario aprobado...</option>
           {allReportesSice.map((p, idx) => (
             <option key={idx} value={p?.id || p?.nro}>
-              Parte #{p?.nro || idx + 1} ({p?.fecha}) - {p?.totalHorasSuma || p?.total_horas_suma || 0} hs
+              Parte #{p?.nro || idx + 1} ({p?.fecha}) - {p?.totalhorassuma || p?.total_horas_suma || 0} hs
             </option>
           ))}
         </select>
