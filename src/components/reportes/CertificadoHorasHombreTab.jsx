@@ -11,7 +11,37 @@ export default function CertificadoHorasHombreTab({
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
 
-  // Procesador robusto para asegurar que extraemos arrays sin importar cómo los envuelva Apps Script o el Hook
+  // Estados locales para respaldar la carga por API directa si el hook se mantiene vacío
+  const [contratosDirectos, setContratosDirectos] = useState([]);
+  const [reportesDirectos, setReportesDirectos] = useState([]);
+
+  // Carga de respaldo directa desde el backend si las props o hooks vienen vacíos
+  useEffect(() => {
+    let isMounted = true;
+    async function cargarDatosRemotos() {
+      try {
+        if (!GOOGLE_SCRIPT_URL) return;
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'cargarDetalleCompleto' })
+        });
+        const json = await res.json();
+        if (isMounted && json) {
+          const cList = json.contratosList || json.contratos || json.ContratosMantenimiento || [];
+          const rList = json.allReportesSice || json.reportes || json.ReportesDiariosSice || [];
+          if (Array.isArray(cList) && cList.length > 0) setContratosDirectos(cList);
+          if (Array.isArray(rList) && rList.length > 0) setReportesDirectos(rList);
+        }
+      } catch (e) {
+        console.error("Error al sincronizar datos remotos:", e);
+      }
+    }
+    cargarDatosRemotos();
+    return () => { isMounted = false; };
+  }, []);
+
+  // Procesador robusto para extraer arrays de cualquier formato recibido
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
     if (fuente && typeof fuente === 'object') {
@@ -27,14 +57,18 @@ export default function CertificadoHorasHombreTab({
   const contratosList = useMemo(() => {
     const p = extraerArrayDatos(propContratos);
     if (p.length > 0) return p;
-    return extraerArrayDatos(contratosSheet);
-  }, [propContratos, contratosSheet]);
+    const s = extraerArrayDatos(contratosSheet);
+    if (s.length > 0) return s;
+    return contratosDirectos;
+  }, [propContratos, contratosSheet, contratosDirectos]);
 
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
     if (p.length > 0) return p;
-    return extraerArrayDatos(reportesSheet);
-  }, [propReportes, reportesSheet]);
+    const s = extraerArrayDatos(reportesSheet);
+    if (s.length > 0) return s;
+    return reportesDirectos;
+  }, [propReportes, reportesSheet, reportesDirectos]);
 
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('00005');
