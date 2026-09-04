@@ -75,7 +75,7 @@ export default function ListadoInsumosTab({
             catsMap[catDestino].push({
               tarea: t?.descripcion || t?.tarea || 'Labor general',
               nombre: t?.descripcion || t?.tarea || 'Ítem general',
-              proveedor: t?.proveedor || 'SICE S.A.',
+              proveedor: t?.proveedor || t?.Proveedor || t?.proveedor_nombre || t?.nombre_proveedor || 'SICE S.A.',
               unidad: t?.unidad || 'un',
               cantidad: Number(t?.cantidad || t?.cant || 1),
               costo_unitario: Number(t?.costo_unitario || t?.precio_unitario || t?.unitario || t?.total || 0),
@@ -94,7 +94,7 @@ export default function ListadoInsumosTab({
               catsMap[catDestino].push({
                 tarea: t?.descripcion || t?.tarea || 'Labor',
                 nombre: ins?.nombre || ins?.descripcion || 'Insumo',
-                proveedor: ins?.proveedor || 'Sin Proveedor',
+                proveedor: ins?.proveedor || ins?.Proveedor || ins?.proveedor_nombre || ins?.nombre_proveedor || ins?.empresa || 'Sin Proveedor',
                 unidad: ins?.unidad || 'un',
                 cantidad: Number(ins?.cantidad || ins?.cant || 1),
                 costo_unitario: Number(ins?.costo_unitario || ins?.precio || 0),
@@ -226,7 +226,6 @@ export default function ListadoInsumosTab({
             const itemsCat = insumosGenerales[cat] || [];
             if (itemsCat.length === 0) return null;
 
-            // Agrupación estricta por Nombre + Proveedor
             const agrupadosMap = {};
             itemsCat.forEach(it => {
               const nombreNorm = String(it?.nombre || 'Sin nombre').trim();
@@ -247,7 +246,6 @@ export default function ListadoInsumosTab({
               agrupadosMap[uniqueKey].total += Number(it?.total) || 0;
             });
 
-            // Recalcular costo unitario promedio ponderado
             const itemsAgrupados = Object.values(agrupadosMap).map(item => ({
               ...item,
               costo_unitario: item.cantidad > 0 ? item.total / item.cantidad : item.costo_unitario
@@ -256,10 +254,11 @@ export default function ListadoInsumosTab({
             const totalCat = itemsAgrupados.reduce((acc, i) => acc + (Number(i?.total) || 0), 0);
 
             return (
-              <div key={cat} className="space-y-0 border border-slate-300 rounded-xl overflow-hidden bg-white shadow-sm">
-                <div className="flex justify-between items-center bg-slate-100 px-4 py-3 border-b border-slate-300">
-                  <span className="font-black text-xs text-slate-900 uppercase tracking-wide">{cat}</span>
-                  <span className="font-black text-xs text-amber-800">$ {totalCat.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+              <div key={cat} className="border border-slate-300 rounded-xl overflow-hidden bg-white shadow-sm space-y-0">
+                {/* TÍTULO DE CATEGORÍA CON FONDO OSCURO */}
+                <div className="flex justify-between items-center bg-slate-900 px-4 py-3 border-b border-slate-800">
+                  <span className="font-black text-xs text-white uppercase tracking-wide">{cat}</span>
+                  <span className="font-black text-xs text-amber-400">$ {totalCat.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                 </div>
                 <table className="w-full text-left text-xs">
                   <thead>
@@ -298,7 +297,7 @@ export default function ListadoInsumosTab({
           ) : (
             Object.entries(insumosPorRubro).map(([nombreRubro, cats]) => (
               <div key={nombreRubro} className="border border-slate-300 rounded-xl overflow-hidden bg-white shadow-sm space-y-0">
-                <div className="bg-slate-800 px-4 py-3 border-b border-slate-800">
+                <div className="bg-slate-900 px-4 py-3 border-b border-slate-800">
                   <h4 className="font-black text-xs text-white uppercase tracking-wide">{nombreRubro}</h4>
                 </div>
                 
@@ -310,11 +309,11 @@ export default function ListadoInsumosTab({
                   
                   return (
                     <div key={cat} className="border-b border-slate-200 last:border-0">
-                      <div className="flex justify-between items-center bg-slate-100 px-4 py-2 border-b border-slate-200">
-                        <span className="font-bold text-[11px] text-slate-700 uppercase tracking-wide flex items-center gap-2">
-                          <div className="w-1.5 h-1.5 rounded-full bg-amber-500"></div> {cat}
+                      <div className="flex justify-between items-center bg-slate-800 text-white px-4 py-2 border-b border-slate-700">
+                        <span className="font-bold text-[11px] uppercase tracking-wide flex items-center gap-2">
+                          <div className="w-1.5 h-1.5 rounded-full bg-amber-400"></div> {cat}
                         </span>
-                        <span className="font-black text-[11px] text-amber-800">$ {subCatTotal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                        <span className="font-black text-[11px] text-amber-400">$ {subCatTotal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                       </div>
                       <table className="w-full text-left text-xs bg-white">
                         <thead>

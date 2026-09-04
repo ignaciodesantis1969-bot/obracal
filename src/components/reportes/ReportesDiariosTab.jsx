@@ -29,6 +29,15 @@ export default function ReportesDiariosTab({
   const [isSavingSice, setIsSavingSice] = useState(false);
   const [parteVisualizando, setParteVisualizando] = useState(null);
 
+  // Filtrar estrictamente empleados con estado 'activo' desde la pestaña Personal
+  const empleadosActivosFiltrados = useMemo(() => {
+    if (!Array.isArray(listaEmpleadosActivos)) return [];
+    return listaEmpleadosActivos.filter(emp => {
+      const estadoEmp = String(buscarValorEnObjeto(emp, ['estado', 'Estado']) || '').toLowerCase().trim();
+      return estadoEmp === 'activo';
+    });
+  }, [listaEmpleadosActivos, buscarValorEnObjeto]);
+
   const calcularTotalHorasSice = useCallback((inicio, fin) => {
     if (!inicio || !fin) return 0;
     const [hIni, mIni] = String(inicio).split(':').map(Number);
@@ -46,20 +55,19 @@ export default function ReportesDiariosTab({
   }, [siceItems, calcularTotalHorasSice]);
 
   useEffect(() => {
-    if (listaEmpleadosActivos.length > 0 && operariosSeleccionados.length === 0) {
-      const iniciales = listaEmpleadosActivos.slice(0, 1).map(emp => {
+    if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
+      const iniciales = empleadosActivosFiltrados.slice(0, 1).map(emp => {
         const nombreEmp = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || 'Operario';
-        const abrevEmp = OBRAS_CONFIG?.determinarCategoriaEmpleado ? OBRAS_CONFIG.determinarCategoriaEmpleado(nombreEmp) : 'OE';
         return {
           id: buscarValorEnObjeto(emp, ['id', 'ID']) || Math.random().toString(),
           nombre: nombreEmp,
-          abreviacion: abrevEmp,
+          abreviacion: 'OE',
           horas: ''
         };
       });
       setOperariosSeleccionados(iniciales);
     }
-  }, [listaEmpleadosActivos, operariosSeleccionados.length, buscarValorEnObjeto]);
+  }, [empleadosActivosFiltrados, operariosSeleccionados.length, buscarValorEnObjeto]);
 
   const extraerDatosContrato = useCallback((contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
@@ -380,7 +388,7 @@ export default function ReportesDiariosTab({
           <div className="space-y-3 pt-2">
             <div className="flex justify-between items-center">
               <h3 className="text-xs font-black text-slate-900 uppercase flex items-center gap-2">
-                <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes ({listaEmpleadosActivos.length} activos disponibles)
+                <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes ({empleadosActivosFiltrados.length} activos disponibles)
               </h3>
               <button
                 type="button"
@@ -398,7 +406,7 @@ export default function ReportesDiariosTab({
                 operariosSeleccionados.map((op, idx) => (
                   <div key={op?.id || idx} className="flex flex-col sm:flex-row items-center gap-2 bg-white p-2.5 rounded-lg border border-slate-200 shadow-xs">
                     <div className="w-full sm:flex-1">
-                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Empleado (RRHH Activos)</label>
+                      <label className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 sm:hidden">Empleado (Personal Activo)</label>
                       <select
                         value={op?.nombre}
                         onChange={(e) => {
@@ -412,8 +420,8 @@ export default function ReportesDiariosTab({
                         }}
                         className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
                       >
-                        <option value="">-- Seleccionar Operario (RRHH Activos) --</option>
-                        {listaEmpleadosActivos.map((emp, eIdx) => {
+                        <option value="">-- Seleccionar Operario (Personal Activo) --</option>
+                        {empleadosActivosFiltrados.map((emp, eIdx) => {
                           const empNom = buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido']) || `Operario ${eIdx + 1}`;
                           const isSelectedElsewhere = operariosSeleccionados.some((oItem, oIdx) => oIdx !== idx && oItem?.nombre === empNom);
 
