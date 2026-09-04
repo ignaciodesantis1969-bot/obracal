@@ -4,46 +4,50 @@ import { GOOGLE_SCRIPT_URL } from '@/api';
 import { Package, FileText, Printer } from 'lucide-react';
 
 export default function ListadoInsumosTab({
-  presupuestos = [],
-  buscarValorEnObjeto = (obj, keys) => {
-    if (!obj) return '';
-    for (const key of keys) {
-      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
-    }
-    return '';
-  }
+  presupuestos = []
 }) {
   const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
-  const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(false);
+  const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(true);
   const [isSavingInsumosPdf, setIsSavingInsumosPdf] = useState(false);
 
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Varios'], []);
 
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
-      const est = String(buscarValorEnObjeto(p, ['estado_presupuesto', 'Estado_presupuesto', 'estado', 'Estado'])).toLowerCase().trim();
+      const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || p?.Estado || '').toLowerCase().trim();
       return est === 'aprobado' || est === 'aprobada';
     });
-  }, [presupuestos, buscarValorEnObjeto]);
+  }, [presupuestos]);
 
   const presupuestoInsumosSeleccionado = useMemo(() => {
     if (!insumoPresupuestoId) return null;
-    return presupuestos.find(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'codigo'])) === String(insumoPresupuestoId));
-  }, [insumoPresupuestoId, presupuestos, buscarValorEnObjeto]);
+    return presupuestos.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(insumoPresupuestoId));
+  }, [insumoPresupuestoId, presupuestos]);
 
   const insumosPorRubro = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return {};
-    let rubrosList = buscarValorEnObjeto(presupuestoInsumosSeleccionado, ['rubros', 'detalles', 'items']) || [];
+    
+    // Buscar cualquier clave posible donde vengan los datos del presupuesto
+    let rubrosList = presupuestoInsumosSeleccionado?.rubros || 
+                     presupuestoInsumosSeleccionado?.detalles || 
+                     presupuestoInsumosSeleccionado?.items || 
+                     presupuestoInsumosSeleccionado?.presupuesto_detalles || [];
+                     
     if (typeof rubrosList === 'string') {
       try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; }
+    }
+
+    // Si viene como una lista plana de tareas/ítems sin rubros agrupados
+    if (Array.isArray(rubrosList) && rubrosList.length > 0 && !rubrosList[0]?.nombre && !rubrosList[0]?.rubro && (rubrosList[0]?.descripcion || rubrosList[0]?.tarea)) {
+      rubrosList = [{ nombre: 'Presupuesto General', tareas: rubrosList }];
     }
 
     const mapRubros = {};
     if (!Array.isArray(rubrosList)) return mapRubros;
 
     rubrosList.forEach((r, rIdx) => {
-      const nombreRubro = r?.nombre || r?.rubro || `Rubro ${rIdx + 1}`;
-      let tareasList = r?.tareas || r?.items || [];
+      const nombreRubro = r?.nombre || r?.rubro || r?.descripcion || `Rubro ${rIdx + 1}`;
+      let tareasList = r?.tareas || r?.items || r?.subitems || [];
       if (typeof tareasList === 'string') {
         try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
       }
@@ -53,20 +57,20 @@ export default function ListadoInsumosTab({
 
       if (Array.isArray(tareasList)) {
         tareasList.forEach(t => {
-          let insumosList = t?.insumos || t?.materiales || [];
+          let insumosList = t?.insumos || t?.materiales || t?.detalle_insumos || [];
           if (typeof insumosList === 'string') {
             try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
           }
 
           if (!Array.isArray(insumosList) || insumosList.length === 0) {
             catsMap['Materiales'].push({
-              tarea: t?.descripcion || t?.tarea || 'Labor general',
-              nombre: t?.descripcion || t?.tarea || 'Ítem general',
-              proveedor: 'SICE S.A.',
+              tarea: t?.descripcion || t?.tarea || t?.nombre || 'Labor general',
+              nombre: t?.descripcion || t?.tarea || t?.nombre || 'Ítem general',
+              proveedor: t?.proveedor || 'SICE S.A.',
               unidad: t?.unidad || 'un',
-              cantidad: Number(t?.cantidad || 1),
-              costo_unitario: Number(t?.costo_unitario || t?.total || 0),
-              total: Number(t?.total || (Number(t?.cantidad || 1) * Number(t?.costo_unitario || 0)))
+              cantidad: Number(t?.cantidad || t?.cant || 1),
+              costo_unitario: Number(t?.costo_unitario || t?.precio_unitario || t?.unitario || t?.total || 0),
+              total: Number(t?.total || (Number(t?.cantidad || t?.cant || 1) * Number(t?.costo_unitario || t?.precio_unitario || t?.unitario || 0)))
             });
           } else {
             insumosList.forEach(ins => {
@@ -77,9 +81,9 @@ export default function ListadoInsumosTab({
                 nombre: ins?.nombre || ins?.descripcion || 'Insumo',
                 proveedor: ins?.proveedor || 'Proveedor SICE',
                 unidad: ins?.unidad || 'un',
-                cantidad: Number(ins?.cantidad || 1),
-                costo_unitario: Number(ins?.costo_unitario || ins?.precio || 0),
-                total: Number(ins?.total || (Number(ins?.cantidad || 1) * Number(ins?.costo_unitario || ins?.precio || 0)))
+                cantidad: Number(ins?.cantidad || ins?.cant || 1),
+                costo_unitario: Number(ins?.costo_unitario || ins?.precio || ins?.precio_unitario || 0),
+                total: Number(ins?.total || (Number(ins?.cantidad || ins?.cant || 1) * Number(ins?.costo_unitario || ins?.precio || 0)))
               });
             });
           }
@@ -88,7 +92,7 @@ export default function ListadoInsumosTab({
       mapRubros[nombreRubro] = catsMap;
     });
     return mapRubros;
-  }, [presupuestoInsumosSeleccionado, ordenCategorias, buscarValorEnObjeto]);
+  }, [presupuestoInsumosSeleccionado, ordenCategorias]);
 
   const insumosGenerales = useMemo(() => {
     const catsMap = {};
@@ -156,7 +160,7 @@ export default function ListadoInsumosTab({
           >
             <option value="">-- Seleccionar Presupuesto Aprobado ({presupuestosAprobados.length} disp.) --</option>
             {presupuestosAprobados.map(p => {
-              const pId = p?.id || p?.ID;
+              const pId = p?.id || p?.ID || p?.codigo;
               const pCod = p?.codigo || pId;
               const pNom = p?.nombre || p?.nombre_obra || 'Presupuesto';
               return (
@@ -218,9 +222,6 @@ export default function ListadoInsumosTab({
               }
               agrupadosMap[nombreKey].cantidad += Number(it?.cantidad) || 0;
               agrupadosMap[nombreKey].total += Number(it?.total) || 0;
-              if ((agrupadosMap[nombreKey].proveedor === '---' || !agrupadosMap[nombreKey].proveedor) && it?.proveedor && it?.proveedor !== '---') {
-                agrupadosMap[nombreKey].proveedor = it.proveedor;
-              }
             });
             const itemsAgrupados = Object.values(agrupadosMap).map(item => ({
               ...item,
