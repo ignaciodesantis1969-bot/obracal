@@ -8,67 +8,96 @@ export default function CertificadoHorasHombreTab({
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [] 
 }) {
-  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
-  const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
+  const { data: contratosSheet, isLoading: loadingContratos } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
+  const { data: reportesSheet, isLoading: loadingReportes } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
 
-  // Estados locales para respaldar la carga por API directa si el hook se mantiene vacío
-  const [contratosDirectos, setContratosDirectos] = useState([]);
-  const [reportesDirectos, setReportesDirectos] = useState([]);
+  // Estados locales para respaldo manual directo por fetch
+  const [contratosRemotos, setContratosRemotos] = useState([]);
+  const [reportesRemotos, setReportesRemotos] = useState([]);
 
-  // Carga de respaldo directa desde el backend si las props o hooks vienen vacíos
+  // Forzar una petición directa de respaldo a la API si el hook no trae datos
   useEffect(() => {
-    let isMounted = true;
-    async function cargarDatosRemotos() {
+    let activo = true;
+    async function fetchDirecto() {
       try {
         if (!GOOGLE_SCRIPT_URL) return;
-        const res = await fetch(GOOGLE_SCRIPT_URL, {
+        
+        // Petición para contratos
+        const resC = await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ action: 'cargarDetalleCompleto' })
+          body: JSON.stringify({ action: 'read', tabla: OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento' })
         });
-        const json = await res.json();
-        if (isMounted && json) {
-          const cList = json.contratosList || json.contratos || json.ContratosMantenimiento || [];
-          const rList = json.allReportesSice || json.reportes || json.ReportesDiariosSice || [];
-          if (Array.isArray(cList) && cList.length > 0) setContratosDirectos(cList);
-          if (Array.isArray(rList) && rList.length > 0) setReportesDirectos(rList);
+        const jsonC = await resC.json();
+        
+        // Petición para reportes SICE
+        const resR = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ action: 'read', tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice' })
+        });
+        const jsonR = await resR.json();
+
+        if (activo) {
+          console.log("🔍 [DEBUG] Respuesta Directa Contratos:", jsonC);
+          console.log("🔍 [DEBUG] Respuesta Directa Reportes:", jsonR);
+
+          const extraerArray = (res) => {
+            if (Array.isArray(res)) return res;
+            if (res && typeof res === 'object') {
+              if (Array.isArray(res.data)) return res.data;
+              if (Array.isArray(res.items)) return res.items;
+              if (Array.isArray(res.result)) return res.result;
+              const found = Object.values(res).find(v => Array.isArray(v));
+              if (found) return found;
+            }
+            return [];
+          };
+
+          const cArreglo = extraerArray(jsonC);
+          const rArreglo = extraerArray(jsonR);
+
+          if (cArreglo.length > 0) setContratosRemotos(cArreglo);
+          if (rArreglo.length > 0) setReportesRemotos(rArreglo);
         }
-      } catch (e) {
-        console.error("Error al sincronizar datos remotos:", e);
+      } catch (err) {
+        console.error("Error en fetch directo de respaldo:", err);
       }
     }
-    cargarDatosRemotos();
-    return () => { isMounted = false; };
+    fetchDirecto();
+    return () => { activo = false; };
   }, []);
 
-  // Procesador robusto para extraer arrays de cualquier formato recibido
-  const extraerArrayDatos = (fuente) => {
-    if (Array.isArray(fuente)) return fuente;
-    if (fuente && typeof fuente === 'object') {
-      if (Array.isArray(fuente.data)) return fuente.data;
-      if (Array.isArray(fuente.items)) return fuente.items;
-      if (Array.isArray(fuente.result)) return fuente.result;
-      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
-      if (posibleArray) return posibleArray;
-    }
-    return [];
+  // Extractor universal inteligente
+  const unificarDatos = (propiedad, hookData, remotoData) => {
+    const extraer = (fuente) => {
+      if (Array.isArray(fuente)) return fuente;
+      if (fuente && typeof fuente === 'object') {
+        if (Array.isArray(fuente.data)) return fuente.data;
+        if (Array.isArray(fuente.items)) return fuente.items;
+        if (Array.isArray(fuente.result)) return fuente.result;
+        const found = Object.values(fuente).find(v => Array.isArray(v));
+        if (found) return found;
+      }
+      return [];
+    };
+
+    const p = extraer(propiedad);
+    if (p.length > 0) return p;
+
+    const h = extraer(hookData);
+    if (h.length > 0) return h;
+
+    return remotoData;
   };
 
   const contratosList = useMemo(() => {
-    const p = extraerArrayDatos(propContratos);
-    if (p.length > 0) return p;
-    const s = extraerArrayDatos(contratosSheet);
-    if (s.length > 0) return s;
-    return contratosDirectos;
-  }, [propContratos, contratosSheet, contratosDirectos]);
+    return unificarDatos(propContratos, contratosSheet, contratosRemotos);
+  }, [propContratos, contratosSheet, contratosRemotos]);
 
   const allReportesSice = useMemo(() => {
-    const p = extraerArrayDatos(propReportes);
-    if (p.length > 0) return p;
-    const s = extraerArrayDatos(reportesSheet);
-    if (s.length > 0) return s;
-    return reportesDirectos;
-  }, [propReportes, reportesSheet, reportesDirectos]);
+    return unificarDatos(propReportes, reportesSheet, reportesRemotos);
+  }, [propReportes, reportesSheet, reportesRemotos]);
 
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('00005');
@@ -223,7 +252,10 @@ export default function CertificadoHorasHombreTab({
 
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
         <div className="sm:col-span-2 space-y-1">
-          <span className="text-slate-500 font-semibold block">Seleccionar Contrato ({contratosDisponibles.length} disponibles):</span>
+          <span className="text-slate-500 font-semibold block">
+            Seleccionar Contrato ({contratosDisponibles.length} disponibles):
+            {loadingContratos && <span className="ml-2 text-amber-600 font-bold">Cargando...</span>}
+          </span>
           <select
             value={contratoIdSeleccionado}
             onChange={(e) => setContratoIdSeleccionado(e.target.value)}
@@ -303,7 +335,10 @@ export default function CertificadoHorasHombreTab({
       </div>
 
       <div className="flex justify-between items-center bg-slate-100 p-3 rounded-xl border border-slate-300">
-        <span className="text-xs font-bold text-slate-700">Partes Diarios Disponibles ({allReportesSice.length} disp.):</span>
+        <span className="text-xs font-bold text-slate-700">
+          Partes Diarios Disponibles ({allReportesSice.length} disp.):
+          {loadingReportes && <span className="ml-2 text-amber-600 font-bold">Cargando...</span>}
+        </span>
         <select
           onChange={(e) => {
             const parteId = e.target.value;
