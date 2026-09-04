@@ -5,64 +5,76 @@ export default function ComparativoTab({
   presupuestos = [],
   facturas = [],
   allReportesSice = [],
-  obras = [],
-  buscarValorEnObjeto = (obj, keys) => {
-    if (!obj) return '';
-    for (const key of keys) {
-      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
-    }
-    return '';
-  }
+  obras = []
 }) {
   const [compObraId, setCompObraId] = useState('todas');
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
 
   const presupuestosCompFiltrados = useMemo(() => {
-    let lista = presupuestos.filter(p => {
-      const est = String(buscarValorEnObjeto(p, ['estado_presupuesto', 'Estado_presupuesto', 'estado', 'Estado'])).toLowerCase().trim();
-      return est === 'aprobado' || est === 'aprobada';
-    });
+    let lista = presupuestos;
     if (compObraId && compObraId !== 'todas') {
-      lista = lista.filter(p => String(buscarValorEnObjeto(p, ['obra_id', 'obraId', 'obra'])) === String(compObraId));
+      lista = lista.filter(p => {
+        const pObra = String(p?.obra_id || p?.obraId || p?.obra || '').trim();
+        return pObra === String(compObraId);
+      });
     }
     return lista;
-  }, [presupuestos, compObraId, buscarValorEnObjeto]);
+  }, [presupuestos, compObraId]);
 
   const presupuestoSeleccionado = useMemo(() => {
     if (!compPresupuestoId) return null;
-    return presupuestos.find(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'codigo'])) === String(compPresupuestoId));
-  }, [compPresupuestoId, presupuestos, buscarValorEnObjeto]);
-
-  const rubrosPresupuestoDetalle = useMemo(() => {
-    if (!presupuestoSeleccionado) return [];
-    let rubros = buscarValorEnObjeto(presupuestoSeleccionado, ['rubros', 'detalles', 'items']) || [];
-    if (typeof rubros === 'string') {
-      try { rubros = JSON.parse(rubros); } catch { rubros = []; }
-    }
-    if (!Array.isArray(rubros)) return [];
-
-    return rubros.map((r, idx) => {
-      let tareas = r?.tareas || r?.items || [];
-      if (typeof tareas === 'string') {
-        try { tareas = JSON.parse(tareas); } catch { tareas = []; }
-      }
-      const totalRubro = Array.isArray(tareas) ? tareas.reduce((acc, t) => acc + Number(t?.total || (Number(t?.cantidad || 1) * Number(t?.costo_unitario || 0))), 0) : 0;
-      return {
-        id: r?.id || idx,
-        nombre: r?.nombre || r?.rubro || `Rubro ${idx + 1}`,
-        total: totalRubro
-      };
-    });
-  }, [presupuestoSeleccionado, buscarValorEnObjeto]);
-
-  const granTotalPresupuestado = useMemo(() => {
-    return rubrosPresupuestoDetalle.reduce((acc, r) => acc + (r?.total || 0), 0);
-  }, [rubrosPresupuestoDetalle]);
+    return presupuestos.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(compPresupuestoId));
+  }, [compPresupuestoId, presupuestos]);
 
   const limpiarTexto = (str) => {
     if (!str) return '';
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   };
+
+  const rubrosPresupuestoDetalle = useMemo(() => {
+    if (!presupuestoSeleccionado) return [];
+
+    // Extraer desde items_detalle (columna H de tu Sheets) o rubros
+    let rawDetalle = presupuestoSeleccionado?.items_detalle || 
+                     presupuestoSeleccionado?.itemsDetalle || 
+                     presupuestoSeleccionado?.rubros || 
+                     presupuestoSeleccionado?.detalles || [];
+
+    if (typeof rawDetalle === 'string') {
+      try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = []; }
+    }
+
+    let rubrosList = rawDetalle?.rubros || rawDetalle;
+    if (typeof rubrosList === 'string') {
+      try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; }
+    }
+
+    if (!Array.isArray(rubrosList)) {
+      rubrosList = [rubrosList];
+    }
+
+    return rubrosList.map((r, idx) => {
+      const nombreRubro = r?.rubro || r?.nombre || `Rubro ${idx + 1}`;
+      let tareas = r?.tareas || r?.items || r?.subitems || [];
+      if (typeof tareas === 'string') {
+        try { tareas = JSON.parse(tareas); } catch { tareas = []; }
+      }
+
+      const totalRubro = Array.isArray(tareas) 
+        ? tareas.reduce((acc, t) => acc + Number(t?.total || (Number(t?.cantidad || t?.cant || 1) * Number(t?.costo_unitario || t?.precio_unitario || t?.unitario || 0))), 0) 
+        : 0;
+
+      return {
+        id: r?.id || idx,
+        nombre: nombreRubro,
+        total: totalRubro > 0 ? totalRubro : Number(r?.total || 0)
+      };
+    });
+  }, [presupuestoSeleccionado]);
+
+  const granTotalPresupuestado = useMemo(() => {
+    return rubrosPresupuestoDetalle.reduce((acc, r) => acc + (r?.total || 0), 0);
+  }, [rubrosPresupuestoDetalle]);
 
   const obtenerSalariosPorRubro = (nombreRubro) => {
     const norm = limpiarTexto(nombreRubro);
@@ -70,7 +82,8 @@ export default function ComparativoTab({
     allReportesSice.forEach(rep => {
       const items = rep?.items || [];
       items.forEach(it => {
-        if (limpiarTexto(it?.descripcion).includes(norm) || norm.includes(limpiarTexto(it?.descripcion).slice(0, 5))) {
+        const descIt = limpiarTexto(it?.descripcion);
+        if (descIt.includes(norm) || norm.includes(descIt.slice(0, 5))) {
           totalHs += Number(rep?.totalHorasSuma || 0);
         }
       });
@@ -80,18 +93,18 @@ export default function ComparativoTab({
 
   const facturasPresupuesto = useMemo(() => {
     if (!presupuestoSeleccionado) return facturas;
-    const pCodigo = String(buscarValorEnObjeto(presupuestoSeleccionado, ['codigo', 'id', 'ID'])).trim();
+    const pCodigo = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.id || '').trim();
     return facturas.filter(f => {
-      const fPresupuesto = String(buscarValorEnObjeto(f, ['presupuesto_id', 'presupuestoId', 'presupuesto'])).trim();
+      const fPresupuesto = String(f?.presupuesto_id || f?.presupuestoId || f?.presupuesto || '').trim();
       return fPresupuesto === pCodigo || fPresupuesto === String(presupuestoSeleccionado?.id);
     });
-  }, [presupuestoSeleccionado, facturas, buscarValorEnObjeto]);
+  }, [presupuestoSeleccionado, facturas]);
 
   const gastosGeneralesDetalle = useMemo(() => {
     const totalFacturasGG = facturasPresupuesto.filter(f => {
       const rubroFac = limpiarTexto(f?.rubro || f?.categoria || f?.rubro_presupuesto);
-      return rubroFac.includes('general') || rubroFac.includes('gastos');
-    }).reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
+      return rubroFac.includes('general') || rubroFac.includes('gastos') || rubroFac.includes('logistica');
+    }).reduce((acc, f) => acc + Number(f?.subtotal || f?.total || f?.monto || 0), 0);
 
     return [
       { id: 1, concepto: 'Logística y Movilidad', total: 150000, real: totalFacturasGG > 0 ? totalFacturasGG * 0.4 : 45000, desvio: 150000 - (totalFacturasGG > 0 ? totalFacturasGG * 0.4 : 45000) },
@@ -129,9 +142,9 @@ export default function ComparativoTab({
             onChange={(e) => setCompPresupuestoId(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
           >
-            <option value="">-- Seleccionar Presupuesto Aprobado --</option>
+            <option value="">-- Seleccionar Presupuesto ({presupuestosCompFiltrados.length} disp.) --</option>
             {presupuestosCompFiltrados.map(p => {
-              const pId = p?.id || p?.ID;
+              const pId = p?.id || p?.ID || p?.codigo;
               const pCod = p?.codigo || pId;
               const pNom = p?.nombre || p?.nombre_obra || 'Presupuesto';
               return <option key={pId} value={pId}>[{pCod}] {pNom}</option>;
@@ -142,7 +155,7 @@ export default function ComparativoTab({
 
       {!presupuestoSeleccionado ? (
         <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl">
-          Por favor, seleccione un presupuesto aprobado para visualizar el análisis comparativo financiero.
+          Por favor, seleccione un presupuesto para visualizar el análisis comparativo financiero.
         </div>
       ) : (
         <div className="space-y-6">
