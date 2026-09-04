@@ -8,11 +8,10 @@ export default function CertificadoHorasHombreTab({
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [] 
 }) {
-  // Consumo directo de los hooks oficiales del sistema
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
 
-  // Procesador universal para extraer arrays sin importar el formato del backend
+  // Procesador universal adaptado a tus columnas reales de Sheets
   const extraerArray = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
     if (fuente && typeof fuente === 'object') {
@@ -57,18 +56,18 @@ export default function CertificadoHorasHombreTab({
   const contratoActual = useMemo(() => {
     if (!contratoIdSeleccionado) return null;
     return contratosDisponibles.find(c => {
-      const cId = String(c?.id || c?.ID || c?.codigo || c?.contrato_id || c?.nro_contrato || c?._id || '').trim();
+      const cId = String(c?.id || c?.ID || c?.codigo || c?.contrato_id || c?._id || '').trim();
       return cId === String(contratoIdSeleccionado).trim();
     });
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
   useEffect(() => {
     if (contratoActual) {
-      const clienteNombre = contratoActual.cliente_nombre || contratoActual.cliente || contratoActual.razon_social || contratoActual.razonSocial || '';
-      const clienteCargo = contratoActual.cliente_cargo || contratoActual.cargo_cliente || 'RESPONSABLE TÉCNICO';
+      const clienteNombre = contratoActual.cliente_nombre || contratoActual.cliente || '';
+      const clienteCargo = contratoActual.cliente_cargo || 'Gerente de Plant';
       
-      const provNombre = contratoActual.responsable_proveedor || contratoActual.proveedor_nombre || 'Alexander Torres Lopez';
-      const provCargo = contratoActual.responsable_proveedor_cargo || contratoActual.proveedor_cargo || 'JEFE DE OBRA';
+      const provNombre = contratoActual.proveedor_nombre || 'Alexander Torres Lopez';
+      const provCargo = contratoActual.proveedor_cargo || 'Oficial a cargo del Site';
 
       setRespCliente(prev => ({
         ...prev,
@@ -86,13 +85,7 @@ export default function CertificadoHorasHombreTab({
 
   const agregarParteFila = (parteObj) => {
     const clasificacionOperario = parteObj?.clasificacion || parteObj?.categoria || 'General';
-    let valorHora = 0;
-    
-    if (contratoActual?.tarifas && typeof contratoActual.tarifas === 'object') {
-      valorHora = Number(contratoActual.tarifas[clasificacionOperario] || contratoActual.tarifas['General'] || 0);
-    } else {
-      valorHora = Number(contratoActual?.valor_hora || contratoActual?.precioHora || contratoActual?.tarifa || 15000);
-    }
+    let valorHora = Number(contratoActual?.valor_hora || contratoActual?.precioHora || contratoActual?.tarifa || 15000);
 
     const totalHoras = Number(parteObj?.totalHorasSuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
     const nuevoItem = {
@@ -145,7 +138,7 @@ export default function CertificadoHorasHombreTab({
         fecha_emision: fechaEmision,
         periodo_desde: periodoDesde,
         periodo_hasta: periodoHasta,
-        cliente: contratoActual?.cliente || contratoActual?.razon_social || 'Cliente',
+        cliente: contratoActual?.cliente || 'Cliente',
         filas: partesSeleccionados,
         total_general: totalGeneralMonto,
         responsable_proveedor: respProveedor,
@@ -204,9 +197,9 @@ export default function CertificadoHorasHombreTab({
           >
             <option value="">-- Seleccionar Contrato / Mantenimiento --</option>
             {contratosDisponibles.map((c, idx) => {
-              const cId = String(c?.id || c?.ID || c?.codigo || c?.contrato_id || c?.nro_contrato || c?._id || idx);
-              const cNombre = c?.nombre || c?.cliente || c?.razon_social || c?.descripcion || `Contrato #${idx + 1}`;
-              const cCodigo = c?.codigo || c?.nro_contrato || c?.id || '';
+              const cId = String(c?.id || c?.ID || c?.codigo || idx);
+              const cNombre = c?.nombre_contrato || c?.nombre || c?.descripcion || `Contrato #${idx + 1}`;
+              const cCodigo = c?.codigo || '';
               return (
                 <option key={cId} value={cId}>
                   {cCodigo ? `[${cCodigo}] ` : ''}{cNombre}
@@ -229,14 +222,14 @@ export default function CertificadoHorasHombreTab({
         <div>
           <span className="text-slate-500 font-semibold block">Cliente:</span>
           <strong className="text-slate-900 block mt-1">
-            {contratoActual?.cliente || contratoActual?.razon_social || contratoActual?.razonSocial || '---'}
+            {contratoActual?.cliente || '---'}
           </strong>
         </div>
 
         <div>
           <span className="text-slate-500 font-semibold block">Contrato Nro.:</span>
           <strong className="text-slate-900 block mt-1 font-mono">
-            {contratoActual?.codigo || contratoActual?.nro_contrato || contratoActual?.id || '---'}
+            {contratoActual?.codigo || contratoActual?.id || '---'}
           </strong>
         </div>
 
