@@ -120,9 +120,15 @@ export default function CertificacionesTab({
     if (certPresupuestoId && certificadoPresupuestoObj) {
       const clienteResuelto = resolverRazonSocialCliente(certificadoPresupuestoObj);
       setCertClienteNombre(clienteResuelto);
+      
+      // AUTO-RELLENAR EL RESPONSABLE CLIENTE DESDE EL PRESUPUESTO (responsable_cliente)
+      const respClienteSheet = certificadoPresupuestoObj.responsable_cliente || certificadoPresupuestoObj.responsableCliente || '';
+      const cargoClienteSheet = certificadoPresupuestoObj.cargo_cliente || certificadoPresupuestoObj.cargoCliente || 'RESPONSABLE TÉCNICO';
+
       setCertRespCliente(prev => ({
         ...prev,
-        nombre: prev.nombre || clienteResuelto
+        nombre: respClienteSheet || prev.nombre || clienteResuelto,
+        cargo: cargoClienteSheet || prev.cargo
       }));
     } else if (!certPresupuestoId) {
       setCertClienteNombre('');
@@ -198,9 +204,9 @@ export default function CertificacionesTab({
       const tareasRubro = Array.isArray(rubro?.tareas) ? rubro.tareas : [];
       
       const tareasFilas = tareasRubro.map((t, tIdx) => {
-        const cant = Number(t?.cantidad) || 1;
-        // EXCLUSIVO PRECIO DE VENTA (CERO COSTO)
-        const pUnit = Number(t?.precio_venta) || Number(t?.precio) || Number(t?.precio_unitario) || Number(t?.precioUnitarioVenta) || 0;
+        const cant = Number(t?.cantidad) || Number(t?.cant) || 1;
+        // EXCLUSIVO PRECIO DE VENTA / PRECIO UNITARIO (NO COSTO)
+        const pUnit = Number(t?.precio_venta) || Number(t?.precioVenta) || Number(t?.precioUnitarioVenta) || Number(t?.precio_unitario) || Number(t?.precioUnitario) || Number(t?.precio) || 0;
         const totalItem = cant * pUnit;
         totalRubro += totalItem;
 
@@ -459,7 +465,6 @@ export default function CertificacionesTab({
                     <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
                       <th className="py-2.5 px-2 border-r border-slate-700 w-10 text-center" rowSpan="2">Ítem</th>
                       <th className="py-2.5 px-3 border-r border-slate-700" rowSpan="2">Descripción del Rubro / Tarea</th>
-                      {/* REDUCIDO ESPACIO PARA UND Y CANT */}
                       <th className="py-2.5 px-1 border-r border-slate-700 text-center w-8" rowSpan="2">Und</th>
                       <th className="py-2.5 px-1 border-r border-slate-700 text-right w-10" rowSpan="2">Cant.</th>
                       <th className="py-2.5 px-3 border-r border-slate-700 text-right w-36 whitespace-nowrap" rowSpan="2">Total Cotizado</th>
@@ -485,7 +490,6 @@ export default function CertificacionesTab({
 
                       return (
                         <React.Fragment key={rubroObj.rIdx}>
-                          {/* FONDO GRIS EN RUBROS Y TOTALIZADORES */}
                           <tr className="bg-slate-300 font-black text-slate-950 border-t-2 border-slate-400">
                             <td className="py-2.5 px-2 text-center border-r border-slate-400">{rubroObj.rIdx + 1}</td>
                             <td className="py-2.5 px-3 uppercase border-r border-slate-400" colSpan="3">{rubroObj.nombre}</td>
@@ -506,7 +510,6 @@ export default function CertificacionesTab({
                               <td className="py-2 px-3 text-right font-bold text-slate-900 border-r border-slate-300 whitespace-nowrap">$ {t.totalItem.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                               <td className="py-2 px-1 text-center border-r border-slate-300 text-slate-600">{t.pctAnterior}%</td>
                               <td className="py-2 px-3 text-right border-r border-slate-300 text-slate-600 whitespace-nowrap">$ {t.impAnterior.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                              {/* CAMPO DE ENTRADA CON MÁS ESPACIO (w-16) */}
                               <td className="py-2 px-1 text-center border-r border-slate-300 bg-amber-50/50">
                                 <input
                                   type="number"
