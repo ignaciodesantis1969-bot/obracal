@@ -201,7 +201,7 @@ export default function ComparativoTab({
               const pCod = p?.codigo || pId;
               const pNom = p?.nombre || p?.nombre_obra || 'Presupuesto';
               return <option key={pId} value={pId}>[{pCod}] {pNom}</option>;
-            });}
+            })}
           </select>
         </div>
       </div>
