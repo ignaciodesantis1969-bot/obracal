@@ -4,8 +4,10 @@ import { GOOGLE_SCRIPT_URL } from '@/api';
 import { useObraData } from '@/hooks/useObraData';
 import { OBRAS_CONFIG } from '@/config/obrasConfig';
 
-export default function CertificadoHorasHombreTab({ contratosList: propContratos = [], allReportesSice: propReportes = [] }) {
-  // Carga automática desde Google Sheets usando el hook personalizado si las props están vacías
+export default function CertificadoHorasHombreTab({ 
+  contratosList: propContratos = [], 
+  allReportesSice: propReportes = [] 
+}) {
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
 
@@ -25,7 +27,6 @@ export default function CertificadoHorasHombreTab({ contratosList: propContratos
   const [respProveedor, setRespProveedor] = useState({ cargo: 'JEFE DE OBRA', nombre: 'Alexander Torres Lopez', firma: '' });
   const [respCliente, setRespCliente] = useState({ cargo: '', nombre: '', firma: '' });
 
-  // Lista de contratos normalizada para evitar fallos de coincidencia
   const contratosDisponibles = useMemo(() => {
     return Array.isArray(contratosList) ? contratosList : [];
   }, [contratosList]);
@@ -38,7 +39,6 @@ export default function CertificadoHorasHombreTab({ contratosList: propContratos
     });
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
-  // Cargar datos del contrato seleccionado automáticamente
   useEffect(() => {
     if (contratoActual) {
       const clienteNombre = contratoActual.cliente_nombre || contratoActual.cliente || contratoActual.razon_social || contratoActual.razonSocial || '';
@@ -146,7 +146,6 @@ export default function CertificadoHorasHombreTab({ contratosList: propContratos
 
   return (
     <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
-      {/* ENCABEZADO */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
         <div>
           <img src="/logo-07.png" alt="SICE S.A." className="h-16 object-contain mb-2" />
@@ -166,10 +165,9 @@ export default function CertificadoHorasHombreTab({ contratosList: propContratos
         </div>
       </div>
 
-      {/* DATOS GENERALES Y SELECCIÓN DE CONTRATO */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs border-b border-slate-300 pb-4 bg-slate-50 p-4 rounded-xl">
         <div className="sm:col-span-2 space-y-1">
-          <span className="text-slate-500 font-semibold block">Seleccionar Contrato:</span>
+          <span className="text-slate-500 font-semibold block">Seleccionar Contrato ({contratosDisponibles.length} disponibles):</span>
           <select
             value={contratoIdSeleccionado}
             onChange={(e) => setContratoIdSeleccionado(e.target.value)}
@@ -224,7 +222,6 @@ export default function CertificadoHorasHombreTab({ contratosList: propContratos
         </div>
       </div>
 
-      {/* PERÍODO */}
       <div className="bg-slate-50 border border-slate-300 p-4 rounded-xl flex flex-wrap items-center gap-4">
         <span className="font-black text-xs text-slate-800 uppercase flex items-center gap-2">
           <Clock className="w-4 h-4 text-amber-600" /> PERÍODO:
@@ -249,9 +246,8 @@ export default function CertificadoHorasHombreTab({ contratosList: propContratos
         </div>
       </div>
 
-      {/* SELECTOR RÁPIDO PARA AGREGAR PARTES SICE */}
       <div className="flex justify-between items-center bg-slate-100 p-3 rounded-xl border border-slate-300">
-        <span className="text-xs font-bold text-slate-700">Partes Diarios Disponibles para Incorporar:</span>
+        <span className="text-xs font-bold text-slate-700">Partes Diarios Disponibles ({allReportesSice.length} disp.):</span>
         <select
           onChange={(e) => {
             const parteId = e.target.value;
@@ -273,7 +269,6 @@ export default function CertificadoHorasHombreTab({ contratosList: propContratos
         </select>
       </div>
 
-      {/* TABLA DE ITEMS */}
       <div className="overflow-x-auto border border-slate-400 rounded-xl">
         <table className="w-full text-left text-xs border-collapse">
           <thead>
@@ -351,7 +346,6 @@ export default function CertificadoHorasHombreTab({ contratosList: propContratos
         </table>
       </div>
 
-      {/* BLOQUE DE FIRMAS */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
         <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
           <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
@@ -430,7 +424,6 @@ export default function CertificadoHorasHombreTab({ contratosList: propContratos
         </div>
       </div>
 
-      {/* BOTÓN DE ACCIÓN */}
       <div className="flex flex-col sm:flex-row justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-300 gap-4">
         <span className="text-xs text-slate-500 font-medium">
           Ingrese sus claves para firmar y validar el certificado de horas hombre.
