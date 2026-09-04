@@ -39,8 +39,8 @@ class ErrorBoundary extends React.Component {
 }
 
 function ReportesContent({
-  contratosList = [],
-  allReportesSice = [],
+  contratosList: propContratos = [],
+  allReportesSice: propReportes = [],
   setFetchedReportesSice = () => {},
   listaEmpleadosActivos = [],
   esOperador = false,
@@ -57,8 +57,35 @@ function ReportesContent({
   certificadosList = [],
   obras = []
 }) {
+  // Respaldo de datos con hooks por si el componente padre no los pasa
+  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
+  const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { isLoading: isLoadingReportes } = useObraData(OBRAS_CONFIG.TABLAS.REPORTES_SICE);
   const { isLoading: isLoadingCertificados } = useObraData(OBRAS_CONFIG.TABLAS.CERTIFICACIONES);
+
+  const extraerArrayDatos = (fuente) => {
+    if (Array.isArray(fuente)) return fuente;
+    if (fuente && typeof fuente === 'object') {
+      if (Array.isArray(fuente.data)) return fuente.data;
+      if (Array.isArray(fuente.items)) return fuente.items;
+      if (Array.isArray(fuente.result)) return fuente.result;
+      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+      if (posibleArray) return posibleArray;
+    }
+    return [];
+  };
+
+  const contratosList = useMemo(() => {
+    const p = extraerArrayDatos(propContratos);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(contratosSheet);
+  }, [propContratos, contratosSheet]);
+
+  const allReportesSice = useMemo(() => {
+    const p = extraerArrayDatos(propReportes);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(reportesSheet);
+  }, [propReportes, reportesSheet]);
 
   const [activeTab, setActiveTab] = useState('Certificaciones');
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
