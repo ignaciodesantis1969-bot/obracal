@@ -42,10 +42,30 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
+  // Unificamos y normalizamos los reportes provenientes de props, hook y localStorage para máxima robustez
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
-    if (p.length > 0) return p;
-    return extraerArrayDatos(reportesSheet);
+    const s = extraerArrayDatos(reportesSheet);
+    
+    let localCache = [];
+    try {
+      const cached = localStorage.getItem('sice_partes_local_cache');
+      if (cached) localCache = JSON.parse(cached);
+    } catch (e) {}
+
+    const combinados = [...p, ...s, ...localCache];
+    
+    // Eliminar duplicados basándose en el ID o Nro
+    const unicosMap = new Map();
+    combinados.forEach(item => {
+      if (!item) return;
+      const key = String(item.id || item.ID || item.nro || item.Nro || Math.random());
+      if (!unicosMap.has(key)) {
+        unicosMap.set(key, item);
+      }
+    });
+
+    return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet]);
 
   const listaEmpleadosActivos = useMemo(() => {
@@ -61,11 +81,11 @@ export default function ReportesDiariosTab({
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   
-  // Cálculo automático robusto del siguiente número basándose en el total global de la tabla (sin importar filtros)
+  // Cálculo automático robusto del número de parte basado en el historial completo
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(r => {
-      const nroStr = String(buscarValorEnObjeto(r, ['nro', 'Nro', 'numero']) || '0');
+      const nroStr = String(buscarValorEnObjeto(r, ['nro', 'Nro', 'numero', 'Numero']) || '0');
       return parseInt(nroStr.replace(/\D/g, ''), 10) || 0;
     });
     const maxNro = Math.max(...numeros, 0);
@@ -193,14 +213,14 @@ export default function ReportesDiariosTab({
     }
   }, [contratoSeleccionadoId, contratosList, buscarValorEnObjeto, extraerDatosContrato]);
 
-  // CORRECCIÓN CLAVE: Si no hay contrato seleccionado, mostramos TODO el historial para evitar que desaparezcan registros
+  // Historial normalizado y flexible ante cualquier nombre de columna en la hoja
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
     if (contratoSeleccionadoId) {
       lista = allReportesSice.filter(r => {
         if (!r) return false;
-        const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id'])).trim();
-        return rContratoId === String(contratoSeleccionadoId).trim() || rContratoId === '';
+        const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId'])).trim();
+        return !rContratoId || rContratoId === String(contratoSeleccionadoId).trim();
       });
     }
 
@@ -209,7 +229,7 @@ export default function ReportesDiariosTab({
       if (typeof itemsParsed === 'string' && itemsParsed.trim()) {
         try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
       }
-      let operariosParsed = buscarValorEnObjeto(r, ['operarios', 'operariosPresentes']);
+      let operariosParsed = buscarValorEnObjeto(r, ['operarios', 'operariosPresentes', 'Operarios']);
       if (typeof operariosParsed === 'string' && operariosParsed.trim()) {
         try { operariosParsed = JSON.parse(operariosParsed); } catch { operariosParsed = []; }
       }
@@ -222,13 +242,13 @@ export default function ReportesDiariosTab({
         try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: String(cliParsed), cargo: '' }; }
       }
 
-      const rawSuma = parseFloat(buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma']) || 0);
+      const rawSuma = parseFloat(buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma', 'TotalHorasSuma']) || 0);
 
       return {
-        id: buscarValorEnObjeto(r, ['id', 'ID', 'nro']) || `sice-${Math.random()}`,
-        nro: buscarValorEnObjeto(r, ['nro', 'Nro', 'numero']) || '00001',
+        id: buscarValorEnObjeto(r, ['id', 'ID', 'nro', 'Nro']) || `sice-${Math.random()}`,
+        nro: buscarValorEnObjeto(r, ['nro', 'Nro', 'numero', 'Numero']) || '00001',
         fecha: buscarValorEnObjeto(r, ['fecha', 'Fecha']) || '',
-        contratoid: buscarValorEnObjeto(r, ['contratoid', 'contratoId']) || '',
+        contratoid: buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id']) || '',
         items: Array.isArray(itemsParsed) ? itemsParsed : [],
         operarios: Array.isArray(operariosParsed) ? operariosParsed.map(op => ({
           ...op,
@@ -237,7 +257,7 @@ export default function ReportesDiariosTab({
         proveedor: provParsed || { nombre: '', cargo: '' },
         cliente: cliParsed || { nombre: '', cargo: '' },
         totalHorasSuma: rawSuma.toFixed(2),
-        pdfUrl: buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'urlPdf']) || ''
+        pdfUrl: buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'urlPdf', 'pdfURL']) || ''
       };
     });
   }, [contratoSeleccionadoId, allReportesSice, buscarValorEnObjeto]);
@@ -378,6 +398,14 @@ export default function ReportesDiariosTab({
         totalHorasSuma: Number(granTotalHorasHombre).toFixed(2),
         pdfUrl: pdfUrlFinal
       };
+
+      // Guardamos en caché local para garantizar persistencia inmediata en el frontend
+      try {
+        const cached = localStorage.getItem('sice_partes_local_cache');
+        const parsedCache = cached ? JSON.parse(cached) : [];
+        parsedCache.unshift(nuevoParte);
+        localStorage.setItem('sice_partes_local_cache', JSON.stringify(parsedCache));
+      } catch (e) {}
 
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
       if (typeof refetchReportes === 'function') refetchReportes();
