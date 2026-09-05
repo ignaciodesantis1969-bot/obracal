@@ -55,20 +55,7 @@ export default function CertificacionesTab({
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setFetchedObras(data); })
       .catch(() => {});
-
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: 'Certificados', action: 'get' })
-    })
-      .then(res => res.json())
-      .then(data => {
-        if (Array.isArray(data) && typeof setFetchedCertificados === 'function') {
-          setFetchedCertificados(data);
-        }
-      })
-      .catch(() => {});
-  }, [setFetchedCertificados]);
+  }, []);
 
   const listaObrasCompleta = useMemo(() => {
     const pObras = Array.isArray(obras) ? obras : [];
@@ -863,5 +850,4 @@ export default function CertificacionesTab({
       )}
     </div>
   );
-
 }

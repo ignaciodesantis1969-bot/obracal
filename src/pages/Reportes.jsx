@@ -40,14 +40,29 @@ function ReportesContent(props) {
   const [activeTab, setActiveTab] = useState(esOperador ? 'Reportes Diarios' : 'Certificaciones');
 
   useEffect(() => {
+    // 1. Cargar Contratos de Mantenimiento
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' }) })
-      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedContratos(data)).catch(() => {});
+      .then(res => res.json())
+      .then(data => Array.isArray(data) && setFetchedContratos(data))
+      .catch(() => {});
     
-    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificaciones', action: 'get' }) })
-      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedCertificados(data)).catch(() => {});
+    // 2. Corregido: Coincide exactamente con la hoja 'Certificados'
+    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificados', action: 'get' }) })
+      .then(res => res.json())
+      .then(data => Array.isArray(data) && setFetchedCertificados(data))
+      .catch(() => {});
     
+    // 3. Cargar Proveedores
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Proveedores', action: 'get' }) })
-      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedProveedores(data)).catch(() => {});
+      .then(res => res.json())
+      .then(data => Array.isArray(data) && setFetchedProveedores(data))
+      .catch(() => {});
+
+    // 4. Agregado: Cargar Reportes Diarios SICE para que no inicien vacíos
+    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' }) })
+      .then(res => res.json())
+      .then(data => Array.isArray(data) && setFetchedReportesSice(data))
+      .catch(() => {});
   }, []);
 
   const contratosList = useMemo(() => fetchedContratos.length > 0 ? fetchedContratos : CONTRATO_DEFAULT, [fetchedContratos]);
