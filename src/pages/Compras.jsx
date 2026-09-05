@@ -8,11 +8,18 @@ export default function Compras({
   proveedores = [], 
   obras = [], 
   presupuestos = [],
-  contratosList = [], 
-  contratos = [], 
+  contratosList: propContratos = [], 
+  contratos: propContratosAlt = [], 
   insumosList = [], 
   rubros = [], 
-  cargarDatos 
+  cargarDatos,
+  buscarValorEnObjeto = (obj, keys) => {
+    if (!obj) return '';
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
+    }
+    return '';
+  }
 }) {
   const [activeTab, setActiveTab] = useState('facturas');
   const [filtroProveedor, setFiltroProveedor] = useState('');
@@ -75,6 +82,20 @@ export default function Compras({
     ]
   });
 
+  const extraerArrayDatos = (fuente) => {
+    if (Array.isArray(fuente)) return fuente;
+    if (fuente && typeof fuente === 'object') {
+      if (Array.isArray(fuente.data)) return fuente.data;
+      if (Array.isArray(fuente.items)) return fuente.items;
+      if (Array.isArray(fuente.result)) return fuente.result;
+      if (Array.isArray(fuente.contratos_mantenimiento)) return fuente.contratos_mantenimiento;
+      if (Array.isArray(fuente.contratosMantenimiento)) return fuente.contratosMantenimiento;
+      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+      if (posibleArray) return posibleArray;
+    }
+    return [];
+  };
+
   // Filtrar solo presupuestos aprobados
   const presupuestosAprobados = presupuestos.filter(pr => {
     const est = String(pr.estado || pr.Estado || pr.ESTADO || '').toLowerCase();
@@ -82,13 +103,31 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // 🔍 LÓGICA UNIFICADA DE CONTRATOS (Lee de contratosList o contratos y filtra por 'ContratosMantenimiento' si viniera anidado o plano)
-  const fuenteContratos = contratosList.length > 0 ? contratosList : contratos;
-  const contratosAprobados = fuenteContratos.filter(c => {
+  // 🔍 LÓGICA UNIFICADA Y ROBUSTA DE CONTRATOS (Idéntica a PartesDiarios)
+  const contratosList = useMemo(() => {
+    const p = extraerArrayDatos(propContratos);
+    const s = extraerArrayDatos(propContratosAlt);
+    const combinados = [...p, ...s];
+    
+    const unicosMap = new Map();
+    combinados.forEach((item, index) => {
+      if (!item) return;
+      const key = String(
+        buscarValorEnObjeto(item, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id', 'nro_contrato']) || index
+      );
+      if (!unicosMap.has(key)) {
+        unicosMap.set(key, item);
+      }
+    });
+
+    return Array.from(unicosMap.values());
+  }, [propContratos, propContratosAlt, buscarValorEnObjeto]);
+
+  const contratosAprobados = contratosList.filter(c => {
     const est = String(c.estado || c.Estado || c.ESTADO || '').toLowerCase();
     return !est || est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo');
   });
-  const listaContratosFinal = contratosAprobados.length > 0 ? contratosAprobados : fuenteContratos;
+  const listaContratosFinal = contratosAprobados.length > 0 ? contratosAprobados : contratosList;
 
   // EXTRACCIÓN DINÁMICA DE RUBROS DESDE EL JSON DEL PRESUPUESTO SELECCIONADO
   const presupuestoSeleccionadoObj = presupuestos.find(pr => {
@@ -1058,8 +1097,15 @@ export default function Compras({
                       </select>
                     ) : (
                       <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.contrato_id} onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}>
-                        <option value="">Seleccione contrato...</option>
-                        {listaContratosFinal.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.codigo || c.id} - {c.cliente || c.nombre_contrato || c.obra || 'Contrato'}</option>)}
+                        <option value="">Seleccione contrato ({listaContratosFinal.length} disp.)...</option>
+                        {listaContratosFinal.map((c, i) => {
+                          const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id']) || i);
+                          const cCod = buscarValorEnObjeto(c, ['codigo', 'Codigo', 'nro_contrato', 'numero']) || 'S/C';
+                          const cNom = buscarValorEnObjeto(c, ['nombre', 'nombre_contrato', 'Nombre_contrato', 'nombreContrato', 'cliente', 'Cliente', 'razon_social']) || 'Contrato';
+                          return (
+                            <option key={cId} value={cId}>[{cCod}] {cNom}</option>
+                          );
+                        })}
                       </select>
                     )}
                   </div>
