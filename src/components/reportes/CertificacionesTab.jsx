@@ -22,6 +22,10 @@ export default function CertificacionesTab({
   const [certClienteNombre, setCertClienteNombre] = useState('');
   const [fetchedClientes, setFetchedClientes] = useState([]);
   const [fetchedObras, setFetchedObras] = useState([]);
+  
+  // Estado local independiente para blindar la carga de certificados
+  const [fetchedCertificadosLocal, setFetchedCertificadosLocal] = useState([]);
+  
   const [avanceActualMap, setAvanceActualMap] = useState({});
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
   
@@ -55,7 +59,24 @@ export default function CertificacionesTab({
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setFetchedObras(data); })
       .catch(() => {});
-  }, []);
+
+    // Carga independiente de Certificados
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'Certificados', action: 'get' })
+    })
+      .then(res => res.json())
+      .then(data => { 
+        if (Array.isArray(data)) {
+          setFetchedCertificadosLocal(data);
+          if (typeof setFetchedCertificados === 'function') {
+            setFetchedCertificados(data);
+          }
+        }
+      })
+      .catch(() => {});
+  }, [setFetchedCertificados]);
 
   const listaObrasCompleta = useMemo(() => {
     const pObras = Array.isArray(obras) ? obras : [];
@@ -68,49 +89,38 @@ export default function CertificacionesTab({
     return Array.from(map.values());
   }, [obras, fetchedObras]);
 
+  // Consolidación de fuentes para asegurar que no se pierda la data
   const allCertificados = useMemo(() => {
     const cProps = Array.isArray(certificadosProps) ? certificadosProps : [];
     const fCert = Array.isArray(fetchedCertificados) ? fetchedCertificados : [];
-    return [...cProps, ...fCert];
-  }, [certificadosProps, fetchedCertificados]);
+    const fLocal = Array.isArray(fetchedCertificadosLocal) ? fetchedCertificadosLocal : [];
+    
+    const combinados = [...cProps, ...fCert, ...fLocal];
+    const map = new Map();
+    combinados.forEach(c => {
+      if (!c) return;
+      const keyId = c.id || c.ID || `${c.presupuestoId || c.presupuesto_id}_${c.certificadoNro || c.certificado_nro}`;
+      if (keyId) map.set(keyId, c);
+    });
+    return Array.from(map.values());
+  }, [certificadosProps, fetchedCertificados, fetchedCertificadosLocal]);
 
   const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
 
   const resolverRazonSocialCliente = (pObj) => {
     if (!pObj) return '';
-    
-    const camposDirectos = [
-      pObj.cliente,
-      pObj.Cliente,
-      pObj.razon_social,
-      pObj.razonSocial,
-      pObj.cliente_nombre,
-      pObj.clienteNombre
-    ];
+    const camposDirectos = [pObj.cliente, pObj.Cliente, pObj.razon_social, pObj.razonSocial, pObj.cliente_nombre, pObj.clienteNombre];
     for (let val of camposDirectos) {
-      if (val && typeof val === 'string' && val.trim() !== '' && val.trim() !== '---' && isNaN(val)) {
-        return val.trim();
-      }
+      if (val && typeof val === 'string' && val.trim() !== '' && val.trim() !== '---' && isNaN(val)) return val.trim();
     }
-
     const obraId = pObj.obra_id || pObj.obraId || pObj.id_obra || pObj.obra;
     if (obraId && listaObrasCompleta.length > 0) {
-      const obraObj = listaObrasCompleta.find(o => 
-        String(o?.id || o?.ID || '') === String(obraId) ||
-        String(o?.codigo || o?.code || '') === String(obraId) ||
-        String(o?.nombre || '') === String(obraId)
-      );
+      const obraObj = listaObrasCompleta.find(o => String(o?.id || o?.ID || '') === String(obraId) || String(o?.codigo || o?.code || '') === String(obraId) || String(o?.nombre || '') === String(obraId));
       if (obraObj) {
         const clienteId = obraObj.cliente_id || obraObj.clienteId || obraObj.id_cliente || obraObj.cliente;
         if (clienteId && fetchedClientes.length > 0) {
-          const clienteObj = fetchedClientes.find(c => 
-            String(c?.id || c?.ID || '') === String(clienteId) ||
-            String(c?.codigo || c?.code || '') === String(clienteId) ||
-            String(c?.razon_social || c?.razonSocial || c?.nombre || '') === String(clienteId)
-          );
-          if (clienteObj) {
-            return clienteObj.razon_social || clienteObj.razonSocial || clienteObj.nombre || clienteObj.cliente || '';
-          }
+          const clienteObj = fetchedClientes.find(c => String(c?.id || c?.ID || '') === String(clienteId) || String(c?.codigo || c?.code || '') === String(clienteId) || String(c?.razon_social || c?.razonSocial || c?.nombre || '') === String(clienteId));
+          if (clienteObj) return clienteObj.razon_social || clienteObj.razonSocial || clienteObj.nombre || clienteObj.cliente || '';
         }
         if (clienteId && isNaN(clienteId)) return String(clienteId);
       }
@@ -118,20 +128,30 @@ export default function CertificacionesTab({
     return '';
   };
 
+  // Filtrado blindado del historial
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
+    const idSeleccionado = String(certPresupuestoId).trim();
+    
     return allCertificados.filter(c => {
-      const pId = String(c?.presupuestoId || c?.presupuesto_id || '').trim();
-      return pId === String(certPresupuestoId).trim();
+      if (!c) return false;
+      const pId = String(c?.presupuestoId || c?.presupuesto_id || c?.id_presupuesto || c?.presupuesto || '').trim();
+      return pId === idSeleccionado || pId.includes(idSeleccionado);
+    }).sort((a, b) => {
+      const nroA = parseInt(a?.certificadoNro || a?.certificado_nro || 0);
+      const nroB = parseInt(b?.certificadoNro || b?.certificado_nro || 0);
+      return nroB - nroA;
     });
   }, [allCertificados, certPresupuestoId]);
 
-  // Cálculo automático del siguiente número de certificado disponible
   useEffect(() => {
     if (certPresupuestoId) {
-      const cantidadPrevios = certificadosDelPresupuestoActual.length;
-      setCertificadoNro(String(cantidadPrevios));
-      setAvanceActualMap({}); // Limpiar porcentajes al cambiar de presupuesto
+      const maxNro = certificadosDelPresupuestoActual.reduce((max, cert) => {
+        const nro = parseInt(cert?.certificadoNro || cert?.certificado_nro || 0);
+        return nro > max ? nro : max;
+      }, -1);
+      setCertificadoNro(String(maxNro + 1));
+      setAvanceActualMap({}); 
     }
   }, [certPresupuestoId, certificadosDelPresupuestoActual.length]);
 
@@ -176,7 +196,6 @@ export default function CertificacionesTab({
       const tareasFilas = tareasRubro.map((t, tIdx) => {
         const cant = Number(t?.cantidad) || Number(t?.cant) || 1;
         const costoUnit = Number(t?.costo_unitario || t?.costoUnitario || t?.costo || 0);
-        
         const pUnit = Number(t?.precio_venta) || Number(t?.precioVenta) || Number(t?.precioUnitarioVenta) || Number(t?.precio_unitario) || Number(t?.precioUnitario) || Number(t?.precio) || (costoUnit * coefPase);
         const totalItem = Number(t?.total || t?.subtotal || (cant * pUnit));
         
@@ -187,7 +206,6 @@ export default function CertificacionesTab({
         rubroAnterior += impAnterior;
 
         const keyMap = `${rIdx}-${tIdx}`;
-        // Por defecto arranca en 0% para cualquier nuevo certificado
         const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : 0;
         const impActual = totalItem * (pctActual / 100);
         rubroActual += impActual;
@@ -227,10 +245,8 @@ export default function CertificacionesTab({
     try {
       const isCertZero = String(certificadoNro).trim() === '0';
       const totalCertificadoPeriodo = isCertZero ? 0 : certificadoCalculos?.totalActualCalc;
-      
       const descuentoAdelantoCert = !isCertZero ? totalCertificadoPeriodo * (adelantoPct / 100) : 0;
       const netoACertificar = totalCertificadoPeriodo - (isCertZero ? 0 : descuentoAdelantoCert) + Number(adicionalesMonto);
-      
       const totalFinalLiquidacion = isCertZero ? adelantoMonto : (netoACertificar + redeterminacionMonto);
 
       const payloadCert = {
@@ -276,9 +292,11 @@ export default function CertificacionesTab({
         id: resultado?.id || `cert-${Date.now()}` 
       };
 
+      setFetchedCertificadosLocal(prev => [nuevoCertGuardado, ...prev]);
       if (typeof setFetchedCertificados === 'function') {
         setFetchedCertificados(prev => [nuevoCertGuardado, ...prev]);
       }
+      
       toast.success("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!", { id: toastId });
     } catch (err) {
       console.error(err);
@@ -297,12 +315,13 @@ export default function CertificacionesTab({
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ tabla: 'Certificados', action: 'delete', id: certId })
       });
+      
+      setFetchedCertificadosLocal(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
       if (typeof setFetchedCertificados === 'function') {
         setFetchedCertificados(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
       }
       toast.success("Certificado eliminado.", { id: toastId });
     } catch (err) { 
-      console.error(err); 
       toast.error("Error al intentar eliminar.", { id: toastId });
     }
   };
@@ -591,12 +610,10 @@ export default function CertificacionesTab({
                           <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
                           <span className="font-black text-slate-900 text-sm font-mono">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                         </div>
-
                         <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                           <span className="font-bold text-slate-700">Descuento por Adelanto Financiero ({adelantoPct}%):</span>
                           <span className="font-black text-rose-700 font-mono">- $ {descuentoAdelantoCert.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                         </div>
-
                         <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                           <span className="font-bold text-slate-700">Adicionales Aprobados:</span>
                           <input
@@ -606,7 +623,6 @@ export default function CertificacionesTab({
                             className="w-32 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-emerald-700 outline-none focus:border-amber-500 font-mono"
                           />
                         </div>
-
                         <div className="flex justify-between items-center bg-slate-900 text-white p-3.5 rounded-xl shadow">
                           <span className="font-extrabold text-xs uppercase">TOTAL NETO A CERTIFICAR:</span>
                           <span className="font-black text-base text-amber-400 font-mono">$ {netoACertificar.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
@@ -650,7 +666,6 @@ export default function CertificacionesTab({
                             </div>
                           </div>
                         </div>
-
                         <div className="flex justify-between items-center bg-slate-950 text-white p-4 rounded-xl shadow-md mt-6">
                           <span className="font-extrabold text-xs uppercase">TOTAL GENERAL A CERTIFICAR:</span>
                           <span className="font-black text-lg text-amber-400 font-mono">$ {totalFinalLiquidacion.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
@@ -670,30 +685,16 @@ export default function CertificacionesTab({
                   <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
-                      <input 
-                        type="text" 
-                        value={certRespProveedor.cargo} 
-                        onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} 
-                        className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" 
-                        placeholder="Ingrese cargo..." 
-                      />
+                      <input type="text" value={certRespProveedor.cargo} onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" placeholder="Ingrese cargo..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
-                      <input 
-                        type="text" 
-                        value={certRespProveedor.nombre} 
-                        onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} 
-                        className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" 
-                        placeholder="Ingrese nombre..." 
-                      />
+                      <input type="text" value={certRespProveedor.nombre} onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" placeholder="Ingrese nombre..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
                       <div className="text-emerald-700 tracking-widest text-sm select-none font-mono py-1">••••••</div>
-                      <div className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
-                        ✓ Firma Electrónica Verificada
-                      </div>
+                      <div className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">✓ Firma Electrónica Verificada</div>
                     </div>
                   </div>
                 </div>
@@ -705,30 +706,16 @@ export default function CertificacionesTab({
                   <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
-                      <input 
-                        type="text" 
-                        value={certRespCliente.cargo} 
-                        onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} 
-                        className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" 
-                        placeholder="Ingrese cargo..." 
-                      />
+                      <input type="text" value={certRespCliente.cargo} onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" placeholder="Ingrese cargo..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
-                      <input 
-                        type="text" 
-                        value={certRespCliente.nombre} 
-                        onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} 
-                        className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" 
-                        placeholder="Ingrese nombre..." 
-                      />
+                      <input type="text" value={certRespCliente.nombre} onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" placeholder="Ingrese nombre..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
                       <div className="text-emerald-700 tracking-widest text-sm select-none font-mono py-1">••••••</div>
-                      <div className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">
-                        ✓ Firma Electrónica Verificada
-                      </div>
+                      <div className="text-[11px] text-emerald-600 font-semibold flex items-center gap-1 mt-0.5">✓ Firma Electrónica Verificada</div>
                     </div>
                   </div>
                 </div>
@@ -812,10 +799,7 @@ export default function CertificacionesTab({
       )}
 
       {tipoCertificadoSubTab === 'horas_hombre' && (
-        <CertificadoHorasHombreTab 
-          contratosList={contratosList} 
-          allReportesSice={allReportesSice} 
-        />
+        <CertificadoHorasHombreTab contratosList={contratosList} allReportesSice={allReportesSice} />
       )}
 
       {tipoCertificadoSubTab === 'compra_materiales' && (

@@ -24,6 +24,22 @@ export default function ReportesDiariosTab({
   const { data: reportesSheet, refetch: refetchReportes } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: personalSheet } = useObraData('Personal');
 
+  // Estado local para fetch independiente blindado
+  const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
+
+  useEffect(() => {
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', action: 'get' })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (Array.isArray(data)) setFetchedReportesLocal(data);
+      })
+      .catch(err => console.error("Error al cargar ReportesDiariosSice directo:", err));
+  }, []);
+
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
     if (fuente && typeof fuente === 'object') {
@@ -42,10 +58,11 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Fuente unificada y blindada con localStorage para evitar pérdida visual de datos
+  // Consolidación de fuentes (Props + Hook + Fetch Independiente + Caché Local)
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
     const s = extraerArrayDatos(reportesSheet);
+    const l = extraerArrayDatos(fetchedReportesLocal);
     
     let localCache = [];
     try {
@@ -53,19 +70,17 @@ export default function ReportesDiariosTab({
       if (cached) localCache = JSON.parse(cached);
     } catch (e) {}
 
-    const combinados = [...p, ...s, ...localCache];
-    
+    const combinados = [...p, ...s, ...l, ...localCache];
     const unicosMap = new Map();
+    
     combinados.forEach(item => {
       if (!item) return;
       const key = String(item.id || item.ID || item.nro || item.Nro || Math.random());
-      if (!unicosMap.has(key)) {
-        unicosMap.set(key, item);
-      }
+      if (!unicosMap.has(key)) unicosMap.set(key, item);
     });
 
     return Array.from(unicosMap.values());
-  }, [propReportes, reportesSheet]);
+  }, [propReportes, reportesSheet, fetchedReportesLocal]);
 
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
@@ -80,7 +95,6 @@ export default function ReportesDiariosTab({
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   
-  // Contador autoincrementable robusto basado en el máximo número existente en toda la colección
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
@@ -174,15 +188,12 @@ export default function ReportesDiariosTab({
         } catch (e) {}
       }
     });
-
     let pCargo = buscarValorEnObjeto(objData, ['proveedor_cargo', 'proveedorCargo', 'cargoProveedor', 'cargo_proveedor']) || objData?.proveedor?.cargo || '';
     let pNombre = buscarValorEnObjeto(objData, ['proveedor_nombre', 'proveedorNombre', 'nombreProveedor', 'nombre_proveedor']) || objData?.proveedor?.nombre || '';
     let pKey = buscarValorEnObjeto(objData, ['proveedor_key', 'proveedorKey', 'claveProveedor']) || objData?.proveedor?.key || 'AT1020';
-
     let cCargo = buscarValorEnObjeto(objData, ['cliente_cargo', 'clienteCargo', 'cargoCliente', 'cargo_cliente']) || objData?.cliente?.cargo || '';
     let cNombre = buscarValorEnObjeto(objData, ['cliente_nombre', 'clienteNombre', 'nombreCliente', 'nombre_cliente']) || objData?.cliente?.nombre || '';
     let cKey = buscarValorEnObjeto(objData, ['cliente_key', 'clienteKey', 'claveCliente']) || objData?.cliente?.key || 'CM7030';
-
     return { pCargo, pNombre, pKey, cCargo, cNombre, cKey };
   }, [buscarValorEnObjeto]);
 
@@ -212,14 +223,15 @@ export default function ReportesDiariosTab({
     }
   }, [contratoSeleccionadoId, contratosList, buscarValorEnObjeto, extraerDatosContrato]);
 
-  // Historial filtrado de forma inteligente y flexible
+  // Filtrado super blindado: Busca coincidencia exacta o "includes"
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
     if (contratoSeleccionadoId) {
+      const selectedIdStr = String(contratoSeleccionadoId).trim();
       lista = allReportesSice.filter(r => {
         if (!r) return false;
         const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId'])).trim();
-        return !rContratoId || rContratoId === String(contratoSeleccionadoId).trim();
+        return !rContratoId || rContratoId === selectedIdStr || rContratoId.includes(selectedIdStr) || selectedIdStr.includes(rContratoId);
       });
     }
 
@@ -296,7 +308,6 @@ export default function ReportesDiariosTab({
         body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', action: 'delete', id: idParte })
       });
 
-      // Actualizamos caché local y estado global
       try {
         const cached = localStorage.getItem('sice_partes_local_cache_v2');
         if (cached) {
@@ -305,6 +316,7 @@ export default function ReportesDiariosTab({
         }
       } catch (e) {}
 
+      setFetchedReportesLocal(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
       setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
       if (typeof refetchReportes === 'function') refetchReportes();
       toast.success('Parte diario eliminado exitosamente', { id: toastId });
@@ -408,7 +420,6 @@ export default function ReportesDiariosTab({
         pdfUrl: pdfUrlFinal
       };
 
-      // Guardar inmediatamente en localStorage para blindar el historial
       try {
         const cached = localStorage.getItem('sice_partes_local_cache_v2');
         const parsedCache = cached ? JSON.parse(cached) : [];
@@ -416,6 +427,7 @@ export default function ReportesDiariosTab({
         localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(parsedCache));
       } catch (e) {}
 
+      setFetchedReportesLocal(prev => [nuevoParte, ...prev]);
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
       if (typeof refetchReportes === 'function') refetchReportes();
 
