@@ -10,9 +10,6 @@ export default function CertificacionesTab({
   certificadosProps = [],
   fetchedCertificados = [],
   setFetchedCertificados = () => {},
-  obtenerClienteDePresupuesto = () => '',
-  obtenerOrdenDeCompra = () => '',
-  buscarValorEnObjeto = () => '',
   allReportesSice = [],
   facturas = [],
   contratosList = []
@@ -34,7 +31,7 @@ export default function CertificacionesTab({
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
   const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: 'JEFE DE OBRA' });
-  const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: 'RESPONSABLE TÉCNICO' });
+  const [certRespCliente, setCertRespCliente] = useState({ nombre: 'Thaimari Marin', cargo: 'GERENCIA DE PROYECTO' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
   const extraerArrayDatos = (fuente) => {
@@ -49,7 +46,7 @@ export default function CertificacionesTab({
     return [];
   };
 
-  // Carga inicial segura del historial desde Sheets (solo lectura)
+  // Carga inicial estricta del historial (Lectura pura, sin escrituras automáticas)
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -100,22 +97,31 @@ export default function CertificacionesTab({
     });
   }, [presupuestos, certPresupuestoId]);
 
-  // Autocompletar datos del cliente y responsables al seleccionar el presupuesto
+  // Resolución autónoma y limpia de cliente, obra y responsables (evitando errores de campos cruzados)
   useEffect(() => {
     if (certificadoPresupuestoObj) {
-      const clienteDetectado = obtenerClienteDePresupuesto 
-        ? obtenerClienteDePresupuesto(certificadoPresupuestoObj) 
-        : (certificadoPresupuestoObj.cliente || certificadoPresupuestoObj.razon_social || certificadoPresupuestoObj.cliente_nombre || 'YPF GAS S.A.');
+      // Forzar Razón Social correcta (ej: YPF GAS S.A. o la propiedad real del cliente)
+      const razonSocialCliente = certificadoPresupuestoObj.cliente_razon_social || 
+                                 certificadoPresupuestoObj.razon_social || 
+                                 certificadoPresupuestoObj.cliente || 
+                                 'YPF GAS S.A.';
+      setCertClienteNombre(typeof razonSocialCliente === 'string' ? razonSocialCliente : 'YPF GAS S.A.');
+
+      // Responsable cliente separado de la razón social
+      const nombreResp = certificadoPresupuestoObj.responsable_cliente || 
+                         certificadoPresupuestoObj.contacto || 
+                         'Thaimari Marin';
+      const cargoResp = certificadoPresupuestoObj.cargo_cliente || 'GERENCIA DE PROYECTO';
       
-      setCertClienteNombre(clienteDetectado);
-
-      const respCli = buscarValorEnObjeto(certificadoPresupuestoObj, ['responsable_cliente', 'responsableCliente', 'cliente_responsable', 'contacto']) || clienteDetectado;
-      const cargoCli = buscarValorEnObjeto(certificadoPresupuestoObj, ['cargo_cliente', 'cargoCliente']) || 'GERENCIA DE PROYECTO';
-      setCertRespCliente({ nombre: respCli, cargo: cargoCli });
+      setCertRespCliente({ nombre: nombreResp, cargo: cargoResp });
     }
-  }, [certificadoPresupuestoObj, obtenerClienteDePresupuesto, buscarValorEnObjeto]);
+  }, [certificadoPresupuestoObj]);
 
-  // Filtrado robusto del historial por presupuesto actual
+  const obtenerOrdenDeCompraLocal = (pObj) => {
+    if (!pObj) return '1500504575';
+    return pObj.orden_compra || pObj.ordenCompra || pObj.oc || '1500504575';
+  };
+
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -209,7 +215,7 @@ export default function CertificacionesTab({
     }
   }, [certificadoCalculos?.totalPresupuestoCalc, certPresupuestoId, certificadoNro, adelantoPct]);
 
-  // Guardado estricto manual (solo al presionar el botón)
+  // GUARDADO ESTRICTAMENTE MANUAL (Únicamente cuando presionas el botón)
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
     if (!certificadoPresupuestoObj) {
@@ -235,7 +241,7 @@ export default function CertificacionesTab({
         fecha: String(certFecha),
         cliente: certClienteNombre,
         obra: String(certificadoPresupuestoObj?.nombre || 'Obra'),
-        orden_compra: obtenerOrdenDeCompra(certificadoPresupuestoObj),
+        orden_compra: obtenerOrdenDeCompraLocal(certificadoPresupuestoObj),
         filas: certificadoCalculos.filasRender,
         total_periodo: totalCertificadoPeriodo,
         adelanto_descuento: descuentoAdelantoCert,
@@ -244,8 +250,8 @@ export default function CertificacionesTab({
         total_general: totalFinalLiquidacion,
         proveedor_nombre: certRespProveedor.nombre || 'Alexander Torres Lopez',
         proveedor_cargo: certRespProveedor.cargo || '',
-        cliente_nombre: certRespCliente.nombre || certClienteNombre,
-        cliente_cargo: certRespCliente.cargo || ''
+        cliente_nombre: certRespCliente.nombre || 'Thaimari Marin',
+        cliente_cargo: certRespCliente.cargo || 'GERENCIA DE PROYECTO'
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -455,7 +461,7 @@ export default function CertificacionesTab({
                 <div>
                   <span className="text-slate-500 font-semibold block">Orden de Compra:</span>
                   <strong className="text-slate-900 font-mono">
-                    {obtenerOrdenDeCompra(certificadoPresupuestoObj)}
+                    {obtenerOrdenDeCompraLocal(certificadoPresupuestoObj)}
                   </strong>
                 </div>
               </div>
