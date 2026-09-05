@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import toast from 'react-hot-toast';
 import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
@@ -91,7 +92,6 @@ export default function CertificacionesTab({
   const resolverRazonSocialCliente = (pObj) => {
     if (!pObj) return '';
     
-    // 1. Priorizar campos directos que ya vengan en el presupuesto
     const camposDirectos = [
       pObj.cliente,
       pObj.Cliente,
@@ -106,7 +106,6 @@ export default function CertificacionesTab({
       }
     }
 
-    // 2. Si no está directo, buscar a través de la obra relacionada
     const obraId = pObj.obra_id || pObj.obraId || pObj.id_obra || pObj.obra;
     if (obraId && listaObrasCompleta.length > 0) {
       const obraObj = listaObrasCompleta.find(o => 
@@ -275,10 +274,15 @@ export default function CertificacionesTab({
 
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
-    if (!certificadoPresupuestoObj) return alert("Seleccione un presupuesto aprobado.");
+    if (!certificadoPresupuestoObj) {
+      toast.error("Seleccione un presupuesto aprobado.");
+      return;
+    }
+
     setIsSavingCert(true);
+    const toastId = toast.loading('Generando PDF en Google Drive y guardando certificado...');
+
     try {
-      const totalPresupuestoBase = certificadoCalculos?.totalPresupuestoCalc || 1;
       const isCertZero = String(certificadoNro).trim() === '0';
       const totalCertificadoPeriodo = isCertZero ? 0 : certificadoCalculos?.totalActualCalc;
       
@@ -314,7 +318,13 @@ export default function CertificacionesTab({
         body: JSON.stringify(payloadCert)
       });
       const resultado = await res.json();
-      const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || '';
+      
+      const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
+      if (resultado?.success === false || (resultado?.error && !pdfUrlFinal)) {
+        toast.error('Error al generar el PDF: ' + (resultado?.error || 'Desconocido'), { id: toastId });
+        setIsSavingCert(false);
+        return;
+      }
       
       const nuevoCertGuardado = { 
         ...payloadCert, 
@@ -327,10 +337,10 @@ export default function CertificacionesTab({
       if (typeof setFetchedCertificados === 'function') {
         setFetchedCertificados(prev => [nuevoCertGuardado, ...prev]);
       }
-      alert("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!");
+      toast.success("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!", { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al guardar certificado.");
+      toast.error("Error al guardar certificado.", { id: toastId });
     } finally {
       setIsSavingCert(false);
     }
@@ -338,6 +348,7 @@ export default function CertificacionesTab({
 
   const eliminarCertificadoServidor = async (certId) => {
     if (!window.confirm("¿Está seguro de eliminar este certificado?")) return;
+    const toastId = toast.loading('Eliminando certificado...');
     try {
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -347,8 +358,11 @@ export default function CertificacionesTab({
       if (typeof setFetchedCertificados === 'function') {
         setFetchedCertificados(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
       }
-      alert("Certificado eliminado.");
-    } catch (err) { console.error(err); }
+      toast.success("Certificado eliminado.", { id: toastId });
+    } catch (err) { 
+      console.error(err); 
+      toast.error("Error al intentar eliminar.", { id: toastId });
+    }
   };
 
   return (
