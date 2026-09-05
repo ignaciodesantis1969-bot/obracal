@@ -186,7 +186,7 @@ const AuthenticatedApp = () => {
                   rubros={globalData.rubros}
                   facturas={globalData.facturas}
                   maestroTareasRubros={globalData.maestroTareasRubros}
-                  contratosMantenimiento={globalData.ContratosMantenimiento}
+                  contratosMantenimiento={globalData.contratosMantenimiento}
                 />
               } 
             />
@@ -253,13 +253,14 @@ const AuthenticatedApp = () => {
                 element={
                   <RequirePermiso modulo="compras">
                    <Compras 
-                     GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
+                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
                       facturas={globalData.facturas}
                       ordenesCompra={globalData.ordenesCompra}
                       proveedores={globalData.proveedores}
                       obras={globalData.obras}
                       presupuestos={globalData.presupuestos}
-                      contratosList={globalData.contratos || globalData.contratosList}
+                      contratosList={globalData.contratosMantenimiento}
+                      contratos={globalData.contratosMantenimiento}
                       insumosList={globalData.insumos}
                       rubros={globalData.rubros}
                       cargarDatos={cargarDatos}
