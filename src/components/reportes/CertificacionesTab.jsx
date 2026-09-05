@@ -22,7 +22,7 @@ export default function CertificacionesTab({
   const [avanceActualMap, setAvanceActualMap] = useState({});
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
   
-  const [certificadoNro, setCertificadoNro] = useState('0');
+  const [certificadoNro, setCertificadoNro] = useState('1');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
   
   const [adelantoPct, setAdelantoPct] = useState(10);
@@ -30,8 +30,8 @@ export default function CertificacionesTab({
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
-  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: 'Alexander Torres Lopez', cargo: 'JEFE DE OBRA' });
-  const [certRespCliente, setCertRespCliente] = useState({ nombre: 'Thaimari Marin', cargo: 'GERENCIA DE PROYECTO' });
+  const [certRespProveedor, setCertRespProveedor] = useState({ nombre: '', cargo: '' });
+  const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: '' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
   const extraerArrayDatos = (fuente) => {
@@ -46,7 +46,7 @@ export default function CertificacionesTab({
     return [];
   };
 
-  // Carga inicial estricta del historial (Lectura pura, sin escrituras automáticas)
+  // Carga inicial del historial desde Sheets (Solo lectura)
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -97,31 +97,7 @@ export default function CertificacionesTab({
     });
   }, [presupuestos, certPresupuestoId]);
 
-  // Resolución autónoma y limpia de cliente, obra y responsables (evitando errores de campos cruzados)
-  useEffect(() => {
-    if (certificadoPresupuestoObj) {
-      // Forzar Razón Social correcta (ej: YPF GAS S.A. o la propiedad real del cliente)
-      const razonSocialCliente = certificadoPresupuestoObj.cliente_razon_social || 
-                                 certificadoPresupuestoObj.razon_social || 
-                                 certificadoPresupuestoObj.cliente || 
-                                 'YPF GAS S.A.';
-      setCertClienteNombre(typeof razonSocialCliente === 'string' ? razonSocialCliente : 'YPF GAS S.A.');
-
-      // Responsable cliente separado de la razón social
-      const nombreResp = certificadoPresupuestoObj.responsable_cliente || 
-                         certificadoPresupuestoObj.contacto || 
-                         'Thaimari Marin';
-      const cargoResp = certificadoPresupuestoObj.cargo_cliente || 'GERENCIA DE PROYECTO';
-      
-      setCertRespCliente({ nombre: nombreResp, cargo: cargoResp });
-    }
-  }, [certificadoPresupuestoObj]);
-
-  const obtenerOrdenDeCompraLocal = (pObj) => {
-    if (!pObj) return '1500504575';
-    return pObj.orden_compra || pObj.ordenCompra || pObj.oc || '1500504575';
-  };
-
+  // Filtrado robusto del historial para el presupuesto actual
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -130,7 +106,12 @@ export default function CertificacionesTab({
     return allCertificados.filter(c => {
       if (!c) return false;
       const pId = String(c?.presupuestoId || c?.presupuesto_id || c?.id_presupuesto || c?.presupuesto || '').trim();
-      return pId === idSel || (codigoSel && pId === codigoSel) || pId.includes(idSel) || idSel.includes(pId);
+      if (!pId) return false;
+      return pId === idSel || 
+             (codigoSel && pId === codigoSel) || 
+             pId.includes(idSel) || 
+             idSel.includes(pId) ||
+             (certificadoPresupuestoObj?.id && String(certificadoPresupuestoObj.id) === pId);
     }).sort((a, b) => {
       const nroA = parseInt(a?.certificadoNro !== undefined ? a.certificadoNro : a?.certificado_nro || 0);
       const nroB = parseInt(b?.certificadoNro !== undefined ? b.certificadoNro : b?.certificado_nro || 0);
@@ -138,8 +119,50 @@ export default function CertificacionesTab({
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
 
+  // Mapeo exacto de Cliente, Obra y los 4 datos de Responsables desde las columnas de Presupuestos
+  useEffect(() => {
+    if (certificadoPresupuestoObj) {
+      const razonSocialCliente = certificadoPresupuestoObj.cliente || 
+                                 certificadoPresupuestoObj.razon_social || 
+                                 certificadoPresupuestoObj.cliente_razon_social || 
+                                 'YPF GAS S.A.';
+      setCertClienteNombre(typeof razonSocialCliente === 'string' ? razonSocialCliente : 'YPF GAS S.A.');
+
+      // Extracción exacta de columnas K, L, M, N
+      setCertRespCliente({
+        nombre: certificadoPresupuestoObj.responsable_cliente || 'Thaimari Marin',
+        cargo: certificadoPresupuestoObj.cargo_cliente || 'Gerencia de Proyecto'
+      });
+
+      setCertRespProveedor({
+        nombre: certificadoPresupuestoObj.responsable_proveedor || 'Andrea Salvatori',
+        cargo: certificadoPresupuestoObj.cargo_proveedor || 'Gerencia Técnica'
+      });
+    }
+  }, [certificadoPresupuestoObj]);
+
+  // Cálculo automático del siguiente número de certificado basado en Sheets
+  useEffect(() => {
+    if (certPresupuestoId) {
+      if (certificadosDelPresupuestoActual.length > 0) {
+        const numeros = certificadosDelPresupuestoActual.map(c => {
+          const n = parseInt(c?.certificadoNro !== undefined ? c.certificadoNro : c?.certificado_nro, 10);
+          return isNaN(n) ? 0 : n;
+        });
+        const maxNro = Math.max(...numeros, 0);
+        setCertificadoNro(String(maxNro + 1));
+      } else {
+        setCertificadoNro('1');
+      }
+    }
+  }, [certPresupuestoId, certificadosDelPresupuestoActual]);
+
+  const obtenerOrdenDeCompraLocal = (pObj) => {
+    if (!pObj) return '1500504575';
+    return pObj.orden_compra || pObj.ordenCompra || pObj.oc || '1500504575';
+  };
+
   const obtenerPctAnteriorAcumulado = (rIdx, tIdx) => {
-    if (String(certificadoNro).trim() === '0') return 0;
     let sumaPct = 0;
     const nroActual = parseInt(certificadoNro, 10) || 1;
     certificadosDelPresupuestoActual.forEach(cert => {
@@ -209,13 +232,7 @@ export default function CertificacionesTab({
     return { filasRender, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
-  useEffect(() => {
-    if (certificadoCalculos?.totalPresupuestoCalc > 0 && String(certificadoNro).trim() === '0') {
-      setAdelantoMonto(certificadoCalculos.totalPresupuestoCalc * (adelantoPct / 100));
-    }
-  }, [certificadoCalculos?.totalPresupuestoCalc, certPresupuestoId, certificadoNro, adelantoPct]);
-
-  // GUARDADO ESTRICTAMENTE MANUAL (Únicamente cuando presionas el botón)
+  // GUARDADO ESTRICTAMENTE MANUAL (Únicamente al hacer clic en el botón)
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
     if (!certificadoPresupuestoObj) {
@@ -227,11 +244,10 @@ export default function CertificacionesTab({
     const toastId = toast.loading('Generando PDF en Google Drive y guardando certificado...');
 
     try {
-      const isCertZero = String(certificadoNro).trim() === '0';
-      const totalCertificadoPeriodo = isCertZero ? 0 : certificadoCalculos?.totalActualCalc;
-      const descuentoAdelantoCert = !isCertZero ? totalCertificadoPeriodo * (adelantoPct / 100) : 0;
-      const netoACertificar = totalCertificadoPeriodo - (isCertZero ? 0 : descuentoAdelantoCert) + Number(adicionalesMonto);
-      const totalFinalLiquidacion = isCertZero ? adelantoMonto : (netoACertificar + redeterminacionMonto);
+      const totalCertificadoPeriodo = certificadoCalculos?.totalActualCalc;
+      const descuentoAdelantoCert = totalCertificadoPeriodo * (adelantoPct / 100);
+      const netoACertificar = totalCertificadoPeriodo - descuentoAdelantoCert + Number(adicionalesMonto);
+      const totalFinalLiquidacion = netoACertificar + redeterminacionMonto;
 
       const payloadCert = {
         action: 'guardarCertificado',
@@ -248,10 +264,10 @@ export default function CertificacionesTab({
         adicionales: Number(adicionalesMonto),
         redeterminacion: redeterminacionMonto,
         total_general: totalFinalLiquidacion,
-        proveedor_nombre: certRespProveedor.nombre || 'Alexander Torres Lopez',
-        proveedor_cargo: certRespProveedor.cargo || '',
-        cliente_nombre: certRespCliente.nombre || 'Thaimari Marin',
-        cliente_cargo: certRespCliente.cargo || 'GERENCIA DE PROYECTO'
+        proveedor_nombre: certRespProveedor.nombre,
+        proveedor_cargo: certRespProveedor.cargo,
+        cliente_nombre: certRespCliente.nombre,
+        cliente_cargo: certRespCliente.cargo
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -364,25 +380,9 @@ export default function CertificacionesTab({
                 <h4 className="text-xs font-black text-slate-900 uppercase">Certificado Avance de Obra</h4>
                 <p className="text-[11px] text-slate-500">Seleccione un presupuesto aprobado para generar o visualizar.</p>
               </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs font-bold text-slate-700">Certificado N°:</label>
-                <select
-                  value={certificadoNro}
-                  onChange={(e) => setCertificadoNro(e.target.value)}
-                  className="bg-white border border-slate-300 rounded-xl px-2 py-1 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
-                >
-                  <option value="0">0 (Adelanto Financiero)</option>
-                  <option value="1">1</option>
-                  <option value="2">2</option>
-                  <option value="3">3</option>
-                  <option value="4">4</option>
-                  <option value="5">5</option>
-                  <option value="6">6</option>
-                  <option value="7">7</option>
-                  <option value="8">8</option>
-                  <option value="9">9</option>
-                  <option value="10">10</option>
-                </select>
+              <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-xl px-3 py-1.5 shadow-xs">
+                <span className="text-xs font-bold text-slate-700">Certificado N°:</span>
+                <span className="text-xs font-black text-amber-800">{certificadoNro}</span>
               </div>
               <div className="flex items-center gap-2">
                 <label className="text-xs font-bold text-slate-700">Fecha:</label>
@@ -430,7 +430,7 @@ export default function CertificacionesTab({
                 <div className="text-right">
                   <h2 className="text-2xl font-black text-slate-900 tracking-wide uppercase">CERTIFICADO POR AVANCE DE OBRA</h2>
                   <p className="text-sm font-bold mt-1 text-blue-600">
-                    Certificado Nro.: {certificadoNro} {String(certificadoNro).trim() === '0' ? '(Adelanto Financiero)' : ''}
+                    Certificado Nro.: {certificadoNro}
                   </p>
                 </div>
               </div>
@@ -547,58 +547,6 @@ export default function CertificacionesTab({
                 <h3 className="text-xs font-black text-slate-900 uppercase border-b border-slate-300 pb-2">RESUMEN Y LIQUIDACIÓN FINANCIERA</h3>
                 
                 {(() => {
-                  const totalPresupuestoBase = certificadoCalculos.totalPresupuestoCalc || 1;
-                  const isCertZero = String(certificadoNro).trim() === '0';
-
-                  if (isCertZero) {
-                    return (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-                        <div className="space-y-3 bg-white p-4 rounded-xl border border-slate-300">
-                          <span className="font-bold text-slate-700 block uppercase">Configuración Adelanto Financiero</span>
-                          <div className="grid grid-cols-2 gap-3">
-                            <div>
-                              <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
-                              <input
-                                type="number"
-                                step="any"
-                                value={adelantoPct}
-                                onChange={(e) => {
-                                  const pct = parseFloat(e.target.value) || 0;
-                                  setAdelantoPct(pct);
-                                  setAdelantoMonto(totalPresupuestoBase * (pct / 100));
-                                }}
-                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1.5 text-right font-bold text-amber-900 outline-none focus:border-amber-500"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
-                              <div className="relative flex items-center">
-                                <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
-                                <input
-                                  type="text"
-                                  value={adelantoMonto ? Math.round(adelantoMonto).toLocaleString('es-AR') : '0'}
-                                  onChange={(e) => {
-                                    const raw = e.target.value.replace(/\D/g, '');
-                                    const monto = parseFloat(raw) || 0;
-                                    setAdelantoMonto(monto);
-                                    setAdelantoPct(totalPresupuestoBase > 0 ? Number(((monto / totalPresupuestoBase) * 100).toFixed(2)) : 0);
-                                  }}
-                                  className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1.5 text-right font-bold text-amber-900 outline-none focus:border-amber-500 font-mono text-xs"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="flex flex-col justify-center bg-slate-950 text-white p-4 rounded-xl shadow-md">
-                          <span className="font-extrabold text-xs uppercase text-slate-400">TOTAL ADELANTO FINANCIERO A CERTIFICAR:</span>
-                          <span className="font-black text-xl text-amber-400 mt-1 font-mono">
-                            $ {Math.round(adelantoMonto).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-                          </span>
-                        </div>
-                      </div>
-                    );
-                  }
-
                   const totalCertificadoPeriodo = certificadoCalculos.totalActualCalc;
                   const descuentoAdelantoCert = totalCertificadoPeriodo * (adelantoPct / 100);
                   const netoACertificar = totalCertificadoPeriodo - descuentoAdelantoCert + Number(adicionalesMonto);
@@ -677,7 +625,7 @@ export default function CertificacionesTab({
                 })()}
               </div>
 
-              {/* BLOQUE DE FIRMAS */}
+              {/* BLOQUE DE FIRMAS EXTRAÍDAS DE PRESUPUESTOS Y EDITABLES */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 print:mt-10">
                 <div className="border border-slate-400 rounded-lg overflow-hidden bg-white">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
@@ -686,11 +634,11 @@ export default function CertificacionesTab({
                   <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
-                      <input type="text" value={certRespProveedor.cargo} onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" placeholder="Ingrese cargo..." />
+                      <input type="text" value={certRespProveedor.cargo} onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" placeholder="Ingrese cargo..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
-                      <input type="text" value={certRespProveedor.nombre} onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" placeholder="Ingrese nombre..." />
+                      <input type="text" value={certRespProveedor.nombre} onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" placeholder="Ingrese nombre..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
@@ -707,11 +655,11 @@ export default function CertificacionesTab({
                   <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
-                      <input type="text" value={certRespCliente.cargo} onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} className="w-full bg-transparent border-none outline-none text-slate-800 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-semibold" placeholder="Ingrese cargo..." />
+                      <input type="text" value={certRespCliente.cargo} onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" placeholder="Ingrese cargo..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
-                      <input type="text" value={certRespCliente.nombre} onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} className="w-full bg-transparent border-none outline-none text-slate-950 placeholder:text-slate-400 p-0 focus:ring-0 uppercase font-black" placeholder="Ingrese nombre..." />
+                      <input type="text" value={certRespCliente.nombre} onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" placeholder="Ingrese nombre..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
