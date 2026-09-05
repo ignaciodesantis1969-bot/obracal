@@ -863,4 +863,5 @@ export default function CertificacionesTab({
       )}
     </div>
   );
+
 }
