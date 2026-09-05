@@ -252,17 +252,18 @@ const AuthenticatedApp = () => {
                 path="/compras" 
                 element={
                   <RequirePermiso modulo="compras">
-                    <Compras 
-                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} 
+                   <Compras 
+                     GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
                       facturas={globalData.facturas}
                       ordenesCompra={globalData.ordenesCompra}
                       proveedores={globalData.proveedores}
                       obras={globalData.obras}
                       presupuestos={globalData.presupuestos}
+                      contratosList={globalData.contratos || globalData.contratosList}
                       insumosList={globalData.insumos}
                       rubros={globalData.rubros}
                       cargarDatos={cargarDatos}
-                    />
+                    />    
                   </RequirePermiso>
                 } 
               />
