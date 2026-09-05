@@ -78,7 +78,6 @@ function ReportesContent({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // CORRECCIÓN CLAVE: Unificación robusta con localStorage en el contenedor principal
   const [reportesLocalesExtra, setReportesLocalesExtra] = useState([]);
 
   useEffect(() => {
