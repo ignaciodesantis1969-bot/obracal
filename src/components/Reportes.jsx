@@ -214,21 +214,26 @@ function ReportesContent({
 
     try {
       const payloadCert = {
-        action: 'guardarYGenerarPDF',
+        action: 'guardarCertificado',
         tabla: 'Certificaciones',
-        presupuesto_id: String(certPresupuestoId),
+        presupuestoId: String(certPresupuestoId),
         certificadoNro: String(certificadoNro),
         fecha: String(certFecha),
         cliente: { nombre: String(certClienteNombre), cargo: String(certRespCliente?.cargo || '') },
         obra: certificadoPresupuestoObj?.nombre || certificadoPresupuestoObj?.nombre_obra || 'Obra',
+        totalPeriodo: certificadoCalculos.totalActualCalc || 0,
+        adelantoDescuento: 0,
+        adicionales: Number(adicionalesMonto) || 0,
+        redeterminacion: Number(redeterminacionMonto) || 0,
         totalGeneral: certificadoCalculos.totalActualCalc || 0,
         proveedor_nombre: String(certRespProveedor?.nombre || ''),
         proveedor_cargo: String(certRespProveedor?.cargo || ''),
         cliente_nombre: String(certRespCliente?.nombre || ''),
-        cliente_cargo: String(certRespCliente?.cargo || '')
+        cliente_cargo: String(certRespCliente?.cargo || ''),
+        filas: certificadoCalculos.filasRender
       };
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      const res = await fetch(OBRAS_CONFIG.GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payloadCert)
@@ -242,7 +247,7 @@ function ReportesContent({
         return;
       }
 
-      setFetchedCertificados(prev => [{ ...payloadCert, pdfUrl: pdfUrlFinal, id: `cert-${Date.now()}` }, ...prev]);
+      setFetchedCertificados(prev => [{ ...payloadCert, pdfUrl: pdfUrlFinal, id: resultado?.id || `cert-${Date.now()}` }, ...prev]);
       toast.success("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!", { id: toastId });
     } catch (err) {
       toast.error("Ocurrió un error al guardar el certificado.", { id: toastId });
@@ -255,7 +260,7 @@ function ReportesContent({
     if (!window.confirm("¿Está seguro de eliminar este certificado?")) return;
     const toastId = toast.loading('Eliminando certificado...');
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
+      await fetch(OBRAS_CONFIG.GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ tabla: 'Certificaciones', action: 'delete', id: certId })

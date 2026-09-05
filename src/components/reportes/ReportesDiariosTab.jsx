@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { Printer, Plus, Trash2, ShieldCheck, ExternalLink, Eye, X, Users, Calendar, Calculator } from 'lucide-react';
-import { GOOGLE_SCRIPT_URL } from '@/api';
-import { useObraData } from '@/hooks/useObraData';
-import { OBRAS_CONFIG } from '@/config/obrasConfig';
+import { GOOGLE_SCRIPT_URL } from '../../api';
+import { useObraData } from '../../hooks/useObraData';
+import { OBRAS_CONFIG } from '../../config/constants';
 
 export default function ReportesDiariosTab({
   contratosList: propContratos = [],
@@ -99,7 +99,6 @@ export default function ReportesDiariosTab({
   }, [siceItems, calcularTotalHorasSice]);
 
   const granTotalHorasHombre = useMemo(() => {
-    const cantOperarios = operariosSeleccionados.length > 0 ? operariosSeleccionados.length : 1;
     let sumaIndividual = 0;
     if (operariosSeleccionados.length > 0) {
       operariosSeleccionados.forEach(op => {
@@ -660,12 +659,12 @@ export default function ReportesDiariosTab({
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: AB1234):</label>
+                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: AT1020):</label>
                     <input 
                       type="password" 
                       required
                       maxLength={6}
-                      placeholder="Ej: AB1234"
+                      placeholder="Ej: AT1020"
                       value={siceRespProveedor.clave}
                       onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
@@ -698,12 +697,12 @@ export default function ReportesDiariosTab({
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: CD5678):</label>
+                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: CM7030):</label>
                     <input 
                       type="password" 
                       required
                       maxLength={6}
-                      placeholder="Ej: CD5678"
+                      placeholder="Ej: CM7030"
                       value={siceRespCliente.clave}
                       onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
