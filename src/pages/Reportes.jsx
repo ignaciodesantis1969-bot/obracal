@@ -40,29 +40,14 @@ function ReportesContent(props) {
   const [activeTab, setActiveTab] = useState(esOperador ? 'Reportes Diarios' : 'Certificaciones');
 
   useEffect(() => {
-    // 1. Cargar Contratos de Mantenimiento
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' }) })
-      .then(res => res.json())
-      .then(data => Array.isArray(data) && setFetchedContratos(data))
-      .catch(() => {});
+      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedContratos(data)).catch(() => {});
     
-    // 2. Corregido: Coincide exactamente con la hoja 'Certificados'
-    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificados', action: 'get' }) })
-      .then(res => res.json())
-      .then(data => Array.isArray(data) && setFetchedCertificados(data))
-      .catch(() => {});
+    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificaciones', action: 'get' }) })
+      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedCertificados(data)).catch(() => {});
     
-    // 3. Cargar Proveedores
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Proveedores', action: 'get' }) })
-      .then(res => res.json())
-      .then(data => Array.isArray(data) && setFetchedProveedores(data))
-      .catch(() => {});
-
-    // 4. Agregado: Cargar Reportes Diarios SICE para que no inicien vacíos
-    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' }) })
-      .then(res => res.json())
-      .then(data => Array.isArray(data) && setFetchedReportesSice(data))
-      .catch(() => {});
+      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedProveedores(data)).catch(() => {});
   }, []);
 
   const contratosList = useMemo(() => fetchedContratos.length > 0 ? fetchedContratos : CONTRATO_DEFAULT, [fetchedContratos]);
@@ -105,7 +90,7 @@ function ReportesContent(props) {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border shadow-sm print:hidden">
-        <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes <span className="text-xs text-amber-600 font-mono">(Modular Activo)</span></h1>
+        <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes </h1>
       </div>
 
       {!esOperador && (

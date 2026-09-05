@@ -10,10 +10,12 @@ export default function CertificacionesTab({
   certificados = [], 
   certificadosProps = [],
   fetchedCertificados = [],
+  historial = [],
   setFetchedCertificados = () => {},
   allReportesSice = [],
   facturas = [],
-  contratosList = []
+  contratosList = [],
+  ...props
 }) {
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
@@ -47,39 +49,27 @@ export default function CertificacionesTab({
     return [];
   };
 
-  // Carga inicial del historial desde Sheets (Solo lectura)
-  useEffect(() => {
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: 'Certificados', action: 'get' })
-    })
-      .then(res => res.json())
-      .then(data => { 
-        const arr = extraerArrayDatos(data);
-        if (arr.length > 0) {
-          setFetchedCertificadosLocal(arr);
-          if (typeof setFetchedCertificados === 'function') {
-            setFetchedCertificados(arr);
-          }
-        }
-      })
-      .catch(() => {});
-  }, [setFetchedCertificados]);
+  // NOTA CLAVE: Se eliminó el useEffect que hacía un fetch(POST) al cargar el componente. 
+  // Esto evitará 100% la creación de registros fantasma en Sheets y Drive.
 
+  // Unificamos el historial atrapando cualquier variable que envíe el componente Padre
   const allCertificados = useMemo(() => {
-    const cPrincipal = extraerArrayDatos(certificados);
-    const cProps = extraerArrayDatos(certificadosProps);
-    const fCert = extraerArrayDatos(fetchedCertificados);
-    const fLocal = extraerArrayDatos(fetchedCertificadosLocal);
-    
     let localCache = [];
     try {
       const cached = localStorage.getItem('sice_certificados_local_cache');
       if (cached) localCache = JSON.parse(cached);
     } catch (e) {}
 
-    const combinados = [...cPrincipal, ...cProps, ...fCert, ...fLocal, ...localCache];
+    const combinados = [
+      ...extraerArrayDatos(certificados),
+      ...extraerArrayDatos(certificadosProps),
+      ...extraerArrayDatos(fetchedCertificados),
+      ...extraerArrayDatos(fetchedCertificadosLocal),
+      ...extraerArrayDatos(historial),
+      ...extraerArrayDatos(props.certificadosEmitidos),
+      ...localCache
+    ];
+    
     const map = new Map();
     
     combinados.forEach(c => {
@@ -90,7 +80,7 @@ export default function CertificacionesTab({
       }
     });
     return Array.from(map.values());
-  }, [certificados, certificadosProps, fetchedCertificados, fetchedCertificadosLocal]);
+  }, [certificados, certificadosProps, fetchedCertificados, fetchedCertificadosLocal, historial, props]);
 
   const certificadoPresupuestoObj = useMemo(() => {
     if (!certPresupuestoId) return null;
@@ -124,7 +114,7 @@ export default function CertificacionesTab({
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
 
-  // Mapeo exacto de Cliente, Obra y los 4 datos de Responsables desde las columnas de Presupuestos
+  // Mapeo exacto de Responsables desde las columnas de Presupuestos
   useEffect(() => {
     if (certificadoPresupuestoObj) {
       const razonSocialCliente = certificadoPresupuestoObj.cliente || 
@@ -133,7 +123,6 @@ export default function CertificacionesTab({
                                  'YPF GAS S.A.';
       setCertClienteNombre(typeof razonSocialCliente === 'string' ? razonSocialCliente : 'YPF GAS S.A.');
 
-      // Extracción exacta de columnas K, L, M, N
       setCertRespCliente({
         nombre: certificadoPresupuestoObj.responsable_cliente || 'Thaimari Marin',
         cargo: certificadoPresupuestoObj.cargo_cliente || 'Gerencia de Proyecto'
