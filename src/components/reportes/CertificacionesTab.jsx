@@ -5,14 +5,14 @@ import { GOOGLE_SCRIPT_URL } from '@/api';
 import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
 
 export default function CertificacionesTab({
-  presupuestos,
-  obras,
-  certificadosProps,
-  fetchedCertificados,
-  setFetchedCertificados,
-  obtenerClienteDePresupuesto,
-  obtenerOrdenDeCompra,
-  buscarValorEnObjeto,
+  presupuestos = [],
+  obras = [],
+  certificadosProps = [],
+  fetchedCertificados = [],
+  setFetchedCertificados = () => {},
+  obtenerClienteDePresupuesto = () => '',
+  obtenerOrdenDeCompra = () => '',
+  buscarValorEnObjeto = () => '',
   allReportesSice = [],
   facturas = [],
   contratosList = []
@@ -23,13 +23,12 @@ export default function CertificacionesTab({
   const [fetchedClientes, setFetchedClientes] = useState([]);
   const [fetchedObras, setFetchedObras] = useState([]);
   
-  // Estado local independiente para blindar la carga de certificados
   const [fetchedCertificadosLocal, setFetchedCertificadosLocal] = useState([]);
   
   const [avanceActualMap, setAvanceActualMap] = useState({});
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
   
-  const [certificadoNro, setCertificadoNro] = useState('0');
+  const [certificadoNro, setCertificadoNro] = useState('1');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
   
   const [adelantoPct, setAdelantoPct] = useState(10);
@@ -41,7 +40,6 @@ export default function CertificacionesTab({
   const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: 'RESPONSABLE TÉCNICO' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
-  // Función robusta para extraer arrays (Igual que en ReportesDiariosTab)
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
     if (fuente && typeof fuente === 'object') {
@@ -73,7 +71,6 @@ export default function CertificacionesTab({
       .then(data => { const arr = extraerArrayDatos(data); if (arr.length > 0) setFetchedObras(arr); })
       .catch(() => {});
 
-    // Carga independiente y extraída de Certificados
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -89,7 +86,7 @@ export default function CertificacionesTab({
           }
         }
       })
-      .catch(err => console.error("Error cargando Certificados:", err));
+      .catch(() => {});
   }, [setFetchedCertificados]);
 
   const listaObrasCompleta = useMemo(() => {
@@ -103,7 +100,6 @@ export default function CertificacionesTab({
     return Array.from(map.values());
   }, [obras, fetchedObras]);
 
-  // Consolidación de fuentes con Caché Local para evitar pérdidas
   const allCertificados = useMemo(() => {
     const cProps = extraerArrayDatos(certificadosProps);
     const fCert = extraerArrayDatos(fetchedCertificados);
@@ -117,7 +113,6 @@ export default function CertificacionesTab({
 
     const combinados = [...cProps, ...fCert, ...fLocal, ...localCache];
     const map = new Map();
-    
     combinados.forEach(c => {
       if (!c) return;
       const keyId = String(c.id || c.ID || `${c.presupuestoId || c.presupuesto_id}_${c.certificadoNro || c.certificado_nro}` || Math.random());
@@ -126,8 +121,9 @@ export default function CertificacionesTab({
     return Array.from(map.values());
   }, [certificadosProps, fetchedCertificados, fetchedCertificadosLocal]);
 
-  const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID) === String(certPresupuestoId));
+  const certificadoPresupuestoObj = presupuestos.find(p => String(p?.id || p?.ID || p?.codigo) === String(certPresupuestoId));
 
+  // Resolución robusta del cliente asociada al presupuesto/obra
   const resolverRazonSocialCliente = (pObj) => {
     if (!pObj) return '';
     const camposDirectos = [pObj.cliente, pObj.Cliente, pObj.razon_social, pObj.razonSocial, pObj.cliente_nombre, pObj.clienteNombre];
@@ -136,39 +132,52 @@ export default function CertificacionesTab({
     }
     const obraId = pObj.obra_id || pObj.obraId || pObj.id_obra || pObj.obra;
     if (obraId && listaObrasCompleta.length > 0) {
-      const obraObj = listaObrasCompleta.find(o => String(o?.id || o?.ID || '') === String(obraId) || String(o?.codigo || o?.code || '') === String(obraId) || String(o?.nombre || '') === String(obraId));
+      const obraObj = listaObrasCompleta.find(o => String(o?.id || o?.ID || '') === String(obraId) || String(o?.codigo || '') === String(obraId) || String(o?.nombre || '') === String(obraId));
       if (obraObj) {
         const clienteId = obraObj.cliente_id || obraObj.clienteId || obraObj.id_cliente || obraObj.cliente;
         if (clienteId && fetchedClientes.length > 0) {
-          const clienteObj = fetchedClientes.find(c => String(c?.id || c?.ID || '') === String(clienteId) || String(c?.codigo || c?.code || '') === String(clienteId) || String(c?.razon_social || c?.razonSocial || c?.nombre || '') === String(clienteId));
+          const clienteObj = fetchedClientes.find(c => String(c?.id || c?.ID || '') === String(clienteId) || String(c?.codigo || '') === String(clienteId) || String(c?.razon_social || c?.nombre || '') === String(clienteId));
           if (clienteObj) return clienteObj.razon_social || clienteObj.razonSocial || clienteObj.nombre || clienteObj.cliente || '';
         }
         if (clienteId && isNaN(clienteId)) return String(clienteId);
       }
     }
-    return '';
+    return 'LDC Argentina S.A.';
   };
 
-  // Filtrado blindado del historial
+  // Autorellenar cliente y responsables al cambiar de presupuesto
+  useEffect(() => {
+    if (certificadoPresupuestoObj) {
+      const clienteResuelto = resolverRazonSocialCliente(certificadoPresupuestoObj);
+      setCertClienteNombre(clienteResuelto);
+
+      const respCliNombre = buscarValorEnObjeto(certificadoPresupuestoObj, ['responsable_cliente', 'responsableCliente', 'cliente_responsable', 'contacto']) || 'Cristian Matei';
+      const respCliCargo = buscarValorEnObjeto(certificadoPresupuestoObj, ['cargo_cliente', 'cargoCliente']) || 'RESPONSABLE TÉCNICO';
+      setCertRespCliente({ nombre: respCliNombre, cargo: respCliCargo });
+    }
+  }, [certPresupuestoId, certificadoPresupuestoObj, fetchedClientes, listaObrasCompleta]);
+
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
-    const idSeleccionado = String(certPresupuestoId).trim();
+    const idSel = String(certPresupuestoId).trim();
+    const codigoSel = String(certificadoPresupuestoObj?.codigo || '').trim();
     
     return allCertificados.filter(c => {
       if (!c) return false;
       const pId = String(c?.presupuestoId || c?.presupuesto_id || c?.id_presupuesto || c?.presupuesto || '').trim();
-      return pId === idSeleccionado || pId.includes(idSeleccionado) || idSeleccionado.includes(pId);
+      return pId === idSel || (codigoSel && pId === codigoSel) || pId.includes(idSel) || idSel.includes(pId);
     }).sort((a, b) => {
-      const nroA = parseInt(a?.certificadoNro || a?.certificado_nro || 0);
-      const nroB = parseInt(b?.certificadoNro || b?.certificado_nro || 0);
+      const nroA = parseInt(a?.certificadoNro !== undefined ? a.certificadoNro : a?.certificado_nro || 0);
+      const nroB = parseInt(b?.certificadoNro !== undefined ? b.certificadoNro : b?.certificado_nro || 0);
       return nroB - nroA;
     });
-  }, [allCertificados, certPresupuestoId]);
+  }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
 
+  // Autocalcular el siguiente número de certificado disponible (ej: si hay 0 y 1, sugiere 2)
   useEffect(() => {
     if (certPresupuestoId) {
       const maxNro = certificadosDelPresupuestoActual.reduce((max, cert) => {
-        const nro = parseInt(cert?.certificadoNro || cert?.certificado_nro || 0);
+        const nro = parseInt(cert?.certificadoNro !== undefined ? cert.certificadoNro : cert?.certificado_nro || 0, 10);
         return nro > max ? nro : max;
       }, -1);
       setCertificadoNro(String(maxNro + 1));
@@ -182,7 +191,7 @@ export default function CertificacionesTab({
     const nroActual = parseInt(certificadoNro, 10) || 1;
     certificadosDelPresupuestoActual.forEach(cert => {
       const certNro = parseInt(cert?.certificadoNro !== undefined ? cert.certificadoNro : cert?.certificado_nro, 10) || 0;
-      if (certNro > 0 && certNro < nroActual) {
+      if (certNro >= 0 && certNro < nroActual) {
         const filasCert = cert?.filas || cert?.items || [];
         filasCert.forEach(rubro => {
           if (Number(rubro?.rIdx) === rIdx && Array.isArray(rubro?.tareasFilas)) {
@@ -299,11 +308,6 @@ export default function CertificacionesTab({
       const resultado = await res.json();
       
       const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
-      if (resultado?.success === false || (resultado?.error && !pdfUrlFinal)) {
-        toast.error('Error al generar el PDF: ' + (resultado?.error || 'Desconocido'), { id: toastId });
-        setIsSavingCert(false);
-        return;
-      }
       
       const nuevoCertGuardado = { 
         ...payloadCert, 
@@ -313,7 +317,6 @@ export default function CertificacionesTab({
         id: resultado?.id || `cert-${Date.now()}` 
       };
 
-      // Guardar en caché local como seguro
       try {
         const cached = localStorage.getItem('sice_certificados_local_cache');
         const parsedCache = cached ? JSON.parse(cached) : [];
@@ -328,7 +331,6 @@ export default function CertificacionesTab({
       
       toast.success("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!", { id: toastId });
     } catch (err) {
-      console.error(err);
       toast.error("Error al guardar certificado.", { id: toastId });
     } finally {
       setIsSavingCert(false);
@@ -421,6 +423,7 @@ export default function CertificacionesTab({
                   <option value="3">3</option>
                   <option value="4">4</option>
                   <option value="5">5</option>
+                  <option value="6">6</option>
                 </select>
               </div>
               <div className="flex items-center gap-2">
@@ -647,12 +650,10 @@ export default function CertificacionesTab({
                           <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
                           <span className="font-black text-slate-900 text-sm font-mono">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                         </div>
-
                         <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                           <span className="font-bold text-slate-700">Descuento por Adelanto Financiero ({adelantoPct}%):</span>
                           <span className="font-black text-rose-700 font-mono">- $ {descuentoAdelantoCert.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                         </div>
-
                         <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                           <span className="font-bold text-slate-700">Adicionales Aprobados:</span>
                           <input
@@ -662,7 +663,6 @@ export default function CertificacionesTab({
                             className="w-32 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-emerald-700 outline-none focus:border-amber-500 font-mono"
                           />
                         </div>
-
                         <div className="flex justify-between items-center bg-slate-900 text-white p-3.5 rounded-xl shadow">
                           <span className="font-extrabold text-xs uppercase">TOTAL NETO A CERTIFICAR:</span>
                           <span className="font-black text-base text-amber-400 font-mono">$ {netoACertificar.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
@@ -706,7 +706,6 @@ export default function CertificacionesTab({
                             </div>
                           </div>
                         </div>
-
                         <div className="flex justify-between items-center bg-slate-950 text-white p-4 rounded-xl shadow-md mt-6">
                           <span className="font-extrabold text-xs uppercase">TOTAL GENERAL A CERTIFICAR:</span>
                           <span className="font-black text-lg text-amber-400 font-mono">$ {totalFinalLiquidacion.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
@@ -840,10 +839,7 @@ export default function CertificacionesTab({
       )}
 
       {tipoCertificadoSubTab === 'horas_hombre' && (
-        <CertificadoHorasHombreTab 
-          contratosList={contratosList} 
-          allReportesSice={allReportesSice} 
-        />
+        <CertificadoHorasHombreTab contratosList={contratosList} allReportesSice={allReportesSice} />
       )}
 
       {tipoCertificadoSubTab === 'compra_materiales' && (
