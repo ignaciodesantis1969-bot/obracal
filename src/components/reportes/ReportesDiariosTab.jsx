@@ -82,25 +82,35 @@ export default function ReportesDiariosTab({
   }, [listaEmpleadosActivos, personal, buscarValorEnObjeto]);
 
   const calcularTotalHorasSice = useCallback((inicio, fin) => {
-    if (!inicio || !fin) return 0;
+    if (!inicio || !fin) return '0.00';
     const [hIni] = String(inicio).split(':').map(Number);
     const [hFin] = String(fin).split(':').map(Number);
     let diffMinutos = ((hFin || 0) * 60) - ((hIni || 0) * 60);
     if (diffMinutos < 0) diffMinutos += 24 * 60;
     const horasEfectivas = diffMinutos / 60;
-    if (horasEfectivas <= 0) return 0;
+    if (horasEfectivas <= 0) return '0.00';
     const horasConProporcional = horasEfectivas * (11 / 9);
-    return Number(horasConProporcional.toFixed(2));
+    return horasConProporcional.toFixed(2);
   }, []);
 
   const totalHorasDefaultCalculado = useMemo(() => {
-    return siceItems.reduce((acc, it) => acc + calcularTotalHorasSice(it?.horaComienzo, it?.horaFin), 0);
+    const suma = siceItems.reduce((acc, it) => acc + parseFloat(calcularTotalHorasSice(it?.horaComienzo, it?.horaFin) || 0), 0);
+    return suma.toFixed(2);
   }, [siceItems, calcularTotalHorasSice]);
 
   const granTotalHorasHombre = useMemo(() => {
     const cantOperarios = operariosSeleccionados.length > 0 ? operariosSeleccionados.length : 1;
-    return Number((totalHorasDefaultCalculado * cantOperarios).toFixed(2));
-  }, [totalHorasDefaultCalculado, operariosSeleccionados.length]);
+    let sumaIndividual = 0;
+    if (operariosSeleccionados.length > 0) {
+      operariosSeleccionados.forEach(op => {
+        const hVal = op?.horas !== '' && !isNaN(op?.horas) ? parseFloat(op.horas) : parseFloat(totalHorasDefaultCalculado);
+        sumaIndividual += hVal;
+      });
+    } else {
+      sumaIndividual = parseFloat(totalHorasDefaultCalculado);
+    }
+    return sumaIndividual.toFixed(2);
+  }, [totalHorasDefaultCalculado, operariosSeleccionados]);
 
   useEffect(() => {
     if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
@@ -203,16 +213,21 @@ export default function ReportesDiariosTab({
         try { cliParsed = JSON.parse(cliParsed); } catch { cliParsed = { nombre: String(cliParsed), cargo: '' }; }
       }
 
+      const rawSuma = parseFloat(buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma']) || 0);
+
       return {
         id: buscarValorEnObjeto(r, ['id', 'ID', 'nro']) || `sice-${Math.random()}`,
         nro: buscarValorEnObjeto(r, ['nro', 'Nro', 'numero']) || '00001',
         fecha: buscarValorEnObjeto(r, ['fecha', 'Fecha']) || '',
         contratoid: buscarValorEnObjeto(r, ['contratoid', 'contratoId']) || '',
         items: Array.isArray(itemsParsed) ? itemsParsed : [],
-        operarios: Array.isArray(operariosParsed) ? operariosParsed : [],
+        operarios: Array.isArray(operariosParsed) ? operariosParsed.map(op => ({
+          ...op,
+          horas: op?.horas !== undefined && op?.horas !== '' ? Number(op.horas).toFixed(2) : '0.00'
+        })) : [],
         proveedor: provParsed || { nombre: '', cargo: '' },
         cliente: cliParsed || { nombre: '', cargo: '' },
-        totalHorasSuma: Number(buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma']) || 0),
+        totalHorasSuma: rawSuma.toFixed(2),
         pdfUrl: buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'urlPdf']) || ''
       };
     });
@@ -307,7 +322,7 @@ export default function ReportesDiariosTab({
     const operariosFinales = operariosSeleccionados.map(op => ({
       nombre: String(op?.nombre || ''),
       abreviacion: String(op?.abreviacion || 'OE'),
-      horas: op?.horas !== '' ? Number(op?.horas) : totalHorasDefaultCalculado
+      horas: op?.horas !== '' && !isNaN(op?.horas) ? Number(op.horas).toFixed(2) : Number(totalHorasDefaultCalculado).toFixed(2)
     }));
 
     setIsSavingSice(true);
@@ -350,7 +365,7 @@ export default function ReportesDiariosTab({
         operarios: operariosFinales,
         proveedor: { cargo: String(siceRespProveedor.cargo), nombre: String(siceRespProveedor.nombre) },
         cliente: { cargo: String(siceRespCliente.cargo), nombre: String(siceRespCliente.nombre) },
-        totalHorasSuma: Number(granTotalHorasHombre),
+        totalHorasSuma: Number(granTotalHorasHombre).toFixed(2),
         pdfUrl: pdfUrlFinal
       };
 
@@ -495,7 +510,7 @@ export default function ReportesDiariosTab({
                         step="0.01"
                         value={op?.horas}
                         onChange={(e) => actualizarOperarioFila(idx, 'horas', e.target.value)}
-                        placeholder={`${totalHorasDefaultCalculado} hs (Def.)`}
+                        placeholder={`${totalHorasDefaultCalculado} hs`}
                         className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-black text-slate-900 text-center outline-none focus:border-amber-500"
                       />
                     </div>
