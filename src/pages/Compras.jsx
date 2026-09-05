@@ -103,7 +103,7 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // 🔍 LÓGICA UNIFICADA Y ROBUSTA DE CONTRATOS (Idéntica a PartesDiarios)
+  // 🔍 LÓGICA UNIFICADA Y ROBUSTA DE CONTRATOS
   const contratosList = useMemo(() => {
     const p = extraerArrayDatos(propContratos);
     const s = extraerArrayDatos(propContratosAlt);
@@ -123,11 +123,16 @@ export default function Compras({
     return Array.from(unicosMap.values());
   }, [propContratos, propContratosAlt, buscarValorEnObjeto]);
 
-  const contratosAprobados = contratosList.filter(c => {
-    const est = String(c.estado || c.Estado || c.ESTADO || '').toLowerCase();
-    return !est || est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo');
-  });
-  const listaContratosFinal = contratosAprobados.length > 0 ? contratosAprobados : contratosList;
+  const listaContratosFinal = useMemo(() => {
+    if (!contratosList || contratosList.length === 0) return [];
+    
+    const filtrados = contratosList.filter(c => {
+      const est = String(c.estado || c.Estado || c.ESTADO || c.status || '').toLowerCase();
+      return !est || est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo') || est.includes('en curso');
+    });
+
+    return filtrados.length > 0 ? filtrados : contratosList;
+  }, [contratosList]);
 
   // EXTRACCIÓN DINÁMICA DE RUBROS DESDE EL JSON DEL PRESUPUESTO SELECCIONADO
   const presupuestoSeleccionadoObj = presupuestos.find(pr => {
