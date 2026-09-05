@@ -57,11 +57,8 @@ function ReportesContent({
   certificadosList = [],
   obras = []
 }) {
-  // Respaldo de datos con hooks por si el componente padre no los pasa
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
-  const { isLoading: isLoadingReportes } = useObraData(OBRAS_CONFIG.TABLAS.REPORTES_SICE);
-  const { isLoading: isLoadingCertificados } = useObraData(OBRAS_CONFIG.TABLAS.CERTIFICACIONES);
 
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
@@ -81,16 +78,49 @@ function ReportesContent({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
+  // CORRECCIÓN CLAVE: Unificación robusta con localStorage en el contenedor principal
+  const [reportesLocalesExtra, setReportesLocalesExtra] = useState([]);
+
+  useEffect(() => {
+    try {
+      const cached = localStorage.getItem('sice_partes_local_cache_v3');
+      if (cached) {
+        setReportesLocalesExtra(JSON.parse(cached));
+      }
+    } catch (e) {}
+  }, []);
+
+  const handleAgregarReporteLocal = useCallback((updater) => {
+    setFetchedReportesSice(prev => {
+      const actualizados = typeof updater === 'function' ? updater(prev) : updater;
+      try {
+        localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(actualizados));
+      } catch (e) {}
+      setReportesLocalesExtra(actualizados);
+      return actualizados;
+    });
+  }, [setFetchedReportesSice]);
+
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
-    if (p.length > 0) return p;
-    return extraerArrayDatos(reportesSheet);
-  }, [propReportes, reportesSheet]);
+    const s = extraerArrayDatos(reportesSheet);
+    const combinados = [...p, ...s, ...reportesLocalesExtra];
+    
+    const unicosMap = new Map();
+    combinados.forEach(item => {
+      if (!item) return;
+      const key = String(item.id || item.ID || item.nro || item.Nro || Math.random());
+      if (!unicosMap.has(key)) {
+        unicosMap.set(key, item);
+      }
+    });
+
+    return Array.from(unicosMap.values());
+  }, [propReportes, reportesSheet, reportesLocalesExtra]);
 
   const [activeTab, setActiveTab] = useState('Certificaciones');
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
 
-  // Estados de Certificados
   const [certificadoNro, setCertificadoNro] = useState('1');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
@@ -917,7 +947,7 @@ function ReportesContent({
         <ReportesDiariosTab
           contratosList={contratosList}
           allReportesSice={allReportesSice}
-          setFetchedReportesSice={setFetchedReportesSice}
+          setFetchedReportesSice={handleAgregarReporteLocal}
           listaEmpleadosActivos={listaEmpleadosActivos}
           esOperador={esOperador}
           buscarValorEnObjeto={buscarValorEnObjeto}
