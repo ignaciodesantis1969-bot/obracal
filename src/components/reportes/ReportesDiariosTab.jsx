@@ -61,7 +61,7 @@ export default function ReportesDiariosTab({
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   
-  // Cálculo automático del siguiente número de parte basado en el historial real
+  // Cálculo automático robusto del siguiente número basándose en el total global de la tabla (sin importar filtros)
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(r => {
@@ -193,15 +193,14 @@ export default function ReportesDiariosTab({
     }
   }, [contratoSeleccionadoId, contratosList, buscarValorEnObjeto, extraerDatosContrato]);
 
+  // CORRECCIÓN CLAVE: Si no hay contrato seleccionado, mostramos TODO el historial para evitar que desaparezcan registros
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
     if (contratoSeleccionadoId) {
       lista = allReportesSice.filter(r => {
         if (!r) return false;
         const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id'])).trim();
-        if (rContratoId === String(contratoSeleccionadoId).trim()) return true;
-        const valores = Object.values(r).map(v => String(v).trim());
-        return valores.includes(String(contratoSeleccionadoId).trim());
+        return rContratoId === String(contratoSeleccionadoId).trim() || rContratoId === '';
       });
     }
 
@@ -380,7 +379,6 @@ export default function ReportesDiariosTab({
         pdfUrl: pdfUrlFinal
       };
 
-      // Actualizamos inmediatamente el estado global y forzamos sincronización
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
       if (typeof refetchReportes === 'function') refetchReportes();
 
@@ -412,7 +410,7 @@ export default function ReportesDiariosTab({
               onChange={(e) => setContratoSeleccionadoId(e.target.value)}
               className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
             >
-              <option value="">-- Seleccionar Contrato ({contratosList.length} disp.) --</option>
+              <option value="">-- Todos los Contratos ({contratosList.length} disp.) --</option>
               {contratosList.map((c, i) => {
                 const cId = String(c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id || c?._id || i);
                 const cCod = c?.codigo || c?.Codigo || c?.nro_contrato || 'S/C';
