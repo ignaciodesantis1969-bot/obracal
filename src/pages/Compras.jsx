@@ -8,6 +8,7 @@ export default function Compras({
   proveedores = [], 
   obras = [], 
   presupuestos = [],
+  contratosList = [], 
   contratos = [], 
   insumosList = [], 
   rubros = [], 
@@ -81,12 +82,13 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // Filtrar solo contratos aprobados o vigentes
-  const contratosAprobados = contratos.filter(c => {
+  // 🔍 LÓGICA UNIFICADA DE CONTRATOS (Lee de contratosList o contratos y filtra por 'ContratosMantenimiento' si viniera anidado o plano)
+  const fuenteContratos = contratosList.length > 0 ? contratosList : contratos;
+  const contratosAprobados = fuenteContratos.filter(c => {
     const est = String(c.estado || c.Estado || c.ESTADO || '').toLowerCase();
     return !est || est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo');
   });
-  const listaContratosFinal = contratosAprobados.length > 0 ? contratosAprobados : contratos;
+  const listaContratosFinal = contratosAprobados.length > 0 ? contratosAprobados : fuenteContratos;
 
   // EXTRACCIÓN DINÁMICA DE RUBROS DESDE EL JSON DEL PRESUPUESTO SELECCIONADO
   const presupuestoSeleccionadoObj = presupuestos.find(pr => {
@@ -370,8 +372,8 @@ export default function Compras({
         ...formData,
         subtotal: subtotalNum,
         iva_21: iva21Num,
-        iva_105: iva105Num,              // 👈 CORREGIDO PARA COINCIDIR EXACTO CON LA HOJA
-        persp_iibb_bs_as: iibbBsAsNum,   // 👈 CORREGIDO PARA COINCIDIR EXACTO CON LA HOJA
+        iva_105: iva105Num,
+        persp_iibb_bs_as: iibbBsAsNum,
         persp_iibb_caba: iibbCabaNum,
         otros_impuestos: otrosImpNum,
         total: totalNum,
@@ -1057,7 +1059,7 @@ export default function Compras({
                     ) : (
                       <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.contrato_id} onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}>
                         <option value="">Seleccione contrato...</option>
-                        {listaContratosFinal.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.codigo} - {c.cliente || c.nombre_contrato}</option>)}
+                        {listaContratosFinal.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.codigo || c.id} - {c.cliente || c.nombre_contrato || c.obra || 'Contrato'}</option>)}
                       </select>
                     )}
                   </div>
