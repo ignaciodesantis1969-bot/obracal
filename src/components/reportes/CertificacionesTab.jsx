@@ -59,7 +59,7 @@ export default function CertificacionesTab({
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: 'Certificaciones', action: 'get' })
+      body: JSON.stringify({ tabla: 'Certificados', action: 'get' })
     })
       .then(res => res.json())
       .then(data => {
@@ -68,7 +68,7 @@ export default function CertificacionesTab({
         }
       })
       .catch(() => {});
-  }, []);
+  }, [setFetchedCertificados]);
 
   const listaObrasCompleta = useMemo(() => {
     const pObras = Array.isArray(obras) ? obras : [];
@@ -131,35 +131,6 @@ export default function CertificacionesTab({
     return '';
   };
 
-  useEffect(() => {
-    if (certPresupuestoId && certificadoPresupuestoObj) {
-      const clienteResuelto = resolverRazonSocialCliente(certificadoPresupuestoObj);
-      setCertClienteNombre(clienteResuelto);
-      
-      const respClienteSheet = certificadoPresupuestoObj.responsable_cliente || certificadoPresupuestoObj.responsableCliente || '';
-      const cargoClienteSheet = certificadoPresupuestoObj.cargo_cliente || certificadoPresupuestoObj.cargoCliente || 'RESPONSABLE TÉCNICO';
-
-      setCertRespCliente(prev => ({
-        ...prev,
-        nombre: respClienteSheet || prev.nombre || clienteResuelto,
-        cargo: cargoClienteSheet || prev.cargo
-      }));
-
-      const respProveedorSheet = certificadoPresupuestoObj.responsable_proveedor || certificadoPresupuestoObj.responsableProveedor || '';
-      const cargoProveedorSheet = certificadoPresupuestoObj.cargo_proveedor || certificadoPresupuestoObj.cargoProveedor || 'JEFE DE OBRA';
-
-      setCertRespProveedor(prev => ({
-        ...prev,
-        nombre: respProveedorSheet || prev.nombre || 'Alexander Torres Lopez',
-        cargo: cargoProveedorSheet || prev.cargo
-      }));
-
-    } else if (!certPresupuestoId) {
-      setCertClienteNombre('');
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [certPresupuestoId, certificadoPresupuestoObj]);
-
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     return allCertificados.filter(c => {
@@ -168,32 +139,17 @@ export default function CertificacionesTab({
     });
   }, [allCertificados, certPresupuestoId]);
 
-  const numerosCertificadosGuardadosActuales = useMemo(() => {
-    const set = new Set();
-    certificadosDelPresupuestoActual.forEach(c => {
-      const nro = String(c?.certificadoNro !== undefined ? c.certificadoNro : (c?.certificado_nro || '')).trim();
-      if (nro !== '') set.add(nro);
-    });
-    return set;
-  }, [certificadosDelPresupuestoActual]);
-
-  const opcionesCertificadoNro = useMemo(() => {
-    const todas = ['0', '1', '2', '3', '4', '5'];
-    if (!certPresupuestoId) return todas;
-    return todas.filter(nro => !numerosCertificadosGuardadosActuales.has(nro));
-  }, [certPresupuestoId, numerosCertificadosGuardadosActuales]);
-
+  // Cálculo automático del siguiente número de certificado disponible
   useEffect(() => {
-    if (certPresupuestoId && numerosCertificadosGuardadosActuales.has(certificadoNro)) {
-      const disponible = opcionesCertificadoNro[0];
-      if (disponible !== undefined) {
-        setCertificadoNro(disponible);
-      }
+    if (certPresupuestoId) {
+      const cantidadPrevios = certificadosDelPresupuestoActual.length;
+      setCertificadoNro(String(cantidadPrevios));
+      setAvanceActualMap({}); // Limpiar porcentajes al cambiar de presupuesto
     }
-  }, [certPresupuestoId, numerosCertificadosGuardadosActuales, certificadoNro, opcionesCertificadoNro]);
+  }, [certPresupuestoId, certificadosDelPresupuestoActual.length]);
 
   const obtenerPctAnteriorAcumulado = (rIdx, tIdx) => {
-    if (String(certificadoNro).trim() === '0' || String(certificadoNro).trim() === '1') return 0;
+    if (String(certificadoNro).trim() === '0') return 0;
     let sumaPct = 0;
     const nroActual = parseInt(certificadoNro, 10) || 1;
     certificadosDelPresupuestoActual.forEach(cert => {
@@ -244,9 +200,8 @@ export default function CertificacionesTab({
         rubroAnterior += impAnterior;
 
         const keyMap = `${rIdx}-${tIdx}`;
-        const isCertZeroOrOne = String(certificadoNro).trim() === '0' || String(certificadoNro).trim() === '1';
-        const defaultPctActual = isCertZeroOrOne ? 0 : 10;
-        const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : defaultPctActual;
+        // Por defecto arranca en 0% para cualquier nuevo certificado
+        const pctActual = avanceActualMap[keyMap] !== undefined ? Number(avanceActualMap[keyMap]) : 0;
         const impActual = totalItem * (pctActual / 100);
         rubroActual += impActual;
 
@@ -270,7 +225,7 @@ export default function CertificacionesTab({
     if (certificadoCalculos?.totalPresupuestoCalc > 0 && String(certificadoNro).trim() === '0') {
       setAdelantoMonto(certificadoCalculos.totalPresupuestoCalc * (adelantoPct / 100));
     }
-  }, [certificadoCalculos?.totalPresupuestoCalc, certPresupuestoId]);
+  }, [certificadoCalculos?.totalPresupuestoCalc, certPresupuestoId, certificadoNro, adelantoPct]);
 
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
@@ -293,7 +248,7 @@ export default function CertificacionesTab({
 
       const payloadCert = {
         action: 'guardarCertificado',
-        tabla: 'Certificaciones',
+        tabla: 'Certificados',
         presupuesto_id: String(certPresupuestoId),
         certificado_nro: String(certificadoNro),
         fecha: String(certFecha),
@@ -331,7 +286,7 @@ export default function CertificacionesTab({
         presupuestoId: String(certPresupuestoId), 
         certificadoNro: String(certificadoNro), 
         pdfUrl: pdfUrlFinal, 
-        id: `cert-${Date.now()}` 
+        id: resultado?.id || `cert-${Date.now()}` 
       };
 
       if (typeof setFetchedCertificados === 'function') {
@@ -353,7 +308,7 @@ export default function CertificacionesTab({
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Certificaciones', action: 'delete', id: certId })
+        body: JSON.stringify({ tabla: 'Certificados', action: 'delete', id: certId })
       });
       if (typeof setFetchedCertificados === 'function') {
         setFetchedCertificados(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
@@ -417,15 +372,12 @@ export default function CertificacionesTab({
                   onChange={(e) => setCertificadoNro(e.target.value)}
                   className="bg-white border border-slate-300 rounded-xl px-2 py-1 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
                 >
-                  {opcionesCertificadoNro.length === 0 ? (
-                    <option value="" disabled>Todos emitidos</option>
-                  ) : (
-                    opcionesCertificadoNro.map(nro => (
-                      <option key={nro} value={nro}>
-                        {nro === '0' ? '0 (Adelanto Financiero)' : nro}
-                      </option>
-                    ))
-                  )}
+                  <option value="0">0 (Adelanto Financiero)</option>
+                  <option value="1">1</option>
+                  <option value="2">2</option>
+                  <option value="3">3</option>
+                  <option value="4">4</option>
+                  <option value="5">5</option>
                 </select>
               </div>
               <div className="flex items-center gap-2">
@@ -470,7 +422,7 @@ export default function CertificacionesTab({
                 </div>
                 <div className="text-right">
                   <h2 className="text-2xl font-black text-slate-900 tracking-wide uppercase">CERTIFICADO POR AVANCE DE OBRA</h2>
-                  <p className={`text-sm font-bold mt-1 text-blue-600`}>
+                  <p className="text-sm font-bold mt-1 text-blue-600">
                     Certificado Nro.: {certificadoNro} {String(certificadoNro).trim() === '0' ? '(Adelanto Financiero)' : ''}
                   </p>
                 </div>
