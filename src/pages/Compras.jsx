@@ -8,7 +8,7 @@ export default function Compras({
   proveedores = [], 
   obras = [], 
   presupuestos = [],
-  contratos = [], // NUEVO: Prop para recibir los contratos de mantenimiento
+  contratos = [], 
   insumosList = [], 
   rubros = [], 
   cargarDatos 
@@ -39,9 +39,9 @@ export default function Compras({
     comprobante_tipo: 'Factura A',
     n_factura: '',
     proveedor_id: '',
-    tipo_gasto: 'Presupuesto', // 'Presupuesto', 'Gasto Corriente', 'Gasto Extra', 'Contrato de Mantenimiento'
+    tipo_gasto: 'Presupuesto', 
     presupuesto_id: '',
-    contrato_id: '', // NUEVO: Para guardar el ID del contrato
+    contrato_id: '', 
     rubro_presupuesto: '', 
     tipo_insumo: 'Material', 
     detalle_gasto: '',
@@ -370,14 +370,14 @@ export default function Compras({
         ...formData,
         subtotal: subtotalNum,
         iva_21: iva21Num,
-        iva_10_5: iva105Num,
-        persp_iibb_bs_as: iibbBsAsNum,
+        iva_105: iva105Num,              // 👈 CORREGIDO PARA COINCIDIR EXACTO CON LA HOJA
+        persp_iibb_bs_as: iibbBsAsNum,   // 👈 CORREGIDO PARA COINCIDIR EXACTO CON LA HOJA
         persp_iibb_caba: iibbCabaNum,
         otros_impuestos: otrosImpNum,
         total: totalNum,
         estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago,
         codigo: codigoFinal,
-        contrato_id: formData.contrato_id, // Añadido al payload
+        contrato_id: formData.contrato_id,
         rubro_presupuesto: formData.rubro_presupuesto,
         Rubro_presupuesto: formData.rubro_presupuesto,
         rubro: formData.rubro_presupuesto,
@@ -1082,7 +1082,7 @@ export default function Compras({
                           setFormData({
                             ...formData, 
                             rubro_presupuesto: nuevoRubro,
-                            tipo_insumo: '' // Resetear para forzar selección de renglón
+                            tipo_insumo: '' 
                           });
                         }}
                       >
