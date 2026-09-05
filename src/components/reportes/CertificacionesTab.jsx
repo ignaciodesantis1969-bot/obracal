@@ -7,6 +7,7 @@ import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
 export default function CertificacionesTab({
   presupuestos = [],
   obras = [],
+  certificados = [], 
   certificadosProps = [],
   fetchedCertificados = [],
   setFetchedCertificados = () => {},
@@ -67,6 +68,7 @@ export default function CertificacionesTab({
   }, [setFetchedCertificados]);
 
   const allCertificados = useMemo(() => {
+    const cPrincipal = extraerArrayDatos(certificados);
     const cProps = extraerArrayDatos(certificadosProps);
     const fCert = extraerArrayDatos(fetchedCertificados);
     const fLocal = extraerArrayDatos(fetchedCertificadosLocal);
@@ -77,15 +79,18 @@ export default function CertificacionesTab({
       if (cached) localCache = JSON.parse(cached);
     } catch (e) {}
 
-    const combinados = [...cProps, ...fCert, ...fLocal, ...localCache];
+    const combinados = [...cPrincipal, ...cProps, ...fCert, ...fLocal, ...localCache];
     const map = new Map();
+    
     combinados.forEach(c => {
       if (!c) return;
-      const keyId = String(c.id || c.ID || `${c.presupuestoId || c.presupuesto_id}_${c.certificadoNro !== undefined ? c.certificadoNro : c.certificado_nro}` || Math.random());
-      if (keyId) map.set(keyId, c);
+      const keyId = String(c.id || c.ID || `${c.presupuesto_id || c.presupuestoId}_${c.certificado_nro !== undefined ? c.certificado_nro : c.certificadoNro}` || Math.random());
+      if (keyId && keyId !== 'undefined_undefined') {
+        map.set(keyId, c);
+      }
     });
     return Array.from(map.values());
-  }, [certificadosProps, fetchedCertificados, fetchedCertificadosLocal]);
+  }, [certificados, certificadosProps, fetchedCertificados, fetchedCertificadosLocal]);
 
   const certificadoPresupuestoObj = useMemo(() => {
     if (!certPresupuestoId) return null;
@@ -113,8 +118,8 @@ export default function CertificacionesTab({
              idSel.includes(pId) ||
              (certificadoPresupuestoObj?.id && String(certificadoPresupuestoObj.id) === pId);
     }).sort((a, b) => {
-      const nroA = parseInt(a?.certificadoNro !== undefined ? a.certificadoNro : a?.certificado_nro || 0);
-      const nroB = parseInt(b?.certificadoNro !== undefined ? b.certificadoNro : b?.certificado_nro || 0);
+      const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : a?.certificadoNro || 0);
+      const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : b?.certificadoNro || 0);
       return nroB - nroA;
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
@@ -146,7 +151,7 @@ export default function CertificacionesTab({
     if (certPresupuestoId) {
       if (certificadosDelPresupuestoActual.length > 0) {
         const numeros = certificadosDelPresupuestoActual.map(c => {
-          const n = parseInt(c?.certificadoNro !== undefined ? c.certificadoNro : c?.certificado_nro, 10);
+          const n = parseInt(c?.certificado_nro !== undefined ? c.certificado_nro : c?.certificadoNro, 10);
           return isNaN(n) ? 0 : n;
         });
         const maxNro = Math.max(...numeros, 0);
@@ -166,7 +171,7 @@ export default function CertificacionesTab({
     let sumaPct = 0;
     const nroActual = parseInt(certificadoNro, 10) || 1;
     certificadosDelPresupuestoActual.forEach(cert => {
-      const certNro = parseInt(cert?.certificadoNro !== undefined ? cert.certificadoNro : cert?.certificado_nro, 10) || 0;
+      const certNro = parseInt(cert?.certificado_nro !== undefined ? cert.certificado_nro : cert?.certificadoNro, 10) || 0;
       if (certNro >= 0 && certNro < nroActual) {
         const filasCert = cert?.filas || cert?.items || [];
         filasCert.forEach(rubro => {
@@ -232,7 +237,7 @@ export default function CertificacionesTab({
     return { filasRender, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
-  // GUARDADO ESTRICTAMENTE MANUAL (Únicamente al hacer clic en el botón)
+  // GUARDADO ESTRICTAMENTE MANUAL
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
     if (!certificadoPresupuestoObj) {
@@ -713,8 +718,8 @@ export default function CertificacionesTab({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {certificadosDelPresupuestoActual.map((cert) => {
-                      const nroCert = cert?.certificadoNro !== undefined ? cert.certificadoNro : (cert?.certificado_nro || '0');
-                      const pdfLink = cert?.pdfUrl || cert?.pdf_url;
+                      const nroCert = cert?.certificado_nro !== undefined ? cert.certificado_nro : (cert?.certificadoNro || '0');
+                      const pdfLink = cert?.pdf_url || cert?.pdfUrl || cert?.url;
                       const certKeyId = cert?.id || `${cert?.presupuesto_id}_${nroCert}`;
 
                       return (
@@ -724,7 +729,7 @@ export default function CertificacionesTab({
                           <td className="px-4 py-3 text-slate-800 font-semibold">{cert?.cliente}</td>
                           <td className="px-4 py-3 text-slate-600">{cert?.obra}</td>
                           <td className="px-4 py-3 text-right font-black text-slate-950 font-mono">
-                            $ {Number(cert?.totalGeneral || cert?.total_general || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                            $ {Number(cert?.total_general || cert?.totalGeneral || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                           </td>
                           <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
                             {pdfLink && (
