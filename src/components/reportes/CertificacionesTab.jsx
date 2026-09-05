@@ -49,6 +49,7 @@ export default function CertificacionesTab({
     return [];
   };
 
+  // Carga inicial segura del historial desde Sheets (solo lectura)
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -99,20 +100,22 @@ export default function CertificacionesTab({
     });
   }, [presupuestos, certPresupuestoId]);
 
+  // Autocompletar datos del cliente y responsables al seleccionar el presupuesto
   useEffect(() => {
     if (certificadoPresupuestoObj) {
       const clienteDetectado = obtenerClienteDePresupuesto 
         ? obtenerClienteDePresupuesto(certificadoPresupuestoObj) 
-        : (certificadoPresupuestoObj.cliente || certificadoPresupuestoObj.razon_social || 'LDC Argentina S.A.');
+        : (certificadoPresupuestoObj.cliente || certificadoPresupuestoObj.razon_social || certificadoPresupuestoObj.cliente_nombre || 'YPF GAS S.A.');
       
       setCertClienteNombre(clienteDetectado);
 
-      const respCli = buscarValorEnObjeto(certificadoPresupuestoObj, ['responsable_cliente', 'responsableCliente', 'cliente_responsable']) || 'Cristian Matei';
-      const cargoCli = buscarValorEnObjeto(certificadoPresupuestoObj, ['cargo_cliente', 'cargoCliente']) || 'RESPONSABLE TÉCNICO';
+      const respCli = buscarValorEnObjeto(certificadoPresupuestoObj, ['responsable_cliente', 'responsableCliente', 'cliente_responsable', 'contacto']) || clienteDetectado;
+      const cargoCli = buscarValorEnObjeto(certificadoPresupuestoObj, ['cargo_cliente', 'cargoCliente']) || 'GERENCIA DE PROYECTO';
       setCertRespCliente({ nombre: respCli, cargo: cargoCli });
     }
   }, [certificadoPresupuestoObj, obtenerClienteDePresupuesto, buscarValorEnObjeto]);
 
+  // Filtrado robusto del historial por presupuesto actual
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -206,6 +209,7 @@ export default function CertificacionesTab({
     }
   }, [certificadoCalculos?.totalPresupuestoCalc, certPresupuestoId, certificadoNro, adelantoPct]);
 
+  // Guardado estricto manual (solo al presionar el botón)
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
     if (!certificadoPresupuestoObj) {
@@ -804,7 +808,7 @@ export default function CertificacionesTab({
           ) : (
             <table className="w-full text-left text-xs border rounded-xl overflow-hidden">
               <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase text-[10px]">
+                <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200 text-[10px]">
                   <th className="px-4 py-3">Factura</th>
                   <th className="px-4 py-3">Proveedor</th>
                   <th className="px-4 py-3 text-right">Monto</th>
