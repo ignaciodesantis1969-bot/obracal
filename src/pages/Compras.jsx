@@ -103,12 +103,11 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // 🔍 LÓGICA UNIFICADA Y ROBUSTA DE CONTRATOS (Incluyendo respaldo automático si llegan arrays vacíos en props)
+  // 🔍 LÓGICA UNIFICADA Y ROBUSTA DE CONTRATOS
   const contratosList = useMemo(() => {
     const p = extraerArrayDatos(propContratos);
     const s = extraerArrayDatos(propContratosAlt);
     
-    // Respaldo de seguridad analizando todas las fuentes si vinieran vacías por prop
     let extraGlobales = [];
     if (p.length === 0 && s.length === 0) {
       if (typeof window !== 'undefined' && window.globalData) {
@@ -1035,6 +1034,16 @@ export default function Compras({
               <button onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={handleGuardarFactura} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
+              
+              {/* 🔍 DIAGNÓSTICO DE CONTRATOS */}
+              <div className="bg-slate-900 text-green-400 p-3 rounded-xl text-[10px] font-mono overflow-auto max-h-32 mb-4">
+                <p><strong>propContratos length:</strong> {Array.isArray(propContratos) ? propContratos.length : typeof propContratos}</p>
+                <p><strong>propContratosAlt length:</strong> {Array.isArray(propContratosAlt) ? propContratosAlt.length : typeof propContratosAlt}</p>
+                <p><strong>contratosList final length:</strong> {contratosList.length}</p>
+                <p><strong>listaContratosFinal length:</strong> {listaContratosFinal.length}</p>
+                <p><strong>Muestra Contratos:</strong> {JSON.stringify(contratosList.slice(0, 2))}</p>
+              </div>
+
               <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl flex items-center gap-2 text-xs">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación. Las notas de crédito se registrarán automáticamente en el listado de movimientos de tesorería y restarán en los totales.</span>
