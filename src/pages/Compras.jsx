@@ -7,7 +7,8 @@ export default function Compras({
   ordenesCompra = [], 
   proveedores = [], 
   obras = [], 
-  presupuestos = [], 
+  presupuestos = [],
+  contratos = [], // NUEVO: Prop para recibir los contratos de mantenimiento
   insumosList = [], 
   rubros = [], 
   cargarDatos 
@@ -38,8 +39,9 @@ export default function Compras({
     comprobante_tipo: 'Factura A',
     n_factura: '',
     proveedor_id: '',
-    tipo_gasto: 'Presupuesto', // 'Presupuesto', 'Gasto Corriente', 'Gasto Extra'
+    tipo_gasto: 'Presupuesto', // 'Presupuesto', 'Gasto Corriente', 'Gasto Extra', 'Contrato de Mantenimiento'
     presupuesto_id: '',
+    contrato_id: '', // NUEVO: Para guardar el ID del contrato
     rubro_presupuesto: '', 
     tipo_insumo: 'Material', 
     detalle_gasto: '',
@@ -79,6 +81,13 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
+  // Filtrar solo contratos aprobados o vigentes
+  const contratosAprobados = contratos.filter(c => {
+    const est = String(c.estado || c.Estado || c.ESTADO || '').toLowerCase();
+    return !est || est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo');
+  });
+  const listaContratosFinal = contratosAprobados.length > 0 ? contratosAprobados : contratos;
+
   // EXTRACCIÓN DINÁMICA DE RUBROS DESDE EL JSON DEL PRESUPUESTO SELECCIONADO
   const presupuestoSeleccionadoObj = presupuestos.find(pr => {
     const pId = pr.id || pr.ID || pr.Id;
@@ -103,7 +112,6 @@ export default function Compras({
         rubrosDelPresupuesto = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
       }
 
-      // Extraer Gastos Generales del bloque comercial o campo directo
       let rawGG = presupuestoSeleccionadoObj.gastos_generales_insumos || presupuestoSeleccionadoObj.Gastos_generales_insumos;
       if (typeof rawGG === 'string') {
         try { rawGG = JSON.parse(rawGG); } catch(e) {}
@@ -170,7 +178,6 @@ export default function Compras({
     return `OC-${String(maxNum + 1).padStart(4, '0')}`;
   };
 
-  // IA Factura + Detección por nombre de archivo
   const handleArchivoSubido = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -320,6 +327,7 @@ export default function Compras({
       comprobante_tipo: tipoComp,
       tipo_gasto: f.tipo_gasto || f.Tipo_gasto || 'Presupuesto',
       presupuesto_id: f.presupuesto_id || f.Presupuesto_id || '',
+      contrato_id: f.contrato_id || f.Contrato_id || '',
       rubro_presupuesto: f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '',
       tipo_insumo: renglonRecuperado,
       detalle_gasto: f.detalle_gasto || f.Detalle_gasto || '',
@@ -347,7 +355,6 @@ export default function Compras({
       const action = editingId ? 'update' : 'create';
       const codigoFinal = editingId ? formData.codigo : generarSiguienteCodigoFactura();
 
-      // Determinar si es Nota de Crédito para aplicar signo negativo en contabilidad e imputaciones
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
 
@@ -359,7 +366,6 @@ export default function Compras({
       const otrosImpNum = Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno;
       const totalNum = Math.abs(Number(formData.total) || 0) * factorSigno;
 
-      // 🛡️ PAYLOAD ULTRA ROBUSTO PARA FACTURAS
       const payloadData = {
         ...formData,
         subtotal: subtotalNum,
@@ -371,6 +377,7 @@ export default function Compras({
         total: totalNum,
         estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago,
         codigo: codigoFinal,
+        contrato_id: formData.contrato_id, // Añadido al payload
         rubro_presupuesto: formData.rubro_presupuesto,
         Rubro_presupuesto: formData.rubro_presupuesto,
         rubro: formData.rubro_presupuesto,
@@ -387,7 +394,6 @@ export default function Compras({
         archivo_url: formData.archivo_url || ''
       };
 
-      // 1. Guardar la factura/NC en la tabla Facturas
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -399,7 +405,6 @@ export default function Compras({
         })
       });
 
-      // 2. Si es Nota de Crédito nueva, registrarla automáticamente como movimiento en Tesorería para que aparezca en el listado visual
       if (esNotaCredito && action === 'create') {
         const provObj = proveedores.find(p => String(p.id || p.ID) === String(formData.proveedor_id));
         const nombreProv = provObj ? (provObj.razon_social || provObj.nombre) : 'Proveedor';
@@ -416,7 +421,7 @@ export default function Compras({
               concepto: `Nota de Crédito ${formData.n_factura || codigoFinal} - ${nombreProv}`,
               medio_pago: '---',
               retenciones: '---',
-              monto: totalNum // Va con signo negativo para restar en los totales de tesorería
+              monto: totalNum 
             }
           })
         }).catch(err => console.error("Error al registrar movimiento automático en tesorería:", err));
@@ -680,6 +685,7 @@ export default function Compras({
               proveedor_id: '',
               tipo_gasto: 'Presupuesto',
               presupuesto_id: '',
+              contrato_id: '',
               rubro_presupuesto: '',
               tipo_insumo: 'Material',
               detalle_gasto: '',
@@ -1019,56 +1025,82 @@ export default function Compras({
                 {/* TIPO DE GASTO / DESTINO */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto *</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.tipo_gasto} onChange={(e) => setFormData({...formData, tipo_gasto: e.target.value})}>
+                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                    value={formData.tipo_gasto} 
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setFormData({
+                        ...formData, 
+                        tipo_gasto: val,
+                        presupuesto_id: '',
+                        contrato_id: '',
+                        rubro_presupuesto: val === 'Contrato de Mantenimiento' ? 'Materiales del Contrato' : '',
+                        tipo_insumo: val === 'Contrato de Mantenimiento' ? 'Material' : 'Material'
+                      });
+                    }}>
                     <option value="Presupuesto">Presupuesto Aprobado</option>
+                    <option value="Contrato de Mantenimiento">Contrato de Mantenimiento Aprobado</option>
                     <option value="Gasto Corriente">Gasto Corriente</option>
                     <option value="Gasto Extra">Gasto Extra</option>
                   </select>
                 </div>
 
-                {/* SI ES PRESUPUESTO: SELECCIONAR PRESUPUESTO */}
-                {formData.tipo_gasto === 'Presupuesto' && (
+                {/* SI ES PRESUPUESTO O CONTRATO: SELECCIONAR DOCUMENTO */}
+                {(formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado *</label>
-                    <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
-                      <option value="">Seleccione presupuesto...</option>
-                      {listaPresupuestosFinal.map(pr => <option key={pr.id || pr.ID} value={pr.id || pr.ID}>{pr.codigo} - {pr.nombre}</option>)}
-                    </select>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Documento Aprobado *</label>
+                    {formData.tipo_gasto === 'Presupuesto' ? (
+                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
+                        <option value="">Seleccione presupuesto...</option>
+                        {listaPresupuestosFinal.map(pr => <option key={pr.id || pr.ID} value={pr.id || pr.ID}>{pr.codigo} - {pr.nombre}</option>)}
+                      </select>
+                    ) : (
+                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.contrato_id} onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}>
+                        <option value="">Seleccione contrato...</option>
+                        {listaContratosFinal.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.codigo} - {c.cliente || c.nombre_contrato}</option>)}
+                      </select>
+                    )}
                   </div>
                 )}
 
-                {/* RUBRO FILTRADO DESDE EL JSON DEL PRESUPUESTO */}
-                {formData.tipo_gasto === 'Presupuesto' && (
+                {/* RUBRO */}
+                {(formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro del Presupuesto *</label>
-                    <select 
-                      required 
-                      disabled={isSaving} 
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
-                      value={formData.rubro_presupuesto} 
-                      onChange={(e) => {
-                        const nuevoRubro = e.target.value;
-                        setFormData({
-                          ...formData, 
-                          rubro_presupuesto: nuevoRubro,
-                          tipo_insumo: '' // Resetear para forzar selección de renglón
-                        });
-                      }}
-                    >
-                      <option value="">Seleccionar rubro...</option>
-                      <option value="Gastos Generales">-- GASTOS GENERALES --</option>
-                      {rubrosDelPresupuesto.length === 0 ? (
-                        <option disabled value="">⚠️ Este presupuesto no tiene rubros en su detalle</option>
-                      ) : (
-                        rubrosDelPresupuesto.map((nombreRubro, idx) => (
-                          <option key={idx} value={nombreRubro}>{nombreRubro}</option>
-                        ))
-                      )}
-                    </select>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
+                    {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (
+                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.rubro_presupuesto} onChange={(e) => setFormData({...formData, rubro_presupuesto: e.target.value})}>
+                        <option value="Materiales del Contrato">Materiales del Contrato</option>
+                      </select>
+                    ) : (
+                      <select 
+                        required 
+                        disabled={isSaving} 
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                        value={formData.rubro_presupuesto} 
+                        onChange={(e) => {
+                          const nuevoRubro = e.target.value;
+                          setFormData({
+                            ...formData, 
+                            rubro_presupuesto: nuevoRubro,
+                            tipo_insumo: '' // Resetear para forzar selección de renglón
+                          });
+                        }}
+                      >
+                        <option value="">Seleccionar rubro...</option>
+                        <option value="Gastos Generales">-- GASTOS GENERALES --</option>
+                        {rubrosDelPresupuesto.length === 0 ? (
+                          <option disabled value="">⚠️ Este presupuesto no tiene rubros en su detalle</option>
+                        ) : (
+                          rubrosDelPresupuesto.map((nombreRubro, idx) => (
+                            <option key={idx} value={nombreRubro}>{nombreRubro}</option>
+                          ))
+                        )}
+                      </select>
+                    )}
                   </div>
                 )}
 
-                {/* TIPO DE INSUMO / RENGLÓN DE GASTOS GENERALES (DINÁMICO) */}
+                {/* TIPO DE INSUMO / RENGLÓN */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     {formData.rubro_presupuesto === 'Gastos Generales' ? 'Renglón Gastos Generales *' : 'Tipo de Insumo *'}
@@ -1080,7 +1112,9 @@ export default function Compras({
                     value={formData.tipo_insumo} 
                     onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}
                   >
-                    {formData.rubro_presupuesto === 'Gastos Generales' ? (
+                    {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (
+                      <option value="Material">Material</option>
+                    ) : formData.rubro_presupuesto === 'Gastos Generales' ? (
                       <>
                         <option value="">Seleccionar gasto general...</option>
                         {gastosGeneralesDelPresupuesto.map((item, idx) => (
