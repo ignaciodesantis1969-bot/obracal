@@ -103,11 +103,20 @@ export default function Compras({
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // 🔍 LÓGICA UNIFICADA Y ROBUSTA DE CONTRATOS
+  // 🔍 LÓGICA UNIFICADA Y ROBUSTA DE CONTRATOS (Incluyendo respaldo automático si llegan arrays vacíos en props)
   const contratosList = useMemo(() => {
     const p = extraerArrayDatos(propContratos);
     const s = extraerArrayDatos(propContratosAlt);
-    const combinados = [...p, ...s];
+    
+    // Respaldo de seguridad analizando todas las fuentes si vinieran vacías por prop
+    let extraGlobales = [];
+    if (p.length === 0 && s.length === 0) {
+      if (typeof window !== 'undefined' && window.globalData) {
+        extraGlobales = extraerArrayDatos(window.globalData.contratos || window.globalData.contratosList || window.globalData.contratos_mantenimiento);
+      }
+    }
+
+    const combinados = [...p, ...s, ...extraGlobales];
     
     const unicosMap = new Map();
     combinados.forEach((item, index) => {
