@@ -8,7 +8,6 @@ export default function CertificadoHorasHombreTab({
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [] 
 }) {
-  // Carga automática por hook como respaldo por si el padre no pasa las props
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
 
@@ -18,7 +17,15 @@ export default function CertificadoHorasHombreTab({
       if (Array.isArray(fuente.data)) return fuente.data;
       if (Array.isArray(fuente.items)) return fuente.items;
       if (Array.isArray(fuente.result)) return fuente.result;
+      
+      // Corrección: Aseguramos capturar los nombres exactos que envía el backend
+      if (Array.isArray(fuente.contratos_mantenimiento)) return fuente.contratos_mantenimiento;
+      if (Array.isArray(fuente.contratosmantenimiento)) return fuente.contratosmantenimiento;
       if (Array.isArray(fuente.ContratosMantenimiento)) return fuente.ContratosMantenimiento;
+      
+      if (Array.isArray(fuente.reportes_sice)) return fuente.reportes_sice;
+      if (Array.isArray(fuente.reportessice)) return fuente.reportessice;
+
       const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
       if (posibleArray) return posibleArray;
     }
@@ -62,16 +69,8 @@ export default function CertificadoHorasHombreTab({
     });
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
+  // Corrección: useEffect aplanado correctamente, sin anidamiento
   useEffect(() => {
-    useEffect(() => {
-    console.log("CONTRATOS PROPS:", propContratos);
-    console.log("CONTRATOS SHEET (Hook):", contratosSheet);
-    console.log("CONTRATOS FINALES CALCULADOS:", contratosList);
-
-    if (contratoActual) {
-      // ... resto de tu código existente ...
-    }
-  }, [contratoActual, contratosSheet, propContratos, contratosList]);
     if (contratoActual) {
       const clienteNombre = contratoActual.cliente || contratoActual.Cliente || '';
       const clienteCargo = contratoActual.cliente_cargo || contratoActual.clienteCargo || 'Gerente de Plant';
@@ -91,7 +90,7 @@ export default function CertificadoHorasHombreTab({
         nombre: provNombre || prev.nombre
       }));
     }
-  }, [contratoActual]);
+  }, [contratoActual, contratosSheet, propContratos, contratosList]);
 
   const agregarParteFila = (parteObj) => {
     const clasificacionOperario = parteObj?.clasificacion || parteObj?.categoria || 'General';
