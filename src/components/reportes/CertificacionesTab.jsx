@@ -41,6 +41,19 @@ export default function CertificacionesTab({
   const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: 'RESPONSABLE TÉCNICO' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
+  // Función robusta para extraer arrays (Igual que en ReportesDiariosTab)
+  const extraerArrayDatos = (fuente) => {
+    if (Array.isArray(fuente)) return fuente;
+    if (fuente && typeof fuente === 'object') {
+      if (Array.isArray(fuente.data)) return fuente.data;
+      if (Array.isArray(fuente.items)) return fuente.items;
+      if (Array.isArray(fuente.result)) return fuente.result;
+      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+      if (posibleArray) return posibleArray;
+    }
+    return [];
+  };
+
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -48,7 +61,7 @@ export default function CertificacionesTab({
       body: JSON.stringify({ tabla: 'Clientes', action: 'get' })
     })
       .then(res => res.json())
-      .then(data => { if (Array.isArray(data)) setFetchedClientes(data); })
+      .then(data => { const arr = extraerArrayDatos(data); if (arr.length > 0) setFetchedClientes(arr); })
       .catch(() => {});
 
     fetch(GOOGLE_SCRIPT_URL, {
@@ -57,10 +70,10 @@ export default function CertificacionesTab({
       body: JSON.stringify({ tabla: 'Obras', action: 'get' })
     })
       .then(res => res.json())
-      .then(data => { if (Array.isArray(data)) setFetchedObras(data); })
+      .then(data => { const arr = extraerArrayDatos(data); if (arr.length > 0) setFetchedObras(arr); })
       .catch(() => {});
 
-    // Carga independiente de Certificados
+    // Carga independiente y extraída de Certificados
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -68,19 +81,20 @@ export default function CertificacionesTab({
     })
       .then(res => res.json())
       .then(data => { 
-        if (Array.isArray(data)) {
-          setFetchedCertificadosLocal(data);
+        const arr = extraerArrayDatos(data);
+        if (arr.length > 0) {
+          setFetchedCertificadosLocal(arr);
           if (typeof setFetchedCertificados === 'function') {
-            setFetchedCertificados(data);
+            setFetchedCertificados(arr);
           }
         }
       })
-      .catch(() => {});
+      .catch(err => console.error("Error cargando Certificados:", err));
   }, [setFetchedCertificados]);
 
   const listaObrasCompleta = useMemo(() => {
-    const pObras = Array.isArray(obras) ? obras : [];
-    const fObras = Array.isArray(fetchedObras) ? fetchedObras : [];
+    const pObras = extraerArrayDatos(obras);
+    const fObras = extraerArrayDatos(fetchedObras);
     const map = new Map();
     [...pObras, ...fObras].forEach(o => {
       const id = String(o?.id || o?.ID || o?.codigo || '').trim();
@@ -89,17 +103,24 @@ export default function CertificacionesTab({
     return Array.from(map.values());
   }, [obras, fetchedObras]);
 
-  // Consolidación de fuentes para asegurar que no se pierda la data
+  // Consolidación de fuentes con Caché Local para evitar pérdidas
   const allCertificados = useMemo(() => {
-    const cProps = Array.isArray(certificadosProps) ? certificadosProps : [];
-    const fCert = Array.isArray(fetchedCertificados) ? fetchedCertificados : [];
-    const fLocal = Array.isArray(fetchedCertificadosLocal) ? fetchedCertificadosLocal : [];
+    const cProps = extraerArrayDatos(certificadosProps);
+    const fCert = extraerArrayDatos(fetchedCertificados);
+    const fLocal = extraerArrayDatos(fetchedCertificadosLocal);
     
-    const combinados = [...cProps, ...fCert, ...fLocal];
+    let localCache = [];
+    try {
+      const cached = localStorage.getItem('sice_certificados_local_cache');
+      if (cached) localCache = JSON.parse(cached);
+    } catch (e) {}
+
+    const combinados = [...cProps, ...fCert, ...fLocal, ...localCache];
     const map = new Map();
+    
     combinados.forEach(c => {
       if (!c) return;
-      const keyId = c.id || c.ID || `${c.presupuestoId || c.presupuesto_id}_${c.certificadoNro || c.certificado_nro}`;
+      const keyId = String(c.id || c.ID || `${c.presupuestoId || c.presupuesto_id}_${c.certificadoNro || c.certificado_nro}` || Math.random());
       if (keyId) map.set(keyId, c);
     });
     return Array.from(map.values());
@@ -136,7 +157,7 @@ export default function CertificacionesTab({
     return allCertificados.filter(c => {
       if (!c) return false;
       const pId = String(c?.presupuestoId || c?.presupuesto_id || c?.id_presupuesto || c?.presupuesto || '').trim();
-      return pId === idSeleccionado || pId.includes(idSeleccionado);
+      return pId === idSeleccionado || pId.includes(idSeleccionado) || idSeleccionado.includes(pId);
     }).sort((a, b) => {
       const nroA = parseInt(a?.certificadoNro || a?.certificado_nro || 0);
       const nroB = parseInt(b?.certificadoNro || b?.certificado_nro || 0);
@@ -292,6 +313,14 @@ export default function CertificacionesTab({
         id: resultado?.id || `cert-${Date.now()}` 
       };
 
+      // Guardar en caché local como seguro
+      try {
+        const cached = localStorage.getItem('sice_certificados_local_cache');
+        const parsedCache = cached ? JSON.parse(cached) : [];
+        parsedCache.unshift(nuevoCertGuardado);
+        localStorage.setItem('sice_certificados_local_cache', JSON.stringify(parsedCache));
+      } catch (e) {}
+
       setFetchedCertificadosLocal(prev => [nuevoCertGuardado, ...prev]);
       if (typeof setFetchedCertificados === 'function') {
         setFetchedCertificados(prev => [nuevoCertGuardado, ...prev]);
@@ -316,6 +345,14 @@ export default function CertificacionesTab({
         body: JSON.stringify({ tabla: 'Certificados', action: 'delete', id: certId })
       });
       
+      try {
+        const cached = localStorage.getItem('sice_certificados_local_cache');
+        if (cached) {
+          const parsedCache = JSON.parse(cached).filter(c => String(c.id) !== String(certId));
+          localStorage.setItem('sice_certificados_local_cache', JSON.stringify(parsedCache));
+        }
+      } catch (e) {}
+
       setFetchedCertificadosLocal(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
       if (typeof setFetchedCertificados === 'function') {
         setFetchedCertificados(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
@@ -610,10 +647,12 @@ export default function CertificacionesTab({
                           <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
                           <span className="font-black text-slate-900 text-sm font-mono">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                         </div>
+
                         <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                           <span className="font-bold text-slate-700">Descuento por Adelanto Financiero ({adelantoPct}%):</span>
                           <span className="font-black text-rose-700 font-mono">- $ {descuentoAdelantoCert.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                         </div>
+
                         <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                           <span className="font-bold text-slate-700">Adicionales Aprobados:</span>
                           <input
@@ -623,6 +662,7 @@ export default function CertificacionesTab({
                             className="w-32 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-emerald-700 outline-none focus:border-amber-500 font-mono"
                           />
                         </div>
+
                         <div className="flex justify-between items-center bg-slate-900 text-white p-3.5 rounded-xl shadow">
                           <span className="font-extrabold text-xs uppercase">TOTAL NETO A CERTIFICAR:</span>
                           <span className="font-black text-base text-amber-400 font-mono">$ {netoACertificar.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
@@ -666,6 +706,7 @@ export default function CertificacionesTab({
                             </div>
                           </div>
                         </div>
+
                         <div className="flex justify-between items-center bg-slate-950 text-white p-4 rounded-xl shadow-md mt-6">
                           <span className="font-extrabold text-xs uppercase">TOTAL GENERAL A CERTIFICAR:</span>
                           <span className="font-black text-lg text-amber-400 font-mono">$ {totalFinalLiquidacion.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
@@ -799,7 +840,10 @@ export default function CertificacionesTab({
       )}
 
       {tipoCertificadoSubTab === 'horas_hombre' && (
-        <CertificadoHorasHombreTab contratosList={contratosList} allReportesSice={allReportesSice} />
+        <CertificadoHorasHombreTab 
+          contratosList={contratosList} 
+          allReportesSice={allReportesSice} 
+        />
       )}
 
       {tipoCertificadoSubTab === 'compra_materiales' && (
