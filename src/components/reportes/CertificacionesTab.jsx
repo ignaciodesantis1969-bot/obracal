@@ -90,6 +90,23 @@ export default function CertificacionesTab({
 
   const resolverRazonSocialCliente = (pObj) => {
     if (!pObj) return '';
+    
+    // 1. Priorizar campos directos que ya vengan en el presupuesto
+    const camposDirectos = [
+      pObj.cliente,
+      pObj.Cliente,
+      pObj.razon_social,
+      pObj.razonSocial,
+      pObj.cliente_nombre,
+      pObj.clienteNombre
+    ];
+    for (let val of camposDirectos) {
+      if (val && typeof val === 'string' && val.trim() !== '' && val.trim() !== '---' && isNaN(val)) {
+        return val.trim();
+      }
+    }
+
+    // 2. Si no está directo, buscar a través de la obra relacionada
     const obraId = pObj.obra_id || pObj.obraId || pObj.id_obra || pObj.obra;
     if (obraId && listaObrasCompleta.length > 0) {
       const obraObj = listaObrasCompleta.find(o => 
@@ -103,7 +120,7 @@ export default function CertificacionesTab({
           const clienteObj = fetchedClientes.find(c => 
             String(c?.id || c?.ID || '') === String(clienteId) ||
             String(c?.codigo || c?.code || '') === String(clienteId) ||
-            String(c?.razon_social || c?.nombre || '') === String(clienteId)
+            String(c?.razon_social || c?.razonSocial || c?.nombre || '') === String(clienteId)
           );
           if (clienteObj) {
             return clienteObj.razon_social || clienteObj.razonSocial || clienteObj.nombre || clienteObj.cliente || '';
@@ -112,9 +129,6 @@ export default function CertificacionesTab({
         if (clienteId && isNaN(clienteId)) return String(clienteId);
       }
     }
-    if (pObj.razon_social && pObj.razon_social !== '---') return String(pObj.razon_social);
-    if (pObj.razonSocial && pObj.razonSocial !== '---') return String(pObj.razonSocial);
-    if (pObj.cliente && pObj.cliente !== '---' && isNaN(pObj.cliente)) return String(pObj.cliente);
     return '';
   };
 
