@@ -21,7 +21,7 @@ export default function ReportesDiariosTab({
   }
 }) {
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
-  const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
+  const { data: reportesSheet, refetch: refetchReportes } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: personalSheet } = useObraData('Personal');
 
   const extraerArrayDatos = (fuente) => {
@@ -60,7 +60,18 @@ export default function ReportesDiariosTab({
 
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
-  const [siceParteNro, setSiceParteNro] = useState('00005');
+  
+  // Cálculo automático del siguiente número de parte basado en el historial real
+  const siceParteNro = useMemo(() => {
+    if (!allReportesSice || allReportesSice.length === 0) return '00001';
+    const numeros = allReportesSice.map(r => {
+      const nroStr = String(buscarValorEnObjeto(r, ['nro', 'Nro', 'numero']) || '0');
+      return parseInt(nroStr.replace(/\D/g, ''), 10) || 0;
+    });
+    const maxNro = Math.max(...numeros, 0);
+    return String(maxNro + 1).padStart(5, '0');
+  }, [allReportesSice, buscarValorEnObjeto]);
+
   const [siceItems, setSiceItems] = useState([
     { id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
   ]);
@@ -267,6 +278,7 @@ export default function ReportesDiariosTab({
         body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', action: 'delete', id: idParte })
       });
       setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
+      if (typeof refetchReportes === 'function') refetchReportes();
       toast.success('Parte diario eliminado exitosamente', { id: toastId });
     } catch (err) {
       toast.error('Ocurrió un error al intentar eliminar el parte', { id: toastId });
@@ -356,7 +368,7 @@ export default function ReportesDiariosTab({
       }
 
       const nuevoParte = {
-        id: `sice-${Date.now()}`,
+        id: resultado?.id || `sice-${Date.now()}`,
         nro: String(siceParteNro),
         fecha: String(siceFecha),
         contratoid: String(contratoSeleccionadoId),
@@ -368,8 +380,10 @@ export default function ReportesDiariosTab({
         pdfUrl: pdfUrlFinal
       };
 
+      // Actualizamos inmediatamente el estado global y forzamos sincronización
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
-      setSiceParteNro(String(Number(siceParteNro) + 1).padStart(5, '0'));
+      if (typeof refetchReportes === 'function') refetchReportes();
+
       setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
       setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
       setSiceRespCliente(prev => ({ ...prev, clave: '' }));
