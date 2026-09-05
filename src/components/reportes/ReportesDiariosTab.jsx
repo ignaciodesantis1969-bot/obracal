@@ -42,20 +42,19 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Unificamos y normalizamos los reportes provenientes de props, hook y localStorage para máxima robustez
+  // Fuente unificada y blindada con localStorage para evitar pérdida visual de datos
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
     const s = extraerArrayDatos(reportesSheet);
     
     let localCache = [];
     try {
-      const cached = localStorage.getItem('sice_partes_local_cache');
+      const cached = localStorage.getItem('sice_partes_local_cache_v2');
       if (cached) localCache = JSON.parse(cached);
     } catch (e) {}
 
     const combinados = [...p, ...s, ...localCache];
     
-    // Eliminar duplicados basándose en el ID o Nro
     const unicosMap = new Map();
     combinados.forEach(item => {
       if (!item) return;
@@ -81,11 +80,11 @@ export default function ReportesDiariosTab({
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
   
-  // Cálculo automático robusto del número de parte basado en el historial completo
+  // Contador autoincrementable robusto basado en el máximo número existente en toda la colección
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
-    const numeros = allReportesSice.map(r => {
-      const nroStr = String(buscarValorEnObjeto(r, ['nro', 'Nro', 'numero', 'Numero']) || '0');
+    const numeros = allReportesSice.map(item => {
+      const nroStr = String(buscarValorEnObjeto(item, ['nro', 'Nro', 'numero', 'Numero']) || '0');
       return parseInt(nroStr.replace(/\D/g, ''), 10) || 0;
     });
     const maxNro = Math.max(...numeros, 0);
@@ -213,7 +212,7 @@ export default function ReportesDiariosTab({
     }
   }, [contratoSeleccionadoId, contratosList, buscarValorEnObjeto, extraerDatosContrato]);
 
-  // Historial normalizado y flexible ante cualquier nombre de columna en la hoja
+  // Historial filtrado de forma inteligente y flexible
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
     if (contratoSeleccionadoId) {
@@ -296,6 +295,16 @@ export default function ReportesDiariosTab({
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', action: 'delete', id: idParte })
       });
+
+      // Actualizamos caché local y estado global
+      try {
+        const cached = localStorage.getItem('sice_partes_local_cache_v2');
+        if (cached) {
+          const parsedCache = JSON.parse(cached).filter(p => String(p.id || p.nro) !== String(idParte));
+          localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(parsedCache));
+        }
+      } catch (e) {}
+
       setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
       if (typeof refetchReportes === 'function') refetchReportes();
       toast.success('Parte diario eliminado exitosamente', { id: toastId });
@@ -399,12 +408,12 @@ export default function ReportesDiariosTab({
         pdfUrl: pdfUrlFinal
       };
 
-      // Guardamos en caché local para garantizar persistencia inmediata en el frontend
+      // Guardar inmediatamente en localStorage para blindar el historial
       try {
-        const cached = localStorage.getItem('sice_partes_local_cache');
+        const cached = localStorage.getItem('sice_partes_local_cache_v2');
         const parsedCache = cached ? JSON.parse(cached) : [];
         parsedCache.unshift(nuevoParte);
-        localStorage.setItem('sice_partes_local_cache', JSON.stringify(parsedCache));
+        localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(parsedCache));
       } catch (e) {}
 
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
