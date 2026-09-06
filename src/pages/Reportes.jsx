@@ -67,12 +67,24 @@ function ReportesContent(props) {
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Proveedores', action: 'get' }) })
       .then(res => res.json()).then(data => setFetchedProveedores(extraerArrayDatos(data))).catch(() => {});
 
-    // 4. Cargar Reportes Diarios SICE utilizando el extractor flexible
-    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesDiariosSice', action: 'get' }) })
-      .then(res => res.json()).then(data => {
+    // 4. Cargar Reportes SICE apuntando a la solapa correcta "ReportesSice"
+    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' }) })
+      .then(res => res.json())
+      .then(data => {
         const arrayReportes = extraerArrayDatos(data);
-        if (arrayReportes.length > 0) setFetchedReportesSice(arrayReportes);
-      }).catch(() => {});
+        if (arrayReportes.length > 0) {
+          setFetchedReportesSice(arrayReportes);
+        } else {
+          // Fallback por si acaso busca con la otra denominación
+          return fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesDiariosSice', action: 'get' }) })
+            .then(res => res.json())
+            .then(dataAlt => {
+              const altReportes = extraerArrayDatos(dataAlt);
+              if (altReportes.length > 0) setFetchedReportesSice(altReportes);
+            });
+        }
+      })
+      .catch(() => {});
   }, []);
 
   const contratosList = useMemo(() => {
