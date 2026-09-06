@@ -59,6 +59,7 @@ function ReportesContent({
 }) {
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
+  const { data: tesoreriaSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.TESORERIA || 'Tesoreria');
 
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
@@ -77,6 +78,10 @@ function ReportesContent({
     if (p.length > 0) return p;
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
+
+  const tesoreriaList = useMemo(() => {
+    return extraerArrayDatos(tesoreriaSheet);
+  }, [tesoreriaSheet]);
 
   const [reportesLocalesExtra, setReportesLocalesExtra] = useState([]);
 
@@ -961,6 +966,7 @@ function ReportesContent({
         <ComparativoTab
           presupuestos={presupuestos}
           facturas={facturas}
+          tesoreria={tesoreriaList}
           allReportesSice={allReportesSice}
           obras={obras}
         />
