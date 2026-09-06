@@ -708,10 +708,20 @@ export default function Rrhh({
         ? `Presupuesto: ${presupuestoSeleccionadoCarga}` 
         : `Contrato Mantenimiento: ${contratoSeleccionadoCarga}`;
 
+      // BUSCAR EL ID DE LA OBRA RELACIONADA AL PRESUPUESTO SELECCIONADO
+      let obraIdAsociada = '';
+      if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
+        const presupuestoEncontrado = safePresupuestos.find(p => String(p.id || p.ID || p.codigo) === String(presupuestoSeleccionadoCarga));
+        if (presupuestoEncontrado) {
+          obraIdAsociada = presupuestoEncontrado.obra_id || presupuestoEncontrado.Obra_id || presupuestoEncontrado.obra || '';
+        }
+      }
+
       // 1. Guardar o actualizar registro de Carga en la tabla "CargasSemanales"
       const payloadCargaHistorial = {
         tipo_proyecto: tipoProyectoCarga,
         presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
+        obra_id: obraIdAsociada, // SE AGREGA PARA EL HISTORIAL
         contrato_mantenimiento_id: tipoProyectoCarga === 'contrato' ? contratoSeleccionadoCarga : '',
         fecha: fechaCarga,
         detalle_personal: JSON.stringify(detalleCargaCalculado),
@@ -752,8 +762,10 @@ export default function Rrhh({
           medio_pago: 'transferencia',
           referencia: 'RRHH',
           rubro: r.rubro,
+          rubro_imputacion: r.rubro,
           tipo_insumo: 'Mano de Obra',
-          presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : ''
+          presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
+          obra_id: obraIdAsociada // SE ENVÍA EL OBRA ID PARA TESORERÍA
         };
 
         await fetch(GOOGLE_SCRIPT_URL, {
@@ -829,6 +841,15 @@ export default function Rrhh({
         ? `Presupuesto: ${presupuestoSeleccionadoCarga}` 
         : `Contrato Mantenimiento: ${contratoSeleccionadoCarga}`;
 
+      // BUSCAR EL ID DE LA OBRA RELACIONADA AL PRESUPUESTO SELECCIONADO
+      let obraIdAsociada = '';
+      if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
+        const presupuestoEncontrado = safePresupuestos.find(p => String(p.id || p.ID || p.codigo) === String(presupuestoSeleccionadoCarga));
+        if (presupuestoEncontrado) {
+          obraIdAsociada = presupuestoEncontrado.obra_id || presupuestoEncontrado.Obra_id || presupuestoEncontrado.obra || '';
+        }
+      }
+
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
@@ -842,8 +863,10 @@ export default function Rrhh({
           medio_pago: 'transferencia',
           referencia: 'RRHH - Cargas Sociales',
           rubro: r.rubro,
+          rubro_imputacion: r.rubro,
           tipo_insumo: 'Mano de Obra',
-          presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : ''
+          presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
+          obra_id: obraIdAsociada // SE ENVÍA EL OBRA ID PARA TESORERÍA
         };
 
         await fetch(GOOGLE_SCRIPT_URL, {
@@ -2068,6 +2091,7 @@ export default function Rrhh({
                     <th className="px-6 py-4">Fecha</th>
                     <th className="px-4 py-4">Tipo Proyecto</th>
                     <th className="px-4 py-4">Destino (Presupuesto / Contrato)</th>
+                    <th className="px-4 py-4">Obra ID</th>
                     <th className="px-4 py-4 text-right">Monto Total ($)</th>
                     <th className="px-6 py-4 text-right">Acciones</th>
                   </tr>
@@ -2080,6 +2104,7 @@ export default function Rrhh({
                     const cContrato = c.contrato_mantenimiento_id || c.Contrato_mantenimiento_id || '---';
                     const cTotal = Number(c.total_general || c.Total_general || 0);
                     const cFecha = c.fecha || c.Fecha || '---';
+                    const cObraId = c.obra_id || c.Obra_id || '---';
 
                     return (
                       <tr key={cId} className="hover:bg-slate-50">
@@ -2091,6 +2116,9 @@ export default function Rrhh({
                         </td>
                         <td className="px-4 py-4 font-semibold text-slate-700">
                           {cTipo === 'OBRA' ? `Presupuesto ID: ${cPresu}` : `Contrato Mantenimiento ID: ${cContrato}`}
+                        </td>
+                        <td className="px-4 py-4 font-mono text-slate-500 text-xs">
+                          {cTipo === 'OBRA' ? cObraId : 'N/A'}
                         </td>
                         <td className="px-4 py-4 text-right font-black text-blue-600">
                           $ {cTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}

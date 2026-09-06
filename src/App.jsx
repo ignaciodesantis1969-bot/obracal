@@ -115,7 +115,7 @@ const AuthenticatedApp = () => {
       });
       const data = await response.json();
       if (data.success) {
-        setGlobalData({
+         setGlobalData({
           facturas: data.facturas || [],
           facturasVenta: data.facturas_venta || data.facturasVenta || [],
           ordenesCompra: data.ordenes_compra || [],
@@ -130,7 +130,9 @@ const AuthenticatedApp = () => {
           maestroTareasRubros: data.maestro_tareas_rubros || data.maestroTareasRubros || [],
           legajos: data.legajos || [],
           contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || [],
-          certificados: data.certificados || data.certificados_emitidos || []
+          certificados: data.certificados || data.certificados_emitidos || [],
+          // ESTA LÍNEA ES CLAVE PARA QUE EL HISTORIAL NO MUESTRE (0)
+          cargasSemanales: data.cargas_semanales || data.cargasSemanales || data.CargasSemanales || [] 
         });
       }
     } catch (error) {
