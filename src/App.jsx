@@ -244,6 +244,7 @@ const AuthenticatedApp = () => {
                       obras={globalData.obras}
                       rubros={globalData.rubros}
                       presupuestos={globalData.presupuestos}
+                      contratosMantenimiento={globalData.contratosMantenimiento}
                       legajosInicial={globalData.legajos}
                       cargarDatos={cargarDatos}
                     />
