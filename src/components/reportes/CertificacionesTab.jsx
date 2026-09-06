@@ -7,15 +7,10 @@ import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
 export default function CertificacionesTab({
   presupuestos = [],
   obras = [],
-  certificados = [], 
-  certificadosProps = [],
-  fetchedCertificados = [],
-  historial = [],
-  setFetchedCertificados = () => {},
   allReportesSice = [],
   facturas = [],
   contratosList = [],
-  ...props
+  ...props // Intercepta cualquier prop adicional que envíe App.jsx (certificados, data, historial, etc.)
 }) {
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
@@ -49,10 +44,20 @@ export default function CertificacionesTab({
     return [];
   };
 
-  // NOTA CLAVE: Se eliminó el useEffect que hacía un fetch(POST) al cargar el componente. 
-  // Esto evitará 100% la creación de registros fantasma en Sheets y Drive.
+  // Petición GET segura para evitar disparar el bug de guardado (doPost) en tu Google Apps Script
+  useEffect(() => {
+    fetch(`${GOOGLE_SCRIPT_URL}?tabla=Certificados&action=get`)
+      .then(res => res.json())
+      .then(data => { 
+        const arr = extraerArrayDatos(data);
+        if (arr.length > 0) {
+          setFetchedCertificadosLocal(arr);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
-  // Unificamos el historial atrapando cualquier variable que envíe el componente Padre
+  // Consolidación de todas las posibles fuentes de historial
   const allCertificados = useMemo(() => {
     let localCache = [];
     try {
@@ -61,12 +66,12 @@ export default function CertificacionesTab({
     } catch (e) {}
 
     const combinados = [
-      ...extraerArrayDatos(certificados),
-      ...extraerArrayDatos(certificadosProps),
-      ...extraerArrayDatos(fetchedCertificados),
+      ...extraerArrayDatos(props.certificados),
+      ...extraerArrayDatos(props.certificadosProps),
+      ...extraerArrayDatos(props.fetchedCertificados),
+      ...extraerArrayDatos(props.historial),
+      ...extraerArrayDatos(props.data),
       ...extraerArrayDatos(fetchedCertificadosLocal),
-      ...extraerArrayDatos(historial),
-      ...extraerArrayDatos(props.certificadosEmitidos),
       ...localCache
     ];
     
@@ -80,7 +85,7 @@ export default function CertificacionesTab({
       }
     });
     return Array.from(map.values());
-  }, [certificados, certificadosProps, fetchedCertificados, fetchedCertificadosLocal, historial, props]);
+  }, [props, fetchedCertificadosLocal]);
 
   const certificadoPresupuestoObj = useMemo(() => {
     if (!certPresupuestoId) return null;
@@ -114,7 +119,7 @@ export default function CertificacionesTab({
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
 
-  // Mapeo exacto de Responsables desde las columnas de Presupuestos
+  // Extracción exacta de Responsables desde las columnas de Presupuestos
   useEffect(() => {
     if (certificadoPresupuestoObj) {
       const razonSocialCliente = certificadoPresupuestoObj.cliente || 
@@ -135,7 +140,7 @@ export default function CertificacionesTab({
     }
   }, [certificadoPresupuestoObj]);
 
-  // Cálculo automático del siguiente número de certificado basado en Sheets
+  // Cálculo automático del siguiente número de certificado basado en el historial real
   useEffect(() => {
     if (certPresupuestoId) {
       if (certificadosDelPresupuestoActual.length > 0) {
@@ -226,7 +231,7 @@ export default function CertificacionesTab({
     return { filasRender, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
-  // GUARDADO ESTRICTAMENTE MANUAL
+  // GUARDADO ESTRICTAMENTE MANUAL VÍA POST
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
     if (!certificadoPresupuestoObj) {
@@ -289,8 +294,8 @@ export default function CertificacionesTab({
       } catch (e) {}
 
       setFetchedCertificadosLocal(prev => [nuevoCertGuardado, ...prev]);
-      if (typeof setFetchedCertificados === 'function') {
-        setFetchedCertificados(prev => [nuevoCertGuardado, ...prev]);
+      if (typeof props.setFetchedCertificados === 'function') {
+        props.setFetchedCertificados(prev => [nuevoCertGuardado, ...prev]);
       }
       
       toast.success("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!", { id: toastId });
@@ -320,8 +325,8 @@ export default function CertificacionesTab({
       } catch (e) {}
 
       setFetchedCertificadosLocal(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
-      if (typeof setFetchedCertificados === 'function') {
-        setFetchedCertificados(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
+      if (typeof props.setFetchedCertificados === 'function') {
+        props.setFetchedCertificados(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
       }
       toast.success("Certificado eliminado.", { id: toastId });
     } catch (err) { 
@@ -619,7 +624,7 @@ export default function CertificacionesTab({
                 })()}
               </div>
 
-              {/* BLOQUE DE FIRMAS EXTRAÍDAS DE PRESUPUESTOS Y EDITABLES */}
+              {/* BLOQUE DE FIRMAS */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 print:mt-10">
                 <div className="border border-slate-400 rounded-lg overflow-hidden bg-white">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
