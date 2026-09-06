@@ -79,7 +79,7 @@ export default function Rrhh({
   const [cuadrillaItems, setCuadrillaItems] = useState([]);
   const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 0 });
 
-  // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS (AHORA CON SOPORTE PARA EDITAR/HISTORIAL Y CONTRATOS DE MANTENIMIENTO)
+  // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS
   const [editingCargaId, setEditingCargaId] = useState(null);
   const [tipoProyectoCarga, setTipoProyectoCarga] = useState('obra'); // 'obra' | 'contrato'
   const [presupuestoSeleccionadoCarga, setPresupuestoSeleccionadoCarga] = useState('');
@@ -129,13 +129,13 @@ export default function Rrhh({
     return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado || estado === '';
   });
 
-  // 1. FILTRADO CORRECTO DE CONTRATOS ACTIVOS (SOPORTANDO estado, Estado Y status)
+  // Filtrado ROBUSTO Y FLEXIBLE DE CONTRATOS ACTIVOS/APROBADOS
   const contratosActivos = safeContratos.filter(c => {
-    const estado = String(c.estado || c.Estado || c.status || '').toLowerCase();
-    return estado.includes('activo') || estado === '' || estado.includes('vigente');
+    const estado = String(c.estado || c.Estado || c.status || c.Status || '').toLowerCase();
+    return estado.includes('activo') || estado.includes('vigente') || estado.includes('aprobado') || estado.includes('curso') || estado === '';
   });
 
-  // 2. OBTENER RUBROS DISPONIBLES (Restricción estricta a "Horas trabajadas" si es contrato de mantenimiento)
+  // Obtener rubros disponibles (Restricción estricta a "Horas trabajadas" si es contrato de mantenimiento)
   const rubrosDisponiblesPresupuesto = React.useMemo(() => {
     if (tipoProyectoCarga === 'contrato') {
       return ['Horas trabajadas'];
@@ -1757,7 +1757,6 @@ export default function Rrhh({
                     checked={tipoProyectoCarga === 'obra'} 
                     onChange={() => {
                       setTipoProyectoCarga('obra');
-                      // Resetear rubros si pasa a obra para evitar mantener "Horas trabajadas"
                       setDistribucionRubros([{ id: Date.now(), rubro: '', porcentaje: 100 }]);
                     }} 
                     className="accent-amber-500"
@@ -1771,7 +1770,6 @@ export default function Rrhh({
                     checked={tipoProyectoCarga === 'contrato'} 
                     onChange={() => {
                       setTipoProyectoCarga('contrato');
-                      // Forzar restrictivamente a "Horas trabajadas" al cambiar a contrato
                       setDistribucionRubros([{ id: Date.now(), rubro: 'Horas trabajadas', porcentaje: 100 }]);
                     }} 
                     className="accent-amber-500"
@@ -2050,7 +2048,6 @@ export default function Rrhh({
       {/* MÓDULO HISTORIAL DE CARGAS REALIZADAS (CargasSemanales) */}
       {activeTab === 'historial_carga' && (
         <div className="space-y-6">
-          {/* 3. ELIMINACIÓN TOTAL DEL BOTÓN "NUEVA CARGA" EN LA SOLAPA HISTORIAL */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Cargas Realizadas (CargasSemanales)</h3>
