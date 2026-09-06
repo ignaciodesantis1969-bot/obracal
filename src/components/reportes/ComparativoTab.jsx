@@ -27,6 +27,53 @@ export default function ComparativoTab({
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   };
 
+  const resolverTipoInsumoOficial = (tipoRaw) => {
+    const t = limpiarTexto(tipoRaw);
+    if (t.includes('mano') || t.includes('obra')) return 'Mano de Obra';
+    if (t.includes('equipo') || t.includes('maquinaria') || t.includes('herramienta')) return 'Equipos';
+    if (t.includes('subcontrato') || t.includes('servicio')) return 'Subcontratos';
+    if (t.includes('gasto') || t.includes('general') || t.includes('imprevisto')) return 'Gastos Generales';
+    return 'Materiales';
+  };
+
+  // Mapa global de insumos del presupuesto seleccionado para saber qué tipo le corresponde a cada gasto/factura si falta el dato
+  const mapaInsumosPresupuesto = useMemo(() => {
+    if (!presupuestoSeleccionado) return {};
+    let rawDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle || presupuestoSeleccionado?.rubros || [];
+    if (typeof rawDetalle === 'string') {
+      try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = []; }
+    }
+    let rubrosList = rawDetalle?.rubros || rawDetalle;
+    if (typeof rubrosList === 'string') {
+      try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; }
+    }
+    if (!Array.isArray(rubrosList)) rubrosList = [rubrosList];
+
+    const map = {};
+    rubrosList.forEach(r => {
+      let tareasList = r?.tareas || r?.items || [];
+      if (typeof tareasList === 'string') {
+        try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
+      }
+      if (Array.isArray(tareasList)) {
+        tareasList.forEach(t => {
+          let insList = t?.insumos || t?.materiales || [];
+          if (typeof insList === 'string') {
+            try { insList = JSON.parse(insList); } catch { insList = []; }
+          }
+          if (Array.isArray(insList)) {
+            insList.forEach(ins => {
+              const nombreIns = limpiarTexto(ins?.nombre || ins?.descripcion || t?.tarea || '');
+              const tipoIns = ins?.tipo || ins?.categoria || t?.tipo || 'Materiales';
+              if (nombreIns) map[nombreIns] = resolverTipoInsumoOficial(tipoIns);
+            });
+          }
+        });
+      }
+    });
+    return map;
+  }, [presupuestoSeleccionado]);
+
   const analisisRubrosDetallado = useMemo(() => {
     if (!presupuestoSeleccionado) return [];
 
@@ -89,13 +136,8 @@ export default function ComparativoTab({
             totalRubroPresupuestado += tareaTotal;
           } else {
             insumosList.forEach(ins => {
-              const catOriginal = limpiarTexto(ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales');
-              let catDestino = 'Materiales';
-
-              if (catOriginal.includes('mano') || catOriginal.includes('obra')) catDestino = 'Mano de Obra';
-              else if (catOriginal.includes('equipo') || catOriginal.includes('herramienta')) catDestino = 'Equipos';
-              else if (catOriginal.includes('subcontrato')) catDestino = 'Subcontratos';
-              else if (catOriginal.includes('gasto') || catOriginal.includes('general')) catDestino = 'Gastos Generales';
+              const catOriginal = ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales';
+              const catDestino = resolverTipoInsumoOficial(catOriginal);
 
               const insTotal = Number(ins?.total || (Number(ins?.cantidad || 1) * Number(ins?.costo_unitario || ins?.precio || 0)));
               categoriasMap[catDestino].presupuestado += insTotal;
@@ -115,7 +157,7 @@ export default function ComparativoTab({
       });
       categoriasMap['Mano de Obra'].real += (totalHsSice * valorHoraReferencia);
 
-      // 3. CARGA DE REAL IMPUTADO DESDE FACTURAS (Búsqueda exhaustiva)
+      // 3. CARGA DE REAL IMPUTADO DESDE FACTURAS CON DOBLE VALIDACIÓN INTELIGENTE
       const pIdActual = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.codigo || '').trim();
       const facturasRubro = facturas.filter(f => {
         const fPresupuesto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
@@ -126,6 +168,7 @@ export default function ComparativoTab({
       });
 
       facturasRubro.forEach(f => {
+        // Buscamos en todas las propiedades posibles de la factura
         const tipoFacturaRaw = f?.tipo_insumo || 
                                f?.tipoInsumo || 
                                f?.tipo || 
@@ -133,19 +176,16 @@ export default function ComparativoTab({
                                f?.categoria || 
                                f?.rubro_insumo || '';
 
-        const tClean = limpiarTexto(tipoFacturaRaw);
-        let catDestino = 'Materiales';
+        let catDestino = resolverTipoInsumoOficial(tipoFacturaRaw);
 
-        if (tClean.includes('mano') || tClean.includes('obra')) {
-          catDestino = 'Mano de Obra';
-        } else if (tClean.includes('equipo') || tClean.includes('maquinaria') || tClean.includes('herramienta')) {
-          catDestino = 'Equipos';
-        } else if (tClean.includes('subcontrato') || tClean.includes('servicio')) {
-          catDestino = 'Subcontratos';
-        } else if (tClean.includes('gasto') || tClean.includes('general') || tClean.includes('imprevisto')) {
-          catDestino = 'Gastos Generales';
-        } else {
-          catDestino = 'Materiales';
+        // Si la factura no trajo un tipo claro, consultamos si el detalle o concepto coincide con algún insumo del presupuesto
+        if (catDestino === 'Materiales' && !tipoFacturaRaw) {
+          const detalleFactura = limpiarTexto(f?.detalle_gasto || f?.concepto || f?.observaciones || '');
+          Object.keys(mapaInsumosPresupuesto).forEach(keyIns => {
+            if (detalleFactura.includes(keyIns)) {
+              catDestino = mapaInsumosPresupuesto[keyIns];
+            }
+          });
         }
 
         const montoFac = Number(f?.subtotal || f?.total || 0);
@@ -170,7 +210,7 @@ export default function ComparativoTab({
         categorias: categoriasMap
       };
     });
-  }, [presupuestoSeleccionado, allReportesSice, facturas, ordenCategorias]);
+  }, [presupuestoSeleccionado, allReportesSice, facturas, ordenCategorias, mapaInsumosPresupuesto]);
 
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
