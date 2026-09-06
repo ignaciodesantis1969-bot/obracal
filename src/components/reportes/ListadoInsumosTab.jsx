@@ -47,6 +47,7 @@ export default function ListadoInsumosTab({
       .catch(() => {});
   }, []);
 
+  // Mapeo unificado y seguro de proveedores utilizando el ID o código correspondiente
   const proveedoresList = useMemo(() => {
     const combinados = [...propProveedores, ...(Array.isArray(proveedoresSheet) ? proveedoresSheet : []), ...fetchedProveedoresLocal];
     const map = {};
@@ -54,12 +55,15 @@ export default function ListadoInsumosTab({
       if (!p) return;
       const pId = String(p.id || p.ID || p.codigo || '').trim();
       const pNombre = p.razon_social || p.nombre || p.nombre_proveedor || '';
-      if (pId) map[pId] = pNombre;
+      if (pId && pNombre) {
+        map[pId] = pNombre;
+        map[pId.toLowerCase()] = pNombre;
+      }
     });
     return map;
   }, [propProveedores, proveedoresSheet, fetchedProveedoresLocal]);
 
-  // Mapeo exacto basado estrictamente en el maestro de insumos y su columna tipo oficial
+  // Maestro de insumos enlazado directamente con su tipo oficial y su proveedor real
   const maestroInsumosMap = useMemo(() => {
     const combinados = [...propInsumos, ...(Array.isArray(insumosSheet) ? insumosSheet : []), ...fetchedInsumosLocal];
     const map = {};
@@ -69,15 +73,17 @@ export default function ListadoInsumosTab({
       const nombre = String(ins.nombre || ins.Nombre || '').trim().toLowerCase();
       
       let tipoOficial = String(ins.tipo || ins.Tipo || ins.categoria || ins.rubro || 'Materiales').trim();
-      // Normalizar nombres de categorías por si hay variantes en mayúsculas/minúsculas o singulares/plurales
-      if (tipoOficial.toLowerCase().includes('mano')) tipoOficial = 'Mano de Obra';
-      else if (tipoOficial.toLowerCase().includes('equipo')) tipoOficial = 'Equipos';
-      else if (tipoOficial.toLowerCase().includes('subcontrato')) tipoOficial = 'Subcontratos';
-      else if (tipoOficial.toLowerCase().includes('gasto')) tipoOficial = 'Gastos Generales';
-      else if (tipoOficial.toLowerCase().includes('material')) tipoOficial = 'Materiales';
+      const tLower = tipoOficial.toLowerCase();
+      
+      if (tLower.includes('mano')) tipoOficial = 'Mano de Obra';
+      else if (tLower.includes('equipo') || tLower.includes('maquinaria')) tipoOficial = 'Equipos';
+      else if (tLower.includes('subcontrato')) tipoOficial = 'Subcontratos';
+      else if (tLower.includes('gasto') || tLower.includes('general')) tipoOficial = 'Gastos Generales';
+      else tipoOficial = 'Materiales';
 
       const provId = String(ins.proveedor_id || ins.proveedorId || ins.proveedor || '').trim();
-      const proveedorNombre = proveedoresList[provId] || provId || 'Sin Proveedor';
+      // Resuelve el nombre del proveedor desde el listado unificado o asigna el texto existente si ya venía poblado
+      const proveedorNombre = proveedoresList[provId] || proveedoresList[provId.toLowerCase()] || (isNaN(provId) && provId ? provId : 'Sin Proveedor');
 
       const infoInsumo = {
         tipo: tipoOficial,
@@ -151,14 +157,16 @@ export default function ListadoInsumosTab({
             const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
             const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
 
-            // Uso estricto del tipo definido en la base de datos maestra (evitando adivinanza por texto)
             let catDestino = maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || 'Materiales';
             if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
+
+            const provItemRaw = String(t?.proveedor_id || t?.proveedor || '').trim();
+            const provFinal = proveedoresList[provItemRaw] || proveedoresList[provItemRaw.toLowerCase()] || maestroInfo.proveedor || (isNaN(provItemRaw) && provItemRaw ? provItemRaw : 'Sin Proveedor');
 
             catsMap[catDestino].push({
               tarea: t?.descripcion || t?.tarea || 'Labor general',
               nombre: t?.descripcion || t?.tarea || 'Ítem general',
-              proveedor: maestroInfo.proveedor || t?.proveedor || 'Sin Proveedor',
+              proveedor: provFinal,
               unidad: maestroInfo.unidad || t?.unidad || 'un',
               cantidad: Number(t?.cantidad || t?.cant || 1),
               costo_unitario: Number(maestroInfo.costo_unitario || t?.costo_unitario || t?.precio_unitario || 0),
@@ -173,7 +181,9 @@ export default function ListadoInsumosTab({
               let catDestino = maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales';
               if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
 
-              const provFinal = maestroInfo.proveedor || ins?.proveedor || 'Sin Proveedor';
+              const provInsRaw = String(ins?.proveedor_id || ins?.proveedor || '').trim();
+              const provFinal = proveedoresList[provInsRaw] || proveedoresList[provInsRaw.toLowerCase()] || maestroInfo.proveedor || (isNaN(provInsRaw) && provInsRaw ? provInsRaw : 'Sin Proveedor');
+
               const costoU = Number(maestroInfo.costo_unitario || ins?.costo_unitario || ins?.precio || 0);
               const cant = Number(ins?.cantidad || ins?.cant || 1);
 
@@ -194,7 +204,7 @@ export default function ListadoInsumosTab({
     });
 
     return mapRubros;
-  }, [presupuestoInsumosSeleccionado, ordenCategorias, maestroInsumosMap]);
+  }, [presupuestoInsumosSeleccionado, ordenCategorias, maestroInsumosMap, proveedoresList]);
 
   const insumosGenerales = useMemo(() => {
     const catsMap = {};
