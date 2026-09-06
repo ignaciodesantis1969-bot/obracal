@@ -1,16 +1,94 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { Package, FileText, Printer, Filter, ArrowUpDown } from 'lucide-react';
+import { useObraData } from '../../hooks/useObraData';
 
 export default function ListadoInsumosTab({
-  presupuestos = []
+  presupuestos = [],
+  insumos: propInsumos = [],
+  proveedores: propProveedores = []
 }) {
   const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
   const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(true);
   const [isSavingInsumosPdf, setIsSavingInsumosPdf] = useState(false);
   const [proveedorFiltro, setProveedorFiltro] = useState('');
-  const [ordenPrecio, setOrdenPrecio] = useState('nombre'); // 'nombre', 'mayorPrecio', 'menorPrecio'
+  const [ordenPrecio, setOrdenPrecio] = useState('nombre');
+
+  // Hooks y fetch de respaldo para Insumos y Proveedores desde Google Sheets
+  const { data: insumosSheet } = useObraData('Insumos');
+  const { data: proveedoresSheet } = useObraData('Proveedores');
+
+  const [fetchedInsumosLocal, setFetchedInsumosLocal] = useState([]);
+  const [fetchedProveedoresLocal, setFetchedProveedoresLocal] = useState([]);
+
+  useEffect(() => {
+    // Fetch directo a Insumos
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'Insumos', action: 'get' })
+    })
+      .then(res => res.json())
+      .then(data => {
+        const arr = Array.isArray(data) ? data : (data?.data || data?.items || Object.values(data).find(v => Array.isArray(v)) || []);
+        if (arr.length > 0) setFetchedInsumosLocal(arr);
+      })
+      .catch(() => {});
+
+    // Fetch directo a Proveedores
+    fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ tabla: 'Proveedores', action: 'get' })
+    })
+      .then(res => res.json())
+      .then(data => {
+        const arr = Array.isArray(data) ? data : (data?.data || data?.items || Object.values(data).find(v => Array.isArray(v)) || []);
+        if (arr.length > 0) setFetchedProveedoresLocal(arr);
+      })
+      .catch(() => {});
+  }, []);
+
+  // Consolidación de proveedores para cruzar proveedor_id con razón social
+  const proveedoresList = useMemo(() => {
+    const combinados = [...propProveedores, ...(Array.isArray(proveedoresSheet) ? proveedoresSheet : []), ...fetchedProveedoresLocal];
+    const map = {};
+    combinados.forEach(p => {
+      if (!p) return;
+      const pId = String(p.id || p.ID || p.codigo || '').trim();
+      const pNombre = p.razon_social || p.nombre || p.nombre_proveedor || '';
+      if (pId) map[pId] = pNombre;
+    });
+    return map;
+  }, [propProveedores, proveedoresSheet, fetchedProveedoresLocal]);
+
+  // Consolidación del maestro de insumos para obtener el tipo de la columna D
+  const maestroInsumosMap = useMemo(() => {
+    const combinados = [...propInsumos, ...(Array.isArray(insumosSheet) ? insumosSheet : []), ...fetchedInsumosLocal];
+    const map = {};
+    combinados.forEach(ins => {
+      if (!ins) return;
+      const codigo = String(ins.codigo || ins.Codigo || ins.id || '').trim().toLowerCase();
+      const nombre = String(ins.nombre || ins.Nombre || '').trim().toLowerCase();
+      
+      // Columna D: tipo
+      const tipoColD = ins.tipo || ins.Tipo || ins.categoria || ins.rubro || '';
+      const provId = String(ins.proveedor_id || ins.proveedorId || ins.proveedor || '').trim();
+      const proveedorNombre = proveedoresList[provId] || provId || 'Sin Proveedor';
+
+      const infoInsumo = {
+        tipo: tipoColD,
+        proveedor: proveedorNombre,
+        unidad: ins.unidad || ins.unid || 'un',
+        costo_unitario: Number(ins.costo_unitario || ins.precio || 0)
+      };
+
+      if (codigo) map[codigo] = infoInsumo;
+      if (nombre) map[nombre] = infoInsumo;
+    });
+    return map;
+  }, [propInsumos, insumosSheet, fetchedInsumosLocal, proveedoresList]);
 
   const ordenCategorias = useMemo(() => ['Mano de Obra', 'Materiales', 'Equipos', 'Subcontratos', 'Gastos Generales', 'Varios'], []);
 
@@ -29,13 +107,6 @@ export default function ListadoInsumosTab({
   const limpiarTexto = (str) => {
     if (!str) return '';
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-  };
-
-  const extraerProveedor = (obj1, obj2 = {}, obj3 = {}) => {
-    const prov = obj1?.proveedor || obj1?.Proveedor || obj1?.proveedor_nombre || obj1?.nombre_proveedor || obj1?.empresa || obj1?.razon_social ||
-                 obj2?.proveedor || obj2?.Proveedor || obj2?.proveedor_nombre || obj2?.nombre_proveedor || obj2?.empresa || obj2?.razon_social ||
-                 obj3?.proveedor || obj3?.Proveedor || obj3?.proveedor_nombre || obj3?.nombre_proveedor || obj3?.empresa || obj3?.razon_social;
-    return prov ? String(prov).trim() : 'Sin Proveedor';
   };
 
   const insumosPorRubro = useMemo(() => {
@@ -62,7 +133,6 @@ export default function ListadoInsumosTab({
     const mapRubros = {};
     rubrosList.forEach((r, rIdx) => {
       const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
-      const provRubro = extraerProveedor(r);
       
       let tareasList = r?.tareas || r?.items || r?.subitems || [];
       if (typeof tareasList === 'string') {
@@ -74,45 +144,60 @@ export default function ListadoInsumosTab({
 
       if (Array.isArray(tareasList)) {
         tareasList.forEach(t => {
-          const provTarea = extraerProveedor(t, r);
           let insumosList = t?.insumos || t?.materiales || t?.detalle_insumos || [];
           if (typeof insumosList === 'string') {
             try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
           }
 
           if (!Array.isArray(insumosList) || insumosList.length === 0) {
-            const esManoDeObra = limpiarTexto(t?.descripcion || '').includes('mano de obra') || limpiarTexto(t?.unidad || '').includes('hs') || limpiarTexto(t?.unidad || '').includes('dia');
-            const catDestino = esManoDeObra ? 'Mano de Obra' : 'Materiales';
+            const codigoT = String(t?.codigo || t?.Cod || '').trim().toLowerCase();
+            const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
+            const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
+
+            const tipoMaestro = limpiarTexto(maestroInfo.tipo || '');
+            let catDestino = 'Materiales';
+            if (tipoMaestro.includes('mano')) catDestino = 'Mano de Obra';
+            else if (tipoMaestro.includes('equipo')) catDestino = 'Equipos';
+            else if (tipoMaestro.includes('subcontrato')) catDestino = 'Subcontratos';
+            else if (tipoMaestro.includes('gasto') || tipoMaestro.includes('general')) catDestino = 'Gastos Generales';
+            else if (tipoMaestro.includes('vario')) catDestino = 'Varios';
 
             catsMap[catDestino].push({
               tarea: t?.descripcion || t?.tarea || 'Labor general',
               nombre: t?.descripcion || t?.tarea || 'Ítem general',
-              proveedor: provTarea,
-              unidad: t?.unidad || 'un',
+              proveedor: maestroInfo.proveedor || 'Sin Proveedor',
+              unidad: maestroInfo.unidad || t?.unidad || 'un',
               cantidad: Number(t?.cantidad || t?.cant || 1),
-              costo_unitario: Number(t?.costo_unitario || t?.precio_unitario || t?.unitario || t?.total || 0),
-              total: Number(t?.total || (Number(t?.cantidad || t?.cant || 1) * Number(t?.costo_unitario || t?.precio_unitario || t?.unitario || 0)))
+              costo_unitario: Number(maestroInfo.costo_unitario || t?.costo_unitario || t?.precio_unitario || 0),
+              total: Number(t?.total || (Number(t?.cantidad || t?.cant || 1) * Number(maestroInfo.costo_unitario || t?.costo_unitario || 0)))
             });
           } else {
             insumosList.forEach(ins => {
-              const provInsumo = extraerProveedor(ins, t, r);
-              const catOriginal = limpiarTexto(ins?.categoria || ins?.tipo || 'Materiales');
+              const codigoIns = String(ins?.codigo || ins?.Cod || '').trim().toLowerCase();
+              const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim().toLowerCase();
+              const maestroInfo = maestroInsumosMap[codigoIns] || maestroInsumosMap[nombreIns] || {};
+
+              const tipoMaestro = limpiarTexto(maestroInfo.tipo || ins?.tipo || ins?.categoria || 'Materiales');
               let catDestino = 'Materiales';
               
-              if (catOriginal.includes('mano') || catOriginal.includes('obra')) catDestino = 'Mano de Obra';
-              else if (catOriginal.includes('equipo') || catOriginal.includes('herramienta')) catDestino = 'Equipos';
-              else if (catOriginal.includes('subcontrato')) catDestino = 'Subcontratos';
-              else if (catOriginal.includes('gasto') || catOriginal.includes('general')) catDestino = 'Gastos Generales';
-              else if (catOriginal.includes('vario')) catDestino = 'Varios';
+              if (tipoMaestro.includes('mano') || tipoMaestro.includes('obra')) catDestino = 'Mano de Obra';
+              else if (tipoMaestro.includes('equipo') || tipoMaestro.includes('herramienta')) catDestino = 'Equipos';
+              else if (tipoMaestro.includes('subcontrato')) catDestino = 'Subcontratos';
+              else if (tipoMaestro.includes('gasto') || tipoMaestro.includes('general') || tipoMaestro.includes('gg')) catDestino = 'Gastos Generales';
+              else if (tipoMaestro.includes('vario')) catDestino = 'Varios';
+
+              const provFinal = maestroInfo.proveedor || ins?.proveedor || 'Sin Proveedor';
+              const costoU = Number(maestroInfo.costo_unitario || ins?.costo_unitario || ins?.precio || 0);
+              const cant = Number(ins?.cantidad || ins?.cant || 1);
 
               catsMap[catDestino].push({
                 tarea: t?.descripcion || t?.tarea || 'Labor',
                 nombre: ins?.nombre || ins?.descripcion || 'Insumo',
-                proveedor: provInsumo,
-                unidad: ins?.unidad || 'un',
-                cantidad: Number(ins?.cantidad || ins?.cant || 1),
-                costo_unitario: Number(ins?.costo_unitario || ins?.precio || 0),
-                total: Number(ins?.total || (Number(ins?.cantidad || 1) * Number(ins?.costo_unitario || 0)))
+                proveedor: provFinal,
+                unidad: maestroInfo.unidad || ins?.unidad || 'un',
+                cantidad: cant,
+                costo_unitario: costoU,
+                total: Number(ins?.total || (cant * costoU))
               });
             });
           }
@@ -122,7 +207,7 @@ export default function ListadoInsumosTab({
     });
 
     return mapRubros;
-  }, [presupuestoInsumosSeleccionado, ordenCategorias]);
+  }, [presupuestoInsumosSeleccionado, ordenCategorias, maestroInsumosMap]);
 
   const insumosGenerales = useMemo(() => {
     const catsMap = {};
@@ -137,17 +222,17 @@ export default function ListadoInsumosTab({
     return catsMap;
   }, [insumosPorRubro, ordenCategorias]);
 
-  // Lista única de proveedores para el filtro
   const listaProveedoresUnicos = useMemo(() => {
     const provSet = new Set();
     Object.values(insumosGenerales).forEach(lista => {
       lista.forEach(it => {
-        if (it?.proveedor && it.proveedor !== 'Sin Proveedor') {
-          provSet.add(it.proveedor);
+        const p = String(it?.proveedor || '').trim();
+        if (p && p !== '' && p.toLowerCase() !== 'sin proveedor') {
+          provSet.add(p);
         }
       });
     });
-    return Array.from(provSet).sort();
+    return Array.from(provSet).sort((a, b) => a.localeCompare(b));
   }, [insumosGenerales]);
 
   const exportarInsumosPDF = async () => {
@@ -159,7 +244,7 @@ export default function ListadoInsumosTab({
     const toastId = toast.loading('Generando PDF de Insumos en Drive...');
     try {
       const payload = {
-        action: 'guardarYGenerarPDF',
+        action: 'guardarYGenerarPDFInsumos',
         tabla: 'InsumosPresupuesto',
         presupuesto_id: String(insumoPresupuestoId),
         obra: presupuestoInsumosSeleccionado?.nombre || presupuestoInsumosSeleccionado?.nombre_obra || 'Insumos Obra',
@@ -199,7 +284,7 @@ export default function ListadoInsumosTab({
           <select
             value={insumoPresupuestoId}
             onChange={(e) => setInsumoPresupuestoId(e.target.value)}
-            className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[260px]"
+            className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[240px]"
           >
             <option value="">-- Seleccionar Presupuesto ({presupuestosAprobados.length} disp.) --</option>
             {presupuestosAprobados.map(p => {
@@ -214,13 +299,12 @@ export default function ListadoInsumosTab({
             })}
           </select>
 
-          {/* Filtro por Proveedor */}
           <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5">
             <Filter className="w-3.5 h-3.5 text-slate-400" />
             <select
               value={proveedorFiltro}
               onChange={(e) => setProveedorFiltro(e.target.value)}
-              className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer"
+              className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer max-w-[180px]"
             >
               <option value="">-- Todos los Proveedores --</option>
               {listaProveedoresUnicos.map(prov => (
@@ -229,7 +313,6 @@ export default function ListadoInsumosTab({
             </select>
           </div>
 
-          {/* Ordenamiento por Precio / Nombre */}
           <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5">
             <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
             <select
@@ -238,8 +321,8 @@ export default function ListadoInsumosTab({
               className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer"
             >
               <option value="nombre">Ordenar por Nombre</option>
-              <option value="mayorPrecio">Mayor Precio (C. Unit.)</option>
-              <option value="menorPrecio">Menor Precio (C. Unit.)</option>
+              <option value="mayorPrecioTotal">Mayor Precio Total ($)</option>
+              <option value="menorPrecioTotal">Menor Precio Total ($)</option>
             </select>
           </div>
 
@@ -287,7 +370,6 @@ export default function ListadoInsumosTab({
           {ordenCategorias.map(cat => {
             const itemsCat = insumosGenerales[cat] || [];
             
-            // Aplicar filtro de proveedor si está seleccionado
             const itemsFiltrados = proveedorFiltro 
               ? itemsCat.filter(it => String(it?.proveedor).toLowerCase() === proveedorFiltro.toLowerCase())
               : itemsCat;
@@ -319,10 +401,9 @@ export default function ListadoInsumosTab({
               costo_unitario: item.cantidad > 0 ? item.total / item.cantidad : item.costo_unitario
             }));
 
-            // Ordenamiento por Precio o Nombre
             itemsAgrupados.sort((a, b) => {
-              if (ordenPrecio === 'mayorPrecio') return b.costo_unitario - a.costo_unitario;
-              if (ordenPrecio === 'menorPrecio') return a.costo_unitario - b.costo_unitario;
+              if (ordenPrecio === 'mayorPrecioTotal') return b.total - a.total;
+              if (ordenPrecio === 'menorPrecioTotal') return a.total - b.total;
               return a.nombre.localeCompare(b.nombre);
             });
 
@@ -342,7 +423,7 @@ export default function ListadoInsumosTab({
                       <th className="py-2.5 px-4 text-center">Unidad</th>
                       <th className="py-2.5 px-4 text-right">Cant.</th>
                       <th className="py-2.5 px-4 text-right">C. Unit.</th>
-                      <th className="py-2.5 px-4 text-right">Total</th>
+                      <th className="py-2.5 px-4 text-right">Total ($)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -382,12 +463,9 @@ export default function ListadoInsumosTab({
                   }
                   if (itemsCat.length === 0) return null;
                   
-                  // Ordenamiento
                   itemsCat.sort((a, b) => {
-                    const uA = a.cantidad > 0 ? a.total / a.cantidad : a.costo_unitario;
-                    const uB = b.cantidad > 0 ? b.total / b.cantidad : b.costo_unitario;
-                    if (ordenPrecio === 'mayorPrecio') return uB - uA;
-                    if (ordenPrecio === 'menorPrecio') return uA - uB;
+                    if (ordenPrecio === 'mayorPrecioTotal') return b.total - a.total;
+                    if (ordenPrecio === 'menorPrecioTotal') return a.total - b.total;
                     return a.nombre.localeCompare(b.nombre);
                   });
 
@@ -409,7 +487,7 @@ export default function ListadoInsumosTab({
                             <th className="py-2 px-4 text-center">Unidad</th>
                             <th className="py-2 px-4 text-right">Cant.</th>
                             <th className="py-2 px-4 text-right">C. Unit.</th>
-                            <th className="py-2 px-4 text-right">Total</th>
+                            <th className="py-2 px-4 text-right">Total ($)</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
