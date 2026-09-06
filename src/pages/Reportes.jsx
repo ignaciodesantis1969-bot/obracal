@@ -20,6 +20,20 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// Función auxiliar robusta para extraer arrays sin importar cómo los envíe Google Apps Script
+const extraerArrayDatos = (fuente) => {
+  if (Array.isArray(fuente)) return fuente;
+  if (fuente && typeof fuente === 'object') {
+    if (Array.isArray(fuente.data)) return fuente.data;
+    if (Array.isArray(fuente.items)) return fuente.items;
+    if (Array.isArray(fuente.result)) return fuente.result;
+    if (Array.isArray(fuente.reportes)) return fuente.reportes;
+    const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+    if (posibleArray) return posibleArray;
+  }
+  return [];
+};
+
 function ReportesContent(props) {
   const { user } = useAuth();
   const userRole = String(props?.role || user?.role || '').toLowerCase();
@@ -31,8 +45,6 @@ function ReportesContent(props) {
   const movimientos = Array.isArray(props?.movimientos) ? props.movimientos : [];
   const facturas = Array.isArray(props?.facturas) ? props.facturas : [];
   const empleadosListProps = Array.isArray(props?.empleados) ? props.empleados : [];
-  
-  // Soporte por si desde App.jsx ya se envían reportes previos
   const reportesProps = Array.isArray(props?.allReportesSice) ? props.allReportesSice : [];
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
@@ -45,33 +57,52 @@ function ReportesContent(props) {
   useEffect(() => {
     // 1. Cargar Contratos de Mantenimiento
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' }) })
-      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedContratos(data)).catch(() => {});
+      .then(res => res.json()).then(data => setFetchedContratos(extraerArrayDatos(data))).catch(() => {});
     
     // 2. Cargar Certificaciones
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificaciones', action: 'get' }) })
-      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedCertificados(data)).catch(() => {});
+      .then(res => res.json()).then(data => setFetchedCertificados(extraerArrayDatos(data))).catch(() => {});
     
     // 3. Cargar Proveedores
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Proveedores', action: 'get' }) })
-      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedProveedores(data)).catch(() => {});
+      .then(res => res.json()).then(data => setFetchedProveedores(extraerArrayDatos(data))).catch(() => {});
 
-    // 4. CORRECCIÓN: Cargar Reportes Diarios SICE desde Google Sheets para alimentar la correlatividad y el historial
+    // 4. Cargar Reportes Diarios SICE utilizando el extractor flexible
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesDiariosSice', action: 'get' }) })
-      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedReportesSice(data)).catch(() => {});
+      .then(res => res.json()).then(data => {
+        const arrayReportes = extraerArrayDatos(data);
+        if (arrayReportes.length > 0) setFetchedReportesSice(arrayReportes);
+      }).catch(() => {});
   }, []);
 
-  const contratosList = useMemo(() => fetchedContratos.length > 0 ? fetchedContratos : CONTRATO_DEFAULT, [fetchedContratos]);
-  const proveedoresList = fetchedProveedores;
+  const contratosList = useMemo(() => {
+    const arr = extraerArrayDatos(fetchedContratos);
+    return arr.length > 0 ? arr : CONTRATO_DEFAULT;
+  }, [fetchedContratos]);
 
-  // Consolidar reportes que vienen por props o del fetch local de este componente
+  const proveedoresList = extraerArrayDatos(fetchedProveedores);
+
+  // Consolidar reportes de props, fetch local y caché de localStorage por seguridad
   const allReportesSiceConsolidados = useMemo(() => {
-    const combinados = [...reportesProps, ...fetchedReportesSice];
+    let localCache = [];
+    try {
+      const cached = localStorage.getItem('sice_partes_local_cache_v2');
+      if (cached) localCache = JSON.parse(cached);
+    } catch (e) {}
+
+    const combinados = [
+      ...extraerArrayDatos(reportesProps), 
+      ...extraerArrayDatos(fetchedReportesSice), 
+      ...localCache
+    ];
+    
     const unicosMap = new Map();
     combinados.forEach(item => {
       if (!item) return;
       const key = String(item.id || item.ID || item.nro || item.Nro || Math.random());
       if (!unicosMap.has(key)) unicosMap.set(key, item);
     });
+
     return Array.from(unicosMap.values());
   }, [reportesProps, fetchedReportesSice]);
 
