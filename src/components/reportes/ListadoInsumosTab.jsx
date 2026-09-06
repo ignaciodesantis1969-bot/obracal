@@ -62,7 +62,7 @@ export default function ListadoInsumosTab({
     return map;
   }, [propProveedores, proveedoresSheet, fetchedProveedoresLocal]);
 
-  // Maestro de insumos para validar tipos oficiales y proveedores sin alterar por nombres arbitrarios
+  // Maestro de insumos para validar tipos oficiales y proveedores
   const maestroInsumosMap = useMemo(() => {
     const combinados = [...propInsumos, ...(Array.isArray(insumosSheet) ? insumosSheet : []), ...fetchedInsumosLocal];
     const map = {};
@@ -155,7 +155,6 @@ export default function ListadoInsumosTab({
             const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
             const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
 
-            // Uso directo del tipo oficial sin forzar nombres arbitrarios
             let catDestino = maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || 'Materiales';
             if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
 
@@ -202,18 +201,17 @@ export default function ListadoInsumosTab({
       mapRubros[nombreRubro] = catsMap;
     });
 
-    // EXTRACCIÓN EXACTA DE GASTOS GENERALES DESDE LA ESTRUCTURA DE ITEMS_DETALLE (gasto_generales_insumos)
-    let gastosGralRaw = rawDetalle?.gastos_generales_insumos || 
-                        rawDetalle?.gastos_generales || 
-                        rawDetalle?.gastosGenerales || 
-                        presupuestoInsumosSeleccionado?.gastos_generales_insumos || 
-                        presupuestoInsumosSeleccionado?.gastos_generales || [];
+    // EXTRACCIÓN ROBUSTA Y DIRECTA DE GASTOS GENERALES DESDE `gastos_generales_insumos`
+    let gastosGeneralesArray = rawDetalle?.gastos_generales_insumos || 
+                               rawDetalle?.gastos_generales || 
+                               presupuestoInsumosSeleccionado?.gastos_generales_insumos || 
+                               presupuestoInsumosSeleccionado?.gastos_generales || [];
 
-    if (typeof gastosGralRaw === 'string') {
-      try { gastosGralRaw = JSON.parse(gastosGralRaw); } catch { gastosGralRaw = []; }
+    if (typeof gastosGeneralesArray === 'string') {
+      try { gastosGeneralesArray = JSON.parse(gastosGeneralesArray); } catch { gastosGeneralesArray = []; }
     }
 
-    if (Array.isArray(gastosGralRaw) && gastosGralRaw.length > 0) {
+    if (Array.isArray(gastosGeneralesArray) && gastosGeneralesArray.length > 0) {
       const nombreRubroGG = "Gastos Generales de Obra";
       if (!mapRubros[nombreRubroGG]) {
         const catsMapGG = {};
@@ -221,26 +219,24 @@ export default function ListadoInsumosTab({
         mapRubros[nombreRubroGG] = catsMapGG;
       }
 
-      gastosGralRaw.forEach(gg => {
-        const nombreGG = String(gg?.concepto || gg?.nombre || gg?.descripcion || 'Gasto General').trim();
-        const cantGG = Number(gg?.cantidad || gg?.cant || 1);
-        const unitGG = Number(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
-        const totalGG = Number(gg?.total || (cantGG * unitGG));
+      gastosGeneralesArray.forEach(gg => {
+        const concepto = String(gg?.concepto || gg?.nombre || gg?.descripcion || 'Gasto General').trim();
+        const cantidad = Number(gg?.cantidad || gg?.cant || 1);
+        const unitario = Number(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
+        const totalGG = Number(gg?.total || (cantidad * unitario));
 
-        // Corroborar opcionalmente con el maestro de insumos si existe para asegurar proveedor o tipo exacto
-        const maestroGG = maestroInsumosMap[nombreGG.toLowerCase()] || {};
+        // Corroborar opcionalmente con el maestro de insumos para enriquecer unidad o proveedor si existe
+        const maestroGG = maestroInsumosMap[concepto.toLowerCase()] || {};
 
-        if (totalGG > 0 || cantGG > 0) {
-          mapRubros[nombreRubroGG]['Gastos Generales'].push({
-            tarea: 'Gastos Generales',
-            nombre: nombreGG,
-            proveedor: maestroGG.proveedor || 'Sin Proveedor',
-            unidad: maestroGG.unidad || 'gl',
-            cantidad: cantGG,
-            costo_unitario: unitGG || maestroGG.costo_unitario || 0,
-            total: totalGG || (cantGG * (unitGG || maestroGG.costo_unitario || 0))
-          });
-        }
+        mapRubros[nombreRubroGG]['Gastos Generales'].push({
+          tarea: 'Gastos Generales',
+          nombre: concepto,
+          proveedor: maestroGG.proveedor || 'Sin Proveedor',
+          unidad: maestroGG.unidad || 'gl',
+          cantidad: cantidad,
+          costo_unitario: unitario || maestroGG.costo_unitario || 0,
+          total: totalGG || (cantidad * (unitario || maestroGG.costo_unitario || 0))
+        });
       });
     }
 
