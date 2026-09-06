@@ -109,34 +109,30 @@ export default function ComparativoTab({
     if (typeof rubrosList === 'string') { try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; } }
     if (!Array.isArray(rubrosList)) rubrosList = [rubrosList];
 
-    const nombresRubrosPresupuesto = rubrosList.map(r => limpiarTexto(r?.rubro || r?.nombre || ''));
-
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
     const pNombreReal = String(presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || '').trim();
     
-    // FILTRADO INTELIGENTE: Si el registro viene de Tesorería/RRHH con "Presupuesto: 1" o similar, 
-    // lo asociamos directamente al presupuesto activo seleccionado en el desplegable.
+    // Identificamos el índice o número corto (ej: si el id es "1" o el selector manda el índice)
+    const indicePresupuesto = presupuestosAprobados.findIndex(p => String(p?.id || p?.ID || p?.codigo) === String(compPresupuestoId)) + 1;
+
+    // FILTRO SEGURO: Solo acepta registros cuyo ID coincida con la obra o cuyo texto mencione específicamente este presupuesto.
     const facturasDelPto = todosLosEgresos
       .filter(f => {
         const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
         const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '');
         
+        // 1. Coincidencia exacta por ID o código de obra
         if (fPto === pIdReal || fPto === pCodReal) return true;
         if (pCodReal && fDesc.includes(pCodReal)) return true;
         if (pNombreReal && fDesc.includes(pNombreReal)) return true;
         
-        // REGLA DE RESCATE PARA TESORERÍA / RRHH:
-        // Si el concepto menciona "Presupuesto: 1" y tenemos seleccionado el primer presupuesto (o id "1"), lo aceptamos.
-        if (fDesc.includes('Presupuesto: 1') && (pIdReal === '1' || pCodReal === '1' || compPresupuestoId === '1')) {
+        // 2. Coincidencia por número de presupuesto grabado por RRHH/Tesorería (ej: "Presupuesto: 1")
+        if (fDesc.includes(`Presupuesto: ${pIdReal}`) || fDesc.includes(`Presupuesto: ${indicePresupuesto}`)) {
           return true;
         }
 
-        // Si tiene la estructura de rubro por corchetes, lo aceptamos para validarlo con los rubros de la obra
-        if (fDesc.includes('[Rubro:')) return true;
-        
-        if (!fPto && !fDesc.includes('Presupuesto:')) return true;
-        
+        // Si no tiene asignado ningún presupuesto, se asume que no pertenece a esta obra y se descarta por seguridad.
         return false;
       })
       .map((f, i) => ({ ...f, _uid: f.id || f.ID || f.n_factura || `fac_temp_${i}` }));
@@ -234,7 +230,7 @@ export default function ComparativoTab({
         const fTextRaw = `${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
         const fTextLimpiado = limpiarTexto(fTextRaw);
         
-        // Extraemos el nombre del rubro dentro del corchete exacto de Tesorería: [Rubro: NOMBRE - 100%]
+        // Extraemos el nombre del rubro dentro del corchete de Tesorería (ej: [Rubro: DEMOLICIONES - 100%])
         const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*-/i);
         let rubroExtraido = '';
         if (matchCorchetes && matchCorchetes[1]) {
@@ -286,7 +282,7 @@ export default function ComparativoTab({
     });
 
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
-  }, [presupuestoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias, mapaInsumosPresupuesto, compPresupuestoId]);
+  }, [presupuestoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias, mapaInsumosPresupuesto, compPresupuestoId, presupuestosAprobados]);
 
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
