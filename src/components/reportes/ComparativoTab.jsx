@@ -47,7 +47,7 @@ export default function ComparativoTab({
       rubrosList = [rubrosList];
     }
 
-    // Extraer un valor de hora estimado del presupuesto si existe, o usar un fallback dinámico
+    // Corrección del nombre de la variable de referencia de hora
     let valorHoraReferencia = 15000;
     try {
       const primerRubro = rubrosList[0];
@@ -106,7 +106,7 @@ export default function ComparativoTab({
         });
       }
 
-      // 2. CARGA DE REAL IMPUTADO POR CATEGORÍA (Mano de Obra de SICE con valor dinámico)
+      // 2. CARGA DE REAL IMPUTADO POR CATEGORÍA (Mano de Obra de SICE con la variable corregida)
       const normRubro = limpiarTexto(nombreRubro);
       let totalHsSice = 0;
       allReportesSice.forEach(rep => {
@@ -114,7 +114,7 @@ export default function ComparativoTab({
           if (limpiarTexto(it?.descripcion).includes(normRubro)) totalHsSice += Number(rep?.totalHorasSuma || 0);
         });
       });
-      categoriasMap['Mano de Obra'].real += (totalHsSice * valorHoraReference);
+      categoriasMap['Mano de Obra'].real += (totalHsSice * valorHoraReferencia);
 
       // 3. CARGA DE REAL IMPUTADO POR CATEGORÍA (Facturas asociadas al Rubro)
       const facturasRubro = facturas.filter(f => {
@@ -159,6 +159,7 @@ export default function ComparativoTab({
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
 
+  // LÓGICA ROBUSTA PARA LEER GASTOS GENERALES E IMPREVISTOS DESDE LA ESTRUCTURA COMERCIAL
   const gastosGeneralesDetalle = useMemo(() => {
     if (!presupuestoSeleccionado) return [];
 
@@ -167,38 +168,74 @@ export default function ComparativoTab({
       try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = {}; }
     }
 
-    let ggList = rawDetalle?.gastosGenerales || rawDetalle?.gastos_generales || 
-                 presupuestoSeleccionado?.gastosGenerales || presupuestoSeleccionado?.gastos_generales || [];
+    let comercialObj = rawDetalle?.comercial || presupuestoSeleccionado?.comercial || {};
+    if (typeof comercialObj === 'string') {
+      try { comercialObj = JSON.parse(comercialObj); } catch { comercialObj = {}; }
+    }
+
+    let ggList = comercialObj?.gastos_generales_insumos || 
+                 rawDetalle?.gastos_generales_insumos || 
+                 rawDetalle?.gastosGenerales || 
+                 rawDetalle?.gastos_generales || 
+                 presupuestoSeleccionado?.gastosGenerales || 
+                 presupuestoSeleccionado?.gastos_generales || [];
     
     if (typeof ggList === 'string') {
       try { ggList = JSON.parse(ggList); } catch { ggList = []; }
     }
 
-    if (!Array.isArray(ggList) || ggList.length === 0) return [];
+    const porcentajeImprevistos = Number(comercialObj?.porcentaje_imprevistos || rawDetalle?.porcentaje_imprevistos || 0);
 
-    return ggList.map((gg, idx) => {
-      const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
-      const presupuestadoGG = Number(gg?.total || gg?.monto || (Number(gg?.cantidad || 1) * Number(gg?.unitario || gg?.costo_unitario || 0)));
+    const resultadosGG = [];
 
-      const normGG = limpiarTexto(nombreGG);
-      const facturasGG = facturas.filter(f => {
+    if (Array.isArray(ggList)) {
+      ggList.forEach((gg, idx) => {
+        const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
+        const cantGG = Number(gg?.cantidad || gg?.cant || 1);
+        const unitGG = Number(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
+        const presupuestadoGG = Number(gg?.total || gg?.monto || (cantGG * unitGG));
+
+        const normGG = limpiarTexto(nombreGG);
+        const facturasGG = facturas.filter(f => {
+          const fPresupuesto = String(f?.presupuesto_id || '').trim();
+          const pId = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.codigo || '').trim();
+          const rubroFac = limpiarTexto(f?.rubro || f?.categoria || f?.rubro_presupuesto);
+          return (fPresupuesto === pId || !fPresupuesto) && rubroFac.includes(normGG);
+        });
+        
+        const realGG = facturasGG.reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
+
+        resultadosGG.push({
+          id: gg?.id || idx,
+          concepto: nombreGG,
+          presupuestado: presupuestadoGG,
+          real: realGG,
+          desvio: presupuestadoGG - realGG
+        });
+      });
+    }
+
+    if (porcentajeImprevistos > 0) {
+      const montoImprevistosPresupuestado = (granTotalPresupuestadoRubros * porcentajeImprevistos) / 100;
+      const facturasImprevistos = facturas.filter(f => {
         const fPresupuesto = String(f?.presupuesto_id || '').trim();
         const pId = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.codigo || '').trim();
         const rubroFac = limpiarTexto(f?.rubro || f?.categoria || f?.rubro_presupuesto);
-        return (fPresupuesto === pId || !fPresupuesto) && rubroFac.includes(normGG);
+        return (fPresupuesto === pId || !fPresupuesto) && rubroFac.includes('imprevisto');
       });
-      
-      const realGG = facturasGG.reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
+      const realImprevistos = facturasImprevistos.reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
 
-      return {
-        id: gg?.id || idx,
-        concepto: nombreGG,
-        presupuestado: presupuestadoGG,
-        real: realGG,
-        desvio: presupuestadoGG - realGG
-      };
-    });
-  }, [presupuestoSeleccionado, facturas]);
+      resultadosGG.push({
+        id: 'imprevistos-comercial',
+        concepto: `Fondo de Imprevistos (${porcentajeImprevistos}%)`,
+        presupuestado: montoImprevistosPresupuestado,
+        real: realImprevistos,
+        desvio: montoImprevistosPresupuestado - realImprevistos
+      });
+    }
+
+    return resultadosGG;
+  }, [presupuestoSeleccionado, facturas, granTotalPresupuestadoRubros]);
 
   const totalGGPresupuestado = useMemo(() => gastosGeneralesDetalle.reduce((acc, g) => acc + g.presupuestado, 0), [gastosGeneralesDetalle]);
   const totalGGReal = useMemo(() => gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0), [gastosGeneralesDetalle]);
