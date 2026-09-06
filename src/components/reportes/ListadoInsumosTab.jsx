@@ -62,7 +62,6 @@ export default function ListadoInsumosTab({
     return map;
   }, [propProveedores, proveedoresSheet, fetchedProveedoresLocal]);
 
-  // 1. Maestro de insumos centralizado para validar contra la pestaña "Insumos"
   const maestroInsumosMap = useMemo(() => {
     const combinados = [...propInsumos, ...(Array.isArray(insumosSheet) ? insumosSheet : []), ...fetchedInsumosLocal];
     const map = {};
@@ -110,11 +109,9 @@ export default function ListadoInsumosTab({
     return presupuestos.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(insumoPresupuestoId));
   }, [insumoPresupuestoId, presupuestos]);
 
-  // 2. Procesamiento global y unificado de insumos y gastos generales
   const insumosPorRubro = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return {};
 
-    // Obtener y parsear de forma segura la estructura completa de items_detalle (columna H)
     let rawDetalle = presupuestoInsumosSeleccionado?.items_detalle || 
                      presupuestoInsumosSeleccionado?.itemsDetalle || 
                      presupuestoInsumosSeleccionado?.rubros || 
@@ -126,14 +123,9 @@ export default function ListadoInsumosTab({
 
     const mapRubros = {};
 
-    // A. Procesar Rubros y Tareas normales
     let rubrosList = rawDetalle?.rubros || (Array.isArray(rawDetalle) ? rawDetalle : []);
     if (typeof rubrosList === 'string') {
       try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; }
-    }
-    if (!Array.isArray(rubrosList) && typeof rawDetalle === 'object' && rawDetalle !== null) {
-      // Si el objeto principal contiene los rubros u otras propiedades
-      if (Array.isArray(rawDetalle.items)) rubrosList = rawDetalle.items;
     }
 
     if (Array.isArray(rubrosList)) {
@@ -207,11 +199,15 @@ export default function ListadoInsumosTab({
       });
     }
 
-    // B. Procesar específicamente la sección de Gastos Generales (`gastos_generales_insumos`) desde items_detalle o el presupuesto
-    let gastosGeneralesArray = rawDetalle?.gastos_generales_insumos || 
-                               rawDetalle?.gastos_generales || 
-                               presupuestoInsumosSeleccionado?.gastos_generales_insumos || 
-                               presupuestoInsumosSeleccionado?.gastos_generales || [];
+    // EXTRACCIÓN DIRECTA DESDE comercial.gastos_generales_insumos
+    let comercialObj = rawDetalle?.comercial || presupuestoInsumosSeleccionado?.comercial || {};
+    if (typeof comercialObj === 'string') {
+      try { comercialObj = JSON.parse(comercialObj); } catch { comercialObj = {}; }
+    }
+
+    let gastosGeneralesArray = comercialObj?.gastos_generales_insumos || 
+                               rawDetalle?.gastos_generales_insumos || 
+                               rawDetalle?.gastos_generales || [];
 
     if (typeof gastosGeneralesArray === 'string') {
       try { gastosGeneralesArray = JSON.parse(gastosGeneralesArray); } catch { gastosGeneralesArray = []; }
@@ -231,7 +227,6 @@ export default function ListadoInsumosTab({
         const unitario = Number(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
         const totalGG = Number(gg?.total || (cantidad * unitario));
 
-        // Corroborar contra el maestro de insumos por nombre exacto para traer su proveedor o unidad oficial
         const maestroGG = maestroInsumosMap[concepto.toLowerCase()] || {};
 
         mapRubros[nombreRubroGG]['Gastos Generales'].push({
