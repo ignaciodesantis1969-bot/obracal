@@ -221,15 +221,16 @@ export default function ComparativoTab({
         const fTextRaw = `${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
         const fTextLimpiado = limpiarTexto(fTextRaw);
         
-        const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*(?:-.*?)?\]/i);
+        // Extracción exacta del corchete [Rubro: NOMBRE - PORCENTAJE%]
+        const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*-\s*(\d+(?:\.\d+)?)\s*%\]/i);
         let rubroExtraido = '';
         if (matchCorchetes && matchCorchetes[1]) {
           rubroExtraido = limpiarTexto(matchCorchetes[1]);
         }
 
-        // COINCIDENCIA FLEXIBLE Y BLINDADA (Por corchetes limpios o por inclusión general normalizada)
+        // Si coincide exactamente el nombre del rubro extraído con el rubro actual o el texto lo contiene
         if (
-          (rubroExtraido && (normRubro.includes(rubroExtraido) || rubroExtraido.includes(normRubro))) || 
+          (rubroExtraido && (normRubro === rubroExtraido || normRubro.includes(rubroExtraido) || rubroExtraido.includes(normRubro))) || 
           fTextLimpiado.includes(normRubro)
         ) {
           facturasUsadas.add(f._uid);
@@ -239,6 +240,17 @@ export default function ComparativoTab({
       });
 
       facturasRubro.forEach(f => {
+        const montoFactura = Number(f?.subtotal || f?.total || f?.monto || f?.importe || 0);
+        
+        // Verificamos si tiene un porcentaje específico dentro del corchete (ej: [Rubro: DEMOLICIONES - 80%])
+        const matchCorchetes = String(f?.concepto || f?.descripcion || '').match(/\[Rubro:\s*(.*?)\s*-\s*(\d+(?:\.\d+)?)\s*%\]/i);
+        let montoAImputar = montoFactura;
+        
+        if (matchCorchetes && matchCorchetes[2]) {
+          const porcentajeEspecifico = Number(matchCorchetes[2]);
+          montoAImputar = (montoFactura * porcentajeEspecifico) / 100;
+        }
+
         const textoCompletoFac = `${f?.tipo_insumo || ''} ${f?.tipoInsumo || ''} ${f?.categoria_insumo || ''} ${f?.categoria || ''} ${f?.tipo || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.observaciones || ''}`;
         
         let catDestino = resolverTipoInsumoOficial(textoCompletoFac);
@@ -252,7 +264,7 @@ export default function ComparativoTab({
           });
         }
         
-        ri.categoriasMap[catDestino].real += Number(f?.subtotal || f?.total || f?.monto || f?.importe || 0);
+        ri.categoriasMap[catDestino].real += montoAImputar;
       });
 
       let totalRealRubro = 0;
