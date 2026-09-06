@@ -15,7 +15,6 @@ export default function ListadoInsumosTab({
   const [proveedorFiltro, setProveedorFiltro] = useState('');
   const [ordenPrecio, setOrdenPrecio] = useState('nombre');
 
-  // Hooks y fetch de respaldo para Insumos y Proveedores desde Google Sheets
   const { data: insumosSheet } = useObraData('Insumos');
   const { data: proveedoresSheet } = useObraData('Proveedores');
 
@@ -23,7 +22,6 @@ export default function ListadoInsumosTab({
   const [fetchedProveedoresLocal, setFetchedProveedoresLocal] = useState([]);
 
   useEffect(() => {
-    // Fetch directo a Insumos
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -36,7 +34,6 @@ export default function ListadoInsumosTab({
       })
       .catch(() => {});
 
-    // Fetch directo a Proveedores
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -50,7 +47,6 @@ export default function ListadoInsumosTab({
       .catch(() => {});
   }, []);
 
-  // Consolidación de proveedores para cruzar proveedor_id con razón social
   const proveedoresList = useMemo(() => {
     const combinados = [...propProveedores, ...(Array.isArray(proveedoresSheet) ? proveedoresSheet : []), ...fetchedProveedoresLocal];
     const map = {};
@@ -63,7 +59,6 @@ export default function ListadoInsumosTab({
     return map;
   }, [propProveedores, proveedoresSheet, fetchedProveedoresLocal]);
 
-  // Consolidación del maestro de insumos para obtener el tipo de la columna D (incluyendo Gastos Generales)
   const maestroInsumosMap = useMemo(() => {
     const combinados = [...propInsumos, ...(Array.isArray(insumosSheet) ? insumosSheet : []), ...fetchedInsumosLocal];
     const map = {};
@@ -72,7 +67,6 @@ export default function ListadoInsumosTab({
       const codigo = String(ins.codigo || ins.Codigo || ins.id || '').trim().toLowerCase();
       const nombre = String(ins.nombre || ins.Nombre || '').trim().toLowerCase();
       
-      // Columna D: tipo (Gastos Generales, Material, Mano de Obra, etc.)
       const tipoColD = ins.tipo || ins.Tipo || ins.categoria || ins.rubro || '';
       const provId = String(ins.proveedor_id || ins.proveedorId || ins.proveedor || '').trim();
       const proveedorNombre = proveedoresList[provId] || provId || 'Sin Proveedor';
@@ -107,6 +101,16 @@ export default function ListadoInsumosTab({
   const limpiarTexto = (str) => {
     if (!str) return '';
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  };
+
+  const clasificarCategoria = (tipoStr) => {
+    const t = limpiarTexto(tipoStr);
+    if (t.includes('mano') || t.includes('obra')) return 'Mano de Obra';
+    if (t.includes('equipo') || t.includes('maquinaria')) return 'Equipos';
+    if (t.includes('subcontrato')) return 'Subcontratos';
+    if (t.includes('gasto') || t.includes('general') || t.includes('gg')) return 'Gastos Generales';
+    if (t.includes('vario')) return 'Varios';
+    return 'Materiales';
   };
 
   const insumosPorRubro = useMemo(() => {
@@ -154,18 +158,12 @@ export default function ListadoInsumosTab({
             const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
             const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
 
-            const tipoMaestro = limpiarTexto(maestroInfo.tipo || t?.tipo || t?.categoria || '');
-            let catDestino = 'Materiales';
-            if (tipoMaestro.includes('mano')) catDestino = 'Mano de Obra';
-            else if (tipoMaestro.includes('equipo') || tipoMaestro.includes('maquinaria')) catDestino = 'Equipos';
-            else if (tipoMaestro.includes('subcontrato')) catDestino = 'Subcontratos';
-            else if (tipoMaestro.includes('gasto') || tipoMaestro.includes('general') || tipoMaestro.includes('gg')) catDestino = 'Gastos Generales';
-            else if (tipoMaestro.includes('vario')) catDestino = 'Varios';
+            const catDestino = clasificarCategoria(maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || '');
 
             catsMap[catDestino].push({
               tarea: t?.descripcion || t?.tarea || 'Labor general',
               nombre: t?.descripcion || t?.tarea || 'Ítem general',
-              proveedor: maestroInfo.proveedor || 'Sin Proveedor',
+              proveedor: maestroInfo.proveedor || t?.proveedor || 'Sin Proveedor',
               unidad: maestroInfo.unidad || t?.unidad || 'un',
               cantidad: Number(t?.cantidad || t?.cant || 1),
               costo_unitario: Number(maestroInfo.costo_unitario || t?.costo_unitario || t?.precio_unitario || 0),
@@ -177,14 +175,7 @@ export default function ListadoInsumosTab({
               const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim().toLowerCase();
               const maestroInfo = maestroInsumosMap[codigoIns] || maestroInsumosMap[nombreIns] || {};
 
-              const tipoMaestro = limpiarTexto(maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales');
-              let catDestino = 'Materiales';
-              
-              if (tipoMaestro.includes('mano') || tipoMaestro.includes('obra')) catDestino = 'Mano de Obra';
-              else if (tipoMaestro.includes('equipo') || tipoMaestro.includes('maquinaria')) catDestino = 'Equipos';
-              else if (tipoMaestro.includes('subcontrato')) catDestino = 'Subcontratos';
-              else if (tipoMaestro.includes('gasto') || tipoMaestro.includes('general') || tipoMaestro.includes('gg')) catDestino = 'Gastos Generales';
-              else if (tipoMaestro.includes('vario')) catDestino = 'Varios';
+              const catDestino = clasificarCategoria(maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || '');
 
               const provFinal = maestroInfo.proveedor || ins?.proveedor || 'Sin Proveedor';
               const costoU = Number(maestroInfo.costo_unitario || ins?.costo_unitario || ins?.precio || 0);
@@ -245,6 +236,7 @@ export default function ListadoInsumosTab({
     try {
       const payload = {
         action: 'guardarYGenerarPDF',
+        tipoReporte: 'insumos', // <-- Especifica claramente que es insumos para evitar que caiga en partes diarios
         tabla: 'InsumosPresupuesto',
         presupuesto_id: String(insumoPresupuestoId),
         obra: presupuestoInsumosSeleccionado?.nombre || presupuestoInsumosSeleccionado?.nombre_obra || 'Insumos Obra',
@@ -257,9 +249,9 @@ export default function ListadoInsumosTab({
       });
       const resultado = await res.json();
       if (resultado?.success === false) {
-        toast.error('Error al generar PDF de insumos: ' + (resultado?.error || ''), { id: toastId });
+        toast.error('Error al generar PDF: ' + (resultado?.error || ''), { id: toastId });
       } else {
-        toast.success('¡PDF de Insumos generado y guardado con éxito!', { id: toastId });
+        toast.success('¡PDF guardado en la carpeta Listados de insumos!', { id: toastId });
         const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || '';
         if (pdfUrlFinal) {
           window.open(pdfUrlFinal, '_blank');
