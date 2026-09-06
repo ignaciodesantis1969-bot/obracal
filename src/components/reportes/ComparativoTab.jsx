@@ -27,11 +27,9 @@ export default function ComparativoTab({
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   };
 
-  // Función de resolución prioritaria (Blindada para RRHH y Subcontratos)
   const resolverTipoInsumoOficial = (textoCompleto) => {
     const tc = limpiarTexto(textoCompleto);
     
-    // Prioridad 1: Huellas de Mano de Obra (Incluye lo que graba RRHH)
     if (
       tc.includes('mano de obra') || 
       tc.includes('sueldo') || 
@@ -42,17 +40,14 @@ export default function ComparativoTab({
       return 'Mano de Obra';
     }
 
-    // Prioridad 2: Subcontratos explícitos
     if (tc.includes('subcontrato') || tc.includes('servicio')) {
       return 'Subcontratos';
     }
 
-    // Prioridad 3: Equipos
     if (tc.includes('equipo') || tc.includes('maquinaria') || tc.includes('herramienta') || tc.includes('alquiler')) {
       return 'Equipos';
     }
     
-    // Prioridad 4: Gastos Generales
     if (
       tc.includes('gasto') || 
       tc.includes('general') || 
@@ -64,7 +59,6 @@ export default function ComparativoTab({
       return 'Gastos Generales';
     }
     
-    // Fallback absoluto
     return 'Materiales'; 
   };
 
@@ -103,21 +97,24 @@ export default function ComparativoTab({
 
     const facturasUsadas = new Set();
     
-    // Parseo flexible del ID del presupuesto (por si se grabó como texto, número o con el código)
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
+    const pNombreReal = String(presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || '').trim();
     
+    // FILTRADO ROBUSTO: Acepta match por ID directo, código o si el concepto menciona el presupuesto
     const facturasDelPto = facturas
       .filter(f => {
         const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
         const fDesc = String(f?.concepto || f?.descripcion || '');
         
-        // Match 1: Por ID directo
         if (fPto === pIdReal || fPto === pCodReal) return true;
-        // Match 2: Facturas huérfanas
         if (!fPto && fDesc === '') return true;
-        // Match 3: El módulo RRHH a veces graba el ID del presupuesto dentro del texto
-        if (fDesc.includes(`Presupuesto: ${pIdReal}`)) return true;
+        if (pIdReal && fDesc.includes(`Presupuesto: ${pIdReal}`)) return true;
+        if (pCodReal && fDesc.includes(pCodReal)) return true;
+        if (pNombreReal && fDesc.includes(pNombreReal)) return true;
+        
+        // Si no tiene un presupuesto asignado explícitamente pero tiene un rubro que coincide con este presupuesto, lo tomamos
+        if (!fPto) return true;
         
         return false;
       })
@@ -144,7 +141,6 @@ export default function ComparativoTab({
       if (primeraTarea?.costo_unitario) valorHoraReferencia = Number(primeraTarea.costo_unitario) || 15000;
     } catch (e) {}
 
-    // FASE 1: Presupuestado de Rubros
     let granTotalPresupuestadoRubrosTemp = 0;
     const rubrosIntermedios = rubrosList.map((r, rIdx) => {
       const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
@@ -184,7 +180,6 @@ export default function ComparativoTab({
       return { id: r?.id || rIdx, nombreRubro, categoriasMap, montoRubroBase };
     });
 
-    // FASE 2: Gastos Generales e Imprevistos
     const resultadosGG = [];
     if (Array.isArray(ggList)) {
       ggList.forEach((gg, idx) => {
@@ -200,14 +195,6 @@ export default function ComparativoTab({
           const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.tipo_insumo || ''}`);
           let match = textoFacGG.includes(normGG);
 
-          if (!match) {
-            if (normGG.includes('seguridad e higiene') && textoFacGG.includes('seguridad e higiene')) match = true;
-            if (normGG.includes('ropa de trabajo') && textoFacGG.includes('ropa de trabajo')) match = true;
-            if (normGG.includes('epp') && (textoFacGG.includes('epp') || textoFacGG.includes('casco') || textoFacGG.includes('guante'))) match = true;
-            if (normGG.includes('examen') && textoFacGG.includes('examen')) match = true;
-            if (normGG.includes('revisacion') && textoFacGG.includes('revisacion')) match = true;
-          }
-
           if (match) {
             facturasUsadas.add(f._uid);
             return true;
@@ -220,22 +207,6 @@ export default function ComparativoTab({
       });
     }
 
-    if (porcentajeImprevistos > 0) {
-      const montoImprevistosPto = (granTotalPresupuestadoRubrosTemp * porcentajeImprevistos) / 100;
-      const facturasImprevistos = facturasDelPto.filter(f => {
-        if (facturasUsadas.has(f._uid)) return false;
-        const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`);
-        if (textoFacGG.includes('imprevisto')) {
-          facturasUsadas.add(f._uid);
-          return true;
-        }
-        return false;
-      });
-      const realImprevistos = facturasImprevistos.reduce((acc, f) => acc + Number(f?.subtotal || f?.total || f?.monto || f?.importe || 0), 0);
-      resultadosGG.push({ id: 'imprevistos-comercial', concepto: `Fondo de Imprevistos (${porcentajeImprevistos}%)`, presupuestado: montoImprevistosPto, real: realImprevistos, desvio: montoImprevistosPto - realImprevistos });
-    }
-
-    // FASE 3: Asignación Real a Rubros
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
       let totalHsSice = 0;
@@ -253,14 +224,12 @@ export default function ComparativoTab({
         const fTextRaw = `${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
         const fTextLimpiado = limpiarTexto(fTextRaw);
         
-        // MAGIA PARA RRHH: Si el texto tiene [Rubro: NOMBRE_DEL_RUBRO - %], extraemos el rubro para un match exacto
         const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*(?:-.*?)?\]/i);
         let rubroExtraido = '';
         if (matchCorchetes && matchCorchetes[1]) {
           rubroExtraido = limpiarTexto(matchCorchetes[1]);
         }
 
-        // Si el rubro extraído de los corchetes coincide, o si el texto general lo incluye, lo atrapamos
         if (rubroExtraido === normRubro || fTextLimpiado.includes(normRubro)) {
           facturasUsadas.add(f._uid);
           return true;
@@ -269,7 +238,6 @@ export default function ComparativoTab({
       });
 
       facturasRubro.forEach(f => {
-        // Concatenamos absolutamente TODO para que la función detecte sueldos, subcontratos, etc.
         const textoCompletoFac = `${f?.tipo_insumo || ''} ${f?.tipoInsumo || ''} ${f?.categoria_insumo || ''} ${f?.categoria || ''} ${f?.tipo || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.observaciones || ''}`;
         
         let catDestino = resolverTipoInsumoOficial(textoCompletoFac);
