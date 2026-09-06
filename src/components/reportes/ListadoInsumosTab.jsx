@@ -84,7 +84,8 @@ export default function ListadoInsumosTab({
     return map;
   }, [propInsumos, insumosSheet, fetchedInsumosLocal, proveedoresList]);
 
-  const ordenCategorias = useMemo(() => ['Mano de Obra', 'Materiales', 'Equipos', 'Subcontratos', 'Gastos Generales', 'Varios'], []);
+  // Se eliminó 'Varios' de las categorías oficiales permitidas
+  const ordenCategorias = useMemo(() => ['Mano de Obra', 'Materiales', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
@@ -108,13 +109,31 @@ export default function ListadoInsumosTab({
     const n = limpiarTexto(nombreItem);
     const textoAnalizar = `${t} ${n}`;
 
-    if (textoAnalizar.includes('mano') || textoAnalizar.includes('obra') && !textoAnalizar.includes('repisa')) return 'Mano de Obra';
+    // Forzar componentes eléctricos, iluminación o desagües estrictamente a Materiales
+    if (
+      textoAnalizar.includes('electrico') || 
+      textoAnalizar.includes('termica') || 
+      textoAnalizar.includes('modulo') || 
+      textoAnalizar.includes('extractor') || 
+      textoAnalizar.includes('iluminacion') || 
+      textoAnalizar.includes('desague') || 
+      textoAnalizar.includes('pluvial') ||
+      textoAnalizar.includes('cable') ||
+      textoAnalizar.includes('cano') ||
+      textoAnalizar.includes('articulos') ||
+      textoAnalizar.includes('artefactos')
+    ) {
+      return 'Materiales';
+    }
+
+    if (textoAnalizar.includes('mano de obra') || (textoAnalizar.includes('mano') && textoAnalizar.includes('obra'))) return 'Mano de Obra';
     if (textoAnalizar.includes('equipo') || textoAnalizar.includes('maquinaria') || textoAnalizar.includes('andamio')) return 'Equipos';
-    if (textoAnalizar.includes('subcontrato') || textoAnalizar.includes('servicio de') || textoAnalizar.includes('flete')) return 'Subcontratos';
+    if (textoAnalizar.includes('subcontrato') || textoAnalizar.includes('servicio de') || textoAnalizar.includes('flete') || textoAnalizar.includes('alquiler de brazo')) return 'Subcontratos';
     if (textoAnalizar.includes('gasto') || textoAnalizar.includes('general') || textoAnalizar.includes('gg') || 
         textoAnalizar.includes('seguridad') || textoAnalizar.includes('higiene') || textoAnalizar.includes('seguro') || 
         textoAnalizar.includes('poliza') || textoAnalizar.includes('ropa de trabajo') || textoAnalizar.includes('visita obligatoria')) return 'Gastos Generales';
-    if (textoAnalizar.includes('vario')) return 'Varios';
+    
+    // Por defecto si no encaja en gastos, mano de obra, equipos o subcontratos, va a Materiales
     return 'Materiales';
   };
 
