@@ -129,9 +129,15 @@ export default function Rrhh({
     return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado || estado === '';
   });
 
+  // Filtrar contratos de mantenimiento activos desde la solapa ContratosMantenimiento
+  const contratosActivos = safeContratos.filter(c => {
+    const estado = String(c.estado || c.Estado || '').toLowerCase();
+    return estado.includes('activo') || estado === '' || estado.includes('vigente');
+  });
+
   // Obtener rubros disponibles desde `items_detalle` del presupuesto seleccionado o lista global
   const rubrosDisponiblesPresupuesto = React.useMemo(() => {
-    if (presupuestoSeleccionadoCarga) {
+    if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
       const presupuestoObj = safePresupuestos.find(p => {
         const pId = String(p.id || p.ID || p.codigo || '');
         return pId === String(presupuestoSeleccionadoCarga);
@@ -169,7 +175,7 @@ export default function Rrhh({
       'Mampostería',
       'Instalaciones'
     ];
-  }, [presupuestoSeleccionadoCarga, safePresupuestos, safeRubros]);
+  }, [tipoProyectoCarga, presupuestoSeleccionadoCarga, safePresupuestos, safeRubros]);
 
   // Sincronizar salarios y estado
   React.useEffect(() => {
@@ -698,7 +704,7 @@ export default function Rrhh({
         ? `Presupuesto: ${presupuestoSeleccionadoCarga}` 
         : `Contrato Mantenimiento: ${contratoSeleccionadoCarga}`;
 
-      // 1. Guardar o actualizar registro de Carga en la tabla "CargasHoras"
+      // 1. Guardar o actualizar registro de Carga en la tabla "CargasSemanales"
       const payloadCargaHistorial = {
         tipo_proyecto: tipoProyectoCarga,
         presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
@@ -714,7 +720,7 @@ export default function Rrhh({
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
-          tabla: 'CargasHoras',
+          tabla: 'CargasSemanales',
           action: actionCarga,
           id: editingCargaId,
           data: payloadCargaHistorial
@@ -797,7 +803,7 @@ export default function Rrhh({
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'CargasHoras', action: 'delete', id: cId })
+        body: JSON.stringify({ tabla: 'CargasSemanales', action: 'delete', id: cId })
       });
       cargarDatos();
     } catch (err) {
@@ -1784,18 +1790,18 @@ export default function Rrhh({
                 ) : (
                   <div>
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-                      <FileText className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Contrato de Mantenimiento *
+                      <FileText className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Contrato de Mantenimiento Activo *
                     </label>
                     <select 
                       value={contratoSeleccionadoCarga}
                       onChange={(e) => setContratoSeleccionadoCarga(e.target.value)}
                       className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                     >
-                      <option value="">-- Seleccione Contrato de Mantenimiento --</option>
-                      {safeContratos.map((c, cIdx) => {
-                        const cId = c.id || c.ID || cIdx;
-                        const cNombre = c.nombre || c.Nombre || c.codigo || `Contrato #${cId}`;
-                        return <option key={cId} value={cId}>{cNombre}</option>;
+                      <option value="">-- Seleccione Contrato Activo --</option>
+                      {contratosActivos.map((c, cIdx) => {
+                        const cId = c.id || c.ID || c.codigo || cIdx;
+                        const cNombre = c.nombre_contrato || c.nombre || c.codigo || `Contrato #${cId}`;
+                        return <option key={cId} value={cId}>{c.codigo ? `${c.codigo} - ${cNombre}` : cNombre}</option>;
                       })}
                     </select>
                   </div>
@@ -2017,12 +2023,12 @@ export default function Rrhh({
         </div>
       )}
 
-      {/* MÓDULO HISTORIAL DE CARGAS REALIZADAS */}
+      {/* MÓDULO HISTORIAL DE CARGAS REALIZADAS (CargasSemanales) */}
       {activeTab === 'historial_carga' && (
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Cargas Realizadas</h3>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Cargas Realizadas (CargasSemanales)</h3>
               <p className="text-xs text-slate-500 mt-0.5">Visualiza, edita o elimina los partes semanales de horas y viáticos guardados.</p>
             </div>
             <button 
@@ -2175,7 +2181,7 @@ export default function Rrhh({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Dirección</label>
+                  <label className="block text-xs font-board text-slate-700 uppercase mb-1">Dirección</label>
                   <input 
                     type="text" placeholder="Ej: Av. San Martín 1234"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
