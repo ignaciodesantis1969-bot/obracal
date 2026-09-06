@@ -129,14 +129,18 @@ export default function Rrhh({
     return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado || estado === '';
   });
 
-  // Filtrar contratos de mantenimiento activos desde la solapa ContratosMantenimiento
+  // 1. FILTRADO CORRECTO DE CONTRATOS ACTIVOS (SOPORTANDO estado, Estado Y status)
   const contratosActivos = safeContratos.filter(c => {
-    const estado = String(c.estado || c.Estado || '').toLowerCase();
+    const estado = String(c.estado || c.Estado || c.status || '').toLowerCase();
     return estado.includes('activo') || estado === '' || estado.includes('vigente');
   });
 
-  // Obtener rubros disponibles desde `items_detalle` del presupuesto seleccionado o lista global
+  // 2. OBTENER RUBROS DISPONIBLES (Restricción estricta a "Horas trabajadas" si es contrato de mantenimiento)
   const rubrosDisponiblesPresupuesto = React.useMemo(() => {
+    if (tipoProyectoCarga === 'contrato') {
+      return ['Horas trabajadas'];
+    }
+
     if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
       const presupuestoObj = safePresupuestos.find(p => {
         const pId = String(p.id || p.ID || p.codigo || '');
@@ -1751,7 +1755,11 @@ export default function Rrhh({
                     type="radio" 
                     name="tipo_proyecto_carga" 
                     checked={tipoProyectoCarga === 'obra'} 
-                    onChange={() => setTipoProyectoCarga('obra')} 
+                    onChange={() => {
+                      setTipoProyectoCarga('obra');
+                      // Resetear rubros si pasa a obra para evitar mantener "Horas trabajadas"
+                      setDistribucionRubros([{ id: Date.now(), rubro: '', porcentaje: 100 }]);
+                    }} 
                     className="accent-amber-500"
                   />
                   Presupuesto / Obra
@@ -1761,7 +1769,11 @@ export default function Rrhh({
                     type="radio" 
                     name="tipo_proyecto_carga" 
                     checked={tipoProyectoCarga === 'contrato'} 
-                    onChange={() => setTipoProyectoCarga('contrato')} 
+                    onChange={() => {
+                      setTipoProyectoCarga('contrato');
+                      // Forzar restrictivamente a "Horas trabajadas" al cambiar a contrato
+                      setDistribucionRubros([{ id: Date.now(), rubro: 'Horas trabajadas', porcentaje: 100 }]);
+                    }} 
                     className="accent-amber-500"
                   />
                   Contrato de Mantenimiento
@@ -1826,13 +1838,15 @@ export default function Rrhh({
                 <h4 className="text-xs font-extrabold text-amber-900 uppercase flex items-center gap-1.5">
                   <PieChart className="w-4 h-4 text-amber-600" /> Distribución por Rubros (Suma total debe ser 100%)
                 </h4>
-                <button
-                  type="button"
-                  onClick={handleAgregarRubroDistribucion}
-                  className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer flex items-center gap-1"
-                >
-                  <Plus className="w-3 h-3" /> Agregar Rubro
-                </button>
+                {tipoProyectoCarga === 'obra' && (
+                  <button
+                    type="button"
+                    onClick={handleAgregarRubroDistribucion}
+                    className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" /> Agregar Rubro
+                  </button>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -1840,30 +1854,40 @@ export default function Rrhh({
                   <div key={r.id || idx} className="flex items-center gap-2">
                     <select 
                       value={r.rubro}
+                      disabled={tipoProyectoCarga === 'contrato'}
                       onChange={(e) => handleActualizarRubro(r.id, 'rubro', e.target.value)}
-                      className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 text-slate-900"
+                      className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 text-slate-900 disabled:bg-slate-100 disabled:text-slate-600"
                     >
-                      <option value="">-- Seleccionar Rubro --</option>
-                      {rubrosDisponiblesPresupuesto.map((rubName, rubIdx) => (
-                        <option key={rubIdx} value={rubName}>{rubName}</option>
-                      ))}
+                      {tipoProyectoCarga === 'contrato' ? (
+                        <option value="Horas trabajadas">Horas trabajadas</option>
+                      ) : (
+                        <>
+                          <option value="">-- Seleccionar Rubro --</option>
+                          {rubrosDisponiblesPresupuesto.map((rubName, rubIdx) => (
+                            <option key={rubIdx} value={rubName}>{rubName}</option>
+                          ))}
+                        </>
+                      )}
                     </select>
                     <div className="flex items-center gap-1 w-32">
                       <input 
                         type="number" min="0" max="100" step="0.1"
                         value={r.porcentaje}
+                        disabled={tipoProyectoCarga === 'contrato'}
                         onChange={(e) => handleActualizarRubro(r.id, 'porcentaje', Number(e.target.value))}
-                        className="w-20 bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-black text-center outline-none focus:border-amber-500"
+                        className="w-20 bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-black text-center outline-none focus:border-amber-500 disabled:bg-slate-100"
                       />
                       <span className="text-xs font-bold text-slate-600">%</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleEliminarRubro(r.id)}
-                      className="p-1.5 text-slate-400 hover:text-red-600 cursor-pointer bg-white border border-slate-200 rounded-lg shadow-sm"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
+                    {tipoProyectoCarga === 'obra' && (
+                      <button
+                        type="button"
+                        onClick={() => handleEliminarRubro(r.id)}
+                        className="p-1.5 text-slate-400 hover:text-red-600 cursor-pointer bg-white border border-slate-200 rounded-lg shadow-sm"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>
@@ -2026,17 +2050,12 @@ export default function Rrhh({
       {/* MÓDULO HISTORIAL DE CARGAS REALIZADAS (CargasSemanales) */}
       {activeTab === 'historial_carga' && (
         <div className="space-y-6">
+          {/* 3. ELIMINACIÓN TOTAL DEL BOTÓN "NUEVA CARGA" EN LA SOLAPA HISTORIAL */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Cargas Realizadas (CargasSemanales)</h3>
               <p className="text-xs text-slate-500 mt-0.5">Visualiza, edita o elimina los partes semanales de horas y viáticos guardados.</p>
             </div>
-            <button 
-              onClick={() => { setEditingCargaId(null); setActiveTab('carga'); }}
-              className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
-            >
-              <Plus className="w-4 h-4" /> Nueva Carga
-            </button>
           </div>
 
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
@@ -2181,7 +2200,7 @@ export default function Rrhh({
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-board text-slate-700 uppercase mb-1">Dirección</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Dirección</label>
                   <input 
                     type="text" placeholder="Ej: Av. San Martín 1234"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
