@@ -4,7 +4,7 @@ import { TrendingUp, Printer } from 'lucide-react';
 export default function ComparativoTab({
   presupuestos = [],
   facturas = [],
-  tesoreria = [],
+  tesoreria = [], // Añadido por si el componente padre los envía por separado
   allReportesSice = []
 }) {
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
@@ -28,7 +28,7 @@ export default function ComparativoTab({
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   };
 
-  // Conversor numérico robusto: Convierte "1.200,50" o "1200,50" a 1200.50 válidos para JS
+  // 1. CONVERSOR NUMÉRICO BLINDADO: Convierte "1221360,62" a 1221360.62 válido para sumar
   const parsearMonto = (val) => {
     if (val === null || val === undefined) return 0;
     if (typeof val === 'number') return val;
@@ -49,13 +49,17 @@ export default function ComparativoTab({
   const resolverTipoInsumoOficial = (textoCompleto) => {
     const tc = limpiarTexto(textoCompleto);
     
+    // Si dice cargas sociales, sueldos o viáticos, es indiscutiblemente Mano de Obra
     if (
       tc.includes('mano de obra') || 
       tc.includes('sueldo') || 
       tc.includes('viatico') || 
       tc.includes('cargas sociales') || 
-      tc.includes('jornal')
-    ) return 'Mano de Obra';
+      tc.includes('jornal') ||
+      tc.includes('rrhh')
+    ) {
+      return 'Mano de Obra';
+    }
 
     if (tc.includes('subcontrato') || tc.includes('servicio')) return 'Subcontratos';
     if (tc.includes('equipo') || tc.includes('maquinaria') || tc.includes('herramienta') || tc.includes('alquiler')) return 'Equipos';
@@ -94,44 +98,53 @@ export default function ComparativoTab({
     return map;
   }, [presupuestoSeleccionado]);
 
-  // Consolidamos facturas y tesorería por si el componente padre los envía separados
-  const todosLosEgresos = useMemo(() => [...facturas, ...tesoreria], [facturas, tesoreria]);
+  // Consolidamos facturas y tesorería en un solo gran array de egresos
+  const todosLosEgresos = useMemo(() => {
+    return [...(Array.isArray(facturas) ? facturas : []), ...(Array.isArray(tesoreria) ? tesoreria : [])];
+  }, [facturas, tesoreria]);
 
   const { analisisRubrosDetallado, gastosGeneralesDetalle } = useMemo(() => {
     if (!presupuestoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
 
-    const facturasUsadas = new Set();
+    let rawDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle || presupuestoSeleccionado?.rubros || [];
+    if (typeof rawDetalle === 'string') { try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = []; } }
+    let rubrosList = rawDetalle?.rubros || rawDetalle;
+    if (typeof rubrosList === 'string') { try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; } }
+    if (!Array.isArray(rubrosList)) rubrosList = [rubrosList];
+
+    // Lista de nombres de rubros limpios de este presupuesto
+    const nombresRubrosPresupuesto = rubrosList.map(r => limpiarTexto(r?.rubro || r?.nombre || ''));
+
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
     const pNombreReal = String(presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || '').trim();
     
+    // 2. FILTRO DE INCLUSIÓN AGRESIVA PARA RRHH
     const facturasDelPto = todosLosEgresos
       .filter(f => {
         const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
         const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '');
         
-        // Match directo por ID
         if (fPto === pIdReal || fPto === pCodReal) return true;
-        
-        // Match seguro para RRHH leyendo el texto
-        if (fDesc.includes(`Presupuesto: ${pIdReal}`)) return true;
-        if (fDesc.includes(`[Rubro:`)) return true; // Deja pasar todo lo de RRHH para validarlo luego
-        
         if (pCodReal && fDesc.includes(pCodReal)) return true;
         if (pNombreReal && fDesc.includes(pNombreReal)) return true;
-        if (!fPto && fDesc === '') return true;
-        if (!fPto) return true;
+        
+        // Si es una carga de RRHH, extraemos el rubro. Si el rubro existe en este presupuesto, lo admitimos.
+        if (fDesc.includes('[Rubro:')) {
+          const matchCorch = fDesc.match(/\[Rubro:\s*(.*?)\s*-/i);
+          if (matchCorch && matchCorch[1]) {
+             const rubroRRHH = limpiarTexto(matchCorch[1]);
+             if (nombresRubrosPresupuesto.some(nr => nr === rubroRRHH || nr.includes(rubroRRHH) || rubroRRHH.includes(nr))) {
+               return true;
+             }
+          }
+        }
+        
+        if (!fPto && !fDesc.includes('Presupuesto:')) return true; // Huerfanos puros
         
         return false;
       })
       .map((f, i) => ({ ...f, _uid: f.id || f.ID || f.n_factura || `fac_temp_${i}` }));
-
-    let rawDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle || presupuestoSeleccionado?.rubros || [];
-    if (typeof rawDetalle === 'string') { try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = []; } }
-
-    let rubrosList = rawDetalle?.rubros || rawDetalle;
-    if (typeof rubrosList === 'string') { try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; } }
-    if (!Array.isArray(rubrosList)) rubrosList = [rubrosList];
 
     let comercialObj = rawDetalle?.comercial || presupuestoSeleccionado?.comercial || {};
     if (typeof comercialObj === 'string') { try { comercialObj = JSON.parse(comercialObj); } catch { comercialObj = {}; } }
@@ -139,8 +152,6 @@ export default function ComparativoTab({
     let ggList = comercialObj?.gastos_generales_insumos || rawDetalle?.gastos_generales_insumos || rawDetalle?.gastos_generales || [];
     if (typeof ggList === 'string') { try { ggList = JSON.parse(ggList); } catch { ggList = []; } }
     
-    const porcentajeImprevistos = parsearMonto(comercialObj?.porcentaje_imprevistos || rawDetalle?.porcentaje_imprevistos || 0);
-
     let valorHoraReferencia = 15000;
     try {
       const primeraTarea = rubrosList[0]?.tareas?.[0] || rubrosList[0]?.items?.[0];
@@ -186,6 +197,7 @@ export default function ComparativoTab({
       return { id: r?.id || rIdx, nombreRubro, categoriasMap, montoRubroBase };
     });
 
+    const facturasUsadas = new Set();
     const resultadosGG = [];
     if (Array.isArray(ggList)) {
       ggList.forEach((gg, idx) => {
@@ -197,11 +209,8 @@ export default function ComparativoTab({
 
         const facturasGG = facturasDelPto.filter(f => {
           if (facturasUsadas.has(f._uid)) return false;
-
           const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.tipo_insumo || ''}`);
-          let match = textoFacGG.includes(normGG);
-
-          if (match) {
+          if (textoFacGG.includes(normGG)) {
             facturasUsadas.add(f._uid);
             return true;
           }
@@ -230,14 +239,13 @@ export default function ComparativoTab({
         const fTextRaw = `${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
         const fTextLimpiado = limpiarTexto(fTextRaw);
         
-        // Extracción exacta del corchete generado por RRHH
-        const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*-\s*\d+(?:\.\d+)?\s*%\]/i);
+        // Extracción estricta del corchete generado por RRHH: [Rubro: DEMOLICIONES - ...]
+        const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*-/i);
         let rubroExtraido = '';
         if (matchCorchetes && matchCorchetes[1]) {
           rubroExtraido = limpiarTexto(matchCorchetes[1]);
         }
 
-        // Si el rubro de los corchetes coincide, entra.
         if (
           (rubroExtraido && (normRubro === rubroExtraido || normRubro.includes(rubroExtraido) || rubroExtraido.includes(normRubro))) || 
           fTextLimpiado.includes(normRubro)
@@ -249,10 +257,9 @@ export default function ComparativoTab({
       });
 
       facturasRubro.forEach(f => {
-        // Obtenemos el monto usando el conversor para leer comas correctamente
+        // 3. Tomamos el monto directamente desde Tesorería. RRHH ya guardó el valor prorrateado, NO lo multiplicamos por el porcentaje.
         const montoFactura = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
         
-        // Ya no calculamos el porcentaje porque Rrhh.jsx ya guardó el valor prorrateado en la columna monto.
         const textoCompletoFac = `${f?.tipo_insumo || ''} ${f?.tipoInsumo || ''} ${f?.categoria_insumo || ''} ${f?.categoria || ''} ${f?.tipo || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.observaciones || ''}`;
         
         let catDestino = resolverTipoInsumoOficial(textoCompletoFac);
