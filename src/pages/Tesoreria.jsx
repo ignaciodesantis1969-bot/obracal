@@ -9,6 +9,8 @@ export default function Tesoreria({
   proveedores = [], 
   clientes = [], 
   obras = [], 
+  presupuestos = [],
+  rubros = [],
   cargarDatos 
 }) {
   const [activeTab, setActiveTab] = useState('movimientos');
@@ -36,6 +38,10 @@ export default function Tesoreria({
     fecha: new Date().toISOString().split('T')[0],
     concepto: '',
     monto: 0,
+    obra_id: '',
+    presupuesto_id: '',
+    rubro_imputacion: '',
+    tipo_insumo: 'Materiales',
     medio_pago: 'transferencia',
     referencia: '',
     retencion_suss: 0,
@@ -100,6 +106,10 @@ export default function Tesoreria({
       fecha: new Date().toISOString().split('T')[0],
       concepto: `Cobro ${f.tipo_comprobante || 'Factura'} N° ${f.numero_comp || ''} - ${clienteObj?.razon_social || clienteObj?.nombre || ''}`,
       monto: montoTotalFac,
+      obra_id: f.obra_id || '',
+      presupuesto_id: f.presupuesto_id || '',
+      rubro_imputacion: f.rubro_imputacion || '',
+      tipo_insumo: f.tipo_insumo || 'Materiales',
       medio_pago: 'transferencia',
       referencia: '',
       retencion_suss: 0,
@@ -124,6 +134,10 @@ export default function Tesoreria({
       fecha: new Date().toISOString().split('T')[0],
       concepto: `Pago Factura ${f.codigo || f.n_factura || ''} - ${provObj?.razon_social || provObj?.nombre || ''}`,
       monto: montoTotalFac,
+      obra_id: f.obra_id || '',
+      presupuesto_id: f.presupuesto_id || '',
+      rubro_imputacion: f.rubro_imputacion || '',
+      tipo_insumo: f.tipo_insumo || 'Materiales',
       medio_pago: 'transferencia',
       referencia: '',
       retencion_suss: 0,
@@ -265,7 +279,7 @@ export default function Tesoreria({
       
       reader.onload = async () => {
         const base64Data = reader.result;
-        setArchivoBase64Venta(base64Data); // Guardamos el Base64 completo
+        setArchivoBase64Venta(base64Data);
         
         try {
           const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -331,7 +345,7 @@ export default function Tesoreria({
               neto_gravado: netoVal || prev.neto_gravado,
               iva_21: ivaVal || prev.iva_21,
               total: totalVal || prev.total,
-              archivo_url: base64Data, // Asignamos el base64 de inmediato
+              archivo_url: base64Data,
               items: [
                 {
                   id: Date.now(),
@@ -468,7 +482,6 @@ export default function Tesoreria({
           action: 'create',
           data: {
             ...formDataVenta,
-            // Forzamos enviar el Base64 real tanto si vino de la IA como del estado almacenado
             archivo_url: archivoBase64Venta ? archivoBase64Venta : formDataVenta.archivo_url,
             estado_pago: 'pendiente',
             items: JSON.stringify(formDataVenta.items)
@@ -627,6 +640,10 @@ export default function Tesoreria({
               fecha: new Date().toISOString().split('T')[0],
               concepto: '',
               monto: 0,
+              obra_id: '',
+              presupuesto_id: '',
+              rubro_imputacion: '',
+              tipo_insumo: 'Materiales',
               medio_pago: 'transferencia',
               referencia: '',
               retencion_suss: 0,
@@ -706,8 +723,8 @@ export default function Tesoreria({
                   <th className="px-6 py-4">Fecha</th>
                   <th className="px-4 py-4">Tipo</th>
                   <th className="px-6 py-4">Concepto</th>
+                  <th className="px-4 py-4">Imputación / Rubro</th>
                   <th className="px-4 py-4">Medio de Pago</th>
-                  <th className="px-4 py-4 text-center">Retenciones</th>
                   <th className="px-4 py-4 text-right">Monto Neto</th>
                   <th className="px-6 py-4 text-right">Acciones</th>
                 </tr>
@@ -716,12 +733,8 @@ export default function Tesoreria({
                 {movimientosFiltrados.map((m, index) => {
                   const tipo = String(m.tipo || m.Tipo || 'Egreso').toLowerCase();
                   const monto = Number(m.monto || m.Monto) || 0;
-                  const suss = Number(m.retencion_suss || m.Retencion_suss || 0);
-                  const iva = Number(m.retencion_iva || m.Retencion_iva || 0);
-                  const gan = Number(m.retencion_ganancias || m.Retencion_ganancias || 0);
-                  const iibbPba = Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0);
-                  const iibbCaba = Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0);
-                  const sumRet = suss + iva + gan + iibbPba + iibbCaba;
+                  const rubroImputacion = m.rubro_imputacion || m.Rubro_imputacion || '---';
+                  const tipoInsumo = m.tipo_insumo || m.Tipo_insumo || '';
 
                   return (
                     <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
@@ -732,16 +745,11 @@ export default function Tesoreria({
                         </span>
                       </td>
                       <td className="px-6 py-4 font-bold text-slate-900">{m.concepto || m.Concepto || '---'}</td>
-                      <td className="px-4 py-4 uppercase text-slate-600">{m.medio_pago || m.Medio_pago || 'transferencia'}</td>
-                      <td className="px-4 py-4 text-center">
-                        {sumRet > 0 ? (
-                          <span className="px-2 py-0.5 bg-amber-50 text-amber-800 border border-amber-200 rounded-md font-semibold text-[10px]" title={`SUSS: $${suss} | IVA: $${iva} | Ganancias: $${gan} | IIBB PBA: $${iibbPba} | IIBB CABA: $${iibbCaba}`}>
-                            $ {sumRet.toLocaleString('es-AR')}
-                          </span>
-                        ) : (
-                          <span className="text-slate-400">---</span>
-                        )}
+                      <td className="px-4 py-4 text-slate-700">
+                        <span className="font-semibold block">{rubroImputacion}</span>
+                        {tipoInsumo && <span className="text-[10px] text-slate-400">{tipoInsumo}</span>}
                       </td>
+                      <td className="px-4 py-4 uppercase text-slate-600">{m.medio_pago || m.Medio_pago || 'transferencia'}</td>
                       <td className={`px-4 py-4 text-right font-black ${tipo === 'ingreso' ? 'text-emerald-600' : 'text-slate-900'}`}>
                         $ {monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                       </td>
@@ -845,7 +853,6 @@ export default function Tesoreria({
                   const nComp = f.numero_comp || f.Numero_comp || '---';
                   const estadoPago = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
                   
-                  // Obtenemos el link del archivo de Google Drive
                   const urlArchivo = f.archivo_url || f.Archivo_url || f.archivo || f.Archivo || '';
 
                   return (
@@ -856,7 +863,6 @@ export default function Tesoreria({
                       <td className="px-4 py-4 font-semibold text-rose-600">{formatearFechaDisplay(f.fecha_vencimiento || f.Fecha_vencimiento || f.vencimiento || f.Vencimiento)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       
-                      {/* COLUMNA ARCHIVO CON EL ICONO DE CLIP (PAPERCLIP) */}
                       <td className="px-4 py-4 text-center">
                         {urlArchivo && String(urlArchivo).startsWith('http') ? (
                           <a 
@@ -1029,6 +1035,33 @@ export default function Tesoreria({
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto *</label>
                   <input type="text" required disabled={isSaving} placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
                 </div>
+
+                {/* IMPUTACIÓN (Obra, Presupuesto, Rubro, Tipo Insumo) */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
+                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
+                    <option value="">Seleccione obra...</option>
+                    {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.nombre || o.Nombre}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto ID</label>
+                  <input type="text" disabled={isSaving} placeholder="Ej: 1" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
+                  <input type="text" disabled={isSaving} placeholder="Ej: INSTALACIONES SANITARIAS" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.rubro_imputacion} onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
+                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.tipo_insumo} onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}>
+                    <option value="Materiales">Materiales</option>
+                    <option value="Mano de Obra">Mano de Obra</option>
+                    <option value="Equipos">Equipos</option>
+                    <option value="Gastos Generales">Gastos Generales</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto Bruto / Factura ($) *</label>
                   <input type="number" step="0.01" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
