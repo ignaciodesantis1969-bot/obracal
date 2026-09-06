@@ -1,4 +1,4 @@
-import { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
@@ -51,7 +51,7 @@ const AuthenticatedApp = () => {
     maestroTareasRubros: [],
     legajos: [],
     contratosMantenimiento: [],
-    certificados: [] // <-- Añadido al estado inicial
+    certificados: []
   });
 
   useEffect(() => {
@@ -130,7 +130,7 @@ const AuthenticatedApp = () => {
           maestroTareasRubros: data.maestro_tareas_rubros || data.maestroTareasRubros || [],
           legajos: data.legajos || [],
           contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || [],
-          certificados: data.certificados || data.certificados_emitidos || [] // <-- Captura los certificados del backend
+          certificados: data.certificados || data.certificados_emitidos || []
         });
       }
     } catch (error) {
@@ -144,10 +144,6 @@ const AuthenticatedApp = () => {
     }
   }, [user]);
 
-  const handleLoginSuccess = (userData) => {
-    setUser(userData);
-  };
-
   if (loadingSession) {
     return (
       <div className="min-h-screen bg-[#070e1b] flex items-center justify-center text-white font-medium">
@@ -158,42 +154,8 @@ const AuthenticatedApp = () => {
 
   if (!user) {
     return (
-import React, { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Toaster } from "@/components/ui/toaster";
-import { AuthProvider, useAuth } from './context/AuthContext';
-
-// Lazy loading de componentes
-const Login = lazy(() => import('./components/Login'));
-const Layout = lazy(() => import('./components/Layout'));
-const Dashboard = lazy(() => import('./components/Dashboard'));
-const Clientes = lazy(() => import('./components/Clientes'));
-const Proveedores = lazy(() => import('./components/Proveedores'));
-const Obras = lazy(() => import('./components/Obras'));
-const Insumos = lazy(() => import('./components/Insumos'));
-const Presupuestos = lazy(() => import('./components/Presupuestos'));
-const PresupuestoDetalle = lazy(() => import('./components/PresupuestoDetalle'));
-const Planificacion = lazy(() => import('./components/Planificacion'));
-const Rrhh = lazy(() => import('./components/Rrhh'));
-const Compras = lazy(() => import('./components/Compras'));
-const Tesoreria = lazy(() => import('./components/Tesoreria'));
-const Reportes = lazy(() => import('./components/Reportes'));
-const ContratosMantenimiento = lazy(() => import('./components/ContratosMantenimiento'));
-const Usuarios = lazy(() => import('./components/Usuarios'));
-const TareasTemplate = lazy(() => import('./components/TareasTemplate'));
-const PageNotFound = lazy(() => import('./components/PageNotFound'));
-const RequirePermiso = lazy(() => import('./components/RequirePermiso'));
-
-const queryClientInstance = new QueryClient();
-
-const AuthenticatedApp = () => {
-  const { user, handleLoginSuccess, globalData, cargarDatos, GOOGLE_SCRIPT_URL } = useAuth();
-
-  if (!user) {
-    return (
       <Suspense fallback={<div className="min-h-screen bg-[#070e1b] flex items-center justify-center text-white">Cargando login...</div>}>
-        <Login GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} onLoginSuccess={handleLoginSuccess} />
+        <Login GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} onLoginSuccess={(userData) => setUser(userData)} />
       </Suspense>
     );
   }
@@ -279,7 +241,7 @@ const AuthenticatedApp = () => {
                       rubros={globalData.rubros}
                       presupuestos={globalData.presupuestos}
                       contratosMantenimiento={globalData.contratosMantenimiento}
-                      legajosInicial={globalData.legajos}
+                      legajosIniciales={globalData.legajos}
                       cargasHorasIniciales={globalData.cargasSemanales}
                       cargarDatos={cargarDatos}
                     />
