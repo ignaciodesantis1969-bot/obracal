@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-import { Package, FileText, Printer, Filter, ArrowUpDown } from 'lucide-react';
+import { Package, FileText, Filter, ArrowUpDown } from 'lucide-react';
 import { useObraData } from '../../hooks/useObraData';
 
 export default function ListadoInsumosTab({
@@ -63,7 +63,7 @@ export default function ListadoInsumosTab({
     return map;
   }, [propProveedores, proveedoresSheet, fetchedProveedoresLocal]);
 
-  // Consolidación del maestro de insumos para obtener el tipo de la columna D
+  // Consolidación del maestro de insumos para obtener el tipo de la columna D (incluyendo Gastos Generales)
   const maestroInsumosMap = useMemo(() => {
     const combinados = [...propInsumos, ...(Array.isArray(insumosSheet) ? insumosSheet : []), ...fetchedInsumosLocal];
     const map = {};
@@ -72,7 +72,7 @@ export default function ListadoInsumosTab({
       const codigo = String(ins.codigo || ins.Codigo || ins.id || '').trim().toLowerCase();
       const nombre = String(ins.nombre || ins.Nombre || '').trim().toLowerCase();
       
-      // Columna D: tipo
+      // Columna D: tipo (Gastos Generales, Material, Mano de Obra, etc.)
       const tipoColD = ins.tipo || ins.Tipo || ins.categoria || ins.rubro || '';
       const provId = String(ins.proveedor_id || ins.proveedorId || ins.proveedor || '').trim();
       const proveedorNombre = proveedoresList[provId] || provId || 'Sin Proveedor';
@@ -154,12 +154,12 @@ export default function ListadoInsumosTab({
             const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
             const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
 
-            const tipoMaestro = limpiarTexto(maestroInfo.tipo || '');
+            const tipoMaestro = limpiarTexto(maestroInfo.tipo || t?.tipo || t?.categoria || '');
             let catDestino = 'Materiales';
             if (tipoMaestro.includes('mano')) catDestino = 'Mano de Obra';
-            else if (tipoMaestro.includes('equipo')) catDestino = 'Equipos';
+            else if (tipoMaestro.includes('equipo') || tipoMaestro.includes('maquinaria')) catDestino = 'Equipos';
             else if (tipoMaestro.includes('subcontrato')) catDestino = 'Subcontratos';
-            else if (tipoMaestro.includes('gasto') || tipoMaestro.includes('general')) catDestino = 'Gastos Generales';
+            else if (tipoMaestro.includes('gasto') || tipoMaestro.includes('general') || tipoMaestro.includes('gg')) catDestino = 'Gastos Generales';
             else if (tipoMaestro.includes('vario')) catDestino = 'Varios';
 
             catsMap[catDestino].push({
@@ -177,11 +177,11 @@ export default function ListadoInsumosTab({
               const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim().toLowerCase();
               const maestroInfo = maestroInsumosMap[codigoIns] || maestroInsumosMap[nombreIns] || {};
 
-              const tipoMaestro = limpiarTexto(maestroInfo.tipo || ins?.tipo || ins?.categoria || 'Materiales');
+              const tipoMaestro = limpiarTexto(maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales');
               let catDestino = 'Materiales';
               
               if (tipoMaestro.includes('mano') || tipoMaestro.includes('obra')) catDestino = 'Mano de Obra';
-              else if (tipoMaestro.includes('equipo') || tipoMaestro.includes('herramienta')) catDestino = 'Equipos';
+              else if (tipoMaestro.includes('equipo') || tipoMaestro.includes('maquinaria')) catDestino = 'Equipos';
               else if (tipoMaestro.includes('subcontrato')) catDestino = 'Subcontratos';
               else if (tipoMaestro.includes('gasto') || tipoMaestro.includes('general') || tipoMaestro.includes('gg')) catDestino = 'Gastos Generales';
               else if (tipoMaestro.includes('vario')) catDestino = 'Varios';
@@ -244,7 +244,7 @@ export default function ListadoInsumosTab({
     const toastId = toast.loading('Generando PDF de Insumos en Drive...');
     try {
       const payload = {
-        action: 'guardarYGenerarPDFInsumos',
+        action: 'guardarYGenerarPDF',
         tabla: 'InsumosPresupuesto',
         presupuesto_id: String(insumoPresupuestoId),
         obra: presupuestoInsumosSeleccionado?.nombre || presupuestoInsumosSeleccionado?.nombre_obra || 'Insumos Obra',
@@ -257,11 +257,12 @@ export default function ListadoInsumosTab({
       });
       const resultado = await res.json();
       if (resultado?.success === false) {
-        toast.error('Error al generar PDF de insumos', { id: toastId });
+        toast.error('Error al generar PDF de insumos: ' + (resultado?.error || ''), { id: toastId });
       } else {
         toast.success('¡PDF de Insumos generado y guardado con éxito!', { id: toastId });
-        if (resultado?.pdfUrl) {
-          window.open(resultado.pdfUrl, '_blank');
+        const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || '';
+        if (pdfUrlFinal) {
+          window.open(pdfUrlFinal, '_blank');
         }
       }
     } catch (err) {
@@ -342,12 +343,6 @@ export default function ListadoInsumosTab({
             ) : (
               <><FileText className="w-4 h-4" /> Exportar PDF (Drive)</>
             )}
-          </button>
-          <button
-            onClick={() => window.print()}
-            className="px-4 py-2 bg-slate-100 text-slate-800 font-bold rounded-xl text-xs hover:bg-slate-200 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
-          >
-            <Printer className="w-4 h-4" /> Imprimir
           </button>
         </div>
       </div>
