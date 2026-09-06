@@ -16,7 +16,7 @@ export default function Tesoreria({
   const [activeTab, setActiveTab] = useState('movimientos');
   const [searchTerm, setSearchTerm] = useState('');
   
-  // 🔍 NUEVOS FILTROS POR PROVEEDOR
+  // 🔍 FILTROS POR PROVEEDOR
   const [filtroProveedorMovimientos, setFiltroProveedorMovimientos] = useState('');
   const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
 
@@ -86,21 +86,30 @@ export default function Tesoreria({
     return pObraId === String(formData.obra_id) && (estado === 'aprobado' || estado === 'activo' || estado === '');
   });
 
-  // Listas de rubros según tipo de insumo (Con tolerancia)
-  const rubrosFiltrados = rubros.filter(r => {
-    const tipoItem = String(r.tipo || r.Tipo || r.categoria || r.Categoria || '').toLowerCase();
-    const tipoActual = String(formData.tipo_insumo || '').toLowerCase();
-    
-    if (!tipoItem) return true;
-    if (tipoActual.includes('material') && (tipoItem.includes('material') || tipoItem.includes('mat'))) return true;
-    if (tipoActual.includes('mano de obra') && (tipoItem.includes('mano') || tipoItem.includes('mo') || tipoItem.includes('personal'))) return true;
-    if (tipoActual.includes('subcontrato') && (tipoItem.includes('subcontrato') || tipoItem.includes('sub'))) return true;
-    if (tipoActual.includes('equipo') && (tipoItem.includes('equipo') || tipoItem.includes('herramienta'))) return true;
-    
-    return false;
-  });
+  // 🛠️ EXTRACCIÓN DE RUBROS DESDE "items_detalle" DEL PRESUPUESTO SELECCIONADO
+  const obtenerRubrosDelPresupuesto = () => {
+    if (!formData.presupuesto_id) return [];
+    const presuSel = presupuestos.find(p => String(p.id || p.ID) === String(formData.presupuesto_id));
+    if (!presuSel) return [];
 
-  const rubrosDisponibles = rubrosFiltrados.length > 0 ? rubrosFiltrados : rubros;
+    const itemsDetalleStr = presuSel.items_detalle || presuSel.Items_detalle || '';
+    if (!itemsDetalleStr) return [];
+
+    try {
+      // Intentamos parsear como JSON
+      const parsed = typeof itemsDetalleStr === 'string' ? JSON.parse(itemsDetalleStr) : itemsDetalleStr;
+      const listaRubrosJson = parsed.rubros || parsed.Rubros || [];
+      
+      const extraidos = listaRubrosJson.map(r => r.rubro || r.Rubro || r.nombre || r.Nombre).filter(Boolean);
+      if (extraidos.length > 0) return extraidos;
+    } catch (e) {
+      // Si falla el parseo, intentamos extraer por texto plano de respaldo
+    }
+
+    return [];
+  };
+
+  const rubrosDelPresupuesto = obtenerRubrosDelPresupuesto();
 
   const gastosGeneralesConceptos = [
     'Alquiler de oficinas',
@@ -111,7 +120,8 @@ export default function Tesoreria({
     'Gastos bancarios y Comisiones',
     'Combustible y Viáticos generales',
     'Papelería y Útiles de oficina',
-    'Mantenimiento general'
+    'Mantenimiento general',
+    'Imprevistos'
   ];
 
   const formatearFechaDisplay = (fechaStr) => {
@@ -582,16 +592,14 @@ export default function Tesoreria({
 
   const balance = totalIngresos - totalEgresos;
 
-  // 🔍 FILTRADO DE MOVIMIENTOS (Concepto / Referencia + Proveedor)
+  // 🔍 FILTRADO DE MOVIMIENTOS
   const movimientosFiltrados = movimientos.filter(m => {
     const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
     const ref = String(m.referencia || m.Referencia || '').toLowerCase();
     const matchTexto = concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
     
-    // Si hay filtro de proveedor seleccionado, verificamos si alguna factura aplicada o el concepto coincide
     let matchProveedor = true;
     if (filtroProveedorMovimientos) {
-      // Buscar si el movimiento está asociado a facturas del proveedor o si su concepto lo nombra
       const provObj = proveedores.find(p => String(p.id || p.ID) === String(filtroProveedorMovimientos));
       const nombreProv = provObj ? (provObj.razon_social || provObj.nombre || '').toLowerCase() : '';
       matchProveedor = concepto.includes(nombreProv);
@@ -600,7 +608,7 @@ export default function Tesoreria({
     return matchTexto && matchProveedor;
   });
 
-  // 🔍 FILTRADO DE FACTURAS A PAGAR POR PROVEEDOR
+  // 🔍 FILTRADO DE FACTURAS A PAGAR
   const facturasAPagar = facturas.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
     const esPendiente = estado === 'pendiente' || estado === 'pagado parcial';
@@ -749,7 +757,6 @@ export default function Tesoreria({
           <button onClick={() => setActiveTab('iva')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'iva' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>IVA</button>
         </div>
 
-        {/* 🔍 FILTROS ESPECÍFICOS SEGÚN LA PESTAÑA ACTIVA */}
         {activeTab === 'movimientos' && (
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <select 
@@ -1125,7 +1132,7 @@ export default function Tesoreria({
                     disabled={isSaving} 
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
                     value={formData.obra_id} 
-                    onChange={(e) => setFormData({...formData, obra_id: e.target.value, presupuesto_id: ''})}
+                    onChange={(e) => setFormData({...formData, obra_id: e.target.value, presupuesto_id: '', rubro_imputacion: ''})}
                   >
                     <option value="">Seleccione obra...</option>
                     {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.nombre || o.Nombre}</option>)}
@@ -1138,7 +1145,7 @@ export default function Tesoreria({
                     disabled={isSaving || !formData.obra_id} 
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
                     value={formData.presupuesto_id} 
-                    onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}
+                    onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value, rubro_imputacion: ''})}
                   >
                     <option value="">{formData.obra_id ? 'Seleccione presupuesto...' : 'Primero seleccione obra...'}</option>
                     {presupuestosDisponibles.map(p => (
@@ -1179,16 +1186,14 @@ export default function Tesoreria({
                     </select>
                   ) : (
                     <select 
-                      disabled={isSaving} 
+                      disabled={isSaving || !formData.presupuesto_id} 
                       className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
                       value={formData.rubro_imputacion} 
                       onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
                     >
-                      <option value="">Seleccione rubro...</option>
-                      {rubrosDisponibles.map(r => (
-                        <option key={r.id || r.ID} value={r.nombre || r.Nombre || r.rubro}>
-                          {r.nombre || r.Nombre || r.rubro}
-                        </option>
+                      <option value="">{formData.presupuesto_id ? 'Seleccione rubro del presupuesto...' : 'Primero seleccione presupuesto...'}</option>
+                      {rubrosDelPresupuesto.map((r, idx) => (
+                        <option key={idx} value={r}>{r}</option>
                       ))}
                     </select>
                   )}
