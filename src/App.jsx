@@ -158,6 +158,40 @@ const AuthenticatedApp = () => {
 
   if (!user) {
     return (
+import React, { lazy, Suspense } from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Toaster } from "@/components/ui/toaster";
+import { AuthProvider, useAuth } from './context/AuthContext';
+
+// Lazy loading de componentes
+const Login = lazy(() => import('./components/Login'));
+const Layout = lazy(() => import('./components/Layout'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const Clientes = lazy(() => import('./components/Clientes'));
+const Proveedores = lazy(() => import('./components/Proveedores'));
+const Obras = lazy(() => import('./components/Obras'));
+const Insumos = lazy(() => import('./components/Insumos'));
+const Presupuestos = lazy(() => import('./components/Presupuestos'));
+const PresupuestoDetalle = lazy(() => import('./components/PresupuestoDetalle'));
+const Planificacion = lazy(() => import('./components/Planificacion'));
+const Rrhh = lazy(() => import('./components/Rrhh'));
+const Compras = lazy(() => import('./components/Compras'));
+const Tesoreria = lazy(() => import('./components/Tesoreria'));
+const Reportes = lazy(() => import('./components/Reportes'));
+const ContratosMantenimiento = lazy(() => import('./components/ContratosMantenimiento'));
+const Usuarios = lazy(() => import('./components/Usuarios'));
+const TareasTemplate = lazy(() => import('./components/TareasTemplate'));
+const PageNotFound = lazy(() => import('./components/PageNotFound'));
+const RequirePermiso = lazy(() => import('./components/RequirePermiso'));
+
+const queryClientInstance = new QueryClient();
+
+const AuthenticatedApp = () => {
+  const { user, handleLoginSuccess, globalData, cargarDatos, GOOGLE_SCRIPT_URL } = useAuth();
+
+  if (!user) {
+    return (
       <Suspense fallback={<div className="min-h-screen bg-[#070e1b] flex items-center justify-center text-white">Cargando login...</div>}>
         <Login GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} onLoginSuccess={handleLoginSuccess} />
       </Suspense>
@@ -246,6 +280,7 @@ const AuthenticatedApp = () => {
                       presupuestos={globalData.presupuestos}
                       contratosMantenimiento={globalData.contratosMantenimiento}
                       legajosInicial={globalData.legajos}
+                      cargasHorasIniciales={globalData.cargasSemanales}
                       cargarDatos={cargarDatos}
                     />
                   </RequirePermiso>
