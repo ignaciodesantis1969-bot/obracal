@@ -4,7 +4,7 @@ import { TrendingUp, Printer } from 'lucide-react';
 export default function ComparativoTab({
   presupuestos = [],
   facturas = [],
-  tesoreria = [], // Añadido por si el componente padre los envía por separado
+  tesoreria = [],
   allReportesSice = []
 }) {
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
@@ -28,7 +28,6 @@ export default function ComparativoTab({
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   };
 
-  // 1. CONVERSOR NUMÉRICO BLINDADO: Convierte "1221360,62" a 1221360.62 válido para sumar
   const parsearMonto = (val) => {
     if (val === null || val === undefined) return 0;
     if (typeof val === 'number') return val;
@@ -49,7 +48,6 @@ export default function ComparativoTab({
   const resolverTipoInsumoOficial = (textoCompleto) => {
     const tc = limpiarTexto(textoCompleto);
     
-    // Si dice cargas sociales, sueldos o viáticos, es indiscutiblemente Mano de Obra
     if (
       tc.includes('mano de obra') || 
       tc.includes('sueldo') || 
@@ -98,7 +96,6 @@ export default function ComparativoTab({
     return map;
   }, [presupuestoSeleccionado]);
 
-  // Consolidamos facturas y tesorería en un solo gran array de egresos
   const todosLosEgresos = useMemo(() => {
     return [...(Array.isArray(facturas) ? facturas : []), ...(Array.isArray(tesoreria) ? tesoreria : [])];
   }, [facturas, tesoreria]);
@@ -112,14 +109,14 @@ export default function ComparativoTab({
     if (typeof rubrosList === 'string') { try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; } }
     if (!Array.isArray(rubrosList)) rubrosList = [rubrosList];
 
-    // Lista de nombres de rubros limpios de este presupuesto
     const nombresRubrosPresupuesto = rubrosList.map(r => limpiarTexto(r?.rubro || r?.nombre || ''));
 
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
     const pNombreReal = String(presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || '').trim();
     
-    // 2. FILTRO DE INCLUSIÓN AGRESIVA PARA RRHH
+    // FILTRADO INTELIGENTE: Si el registro viene de Tesorería/RRHH con "Presupuesto: 1" o similar, 
+    // lo asociamos directamente al presupuesto activo seleccionado en el desplegable.
     const facturasDelPto = todosLosEgresos
       .filter(f => {
         const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
@@ -129,18 +126,16 @@ export default function ComparativoTab({
         if (pCodReal && fDesc.includes(pCodReal)) return true;
         if (pNombreReal && fDesc.includes(pNombreReal)) return true;
         
-        // Si es una carga de RRHH, extraemos el rubro. Si el rubro existe en este presupuesto, lo admitimos.
-        if (fDesc.includes('[Rubro:')) {
-          const matchCorch = fDesc.match(/\[Rubro:\s*(.*?)\s*-/i);
-          if (matchCorch && matchCorch[1]) {
-             const rubroRRHH = limpiarTexto(matchCorch[1]);
-             if (nombresRubrosPresupuesto.some(nr => nr === rubroRRHH || nr.includes(rubroRRHH) || rubroRRHH.includes(nr))) {
-               return true;
-             }
-          }
+        // REGLA DE RESCATE PARA TESORERÍA / RRHH:
+        // Si el concepto menciona "Presupuesto: 1" y tenemos seleccionado el primer presupuesto (o id "1"), lo aceptamos.
+        if (fDesc.includes('Presupuesto: 1') && (pIdReal === '1' || pCodReal === '1' || compPresupuestoId === '1')) {
+          return true;
         }
+
+        // Si tiene la estructura de rubro por corchetes, lo aceptamos para validarlo con los rubros de la obra
+        if (fDesc.includes('[Rubro:')) return true;
         
-        if (!fPto && !fDesc.includes('Presupuesto:')) return true; // Huerfanos puros
+        if (!fPto && !fDesc.includes('Presupuesto:')) return true;
         
         return false;
       })
@@ -239,7 +234,7 @@ export default function ComparativoTab({
         const fTextRaw = `${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
         const fTextLimpiado = limpiarTexto(fTextRaw);
         
-        // Extracción estricta del corchete generado por RRHH: [Rubro: DEMOLICIONES - ...]
+        // Extraemos el nombre del rubro dentro del corchete exacto de Tesorería: [Rubro: NOMBRE - 100%]
         const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*-/i);
         let rubroExtraido = '';
         if (matchCorchetes && matchCorchetes[1]) {
@@ -257,9 +252,7 @@ export default function ComparativoTab({
       });
 
       facturasRubro.forEach(f => {
-        // 3. Tomamos el monto directamente desde Tesorería. RRHH ya guardó el valor prorrateado, NO lo multiplicamos por el porcentaje.
         const montoFactura = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
-        
         const textoCompletoFac = `${f?.tipo_insumo || ''} ${f?.tipoInsumo || ''} ${f?.categoria_insumo || ''} ${f?.categoria || ''} ${f?.tipo || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.observaciones || ''}`;
         
         let catDestino = resolverTipoInsumoOficial(textoCompletoFac);
@@ -293,7 +286,7 @@ export default function ComparativoTab({
     });
 
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
-  }, [presupuestoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias, mapaInsumosPresupuesto]);
+  }, [presupuestoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias, mapaInsumosPresupuesto, compPresupuestoId]);
 
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
