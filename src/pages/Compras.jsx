@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart } from 'lucide-react';
 
-export default function Compras({ 
+export default function Compras({  
   GOOGLE_SCRIPT_URL, 
   facturas = [], 
   ordenesCompra = [], 
@@ -40,17 +40,18 @@ export default function Compras({
   // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSaving, setIsSaving] = useState(false);
 
-  // Formulario Factura
+  // Formulario Factura adaptado a las columnas limpias de Sheets
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
     tipo: 'Compra',
     comprobante_tipo: 'Factura A',
     n_factura: '',
     proveedor_id: '',
-    tipo_gasto: 'Presupuesto', 
+    obra_id: '',
     presupuesto_id: '',
     contrato_id: '', 
-    rubro_presupuesto: '', 
+    tipo_gasto: 'Presupuesto', 
+    rubro_imputacion: '', 
     tipo_insumo: 'Material', 
     detalle_gasto: '',
     fecha: new Date().toISOString().split('T')[0],
@@ -372,7 +373,10 @@ export default function Compras({
 
     const fechaCruda = f.fecha || f.Fecha || f.FECHA;
     const vencCrudo = f.vencimiento || f.Vencimiento || f.VENCIMIENTO;
-    const renglonRecuperado = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || f.renglon || f.Renglon || f.detalle_gasto || 'Material';
+    
+    // Mapeo seguro de columnas nuevas y antiguas de respaldo
+    const rubroImputacionVal = f.rubro_imputacion || f.Rubro_imputacion || f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '';
+    const tipoInsumoVal = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || f.renglon || f.Renglon || 'Material';
     const tipoComp = f.comprobante_tipo || f.Comprobante_tipo || 'Factura A';
     const esNC = String(tipoComp).toLowerCase().includes('nota de crédito') || String(tipoComp).toLowerCase().includes('nota de credito');
 
@@ -380,10 +384,11 @@ export default function Compras({
       ...f, 
       comprobante_tipo: tipoComp,
       tipo_gasto: f.tipo_gasto || f.Tipo_gasto || 'Presupuesto',
+      obra_id: f.obra_id || f.Obra_id || '',
       presupuesto_id: f.presupuesto_id || f.Presupuesto_id || '',
       contrato_id: f.contrato_id || f.Contrato_id || '',
-      rubro_presupuesto: f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '',
-      tipo_insumo: renglonRecuperado,
+      rubro_imputacion: rubroImputacionVal,
+      tipo_insumo: tipoInsumoVal,
       detalle_gasto: f.detalle_gasto || f.Detalle_gasto || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
@@ -424,27 +429,23 @@ export default function Compras({
         ...formData,
         subtotal: subtotalNum,
         iva_21: iva21Num,
-        iva_105: iva105Num,
+        iva_10_5: iva105Num,
         persp_iibb_bs_as: iibbBsAsNum,
         persp_iibb_caba: iibbCabaNum,
         otros_impuestos: otrosImpNum,
         total: totalNum,
         estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago,
         codigo: codigoFinal,
+        obra_id: formData.obra_id,
+        presupuesto_id: formData.presupuesto_id,
         contrato_id: formData.contrato_id,
-        rubro_presupuesto: formData.rubro_presupuesto,
-        Rubro_presupuesto: formData.rubro_presupuesto,
-        rubro: formData.rubro_presupuesto,
-        Rubro: formData.rubro_presupuesto,
+        tipo_gasto: formData.tipo_gasto,
+        rubro_imputacion: formData.rubro_imputacion,
         tipo_insumo: formData.tipo_insumo,
-        Tipo_insumo: formData.tipo_insumo,
+        // Respaldo para compatibilidad en otras vistas
+        rubro_presupuesto: formData.rubro_imputacion,
+        rubro: formData.rubro_imputacion,
         insumo: formData.tipo_insumo,
-        Insumo: formData.tipo_insumo,
-        renglon: formData.tipo_insumo,
-        Renglon: formData.tipo_insumo,
-        RENGLON: formData.tipo_insumo,
-        detalle_gasto: formData.tipo_insumo,
-        Detalle_gasto: formData.tipo_insumo,
         archivo_url: formData.archivo_url || ''
       };
 
@@ -737,10 +738,11 @@ export default function Compras({
               comprobante_tipo: 'Factura A',
               n_factura: '',
               proveedor_id: '',
-              tipo_gasto: 'Presupuesto',
+              obra_id: '',
               presupuesto_id: '',
               contrato_id: '',
-              rubro_presupuesto: '',
+              tipo_gasto: 'Presupuesto',
+              rubro_imputacion: '',
               tipo_insumo: 'Material',
               detalle_gasto: '',
               fecha: new Date().toISOString().split('T')[0],
@@ -824,9 +826,10 @@ export default function Compras({
                   const codigoDisplay = f.codigo || f.Codigo || f.CODIGO || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const archivoLink = f.archivo_url || f.Archivo_url || f.archivo || '';
                   const tipoGastoDisplay = f.tipo_gasto || f.Tipo_gasto || 'Presupuesto';
-                  const rubroPresupuesto = f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '';
+                  
+                  const rubroImputacion = f.rubro_imputacion || f.Rubro_imputacion || f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '';
                   const tipoInsumo = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || f.renglon || f.Renglon || '';
-                  const detalleDisplay = rubroPresupuesto ? `${rubroPresupuesto} (${tipoInsumo})` : (f.rubro || '---');
+                  const detalleDisplay = rubroImputacion ? `${rubroImputacion} (${tipoInsumo})` : (f.rubro || '---');
 
                   return (
                     <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
@@ -1035,7 +1038,6 @@ export default function Compras({
             </div>
             <form onSubmit={handleGuardarFactura} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               
-              
               <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl flex items-center gap-2 text-xs">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación. Las notas de crédito se registrarán automáticamente en el listado de movimientos de tesorería y restarán en los totales.</span>
@@ -1078,6 +1080,15 @@ export default function Compras({
                   </select>
                 </div>
 
+                {/* OBRA ID */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra *</label>
+                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
+                    <option value="">Seleccione obra...</option>
+                    {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>[{o.codigo}] {o.nombre || o.nombre_obra}</option>)}
+                  </select>
+                </div>
+
                 {/* TIPO DE GASTO / DESTINO */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto *</label>
@@ -1090,8 +1101,8 @@ export default function Compras({
                         tipo_gasto: val,
                         presupuesto_id: '',
                         contrato_id: '',
-                        rubro_presupuesto: val === 'Contrato de Mantenimiento' ? 'Materiales del Contrato' : '',
-                        tipo_insumo: val === 'Contrato de Mantenimiento' ? 'Material' : 'Material'
+                        rubro_imputacion: val === 'Contrato de Mantenimiento' ? 'Materiales del Contrato' : '',
+                        tipo_insumo: 'Material'
                       });
                     }}>
                     <option value="Presupuesto">Presupuesto Aprobado</option>
@@ -1126,12 +1137,12 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* RUBRO */}
+                {/* RUBRO IMPUTACION */}
                 {(formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
                   <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro Imputación *</label>
                     {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (
-                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.rubro_presupuesto} onChange={(e) => setFormData({...formData, rubro_presupuesto: e.target.value})}>
+                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.rubro_imputacion} onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}>
                         <option value="Materiales del Contrato">Materiales del Contrato</option>
                       </select>
                     ) : (
@@ -1139,12 +1150,12 @@ export default function Compras({
                         required 
                         disabled={isSaving} 
                         className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
-                        value={formData.rubro_presupuesto} 
+                        value={formData.rubro_imputacion} 
                         onChange={(e) => {
                           const nuevoRubro = e.target.value;
                           setFormData({
                             ...formData, 
-                            rubro_presupuesto: nuevoRubro,
+                            rubro_imputacion: nuevoRubro,
                             tipo_insumo: '' 
                           });
                         }}
@@ -1163,10 +1174,10 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* TIPO DE INSUMO / RENGLÓN */}
+                {/* TIPO DE INSUMO */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    {formData.rubro_presupuesto === 'Gastos Generales' ? 'Renglón Gastos Generales *' : 'Tipo de Insumo *'}
+                    {formData.rubro_imputacion === 'Gastos Generales' ? 'Renglón Gastos Generales *' : 'Tipo de Insumo *'}
                   </label>
                   <select 
                     required
@@ -1177,7 +1188,7 @@ export default function Compras({
                   >
                     {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (
                       <option value="Material">Material</option>
-                    ) : formData.rubro_presupuesto === 'Gastos Generales' ? (
+                    ) : formData.rubro_imputacion === 'Gastos Generales' ? (
                       <>
                         <option value="">Seleccionar gasto general...</option>
                         {gastosGeneralesDelPresupuesto.map((item, idx) => (
@@ -1191,6 +1202,7 @@ export default function Compras({
                         <option value="Material">Material</option>
                         <option value="Subcontrato">Subcontrato</option>
                         <option value="Equipo / Herramienta">Equipo / Herramienta</option>
+                        <option value="Mano de Obra">Mano de Obra</option>
                       </>
                     )}
                   </select>
