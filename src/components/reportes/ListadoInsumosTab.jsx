@@ -62,7 +62,7 @@ export default function ListadoInsumosTab({
     return map;
   }, [propProveedores, proveedoresSheet, fetchedProveedoresLocal]);
 
-  // Maestro de insumos para validar tipos oficiales y proveedores
+  // 1. Maestro de insumos centralizado para validar contra la pestaña "Insumos"
   const maestroInsumosMap = useMemo(() => {
     const combinados = [...propInsumos, ...(Array.isArray(insumosSheet) ? insumosSheet : []), ...fetchedInsumosLocal];
     const map = {};
@@ -110,98 +110,104 @@ export default function ListadoInsumosTab({
     return presupuestos.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(insumoPresupuestoId));
   }, [insumoPresupuestoId, presupuestos]);
 
+  // 2. Procesamiento global y unificado de insumos y gastos generales
   const insumosPorRubro = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return {};
 
+    // Obtener y parsear de forma segura la estructura completa de items_detalle (columna H)
     let rawDetalle = presupuestoInsumosSeleccionado?.items_detalle || 
                      presupuestoInsumosSeleccionado?.itemsDetalle || 
                      presupuestoInsumosSeleccionado?.rubros || 
-                     presupuestoInsumosSeleccionado?.detalles || [];
+                     presupuestoInsumosSeleccionado?.detalles || {};
 
     if (typeof rawDetalle === 'string') {
-      try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = []; }
-    }
-
-    let rubrosList = rawDetalle?.rubros || rawDetalle;
-    if (typeof rubrosList === 'string') {
-      try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; }
-    }
-
-    if (!Array.isArray(rubrosList)) {
-      rubrosList = [rubrosList];
+      try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = {}; }
     }
 
     const mapRubros = {};
-    rubrosList.forEach((r, rIdx) => {
-      const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
-      
-      let tareasList = r?.tareas || r?.items || r?.subitems || [];
-      if (typeof tareasList === 'string') {
-        try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
-      }
 
-      const catsMap = {};
-      ordenCategorias.forEach(c => catsMap[c] = []);
+    // A. Procesar Rubros y Tareas normales
+    let rubrosList = rawDetalle?.rubros || (Array.isArray(rawDetalle) ? rawDetalle : []);
+    if (typeof rubrosList === 'string') {
+      try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; }
+    }
+    if (!Array.isArray(rubrosList) && typeof rawDetalle === 'object' && rawDetalle !== null) {
+      // Si el objeto principal contiene los rubros u otras propiedades
+      if (Array.isArray(rawDetalle.items)) rubrosList = rawDetalle.items;
+    }
 
-      if (Array.isArray(tareasList)) {
-        tareasList.forEach(t => {
-          let insumosList = t?.insumos || t?.materiales || t?.detalle_insumos || [];
-          if (typeof insumosList === 'string') {
-            try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
-          }
+    if (Array.isArray(rubrosList)) {
+      rubrosList.forEach((r, rIdx) => {
+        const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
+        
+        let tareasList = r?.tareas || r?.items || r?.subitems || [];
+        if (typeof tareasList === 'string') {
+          try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
+        }
 
-          if (!Array.isArray(insumosList) || insumosList.length === 0) {
-            const codigoT = String(t?.codigo || t?.Cod || '').trim().toLowerCase();
-            const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
-            const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
+        const catsMap = {};
+        ordenCategorias.forEach(c => catsMap[c] = []);
 
-            let catDestino = maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || 'Materiales';
-            if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
+        if (Array.isArray(tareasList)) {
+          tareasList.forEach(t => {
+            let insumosList = t?.insumos || t?.materiales || t?.detalle_insumos || [];
+            if (typeof insumosList === 'string') {
+              try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
+            }
 
-            const provItemRaw = String(t?.proveedor_id || t?.proveedor || '').trim();
-            const provFinal = proveedoresList[provItemRaw] || proveedoresList[provItemRaw.toLowerCase()] || maestroInfo.proveedor || (isNaN(provItemRaw) && provItemRaw ? provItemRaw : 'Sin Proveedor');
+            if (!Array.isArray(insumosList) || insumosList.length === 0) {
+              const codigoT = String(t?.codigo || t?.Cod || '').trim().toLowerCase();
+              const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
+              const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
 
-            catsMap[catDestino].push({
-              tarea: t?.descripcion || t?.tarea || 'Labor general',
-              nombre: t?.descripcion || t?.tarea || 'Ítem general',
-              proveedor: provFinal,
-              unidad: maestroInfo.unidad || t?.unidad || 'un',
-              cantidad: Number(t?.cantidad || t?.cant || 1),
-              costo_unitario: Number(maestroInfo.costo_unitario || t?.costo_unitario || t?.precio_unitario || 0),
-              total: Number(t?.total || (Number(t?.cantidad || t?.cant || 1) * Number(maestroInfo.costo_unitario || t?.costo_unitario || 0)))
-            });
-          } else {
-            insumosList.forEach(ins => {
-              const codigoIns = String(ins?.codigo || ins?.Cod || '').trim().toLowerCase();
-              const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim().toLowerCase();
-              const maestroInfo = maestroInsumosMap[codigoIns] || maestroInsumosMap[nombreIns] || {};
-
-              let catDestino = maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales';
+              let catDestino = maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || 'Materiales';
               if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
 
-              const provInsRaw = String(ins?.proveedor_id || ins?.proveedor || '').trim();
-              const provFinal = proveedoresList[provInsRaw] || proveedoresList[provInsRaw.toLowerCase()] || maestroInfo.proveedor || (isNaN(provInsRaw) && provInsRaw ? provInsRaw : 'Sin Proveedor');
-
-              const costoU = Number(maestroInfo.costo_unitario || ins?.costo_unitario || ins?.precio || 0);
-              const cant = Number(ins?.cantidad || ins?.cant || 1);
+              const provItemRaw = String(t?.proveedor_id || t?.proveedor || '').trim();
+              const provFinal = proveedoresList[provItemRaw] || proveedoresList[provItemRaw.toLowerCase()] || maestroInfo.proveedor || 'Sin Proveedor';
 
               catsMap[catDestino].push({
-                tarea: t?.descripcion || t?.tarea || 'Labor',
-                nombre: ins?.nombre || ins?.descripcion || 'Insumo',
+                tarea: t?.descripcion || t?.tarea || 'Labor general',
+                nombre: t?.descripcion || t?.tarea || 'Ítem general',
                 proveedor: provFinal,
-                unidad: maestroInfo.unidad || ins?.unidad || 'un',
-                cantidad: cant,
-                costo_unitario: costoU,
-                total: Number(ins?.total || (cant * costoU))
+                unidad: maestroInfo.unidad || t?.unidad || 'un',
+                cantidad: Number(t?.cantidad || t?.cant || 1),
+                costo_unitario: Number(maestroInfo.costo_unitario || t?.costo_unitario || t?.precio_unitario || 0),
+                total: Number(t?.total || (Number(t?.cantidad || t?.cant || 1) * Number(maestroInfo.costo_unitario || t?.costo_unitario || 0)))
               });
-            });
-          }
-        });
-      }
-      mapRubros[nombreRubro] = catsMap;
-    });
+            } else {
+              insumosList.forEach(ins => {
+                const codigoIns = String(ins?.codigo || ins?.Cod || '').trim().toLowerCase();
+                const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim().toLowerCase();
+                const maestroInfo = maestroInsumosMap[codigoIns] || maestroInsumosMap[nombreIns] || {};
 
-    // EXTRACCIÓN ROBUSTA Y DIRECTA DE GASTOS GENERALES DESDE `gastos_generales_insumos`
+                let catDestino = maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales';
+                if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
+
+                const provInsRaw = String(ins?.proveedor_id || ins?.proveedor || '').trim();
+                const provFinal = proveedoresList[provInsRaw] || proveedoresList[provInsRaw.toLowerCase()] || maestroInfo.proveedor || 'Sin Proveedor';
+
+                const costoU = Number(maestroInfo.costo_unitario || ins?.costo_unitario || ins?.precio || 0);
+                const cant = Number(ins?.cantidad || ins?.cant || 1);
+
+                catsMap[catDestino].push({
+                  tarea: t?.descripcion || t?.tarea || 'Labor',
+                  nombre: ins?.nombre || ins?.descripcion || 'Insumo',
+                  proveedor: provFinal,
+                  unidad: maestroInfo.unidad || ins?.unidad || 'un',
+                  cantidad: cant,
+                  costo_unitario: costoU,
+                  total: Number(ins?.total || (cant * costoU))
+                });
+              });
+            }
+          });
+        }
+        mapRubros[nombreRubro] = catsMap;
+      });
+    }
+
+    // B. Procesar específicamente la sección de Gastos Generales (`gastos_generales_insumos`) desde items_detalle o el presupuesto
     let gastosGeneralesArray = rawDetalle?.gastos_generales_insumos || 
                                rawDetalle?.gastos_generales || 
                                presupuestoInsumosSeleccionado?.gastos_generales_insumos || 
@@ -225,7 +231,7 @@ export default function ListadoInsumosTab({
         const unitario = Number(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
         const totalGG = Number(gg?.total || (cantidad * unitario));
 
-        // Corroborar opcionalmente con el maestro de insumos para enriquecer unidad o proveedor si existe
+        // Corroborar contra el maestro de insumos por nombre exacto para traer su proveedor o unidad oficial
         const maestroGG = maestroInsumosMap[concepto.toLowerCase()] || {};
 
         mapRubros[nombreRubroGG]['Gastos Generales'].push({
