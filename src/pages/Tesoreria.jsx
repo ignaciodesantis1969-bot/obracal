@@ -96,14 +96,12 @@ export default function Tesoreria({
     if (!itemsDetalleStr) return [];
 
     try {
-      // Intentamos parsear como JSON
       const parsed = typeof itemsDetalleStr === 'string' ? JSON.parse(itemsDetalleStr) : itemsDetalleStr;
       const listaRubrosJson = parsed.rubros || parsed.Rubros || [];
-      
       const extraidos = listaRubrosJson.map(r => r.rubro || r.Rubro || r.nombre || r.Nombre).filter(Boolean);
       if (extraidos.length > 0) return extraidos;
     } catch (e) {
-      // Si falla el parseo, intentamos extraer por texto plano de respaldo
+      // Ignorar si falla el parseo de JSON
     }
 
     return [];
@@ -806,16 +804,16 @@ export default function Tesoreria({
               <span>No hay movimientos registrados con los filtros seleccionados.</span>
             </div>
           ) : (
-            <table className="w-full text-left text-xs">
+            <table className="w-full text-left text-xs table-fixed">
               <thead>
                 <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="px-6 py-4">Fecha</th>
-                  <th className="px-4 py-4">Tipo</th>
-                  <th className="px-6 py-4">Concepto</th>
-                  <th className="px-4 py-4">Imputación / Rubro</th>
-                  <th className="px-4 py-4">Medio de Pago</th>
-                  <th className="px-4 py-4 text-right">Monto Neto</th>
-                  <th className="px-6 py-4 text-right">Acciones</th>
+                  <th className="w-24 px-3 py-4">Fecha</th>
+                  <th className="w-20 px-3 py-4">Tipo</th>
+                  <th className="w-auto px-4 py-4">Concepto</th>
+                  <th className="w-40 px-3 py-4">Imputación / Rubro</th>
+                  <th className="w-24 px-3 py-4">Medio Pago</th>
+                  <th className="w-40 px-4 py-4 text-right">Monto Neto</th>
+                  <th className="w-16 px-3 py-4 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -827,22 +825,22 @@ export default function Tesoreria({
 
                   return (
                     <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 text-slate-600">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
-                      <td className="px-4 py-4">
-                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
+                      <td className="px-3 py-4 text-slate-600 truncate">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
+                      <td className="px-3 py-4">
+                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
                           {tipo}
                         </span>
                       </td>
-                      <td className="px-6 py-4 font-bold text-slate-900">{m.concepto || m.Concepto || '---'}</td>
-                      <td className="px-4 py-4 text-slate-700">
-                        <span className="font-semibold block">{rubroImputacion}</span>
-                        {tipoInsumo && <span className="text-[10px] text-slate-400">{tipoInsumo}</span>}
+                      <td className="px-4 py-4 font-bold text-slate-900 break-words">{m.concepto || m.Concepto || '---'}</td>
+                      <td className="px-3 py-4 text-slate-700">
+                        <span className="font-semibold block truncate">{rubroImputacion}</span>
+                        {tipoInsumo && <span className="text-[10px] text-slate-400 truncate block">{tipoInsumo}</span>}
                       </td>
-                      <td className="px-4 py-4 uppercase text-slate-600">{m.medio_pago || m.Medio_pago || 'transferencia'}</td>
-                      <td className={`px-4 py-4 text-right font-black ${tipo === 'ingreso' ? 'text-emerald-600' : 'text-slate-900'}`}>
+                      <td className="px-3 py-4 uppercase text-slate-600 truncate">{m.medio_pago || m.Medio_pago || 'transferencia'}</td>
+                      <td className={`px-4 py-4 text-right font-black whitespace-nowrap ${tipo === 'ingreso' ? 'text-emerald-600' : 'text-slate-900'}`}>
                         $ {monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-3 py-4 text-right">
                         <button onClick={() => handleEliminarMovimiento(m)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                       </td>
                     </tr>
