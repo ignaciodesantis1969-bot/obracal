@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-import { Package, FileText, Printer } from 'lucide-react';
+import { Package, FileText, Printer, Filter, ArrowUpDown } from 'lucide-react';
 
 export default function ListadoInsumosTab({
   presupuestos = []
@@ -9,8 +9,10 @@ export default function ListadoInsumosTab({
   const [insumoPresupuestoId, setInsumoPresupuestoId] = useState('');
   const [vistaGeneralInsumos, setVistaGeneralInsumos] = useState(true);
   const [isSavingInsumosPdf, setIsSavingInsumosPdf] = useState(false);
+  const [proveedorFiltro, setProveedorFiltro] = useState('');
+  const [ordenPrecio, setOrdenPrecio] = useState('nombre'); // 'nombre', 'mayorPrecio', 'menorPrecio'
 
-  const ordenCategorias = useMemo(() => ['Mano de Obra', 'Materiales', 'Equipos', 'Subcontratos', 'Varios'], []);
+  const ordenCategorias = useMemo(() => ['Mano de Obra', 'Materiales', 'Equipos', 'Subcontratos', 'Gastos Generales', 'Varios'], []);
 
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
@@ -27,6 +29,13 @@ export default function ListadoInsumosTab({
   const limpiarTexto = (str) => {
     if (!str) return '';
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  };
+
+  const extraerProveedor = (obj1, obj2 = {}, obj3 = {}) => {
+    const prov = obj1?.proveedor || obj1?.Proveedor || obj1?.proveedor_nombre || obj1?.nombre_proveedor || obj1?.empresa || obj1?.razon_social ||
+                 obj2?.proveedor || obj2?.Proveedor || obj2?.proveedor_nombre || obj2?.nombre_proveedor || obj2?.empresa || obj2?.razon_social ||
+                 obj3?.proveedor || obj3?.Proveedor || obj3?.proveedor_nombre || obj3?.nombre_proveedor || obj3?.empresa || obj3?.razon_social;
+    return prov ? String(prov).trim() : 'Sin Proveedor';
   };
 
   const insumosPorRubro = useMemo(() => {
@@ -53,6 +62,8 @@ export default function ListadoInsumosTab({
     const mapRubros = {};
     rubrosList.forEach((r, rIdx) => {
       const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
+      const provRubro = extraerProveedor(r);
+      
       let tareasList = r?.tareas || r?.items || r?.subitems || [];
       if (typeof tareasList === 'string') {
         try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
@@ -63,6 +74,7 @@ export default function ListadoInsumosTab({
 
       if (Array.isArray(tareasList)) {
         tareasList.forEach(t => {
+          const provTarea = extraerProveedor(t, r);
           let insumosList = t?.insumos || t?.materiales || t?.detalle_insumos || [];
           if (typeof insumosList === 'string') {
             try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
@@ -75,7 +87,7 @@ export default function ListadoInsumosTab({
             catsMap[catDestino].push({
               tarea: t?.descripcion || t?.tarea || 'Labor general',
               nombre: t?.descripcion || t?.tarea || 'Ítem general',
-              proveedor: t?.proveedor || t?.Proveedor || t?.proveedor_nombre || t?.nombre_proveedor || 'SICE S.A.',
+              proveedor: provTarea,
               unidad: t?.unidad || 'un',
               cantidad: Number(t?.cantidad || t?.cant || 1),
               costo_unitario: Number(t?.costo_unitario || t?.precio_unitario || t?.unitario || t?.total || 0),
@@ -83,18 +95,20 @@ export default function ListadoInsumosTab({
             });
           } else {
             insumosList.forEach(ins => {
+              const provInsumo = extraerProveedor(ins, t, r);
               const catOriginal = limpiarTexto(ins?.categoria || ins?.tipo || 'Materiales');
               let catDestino = 'Materiales';
               
               if (catOriginal.includes('mano') || catOriginal.includes('obra')) catDestino = 'Mano de Obra';
               else if (catOriginal.includes('equipo') || catOriginal.includes('herramienta')) catDestino = 'Equipos';
               else if (catOriginal.includes('subcontrato')) catDestino = 'Subcontratos';
+              else if (catOriginal.includes('gasto') || catOriginal.includes('general')) catDestino = 'Gastos Generales';
               else if (catOriginal.includes('vario')) catDestino = 'Varios';
 
               catsMap[catDestino].push({
                 tarea: t?.descripcion || t?.tarea || 'Labor',
                 nombre: ins?.nombre || ins?.descripcion || 'Insumo',
-                proveedor: ins?.proveedor || ins?.Proveedor || ins?.proveedor_nombre || ins?.nombre_proveedor || ins?.empresa || 'Sin Proveedor',
+                proveedor: provInsumo,
                 unidad: ins?.unidad || 'un',
                 cantidad: Number(ins?.cantidad || ins?.cant || 1),
                 costo_unitario: Number(ins?.costo_unitario || ins?.precio || 0),
@@ -122,6 +136,19 @@ export default function ListadoInsumosTab({
     });
     return catsMap;
   }, [insumosPorRubro, ordenCategorias]);
+
+  // Lista única de proveedores para el filtro
+  const listaProveedoresUnicos = useMemo(() => {
+    const provSet = new Set();
+    Object.values(insumosGenerales).forEach(lista => {
+      lista.forEach(it => {
+        if (it?.proveedor && it.proveedor !== 'Sin Proveedor') {
+          provSet.add(it.proveedor);
+        }
+      });
+    });
+    return Array.from(provSet).sort();
+  }, [insumosGenerales]);
 
   const exportarInsumosPDF = async () => {
     if (!presupuestoInsumosSeleccionado) {
@@ -172,7 +199,7 @@ export default function ListadoInsumosTab({
           <select
             value={insumoPresupuestoId}
             onChange={(e) => setInsumoPresupuestoId(e.target.value)}
-            className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[300px]"
+            className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[260px]"
           >
             <option value="">-- Seleccionar Presupuesto ({presupuestosAprobados.length} disp.) --</option>
             {presupuestosAprobados.map(p => {
@@ -186,6 +213,36 @@ export default function ListadoInsumosTab({
               );
             })}
           </select>
+
+          {/* Filtro por Proveedor */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5">
+            <Filter className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={proveedorFiltro}
+              onChange={(e) => setProveedorFiltro(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer"
+            >
+              <option value="">-- Todos los Proveedores --</option>
+              {listaProveedoresUnicos.map(prov => (
+                <option key={prov} value={prov}>{prov}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* Ordenamiento por Precio / Nombre */}
+          <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-300 rounded-xl px-3 py-1.5">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={ordenPrecio}
+              onChange={(e) => setOrdenPrecio(e.target.value)}
+              className="bg-transparent text-xs font-bold text-slate-800 outline-none cursor-pointer"
+            >
+              <option value="nombre">Ordenar por Nombre</option>
+              <option value="mayorPrecio">Mayor Precio (C. Unit.)</option>
+              <option value="menorPrecio">Menor Precio (C. Unit.)</option>
+            </select>
+          </div>
+
           <button
             onClick={() => setVistaGeneralInsumos(!vistaGeneralInsumos)}
             className="px-4 py-2 bg-slate-900 text-white font-bold rounded-xl text-xs hover:bg-slate-800 transition-colors cursor-pointer"
@@ -218,16 +275,27 @@ export default function ListadoInsumosTab({
         </div>
       ) : vistaGeneralInsumos ? (
         <div className="space-y-8">
-          <div className="border-b border-slate-300 pb-2">
+          <div className="border-b border-slate-300 pb-2 flex justify-between items-center">
             <h4 className="text-sm font-black text-slate-900 uppercase">Consolidado General de Insumos</h4>
+            {proveedorFiltro && (
+              <span className="text-xs bg-amber-100 text-amber-900 font-bold px-3 py-1 rounded-full">
+                Filtrado por proveedor: {proveedorFiltro} (<button onClick={() => setProveedorFiltro('')} className="underline ml-1">Quitar</button>)
+              </span>
+            )}
           </div>
           
           {ordenCategorias.map(cat => {
             const itemsCat = insumosGenerales[cat] || [];
-            if (itemsCat.length === 0) return null;
+            
+            // Aplicar filtro de proveedor si está seleccionado
+            const itemsFiltrados = proveedorFiltro 
+              ? itemsCat.filter(it => String(it?.proveedor).toLowerCase() === proveedorFiltro.toLowerCase())
+              : itemsCat;
+
+            if (itemsFiltrados.length === 0) return null;
 
             const agrupadosMap = {};
-            itemsCat.forEach(it => {
+            itemsFiltrados.forEach(it => {
               const nombreNorm = String(it?.nombre || 'Sin nombre').trim();
               const provNorm = String(it?.proveedor || 'Sin Proveedor').trim();
               const uniqueKey = `${nombreNorm.toLowerCase()}_${provNorm.toLowerCase()}`;
@@ -246,10 +314,17 @@ export default function ListadoInsumosTab({
               agrupadosMap[uniqueKey].total += Number(it?.total) || 0;
             });
 
-            const itemsAgrupados = Object.values(agrupadosMap).map(item => ({
+            let itemsAgrupados = Object.values(agrupadosMap).map(item => ({
               ...item,
               costo_unitario: item.cantidad > 0 ? item.total / item.cantidad : item.costo_unitario
             }));
+
+            // Ordenamiento por Precio o Nombre
+            itemsAgrupados.sort((a, b) => {
+              if (ordenPrecio === 'mayorPrecio') return b.costo_unitario - a.costo_unitario;
+              if (ordenPrecio === 'menorPrecio') return a.costo_unitario - b.costo_unitario;
+              return a.nombre.localeCompare(b.nombre);
+            });
 
             const totalCat = itemsAgrupados.reduce((acc, i) => acc + (Number(i?.total) || 0), 0);
 
@@ -301,9 +376,21 @@ export default function ListadoInsumosTab({
                 </div>
                 
                 {ordenCategorias.map(cat => {
-                  const itemsCat = cats[cat] || [];
+                  let itemsCat = cats[cat] || [];
+                  if (proveedorFiltro) {
+                    itemsCat = itemsCat.filter(it => String(it?.proveedor).toLowerCase() === proveedorFiltro.toLowerCase());
+                  }
                   if (itemsCat.length === 0) return null;
                   
+                  // Ordenamiento
+                  itemsCat.sort((a, b) => {
+                    const uA = a.cantidad > 0 ? a.total / a.cantidad : a.costo_unitario;
+                    const uB = b.cantidad > 0 ? b.total / b.cantidad : b.costo_unitario;
+                    if (ordenPrecio === 'mayorPrecio') return uB - uA;
+                    if (ordenPrecio === 'menorPrecio') return uA - uB;
+                    return a.nombre.localeCompare(b.nombre);
+                  });
+
                   const subCatTotal = itemsCat.reduce((acc, i) => acc + (Number(i?.total) || 0), 0);
                   
                   return (
@@ -326,16 +413,19 @@ export default function ListadoInsumosTab({
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-50">
-                          {itemsCat.map((it, iIdx) => (
-                            <tr key={`${nombreRubro}-${cat}-${iIdx}`} className="hover:bg-slate-50 transition-colors">
-                              <td className="py-2 px-4 font-bold text-slate-800 leading-tight">{it?.nombre}</td>
-                              <td className="py-2 px-4 text-slate-600 font-medium leading-tight">{it?.proveedor}</td>
-                              <td className="py-2 px-4 text-center text-slate-500">{it?.unidad}</td>
-                              <td className="py-2 px-4 text-right font-semibold text-slate-700">{Number(it?.cantidad || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })}</td>
-                              <td className="py-2 px-4 text-right text-slate-600">$ {Number(it?.costo_unitario).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                              <td className="py-2 px-4 text-right font-black text-slate-900">$ {Number(it?.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                            </tr>
-                          ))}
+                          {itemsCat.map((it, iIdx) => {
+                            const costoU = it.cantidad > 0 ? it.total / it.cantidad : it.costo_unitario;
+                            return (
+                              <tr key={`${nombreRubro}-${cat}-${iIdx}`} className="hover:bg-slate-50 transition-colors">
+                                <td className="py-2 px-4 font-bold text-slate-800 leading-tight">{it?.nombre}</td>
+                                <td className="py-2 px-4 text-slate-600 font-medium leading-tight">{it?.proveedor}</td>
+                                <td className="py-2 px-4 text-center text-slate-500">{it?.unidad}</td>
+                                <td className="py-2 px-4 text-right font-semibold text-slate-700">{Number(it?.cantidad || 0).toLocaleString('es-AR', { maximumFractionDigits: 2 })}</td>
+                                <td className="py-2 px-4 text-right text-slate-600">$ {Number(costoU).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                                <td className="py-2 px-4 text-right font-black text-slate-900">$ {Number(it?.total).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                              </tr>
+                            );
+                          })}
                         </tbody>
                       </table>
                     </div>
