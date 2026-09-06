@@ -200,42 +200,6 @@ export default function ListadoInsumosTab({
       mapRubros[nombreRubro] = catsMap;
     });
 
-    // Integración de Gastos Generales (Coeficiente de Pase)
-    let gastosGralRaw = presupuestoInsumosSeleccionado?.gastos_generales || 
-                        presupuestoInsumosSeleccionado?.gastosGenerales || 
-                        presupuestoInsumosSeleccionado?.coeficientePase?.gastosGenerales || [];
-    if (typeof gastosGralRaw === 'string') {
-      try { gastosGralRaw = JSON.parse(gastosGralRaw); } catch { gastosGralRaw = []; }
-    }
-
-    if (Array.isArray(gastosGralRaw) && gastosGralRaw.length > 0) {
-      const nombreRubroGG = "Gastos Generales y Coeficiente de Pase";
-      if (!mapRubros[nombreRubroGG]) {
-        const catsMapGG = {};
-        ordenCategorias.forEach(c => catsMapGG[c] = []);
-        mapRubros[nombreRubroGG] = catsMapGG;
-      }
-
-      gastosGralRaw.forEach(gg => {
-        const nombreGG = String(gg?.concepto || gg?.nombre || gg?.descripcion || 'Gasto General').trim();
-        const cantGG = Number(gg?.cantidad || gg?.cant || 1);
-        const unitGG = Number(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
-        const totalGG = Number(gg?.total || (cantGG * unitGG));
-
-        if (totalGG > 0 || cantGG > 0) {
-          mapRubros[nombreRubroGG]['Gastos Generales'].push({
-            tarea: 'Gastos Generales de Obra',
-            nombre: nombreGG,
-            proveedor: 'Sin Proveedor',
-            unidad: 'gl',
-            cantidad: cantGG,
-            costo_unitario: unitGG,
-            total: totalGG
-          });
-        }
-      });
-    }
-
     return mapRubros;
   }, [presupuestoInsumosSeleccionado, ordenCategorias, maestroInsumosMap, proveedoresList]);
 
@@ -427,7 +391,6 @@ export default function ListadoInsumosTab({
               costo_unitario: item.cantidad > 0 ? item.total / item.cantidad : item.costo_unitario
             }));
 
-            // Ordenamiento correcto basado estrictamente en el PRECIO TOTAL (b.total - a.total / a.total - b.total)
             itemsAgrupados.sort((a, b) => {
               if (ordenPrecio === 'mayorPrecioTotal') return b.total - a.total;
               if (ordenPrecio === 'menorPrecioTotal') return a.total - b.total;
@@ -490,7 +453,6 @@ export default function ListadoInsumosTab({
                   }
                   if (itemsCat.length === 0) return null;
                   
-                  // Ordenamiento por PRECIO TOTAL también en vista por rubros
                   itemsCat.sort((a, b) => {
                     if (ordenPrecio === 'mayorPrecioTotal') return b.total - a.total;
                     if (ordenPrecio === 'menorPrecioTotal') return a.total - b.total;
