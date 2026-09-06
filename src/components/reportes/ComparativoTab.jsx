@@ -29,7 +29,7 @@ export default function ComparativoTab({
 
   const resolverTipoInsumoOficial = (tipoRaw) => {
     const t = limpiarTexto(tipoRaw);
-    if (t.includes('mano') || t.includes('obra')) return 'Mano de Obra';
+    if (t.includes('mano de obra') || t.includes('mano')) return 'Mano de Obra';
     if (t.includes('equipo') || t.includes('maquinaria') || t.includes('herramienta')) return 'Equipos';
     if (t.includes('subcontrato') || t.includes('servicio')) return 'Subcontratos';
     if (t.includes('gasto') || t.includes('general') || t.includes('imprevisto')) return 'Gastos Generales';
@@ -168,21 +168,26 @@ export default function ComparativoTab({
       });
 
       facturasRubro.forEach(f => {
-        // Buscamos en todas las propiedades posibles de la factura
-        const tipoFacturaRaw = f?.tipo_insumo || 
-                               f?.tipoInsumo || 
-                               f?.tipo || 
-                               f?.categoria_insumo || 
-                               f?.categoria || 
-                               f?.rubro_insumo || '';
+        // Concatenamos TODAS las columnas posibles (incluyendo detalle_gasto que es donde la app lo guarda)
+        const textoValidacion = limpiarTexto(
+          `${f?.tipo_insumo || ''} ${f?.tipoInsumo || ''} ${f?.categoria_insumo || ''} ${f?.categoria || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''}`
+        );
 
-        let catDestino = resolverTipoInsumoOficial(tipoFacturaRaw);
+        let catDestino = 'Materiales'; // Fallback por defecto
 
-        // Si la factura no trajo un tipo claro, consultamos si el detalle o concepto coincide con algún insumo del presupuesto
-        if (catDestino === 'Materiales' && !tipoFacturaRaw) {
-          const detalleFactura = limpiarTexto(f?.detalle_gasto || f?.concepto || f?.observaciones || '');
+        // Evaluación directa de las palabras clave en la concatenación de los textos
+        if (textoValidacion.includes('mano de obra') || textoValidacion.includes('mano')) {
+          catDestino = 'Mano de Obra';
+        } else if (textoValidacion.includes('equipo') || textoValidacion.includes('maquinaria') || textoValidacion.includes('herramienta')) {
+          catDestino = 'Equipos';
+        } else if (textoValidacion.includes('subcontrato') || textoValidacion.includes('servicio')) {
+          catDestino = 'Subcontratos';
+        } else if (textoValidacion.includes('gasto') || textoValidacion.includes('general') || textoValidacion.includes('imprevisto')) {
+          catDestino = 'Gastos Generales';
+        } else {
+          // Si no encontró una palabra clave directa, cruza el concepto contra los insumos del presupuesto
           Object.keys(mapaInsumosPresupuesto).forEach(keyIns => {
-            if (detalleFactura.includes(keyIns)) {
+            if (textoValidacion.includes(keyIns)) {
               catDestino = mapaInsumosPresupuesto[keyIns];
             }
           });
