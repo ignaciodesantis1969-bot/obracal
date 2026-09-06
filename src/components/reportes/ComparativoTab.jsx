@@ -8,7 +8,6 @@ export default function ComparativoTab({
 }) {
   const [compPresupuestoId, setCompPresupuestoId] = useState('');
 
-  // Los 5 tipos oficiales de insumos
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
   const presupuestosAprobados = useMemo(() => {
@@ -26,16 +25,6 @@ export default function ComparativoTab({
   const limpiarTexto = (str) => {
     if (!str) return '';
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-  };
-
-  // Función robusta para mapear cualquier texto de categoría/tipo al estándar de los 5 tipos oficiales
-  const resolverTipoInsumoOficial = (tipoRaw) => {
-    const t = limpiarTexto(tipoRaw);
-    if (t.includes('mano') || t.includes('obra')) return 'Mano de Obra';
-    if (t.includes('equipo') || t.includes('maquinaria') || t.includes('herramienta')) return 'Equipos';
-    if (t.includes('subcontrato') || t.includes('servicio')) return 'Subcontratos';
-    if (t.includes('gasto') || t.includes('general') || t.includes('imprevisto')) return 'Gastos Generales';
-    return 'Materiales';
   };
 
   const analisisRubrosDetallado = useMemo(() => {
@@ -66,7 +55,7 @@ export default function ComparativoTab({
         valorHoraReferencia = Number(primeraTarea.costo_unitario) || 15000;
       }
     } catch (e) {
-      // Fallback por defecto
+      // Fallback
     }
 
     return rubrosList.map((r, rIdx) => {
@@ -100,8 +89,13 @@ export default function ComparativoTab({
             totalRubroPresupuestado += tareaTotal;
           } else {
             insumosList.forEach(ins => {
-              const catOriginal = ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales';
-              const catDestino = resolverTipoInsumoOficial(catOriginal);
+              const catOriginal = limpiarTexto(ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales');
+              let catDestino = 'Materiales';
+
+              if (catOriginal.includes('mano') || catOriginal.includes('obra')) catDestino = 'Mano de Obra';
+              else if (catOriginal.includes('equipo') || catOriginal.includes('herramienta')) catDestino = 'Equipos';
+              else if (catOriginal.includes('subcontrato')) catDestino = 'Subcontratos';
+              else if (catOriginal.includes('gasto') || catOriginal.includes('general')) catDestino = 'Gastos Generales';
 
               const insTotal = Number(ins?.total || (Number(ins?.cantidad || 1) * Number(ins?.costo_unitario || ins?.precio || 0)));
               categoriasMap[catDestino].presupuestado += insTotal;
@@ -121,20 +115,38 @@ export default function ComparativoTab({
       });
       categoriasMap['Mano de Obra'].real += (totalHsSice * valorHoraReferencia);
 
-      // 3. CARGA DE REAL IMPUTADO DESDE FACTURAS (Respetando la columna de tipo/insumo de la base de datos)
+      // 3. CARGA DE REAL IMPUTADO DESDE FACTURAS (Búsqueda exhaustiva)
       const pIdActual = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.codigo || '').trim();
       const facturasRubro = facturas.filter(f => {
         const fPresupuesto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
-        const fRubro = limpiarTexto(f?.rubro || f?.rubro_presupuesto || '');
+        const fRubro = limpiarTexto(f?.rubro || f?.rubro_presupuesto || f?.concepto || '');
         const matchPresupuesto = (fPresupuesto === pIdActual || !fPresupuesto);
         const matchRubro = fRubro.includes(normRubro);
         return matchPresupuesto && matchRubro;
       });
 
       facturasRubro.forEach(f => {
-        // Leemos el tipo específico que viene en la factura (ej: Subcontrato, Material, etc.)
-        const tipoFacturaRaw = f?.tipo_insumo || f?.tipo || f?.categoria_insumo || f?.categoria || 'Materiales';
-        const catDestino = resolverTipoInsumoOficial(tipoFacturaRaw);
+        const tipoFacturaRaw = f?.tipo_insumo || 
+                               f?.tipoInsumo || 
+                               f?.tipo || 
+                               f?.categoria_insumo || 
+                               f?.categoria || 
+                               f?.rubro_insumo || '';
+
+        const tClean = limpiarTexto(tipoFacturaRaw);
+        let catDestino = 'Materiales';
+
+        if (tClean.includes('mano') || tClean.includes('obra')) {
+          catDestino = 'Mano de Obra';
+        } else if (tClean.includes('equipo') || tClean.includes('maquinaria') || tClean.includes('herramienta')) {
+          catDestino = 'Equipos';
+        } else if (tClean.includes('subcontrato') || tClean.includes('servicio')) {
+          catDestino = 'Subcontratos';
+        } else if (tClean.includes('gasto') || tClean.includes('general') || tClean.includes('imprevisto')) {
+          catDestino = 'Gastos Generales';
+        } else {
+          catDestino = 'Materiales';
+        }
 
         const montoFac = Number(f?.subtotal || f?.total || 0);
         categoriasMap[catDestino].real += montoFac;
@@ -163,7 +175,7 @@ export default function ComparativoTab({
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
 
-  // GASTOS GENERALES E IMPREVISTOS DESDE COMERCIAL Y FACTURAS
+  // GASTOS GENERALES E IMPREVISTOS
   const gastosGeneralesDetalle = useMemo(() => {
     if (!presupuestoSeleccionado) return [];
 
