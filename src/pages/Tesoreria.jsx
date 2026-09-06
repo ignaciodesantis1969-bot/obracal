@@ -74,6 +74,37 @@ export default function Tesoreria({
     estado_pago: 'pendiente'
   });
 
+  // Filtrar presupuestos aprobados para la obra seleccionada
+  const presupuestosDisponibles = presupuestos.filter(p => {
+    if (!formData.obra_id) return false;
+    const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
+    const estado = String(p.estado || p.Estado || '').toLowerCase();
+    return pObraId === String(formData.obra_id) && (estado === 'aprobado' || estado === 'activo' || estado === '');
+  });
+
+  // Listas de rubros según tipo de insumo
+  const rubrosDisponibles = rubros.filter(r => {
+    const tipoItem = String(r.tipo || r.Tipo || '').toLowerCase();
+    const tipoActual = String(formData.tipo_insumo || '').toLowerCase();
+    if (tipoActual === 'materiales') return tipoItem.includes('material') || tipoItem === 'materiales';
+    if (tipoActual === 'mano de obra') return tipoItem.includes('mano de obra') || tipoItem === 'mo';
+    if (tipoActual === 'subcontratos') return tipoItem.includes('subcontrato');
+    if (tipoActual === 'equipos y herramientas') return tipoItem.includes('equipo') || tipoItem.includes('herramienta');
+    return true;
+  });
+
+  const gastosGeneralesConceptos = [
+    'Alquiler de oficinas',
+    'Servicios (Luz, Gas, Agua, Internet)',
+    'Honorarios profesionales / Contaduría',
+    'Seguros generales',
+    'Impuestos y Tasas municipales',
+    'Gastos bancarios y Comisiones',
+    'Combustible y Viáticos generales',
+    'Papelería y Útiles de oficina',
+    'Mantenimiento general'
+  ];
+
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
     const partes = String(fechaStr).split('T')[0].split('-');
@@ -207,7 +238,6 @@ export default function Tesoreria({
   const montoBrutoFacturas = Number(formData.monto || 0);
   const montoNetoEfectivo = Math.max(0, montoBrutoFacturas - totalRetenciones);
 
-  // Manejo de ítems de la Factura de Venta
   const handleAgregarItemVenta = () => {
     setFormDataVenta(prev => ({
       ...prev,
@@ -260,7 +290,6 @@ export default function Tesoreria({
     }));
   };
 
-  // Lector Factura con IA del Backend con la tabla especificada
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -1036,30 +1065,80 @@ export default function Tesoreria({
                   <input type="text" required disabled={isSaving} placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
                 </div>
 
-                {/* IMPUTACIÓN (Obra, Presupuesto, Rubro, Tipo Insumo) */}
+                {/* IMPUTACIÓN EN CASCADA */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
+                  <select 
+                    disabled={isSaving} 
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                    value={formData.obra_id} 
+                    onChange={(e) => setFormData({...formData, obra_id: e.target.value, presupuesto_id: ''})}
+                  >
                     <option value="">Seleccione obra...</option>
                     {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.nombre || o.Nombre}</option>)}
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto ID</label>
-                  <input type="text" disabled={isSaving} placeholder="Ej: 1" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})} />
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado</label>
+                  <select 
+                    disabled={isSaving || !formData.obra_id} 
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                    value={formData.presupuesto_id} 
+                    onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}
+                  >
+                    <option value="">{formData.obra_id ? 'Seleccione presupuesto...' : 'Primero seleccione obra...'}</option>
+                    {presupuestosDisponibles.map(p => (
+                      <option key={p.id || p.ID} value={p.id || p.ID}>
+                        {p.codigo || p.Codigo || `Presupuesto #${p.id || p.ID}`} - {p.nombre || p.Nombre || ''}
+                      </option>
+                    ))}
+                  </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
-                  <input type="text" disabled={isSaving} placeholder="Ej: INSTALACIONES SANITARIAS" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.rubro_imputacion} onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})} />
-                </div>
+
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.tipo_insumo} onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}>
+                  <select 
+                    disabled={isSaving} 
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                    value={formData.tipo_insumo} 
+                    onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value, rubro_imputacion: ''})}
+                  >
                     <option value="Materiales">Materiales</option>
                     <option value="Mano de Obra">Mano de Obra</option>
-                    <option value="Equipos">Equipos</option>
+                    <option value="Subcontratos">Subcontratos</option>
+                    <option value="Equipos y herramientas">Equipos y herramientas</option>
                     <option value="Gastos Generales">Gastos Generales</option>
                   </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
+                  {String(formData.tipo_insumo).toLowerCase() === 'gastos generales' ? (
+                    <select 
+                      disabled={isSaving} 
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                      value={formData.rubro_imputacion} 
+                      onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
+                    >
+                      <option value="">Seleccione gasto general...</option>
+                      {gastosGeneralesConceptos.map((g, idx) => <option key={idx} value={g}>{g}</option>)}
+                    </select>
+                  ) : (
+                    <select 
+                      disabled={isSaving} 
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                      value={formData.rubro_imputacion} 
+                      onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
+                    >
+                      <option value="">Seleccione rubro...</option>
+                      {rubrosDisponibles.map(r => (
+                        <option key={r.id || r.ID} value={r.nombre || r.Nombre || r.rubro}>
+                          {r.nombre || r.Nombre || r.rubro}
+                        </option>
+                      ))}
+                    </select>
+                  )}
                 </div>
 
                 <div>
@@ -1200,7 +1279,7 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* MODAL NUEVA FACTURA DE VENTA (CON SUBIDA E IA / FORMULARIO) */}
+      {/* MODAL NUEVA FACTURA DE VENTA */}
       {isFacturaVentaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
