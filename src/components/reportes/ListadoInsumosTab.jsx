@@ -199,7 +199,7 @@ export default function ListadoInsumosTab({
       });
     }
 
-    // EXTRACCIÓN DIRECTA DESDE comercial.gastos_generales_insumos
+    // EXTRACCIÓN DESDE COMERCIAL: gastos_generales_insumos Y porcentaje_imprevistos
     let comercialObj = rawDetalle?.comercial || presupuestoInsumosSeleccionado?.comercial || {};
     if (typeof comercialObj === 'string') {
       try { comercialObj = JSON.parse(comercialObj); } catch { comercialObj = {}; }
@@ -213,7 +213,10 @@ export default function ListadoInsumosTab({
       try { gastosGeneralesArray = JSON.parse(gastosGeneralesArray); } catch { gastosGeneralesArray = []; }
     }
 
-    if (Array.isArray(gastosGeneralesArray) && gastosGeneralesArray.length > 0) {
+    const porcentajeImprevistos = Number(comercialObj?.porcentaje_imprevistos || rawDetalle?.porcentaje_imprevistos || 0);
+
+    // Si existen gastos generales o imprevistos comerciales, los agrupamos bajo un rubro dedicado a Gastos Generales de Obra
+    if ((Array.isArray(gastosGeneralesArray) && gastosGeneralesArray.length > 0) || porcentajeImprevistos > 0) {
       const nombreRubroGG = "Gastos Generales de Obra";
       if (!mapRubros[nombreRubroGG]) {
         const catsMapGG = {};
@@ -221,24 +224,51 @@ export default function ListadoInsumosTab({
         mapRubros[nombreRubroGG] = catsMapGG;
       }
 
-      gastosGeneralesArray.forEach(gg => {
-        const concepto = String(gg?.concepto || gg?.nombre || gg?.descripcion || 'Gasto General').trim();
-        const cantidad = Number(gg?.cantidad || gg?.cant || 1);
-        const unitario = Number(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
-        const totalGG = Number(gg?.total || (cantidad * unitario));
+      // 1. Añadir los ítems de gastos generales
+      if (Array.isArray(gastosGeneralesArray)) {
+        gastosGeneralesArray.forEach(gg => {
+          const concepto = String(gg?.concepto || gg?.nombre || gg?.descripcion || 'Gasto General').trim();
+          const cantidad = Number(gg?.cantidad || gg?.cant || 1);
+          const unitario = Number(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
+          const totalGG = Number(gg?.total || (cantidad * unitario));
 
-        const maestroGG = maestroInsumosMap[concepto.toLowerCase()] || {};
+          const maestroGG = maestroInsumosMap[concepto.toLowerCase()] || {};
+
+          mapRubros[nombreRubroGG]['Gastos Generales'].push({
+            tarea: 'Gastos Generales',
+            nombre: concepto,
+            proveedor: maestroGG.proveedor || 'Sin Proveedor',
+            unidad: maestroGG.unidad || 'gl',
+            cantidad: cantidad,
+            costo_unitario: unitario || maestroGG.costo_unitario || 0,
+            total: totalGG || (cantidad * (unitario || maestroGG.costo_unitario || 0))
+          });
+        });
+      }
+
+      // 2. Añadir Imprevistos si está definido en comercial
+      if (porcentajeImprevistos > 0) {
+        // Calcular el subtotal acumulado de las demás tareas para hallar el valor monetario de los imprevistos si aplica
+        let subtotalAcumulado = 0;
+        Object.entries(mapRubros).forEach(([rName, cats]) => {
+          if (rName === nombreRubroGG) return;
+          Object.values(cats).forEach(lista => {
+            lista.forEach(it => { subtotalAcumulado += Number(it?.total || 0); });
+          });
+        });
+
+        const totalImprevistos = subtotalAcumulado > 0 ? (subtotalAcumulado * porcentajeImprevistos) / 100 : 0;
 
         mapRubros[nombreRubroGG]['Gastos Generales'].push({
-          tarea: 'Gastos Generales',
-          nombre: concepto,
-          proveedor: maestroGG.proveedor || 'Sin Proveedor',
-          unidad: maestroGG.unidad || 'gl',
-          cantidad: cantidad,
-          costo_unitario: unitario || maestroGG.costo_unitario || 0,
-          total: totalGG || (cantidad * (unitario || maestroGG.costo_unitario || 0))
+          tarea: 'Imprevistos',
+          nombre: `Fondo de Imprevistos (${porcentajeImprevistos}%)`,
+          proveedor: 'Sin Proveedor',
+          unidad: '%',
+          cantidad: porcentajeImprevistos,
+          costo_unitario: totalImprevistos,
+          total: totalImprevistos
         });
-      });
+      }
     }
 
     return mapRubros;
