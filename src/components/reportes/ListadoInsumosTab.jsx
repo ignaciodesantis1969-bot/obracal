@@ -59,6 +59,7 @@ export default function ListadoInsumosTab({
     return map;
   }, [propProveedores, proveedoresSheet, fetchedProveedoresLocal]);
 
+  // Mapeo exacto basado estrictamente en el maestro de insumos y su columna tipo oficial
   const maestroInsumosMap = useMemo(() => {
     const combinados = [...propInsumos, ...(Array.isArray(insumosSheet) ? insumosSheet : []), ...fetchedInsumosLocal];
     const map = {};
@@ -67,12 +68,19 @@ export default function ListadoInsumosTab({
       const codigo = String(ins.codigo || ins.Codigo || ins.id || '').trim().toLowerCase();
       const nombre = String(ins.nombre || ins.Nombre || '').trim().toLowerCase();
       
-      const tipoColD = ins.tipo || ins.Tipo || ins.categoria || ins.rubro || '';
+      let tipoOficial = String(ins.tipo || ins.Tipo || ins.categoria || ins.rubro || 'Materiales').trim();
+      // Normalizar nombres de categorías por si hay variantes en mayúsculas/minúsculas o singulares/plurales
+      if (tipoOficial.toLowerCase().includes('mano')) tipoOficial = 'Mano de Obra';
+      else if (tipoOficial.toLowerCase().includes('equipo')) tipoOficial = 'Equipos';
+      else if (tipoOficial.toLowerCase().includes('subcontrato')) tipoOficial = 'Subcontratos';
+      else if (tipoOficial.toLowerCase().includes('gasto')) tipoOficial = 'Gastos Generales';
+      else if (tipoOficial.toLowerCase().includes('material')) tipoOficial = 'Materiales';
+
       const provId = String(ins.proveedor_id || ins.proveedorId || ins.proveedor || '').trim();
       const proveedorNombre = proveedoresList[provId] || provId || 'Sin Proveedor';
 
       const infoInsumo = {
-        tipo: tipoColD,
+        tipo: tipoOficial,
         proveedor: proveedorNombre,
         unidad: ins.unidad || ins.unid || 'un',
         costo_unitario: Number(ins.costo_unitario || ins.precio || 0)
@@ -84,7 +92,6 @@ export default function ListadoInsumosTab({
     return map;
   }, [propInsumos, insumosSheet, fetchedInsumosLocal, proveedoresList]);
 
-  // Se eliminó 'Varios' de las categorías oficiales permitidas
   const ordenCategorias = useMemo(() => ['Mano de Obra', 'Materiales', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
   const presupuestosAprobados = useMemo(() => {
@@ -98,44 +105,6 @@ export default function ListadoInsumosTab({
     if (!insumoPresupuestoId) return null;
     return presupuestos.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(insumoPresupuestoId));
   }, [insumoPresupuestoId, presupuestos]);
-
-  const limpiarTexto = (str) => {
-    if (!str) return '';
-    return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
-  };
-
-  const clasificarCategoria = (tipoStr, nombreItem = '') => {
-    const t = limpiarTexto(tipoStr);
-    const n = limpiarTexto(nombreItem);
-    const textoAnalizar = `${t} ${n}`;
-
-    // Forzar componentes eléctricos, iluminación o desagües estrictamente a Materiales
-    if (
-      textoAnalizar.includes('electrico') || 
-      textoAnalizar.includes('termica') || 
-      textoAnalizar.includes('modulo') || 
-      textoAnalizar.includes('extractor') || 
-      textoAnalizar.includes('iluminacion') || 
-      textoAnalizar.includes('desague') || 
-      textoAnalizar.includes('pluvial') ||
-      textoAnalizar.includes('cable') ||
-      textoAnalizar.includes('cano') ||
-      textoAnalizar.includes('articulos') ||
-      textoAnalizar.includes('artefactos')
-    ) {
-      return 'Materiales';
-    }
-
-    if (textoAnalizar.includes('mano de obra') || (textoAnalizar.includes('mano') && textoAnalizar.includes('obra'))) return 'Mano de Obra';
-    if (textoAnalizar.includes('equipo') || textoAnalizar.includes('maquinaria') || textoAnalizar.includes('andamio')) return 'Equipos';
-    if (textoAnalizar.includes('subcontrato') || textoAnalizar.includes('servicio de') || textoAnalizar.includes('flete') || textoAnalizar.includes('alquiler de brazo')) return 'Subcontratos';
-    if (textoAnalizar.includes('gasto') || textoAnalizar.includes('general') || textoAnalizar.includes('gg') || 
-        textoAnalizar.includes('seguridad') || textoAnalizar.includes('higiene') || textoAnalizar.includes('seguro') || 
-        textoAnalizar.includes('poliza') || textoAnalizar.includes('ropa de trabajo') || textoAnalizar.includes('visita obligatoria')) return 'Gastos Generales';
-    
-    // Por defecto si no encaja en gastos, mano de obra, equipos o subcontratos, va a Materiales
-    return 'Materiales';
-  };
 
   const insumosPorRubro = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return {};
@@ -182,7 +151,9 @@ export default function ListadoInsumosTab({
             const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
             const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
 
-            const catDestino = clasificarCategoria(maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || '', nombreT);
+            // Uso estricto del tipo definido en la base de datos maestra (evitando adivinanza por texto)
+            let catDestino = maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || 'Materiales';
+            if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
 
             catsMap[catDestino].push({
               tarea: t?.descripcion || t?.tarea || 'Labor general',
@@ -199,7 +170,8 @@ export default function ListadoInsumosTab({
               const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim().toLowerCase();
               const maestroInfo = maestroInsumosMap[codigoIns] || maestroInsumosMap[nombreIns] || {};
 
-              const catDestino = clasificarCategoria(maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || '', nombreIns);
+              let catDestino = maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales';
+              if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
 
               const provFinal = maestroInfo.proveedor || ins?.proveedor || 'Sin Proveedor';
               const costoU = Number(maestroInfo.costo_unitario || ins?.costo_unitario || ins?.precio || 0);
