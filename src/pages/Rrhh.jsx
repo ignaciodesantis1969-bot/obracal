@@ -686,10 +686,13 @@ export default function Rrhh({
         const payloadTesoreria = {
           tipo: 'Egreso',
           fecha: fechaCarga,
-          concepto: `Sueldos y Viáticos - Presupuesto: ${presupuestoSeleccionadoCarga} [Rubro: ${r.rubro} - ${pct}%]`,
+          concepto: `Mano de Obra: Sueldos y Viáticos - Presupuesto: ${presupuestoSeleccionadoCarga} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
           medio_pago: 'transferencia',
-          referencia: 'RRHH'
+          referencia: 'RRHH',
+          rubro: r.rubro,
+          tipo_insumo: 'Mano de Obra',
+          presupuesto_id: presupuestoSeleccionadoCarga
         };
 
         await fetch(GOOGLE_SCRIPT_URL, {
@@ -728,10 +731,13 @@ export default function Rrhh({
         const payloadTesoreria = {
           tipo: 'Egreso',
           fecha: fechaCarga,
-          concepto: `Cargas Sociales (${porcentajeCargasSociales}%) - Presupuesto: ${presupuestoSeleccionadoCarga} [Rubro: ${r.rubro} - ${pct}%]`,
+          concepto: `Mano de Obra: Cargas Sociales (${porcentajeCargasSociales}%) - Presupuesto: ${presupuestoSeleccionadoCarga} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
           medio_pago: 'transferencia',
-          referencia: 'RRHH - Cargas Sociales'
+          referencia: 'RRHH - Cargas Sociales',
+          rubro: r.rubro,
+          tipo_insumo: 'Mano de Obra',
+          presupuesto_id: presupuestoSeleccionadoCarga
         };
 
         await fetch(GOOGLE_SCRIPT_URL, {
