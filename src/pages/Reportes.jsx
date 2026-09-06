@@ -31,6 +31,9 @@ function ReportesContent(props) {
   const movimientos = Array.isArray(props?.movimientos) ? props.movimientos : [];
   const facturas = Array.isArray(props?.facturas) ? props.facturas : [];
   const empleadosListProps = Array.isArray(props?.empleados) ? props.empleados : [];
+  
+  // Soporte por si desde App.jsx ya se envían reportes previos
+  const reportesProps = Array.isArray(props?.allReportesSice) ? props.allReportesSice : [];
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
@@ -40,18 +43,37 @@ function ReportesContent(props) {
   const [activeTab, setActiveTab] = useState(esOperador ? 'Reportes Diarios' : 'Certificaciones');
 
   useEffect(() => {
+    // 1. Cargar Contratos de Mantenimiento
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' }) })
       .then(res => res.json()).then(data => Array.isArray(data) && setFetchedContratos(data)).catch(() => {});
     
+    // 2. Cargar Certificaciones
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificaciones', action: 'get' }) })
       .then(res => res.json()).then(data => Array.isArray(data) && setFetchedCertificados(data)).catch(() => {});
     
+    // 3. Cargar Proveedores
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Proveedores', action: 'get' }) })
       .then(res => res.json()).then(data => Array.isArray(data) && setFetchedProveedores(data)).catch(() => {});
+
+    // 4. CORRECCIÓN: Cargar Reportes Diarios SICE desde Google Sheets para alimentar la correlatividad y el historial
+    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesDiariosSice', action: 'get' }) })
+      .then(res => res.json()).then(data => Array.isArray(data) && setFetchedReportesSice(data)).catch(() => {});
   }, []);
 
   const contratosList = useMemo(() => fetchedContratos.length > 0 ? fetchedContratos : CONTRATO_DEFAULT, [fetchedContratos]);
   const proveedoresList = fetchedProveedores;
+
+  // Consolidar reportes que vienen por props o del fetch local de este componente
+  const allReportesSiceConsolidados = useMemo(() => {
+    const combinados = [...reportesProps, ...fetchedReportesSice];
+    const unicosMap = new Map();
+    combinados.forEach(item => {
+      if (!item) return;
+      const key = String(item.id || item.ID || item.nro || item.Nro || Math.random());
+      if (!unicosMap.has(key)) unicosMap.set(key, item);
+    });
+    return Array.from(unicosMap.values());
+  }, [reportesProps, fetchedReportesSice]);
 
   const proveedorNombreMap = useMemo(() => {
     const map = {};
@@ -114,8 +136,12 @@ function ReportesContent(props) {
 
       {activeTab === 'Reportes Diarios' && (
         <ReportesDiariosTab
-          contratosList={contratosList} allReportesSice={fetchedReportesSice} setFetchedReportesSice={setFetchedReportesSice}
-          listaEmpleadosActivos={empleadosListProps} esOperador={esOperador} buscarValorEnObjeto={buscarValorEnObjeto}
+          contratosList={contratosList} 
+          allReportesSice={allReportesSiceConsolidados} 
+          setFetchedReportesSice={setFetchedReportesSice}
+          listaEmpleadosActivos={empleadosListProps} 
+          esOperador={esOperador} 
+          buscarValorEnObjeto={buscarValorEnObjeto}
         />
       )}
 
