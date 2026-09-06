@@ -15,6 +15,10 @@ export default function Tesoreria({
 }) {
   const [activeTab, setActiveTab] = useState('movimientos');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // 🔍 NUEVOS FILTROS POR PROVEEDOR
+  const [filtroProveedorMovimientos, setFiltroProveedorMovimientos] = useState('');
+  const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
 
   // Modal Nuevo/Editar Movimiento
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -82,16 +86,21 @@ export default function Tesoreria({
     return pObraId === String(formData.obra_id) && (estado === 'aprobado' || estado === 'activo' || estado === '');
   });
 
-  // Listas de rubros según tipo de insumo
-  const rubrosDisponibles = rubros.filter(r => {
-    const tipoItem = String(r.tipo || r.Tipo || '').toLowerCase();
+  // Listas de rubros según tipo de insumo (Con tolerancia)
+  const rubrosFiltrados = rubros.filter(r => {
+    const tipoItem = String(r.tipo || r.Tipo || r.categoria || r.Categoria || '').toLowerCase();
     const tipoActual = String(formData.tipo_insumo || '').toLowerCase();
-    if (tipoActual === 'materiales') return tipoItem.includes('material') || tipoItem === 'materiales';
-    if (tipoActual === 'mano de obra') return tipoItem.includes('mano de obra') || tipoItem === 'mo';
-    if (tipoActual === 'subcontratos') return tipoItem.includes('subcontrato');
-    if (tipoActual === 'equipos y herramientas') return tipoItem.includes('equipo') || tipoItem.includes('herramienta');
-    return true;
+    
+    if (!tipoItem) return true;
+    if (tipoActual.includes('material') && (tipoItem.includes('material') || tipoItem.includes('mat'))) return true;
+    if (tipoActual.includes('mano de obra') && (tipoItem.includes('mano') || tipoItem.includes('mo') || tipoItem.includes('personal'))) return true;
+    if (tipoActual.includes('subcontrato') && (tipoItem.includes('subcontrato') || tipoItem.includes('sub'))) return true;
+    if (tipoActual.includes('equipo') && (tipoItem.includes('equipo') || tipoItem.includes('herramienta'))) return true;
+    
+    return false;
   });
+
+  const rubrosDisponibles = rubrosFiltrados.length > 0 ? rubrosFiltrados : rubros;
 
   const gastosGeneralesConceptos = [
     'Alquiler de oficinas',
@@ -573,15 +582,33 @@ export default function Tesoreria({
 
   const balance = totalIngresos - totalEgresos;
 
+  // 🔍 FILTRADO DE MOVIMIENTOS (Concepto / Referencia + Proveedor)
   const movimientosFiltrados = movimientos.filter(m => {
     const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
     const ref = String(m.referencia || m.Referencia || '').toLowerCase();
-    return concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
+    const matchTexto = concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
+    
+    // Si hay filtro de proveedor seleccionado, verificamos si alguna factura aplicada o el concepto coincide
+    let matchProveedor = true;
+    if (filtroProveedorMovimientos) {
+      // Buscar si el movimiento está asociado a facturas del proveedor o si su concepto lo nombra
+      const provObj = proveedores.find(p => String(p.id || p.ID) === String(filtroProveedorMovimientos));
+      const nombreProv = provObj ? (provObj.razon_social || provObj.nombre || '').toLowerCase() : '';
+      matchProveedor = concepto.includes(nombreProv);
+    }
+
+    return matchTexto && matchProveedor;
   });
 
+  // 🔍 FILTRADO DE FACTURAS A PAGAR POR PROVEEDOR
   const facturasAPagar = facturas.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
-    return estado === 'pendiente' || estado === 'pagado parcial';
+    const esPendiente = estado === 'pendiente' || estado === 'pagado parcial';
+    
+    const provId = String(f.proveedor_id || f.Proveedor_id || '');
+    const matchProveedor = !filtroProveedorPagar || provId === String(filtroProveedorPagar);
+
+    return esPendiente && matchProveedor;
   });
 
   const facturasACobrar = facturasVenta.filter(f => {
@@ -722,9 +749,20 @@ export default function Tesoreria({
           <button onClick={() => setActiveTab('iva')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'iva' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>IVA</button>
         </div>
 
+        {/* 🔍 FILTROS ESPECÍFICOS SEGÚN LA PESTAÑA ACTIVA */}
         {activeTab === 'movimientos' && (
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="relative flex-1 sm:w-72">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <select 
+              value={filtroProveedorMovimientos} 
+              onChange={(e) => setFiltroProveedorMovimientos(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500"
+            >
+              <option value="">Todos los Proveedores</option>
+              {proveedores.map(p => (
+                <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>
+              ))}
+            </select>
+            <div className="relative flex-1 sm:w-60">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input 
                 type="text"
@@ -736,6 +774,21 @@ export default function Tesoreria({
             </div>
           </div>
         )}
+
+        {activeTab === 'facturas_pagar' && (
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <select 
+              value={filtroProveedorPagar} 
+              onChange={(e) => setFiltroProveedorPagar(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 w-full sm:w-72"
+            >
+              <option value="">Todos los Proveedores (Filtrar)</option>
+              {proveedores.map(p => (
+                <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       {activeTab === 'movimientos' && (
@@ -743,7 +796,7 @@ export default function Tesoreria({
           {movimientosFiltrados.length === 0 ? (
             <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
               <Wallet className="w-10 h-10 text-slate-300" />
-              <span>No hay movimientos registrados.</span>
+              <span>No hay movimientos registrados con los filtros seleccionados.</span>
             </div>
           ) : (
             <table className="w-full text-left text-xs">
@@ -799,7 +852,7 @@ export default function Tesoreria({
           {facturasAPagar.length === 0 ? (
             <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
               <Clock className="w-10 h-10 text-slate-300" />
-              <span>No hay facturas pendientes de pago.</span>
+              <span>No hay facturas pendientes de pago para el proveedor seleccionado.</span>
             </div>
           ) : (
             <table className="w-full text-left text-xs">
