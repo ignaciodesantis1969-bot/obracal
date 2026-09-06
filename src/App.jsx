@@ -50,7 +50,8 @@ const AuthenticatedApp = () => {
     rubros: [],
     maestroTareasRubros: [],
     legajos: [],
-    contratosMantenimiento: []
+    contratosMantenimiento: [],
+    certificados: [] // <-- Añadido al estado inicial
   });
 
   useEffect(() => {
@@ -128,7 +129,8 @@ const AuthenticatedApp = () => {
           rubros: data.rubros || [],
           maestroTareasRubros: data.maestro_tareas_rubros || data.maestroTareasRubros || [],
           legajos: data.legajos || [],
-          contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || []
+          contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || [],
+          certificados: data.certificados || data.certificados_emitidos || [] // <-- Captura los certificados del backend
         });
       }
     } catch (error) {
@@ -187,6 +189,7 @@ const AuthenticatedApp = () => {
                   facturas={globalData.facturas}
                   maestroTareasRubros={globalData.maestroTareasRubros}
                   contratosMantenimiento={globalData.contratosMantenimiento}
+                  certificados={globalData.certificados}
                 />
               } 
             />
@@ -301,6 +304,8 @@ const AuthenticatedApp = () => {
                       facturas={globalData.facturas}
                       maestroTareasRubros={globalData.maestroTareasRubros}
                       contratosMantenimiento={globalData.contratosMantenimiento}
+                      certificados={globalData.certificados}
+                      setFetchedCertificados={cargarDatos}
                     />
                   </RequirePermiso>
                 } 
