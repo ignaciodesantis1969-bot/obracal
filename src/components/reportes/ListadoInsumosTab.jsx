@@ -103,13 +103,18 @@ export default function ListadoInsumosTab({
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   };
 
-  const clasificarCategoria = (tipoStr) => {
+  const clasificarCategoria = (tipoStr, nombreItem = '') => {
     const t = limpiarTexto(tipoStr);
-    if (t.includes('mano') || t.includes('obra')) return 'Mano de Obra';
-    if (t.includes('equipo') || t.includes('maquinaria')) return 'Equipos';
-    if (t.includes('subcontrato')) return 'Subcontratos';
-    if (t.includes('gasto') || t.includes('general') || t.includes('gg')) return 'Gastos Generales';
-    if (t.includes('vario')) return 'Varios';
+    const n = limpiarTexto(nombreItem);
+    const textoAnalizar = `${t} ${n}`;
+
+    if (textoAnalizar.includes('mano') || textoAnalizar.includes('obra') && !textoAnalizar.includes('repisa')) return 'Mano de Obra';
+    if (textoAnalizar.includes('equipo') || textoAnalizar.includes('maquinaria') || textoAnalizar.includes('andamio')) return 'Equipos';
+    if (textoAnalizar.includes('subcontrato') || textoAnalizar.includes('servicio de') || textoAnalizar.includes('flete')) return 'Subcontratos';
+    if (textoAnalizar.includes('gasto') || textoAnalizar.includes('general') || textoAnalizar.includes('gg') || 
+        textoAnalizar.includes('seguridad') || textoAnalizar.includes('higiene') || textoAnalizar.includes('seguro') || 
+        textoAnalizar.includes('poliza') || textoAnalizar.includes('ropa de trabajo') || textoAnalizar.includes('visita obligatoria')) return 'Gastos Generales';
+    if (textoAnalizar.includes('vario')) return 'Varios';
     return 'Materiales';
   };
 
@@ -158,7 +163,7 @@ export default function ListadoInsumosTab({
             const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
             const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
 
-            const catDestino = clasificarCategoria(maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || '');
+            const catDestino = clasificarCategoria(maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || '', nombreT);
 
             catsMap[catDestino].push({
               tarea: t?.descripcion || t?.tarea || 'Labor general',
@@ -175,7 +180,7 @@ export default function ListadoInsumosTab({
               const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim().toLowerCase();
               const maestroInfo = maestroInsumosMap[codigoIns] || maestroInsumosMap[nombreIns] || {};
 
-              const catDestino = clasificarCategoria(maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || '');
+              const catDestino = clasificarCategoria(maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || '', nombreIns);
 
               const provFinal = maestroInfo.proveedor || ins?.proveedor || 'Sin Proveedor';
               const costoU = Number(maestroInfo.costo_unitario || ins?.costo_unitario || ins?.precio || 0);
@@ -236,7 +241,7 @@ export default function ListadoInsumosTab({
     try {
       const payload = {
         action: 'guardarYGenerarPDF',
-        tipoReporte: 'insumos', // <-- Especifica claramente que es insumos para evitar que caiga en partes diarios
+        tipoReporte: 'insumos',
         tabla: 'InsumosPresupuesto',
         presupuesto_id: String(insumoPresupuestoId),
         obra: presupuestoInsumosSeleccionado?.nombre || presupuestoInsumosSeleccionado?.nombre_obra || 'Insumos Obra',
