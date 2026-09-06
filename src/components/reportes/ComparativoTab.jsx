@@ -32,11 +32,15 @@ export default function ComparativoTab({
     if (t.includes('mano de obra') || t.includes('mano')) return 'Mano de Obra';
     if (t.includes('equipo') || t.includes('maquinaria') || t.includes('herramienta')) return 'Equipos';
     if (t.includes('subcontrato') || t.includes('servicio')) return 'Subcontratos';
-    if (t.includes('gasto') || t.includes('general') || t.includes('imprevisto')) return 'Gastos Generales';
+    if (
+      t.includes('gasto') || t.includes('general') || t.includes('imprevisto') ||
+      t.includes('seguridad e higiene') || t.includes('ropa de trabajo') || 
+      t.includes('epp') || t.includes('examen') || t.includes('revisacion')
+    ) return 'Gastos Generales';
+    
     return 'Materiales';
   };
 
-  // Mapa global de insumos del presupuesto seleccionado para saber qué tipo le corresponde a cada gasto/factura si falta el dato
   const mapaInsumosPresupuesto = useMemo(() => {
     if (!presupuestoSeleccionado) return {};
     let rawDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle || presupuestoSeleccionado?.rubros || [];
@@ -101,9 +105,7 @@ export default function ComparativoTab({
       if (primeraTarea?.costo_unitario) {
         valorHoraReferencia = Number(primeraTarea.costo_unitario) || 15000;
       }
-    } catch (e) {
-      // Fallback
-    }
+    } catch (e) {}
 
     return rubrosList.map((r, rIdx) => {
       const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
@@ -119,7 +121,7 @@ export default function ComparativoTab({
 
       let totalRubroPresupuestado = 0;
 
-      // 1. CARGA DE PRESUPUESTADO POR CATEGORÍA
+      // 1. CARGA DE PRESUPUESTADO
       if (Array.isArray(tareasList)) {
         tareasList.forEach(t => {
           let insumosList = t?.insumos || t?.materiales || t?.detalle_insumos || [];
@@ -147,7 +149,7 @@ export default function ComparativoTab({
         });
       }
 
-      // 2. CARGA DE REAL IMPUTADO (Mano de Obra SICE)
+      // 2. CARGA DE REAL IMPUTADO (SICE)
       const normRubro = limpiarTexto(nombreRubro);
       let totalHsSice = 0;
       allReportesSice.forEach(rep => {
@@ -157,35 +159,44 @@ export default function ComparativoTab({
       });
       categoriasMap['Mano de Obra'].real += (totalHsSice * valorHoraReferencia);
 
-      // 3. CARGA DE REAL IMPUTADO DESDE FACTURAS CON DOBLE VALIDACIÓN INTELIGENTE
+      // 3. CARGA DE REAL DESDE FACTURAS AL RUBRO PRINCIPAL
       const pIdActual = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.codigo || '').trim();
       const facturasRubro = facturas.filter(f => {
         const fPresupuesto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
-        const fRubro = limpiarTexto(f?.rubro || f?.rubro_presupuesto || f?.concepto || '');
+        // Usamos template string para que NO HAGA CORTOCIRCUITO y lea ambas cosas
+        const fRubro = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_presupuesto || ''}`);
         const matchPresupuesto = (fPresupuesto === pIdActual || !fPresupuesto);
         const matchRubro = fRubro.includes(normRubro);
         return matchPresupuesto && matchRubro;
       });
 
       facturasRubro.forEach(f => {
-        // Concatenamos TODAS las columnas posibles (incluyendo detalle_gasto que es donde la app lo guarda)
+        // Unimos todas las posibles columnas de la factura para analizar el texto completo
         const textoValidacion = limpiarTexto(
-          `${f?.tipo_insumo || ''} ${f?.tipoInsumo || ''} ${f?.categoria_insumo || ''} ${f?.categoria || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''}`
+          `${f?.tipo_insumo || ''} ${f?.tipoInsumo || ''} ${f?.categoria_insumo || ''} ${f?.categoria || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.tipo || ''}`
         );
 
-        let catDestino = 'Materiales'; // Fallback por defecto
+        let catDestino = 'Materiales'; 
 
-        // Evaluación directa de las palabras clave en la concatenación de los textos
         if (textoValidacion.includes('mano de obra') || textoValidacion.includes('mano')) {
           catDestino = 'Mano de Obra';
         } else if (textoValidacion.includes('equipo') || textoValidacion.includes('maquinaria') || textoValidacion.includes('herramienta')) {
           catDestino = 'Equipos';
         } else if (textoValidacion.includes('subcontrato') || textoValidacion.includes('servicio')) {
           catDestino = 'Subcontratos';
-        } else if (textoValidacion.includes('gasto') || textoValidacion.includes('general') || textoValidacion.includes('imprevisto')) {
+        } else if (
+          textoValidacion.includes('gasto') || 
+          textoValidacion.includes('general') || 
+          textoValidacion.includes('imprevisto') ||
+          textoValidacion.includes('seguridad e higiene') ||
+          textoValidacion.includes('ropa de trabajo') ||
+          textoValidacion.includes('epp') ||
+          textoValidacion.includes('examen') ||
+          textoValidacion.includes('revisacion')
+        ) {
           catDestino = 'Gastos Generales';
         } else {
-          // Si no encontró una palabra clave directa, cruza el concepto contra los insumos del presupuesto
+          // Fallback con el mapa del presupuesto
           Object.keys(mapaInsumosPresupuesto).forEach(keyIns => {
             if (textoValidacion.includes(keyIns)) {
               catDestino = mapaInsumosPresupuesto[keyIns];
@@ -197,7 +208,6 @@ export default function ComparativoTab({
         categoriasMap[catDestino].real += montoFac;
       });
 
-      // 4. CÁLCULO DE DESVÍOS Y TOTALES DEL RUBRO
       let totalRealRubro = 0;
       ordenCategorias.forEach(cat => {
         categoriasMap[cat].desvio = categoriasMap[cat].presupuestado - categoriasMap[cat].real;
@@ -220,7 +230,7 @@ export default function ComparativoTab({
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
 
-  // GASTOS GENERALES E IMPREVISTOS
+  // LÓGICA DE GASTOS GENERALES E IMPREVISTOS
   const gastosGeneralesDetalle = useMemo(() => {
     if (!presupuestoSeleccionado) return [];
 
@@ -258,11 +268,25 @@ export default function ComparativoTab({
         const presupuestadoGG = Number(gg?.total || gg?.monto || (cantGG * unitGG));
 
         const normGG = limpiarTexto(nombreGG);
+
         const facturasGG = facturas.filter(f => {
           const fPresupuesto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
-          const rubroFac = limpiarTexto(f?.rubro || f?.rubro_presupuesto || f?.detalle_gasto || '');
           const matchPresupuesto = (fPresupuesto === pIdActual || !fPresupuesto);
-          const matchRubro = rubroFac.includes(normGG);
+          
+          // AQUÍ LA MAGIA: Concatenamos todo para que lea 'detalle_gasto' y 'concepto' siempre
+          const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.tipo_insumo || ''}`);
+          
+          let matchRubro = textoFacGG.includes(normGG);
+
+          // "Soft match" por si hay mínimas diferencias de tipeo
+          if (!matchRubro) {
+            if (normGG.includes('seguridad e higiene') && textoFacGG.includes('seguridad e higiene')) matchRubro = true;
+            if (normGG.includes('ropa de trabajo') && textoFacGG.includes('ropa de trabajo')) matchRubro = true;
+            if (normGG.includes('epp') && textoFacGG.includes('epp')) matchRubro = true;
+            if (normGG.includes('examen') && textoFacGG.includes('examen')) matchRubro = true;
+            if (normGG.includes('revisacion') && textoFacGG.includes('revisacion')) matchRubro = true;
+          }
+
           return matchPresupuesto && matchRubro;
         });
         
@@ -280,13 +304,16 @@ export default function ComparativoTab({
 
     if (porcentajeImprevistos > 0) {
       const montoImprevistosPresupuestado = (granTotalPresupuestadoRubros * porcentajeImprevistos) / 100;
+      
       const facturasImprevistos = facturas.filter(f => {
         const fPresupuesto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
-        const rubroFac = limpiarTexto(f?.rubro || f?.rubro_presupuesto || f?.detalle_gasto || '');
+        const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.tipo_insumo || ''}`);
         const matchPresupuesto = (fPresupuesto === pIdActual || !fPresupuesto);
-        const matchRubro = rubroFac.includes('imprevisto');
+        const matchRubro = textoFacGG.includes('imprevisto');
+        
         return matchPresupuesto && matchRubro;
       });
+      
       const realImprevistos = facturasImprevistos.reduce((acc, f) => acc + Number(f?.subtotal || f?.total || 0), 0);
 
       resultadosGG.push({
