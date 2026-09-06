@@ -101,7 +101,6 @@ export default function ComparativoTab({
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
     const pNombreReal = String(presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || '').trim();
     
-    // FILTRADO ROBUSTO: Acepta match por ID directo, código o si el concepto menciona el presupuesto
     const facturasDelPto = facturas
       .filter(f => {
         const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
@@ -112,8 +111,6 @@ export default function ComparativoTab({
         if (pIdReal && fDesc.includes(`Presupuesto: ${pIdReal}`)) return true;
         if (pCodReal && fDesc.includes(pCodReal)) return true;
         if (pNombreReal && fDesc.includes(pNombreReal)) return true;
-        
-        // Si no tiene un presupuesto asignado explícitamente pero tiene un rubro que coincide con este presupuesto, lo tomamos
         if (!fPto) return true;
         
         return false;
@@ -230,7 +227,11 @@ export default function ComparativoTab({
           rubroExtraido = limpiarTexto(matchCorchetes[1]);
         }
 
-        if (rubroExtraido === normRubro || fTextLimpiado.includes(normRubro)) {
+        // COINCIDENCIA FLEXIBLE Y BLINDADA (Por corchetes limpios o por inclusión general normalizada)
+        if (
+          (rubroExtraido && (normRubro.includes(rubroExtraido) || rubroExtraido.includes(normRubro))) || 
+          fTextLimpiado.includes(normRubro)
+        ) {
           facturasUsadas.add(f._uid);
           return true;
         }
