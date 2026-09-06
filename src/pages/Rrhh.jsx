@@ -8,10 +8,12 @@ export default function Rrhh({
   obras = [], 
   rubros = [], 
   presupuestos = [], 
-  legajosInicial = [],
+  contratosMantenimiento = [],
+  legajosIniciales = [],
+  cargasHorasIniciales = [],
   cargarDatos = () => {} 
 }) {
-  const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga'
+  const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga' | 'historial_carga'
   const [searchTerm, setSearchTerm] = useState('');
 
   // Respaldos seguros locales por si el componente padre no envía alguna prop
@@ -20,15 +22,20 @@ export default function Rrhh({
   const safeObras = Array.isArray(obras) ? obras : [];
   const safeRubros = Array.isArray(rubros) ? rubros : [];
   const safePresupuestos = Array.isArray(presupuestos) ? presupuestos : [];
-  const safeLegajos = Array.isArray(legajosInicial) ? legajosInicial : [];
+  const safeContratos = Array.isArray(contratosMantenimiento) ? contratosMantenimiento : [];
+  const safeLegajos = Array.isArray(legajosIniciales) ? legajosIniciales : [];
+  const safeCargasHoras = Array.isArray(cargasHorasIniciales) ? cargasHorasIniciales : [];
 
   const [legajosLista, setLegajosLista] = useState(safeLegajos);
+  const [cargasHorasLista, setCargasHorasLista] = useState(safeCargasHoras);
 
   React.useEffect(() => {
-    if (Array.isArray(legajosInicial)) {
-      setLegajosLista(legajosInicial);
-    }
-  }, [legajosInicial]);
+    if (Array.isArray(legajosIniciales)) setLegajosLista(legajosIniciales);
+  }, [legajosIniciales]);
+
+  React.useEffect(() => {
+    if (Array.isArray(cargasHorasIniciales)) setCargasHorasLista(cargasHorasIniciales);
+  }, [cargasHorasIniciales]);
 
   // Función auxiliar para limpiar y formatear correctamente los números y textos de Google Sheets
   const procesarPersonalInicial = (lista) => {
@@ -72,8 +79,11 @@ export default function Rrhh({
   const [cuadrillaItems, setCuadrillaItems] = useState([]);
   const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 0 });
 
-  // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS Y CARGAS SOCIALES
+  // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS (AHORA CON SOPORTE PARA EDITAR/HISTORIAL Y CONTRATOS DE MANTENIMIENTO)
+  const [editingCargaId, setEditingCargaId] = useState(null);
+  const [tipoProyectoCarga, setTipoProyectoCarga] = useState('obra'); // 'obra' | 'contrato'
   const [presupuestoSeleccionadoCarga, setPresupuestoSeleccionadoCarga] = useState('');
+  const [contratoSeleccionadoCarga, setContratoSeleccionadoCarga] = useState('');
   const [fechaCarga, setFechaCarga] = useState(new Date().toISOString().split('T')[0]);
   const [porcentajeCargasSociales, setPorcentajeCargasSociales] = useState(76.00);
   const [detalleCargaPersonal, setDetalleCargaPersonal] = useState([]);
@@ -170,12 +180,13 @@ export default function Rrhh({
       setDetalleCargaPersonal(prev => {
         if (prev.length > 0) {
           return prev.map(item => {
-            const match = procesados.find(p => String(p.id || p.ID) === String(item.id));
+            const match = procesados.find(p => String(p.id || p.ID) === String(item.id || item.empleado_id));
             return match ? { ...item, costoDiario: Number(match.costo_en_mano || 0) } : item;
           });
         }
         return procesados.map(p => ({
           id: p.id || p.ID || Math.random(),
+          empleado_id: p.id || p.ID || '',
           nombre: p.nombre || p.Nombre || 'Personal',
           especialidad: p.especialidad || p.Especialidad || 'Operario',
           dias: 5,
@@ -652,8 +663,12 @@ export default function Rrhh({
   const sumaPorcentajesRubros = distribucionRubros.reduce((acc, r) => acc + (Number(r.porcentaje) || 0), 0);
 
   const validarDistribucionRubros = () => {
-    if (!presupuestoSeleccionadoCarga) {
+    if (tipoProyectoCarga === 'obra' && !presupuestoSeleccionadoCarga) {
       alert("Por favor selecciona un Presupuesto.");
+      return false;
+    }
+    if (tipoProyectoCarga === 'contrato' && !contratoSeleccionadoCarga) {
+      alert("Por favor selecciona un Contrato de Mantenimiento.");
       return false;
     }
     if (Math.abs(sumaPorcentajesRubros - 100) > 0.01) {
@@ -669,6 +684,7 @@ export default function Rrhh({
     return true;
   };
 
+  // Guardar o Editar Carga en Historial y Tesorería
   const handleGuardarCargaSalarial = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -678,6 +694,41 @@ export default function Rrhh({
     }
 
     try {
+      const destinoNombre = tipoProyectoCarga === 'obra' 
+        ? `Presupuesto: ${presupuestoSeleccionadoCarga}` 
+        : `Contrato Mantenimiento: ${contratoSeleccionadoCarga}`;
+
+      // 1. Guardar o actualizar registro de Carga en la tabla "CargasHoras"
+      const payloadCargaHistorial = {
+        tipo_proyecto: tipoProyectoCarga,
+        presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
+        contrato_mantenimiento_id: tipoProyectoCarga === 'contrato' ? contratoSeleccionadoCarga : '',
+        fecha: fechaCarga,
+        detalle_personal: JSON.stringify(detalleCargaCalculado),
+        distribucion_rubros: JSON.stringify(distribucionRubros),
+        total_general: totalGeneralCarga
+      };
+
+      const actionCarga = editingCargaId ? 'update' : 'create';
+      const resCarga = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'CargasHoras',
+          action: actionCarga,
+          id: editingCargaId,
+          data: payloadCargaHistorial
+        })
+      });
+
+      const dataCargaRes = await resCarga.json().catch(() => ({ success: true }));
+
+      if (dataCargaRes.success === false) {
+        alert("Error al guardar en el historial de cargas.");
+        return;
+      }
+
+      // 2. Generar o actualizar movimientos en Tesorería por cada rubro
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
@@ -686,13 +737,13 @@ export default function Rrhh({
         const payloadTesoreria = {
           tipo: 'Egreso',
           fecha: fechaCarga,
-          concepto: `Mano de Obra: Sueldos y Viáticos - Presupuesto: ${presupuestoSeleccionadoCarga} [Rubro: ${r.rubro} - ${pct}%]`,
+          concepto: `Mano de Obra: Sueldos y Viáticos - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
           medio_pago: 'transferencia',
           referencia: 'RRHH',
           rubro: r.rubro,
           tipo_insumo: 'Mano de Obra',
-          presupuesto_id: presupuestoSeleccionadoCarga
+          presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : ''
         };
 
         await fetch(GOOGLE_SCRIPT_URL, {
@@ -706,11 +757,52 @@ export default function Rrhh({
         });
       }
 
-      alert("¡Carga de sueldos registrada e imputada por rubros en Tesorería con éxito!");
+      alert(editingCargaId ? "¡Carga actualizada e imputada correctamente!" : "¡Carga de sueldos registrada e imputada por rubros en Tesorería con éxito!");
+      setEditingCargaId(null);
       cargarDatos();
+      setActiveTab('historial_carga');
     } catch (err) {
       console.error(err);
       alert("Error de conexión al guardar la carga salarial.");
+    }
+  };
+
+  const handleEditarCargaHistorial = (cargaItem) => {
+    const cId = cargaItem.id || cargaItem.ID;
+    setEditingCargaId(cId);
+    setTipoProyectoCarga(cargaItem.tipo_proyecto || (cargaItem.contrato_mantenimiento_id ? 'contrato' : 'obra'));
+    setPresupuestoSeleccionadoCarga(cargaItem.presupuesto_id || cargaItem.Presupuesto_id || '');
+    setContratoSeleccionadoCarga(cargaItem.contrato_mantenimiento_id || cargaItem.Contrato_mantenimiento_id || '');
+    setFechaCarga(cargaItem.fecha || cargaItem.Fecha || new Date().toISOString().split('T')[0]);
+
+    try {
+      const detalleParsed = typeof cargaItem.detalle_personal === 'string' ? JSON.parse(cargaItem.detalle_personal) : cargaItem.detalle_personal;
+      if (Array.isArray(detalleParsed)) {
+        setDetalleCargaPersonal(detalleParsed);
+      }
+      const rubrosParsed = typeof cargaItem.distribucion_rubros === 'string' ? JSON.parse(cargaItem.distribucion_rubros) : cargaItem.distribucion_rubros;
+      if (Array.isArray(rubrosParsed)) {
+        setDistribucionRubros(rubrosParsed);
+      }
+    } catch {
+      // Ignorar error de parseo si falla
+    }
+
+    setActiveTab('carga');
+  };
+
+  const handleEliminarCargaHistorial = async (cId) => {
+    if (!cId || !window.confirm("¿Estás seguro de eliminar este registro del historial?")) return;
+    try {
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'CargasHoras', action: 'delete', id: cId })
+      });
+      cargarDatos();
+    } catch (err) {
+      console.error(err);
+      alert("Error al eliminar la carga.");
     }
   };
 
@@ -723,6 +815,10 @@ export default function Rrhh({
     }
 
     try {
+      const destinoNombre = tipoProyectoCarga === 'obra' 
+        ? `Presupuesto: ${presupuestoSeleccionadoCarga}` 
+        : `Contrato Mantenimiento: ${contratoSeleccionadoCarga}`;
+
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
@@ -731,13 +827,13 @@ export default function Rrhh({
         const payloadTesoreria = {
           tipo: 'Egreso',
           fecha: fechaCarga,
-          concepto: `Mano de Obra: Cargas Sociales (${porcentajeCargasSociales}%) - Presupuesto: ${presupuestoSeleccionadoCarga} [Rubro: ${r.rubro} - ${pct}%]`,
+          concepto: `Mano de Obra: Cargas Sociales (${porcentajeCargasSociales}%) - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
           medio_pago: 'transferencia',
           referencia: 'RRHH - Cargas Sociales',
           rubro: r.rubro,
           tipo_insumo: 'Mano de Obra',
-          presupuesto_id: presupuestoSeleccionadoCarga
+          presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : ''
         };
 
         await fetch(GOOGLE_SCRIPT_URL, {
@@ -814,12 +910,20 @@ export default function Rrhh({
           Salarios y Cuadrillas
         </button>
         <button
-          onClick={() => setActiveTab('carga')}
+          onClick={() => { setEditingCargaId(null); setActiveTab('carga'); }}
           className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
             activeTab === 'carga' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
           }`}
         >
-          Carga Semanal de Horas / Viáticos
+          {editingCargaId ? 'Editando Carga' : 'Carga Semanal / Viáticos'}
+        </button>
+        <button
+          onClick={() => setActiveTab('historial_carga')}
+          className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer ${
+            activeTab === 'historial_carga' ? 'bg-amber-500 text-white' : 'bg-white text-slate-600 border border-slate-300 hover:bg-slate-50'
+          }`}
+        >
+          Historial de Cargas ({cargasHorasLista.length})
         </button>
       </div>
 
@@ -830,7 +934,7 @@ export default function Rrhh({
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input 
                 type="text"
-                placeholder="Buscar por nombre, CUIL or especialidad..."
+                placeholder="Buscar por nombre, CUIL o especialidad..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs outline-none focus:border-amber-500"
@@ -949,7 +1053,6 @@ export default function Rrhh({
       {/* MÓDULO DE LEGAJOS */}
       {activeTab === 'legajos' && (
         <div className="space-y-6">
-          {/* Selector Superior de Empleado con Foto Cuadrada Estética y Etiqueta de Estado */}
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
             <div className="flex-1">
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Seleccionar Trabajador</h3>
@@ -979,7 +1082,6 @@ export default function Rrhh({
               </div>
             </div>
 
-            {/* Espacio para la foto cuadrada con opciones Subir / Borrar */}
             {legajoEmpleadoSeleccionado && (
               <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
                 <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
@@ -1080,7 +1182,6 @@ export default function Rrhh({
             </div>
           ) : (
             <div className="space-y-6">
-              {/* Botones de las 4 Subsecciones */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 {[
                   { id: 'documentacion_principal', label: 'Documentación Principal', icon: FileText },
@@ -1112,9 +1213,7 @@ export default function Rrhh({
                 })}
               </div>
 
-              {/* Contenido según la subsección activa */}
               {legajoSubseccionActiva === 'documentacion_principal' ? (
-                /* LISTADO FIJO PARA DOCUMENTACIÓN PRINCIPAL */
                 <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
                   <div>
                     <h4 className="text-xs font-extrabold text-slate-900 uppercase">Documentación Principal Obligatoria</h4>
@@ -1188,9 +1287,7 @@ export default function Rrhh({
                   </div>
                 </div>
               ) : (
-                /* FORMULARIO LIBRE PARA OTRAS SECCIONES (Recibos, Estudios, Capacitaciones) */
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                  {/* Formulario de Subida (1 Columna) */}
                   <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4 h-fit">
                     <h4 className="text-xs font-extrabold text-slate-900 uppercase flex items-center gap-1.5">
                       <Upload className="w-4 h-4 text-amber-600" /> Subir Nuevo Archivo
@@ -1229,7 +1326,6 @@ export default function Rrhh({
                     </form>
                   </div>
 
-                  {/* Listado de Archivos en la Subsección (2 Columnas) */}
                   <div className="lg:col-span-2 bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
                     <h4 className="text-xs font-extrabold text-slate-900 uppercase">
                       Archivos Archivados ({legajosLista.filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === legajoSubseccionActiva).length})
@@ -1485,7 +1581,7 @@ export default function Rrhh({
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {personalSalarios
-                        .filter(p => String(p.estado || '').toLowerCase() === 'activo') // 🔒 FILTRO: Solo personal activo disponible para cuadrillas
+                        .filter(p => String(p.estado || '').toLowerCase() === 'activo')
                         .map((p, pIdx) => (
                           <tr key={p.id || p.ID || pIdx} className="hover:bg-slate-50">
                             <td className="px-4 py-2 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
@@ -1619,53 +1715,110 @@ export default function Rrhh({
         </div>
       )}
 
+      {/* MÓDULO CARGA SEMANAL / VIÁTICOS */}
       {activeTab === 'carga' && (
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
-                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Configuración de Imputación</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Selecciona el presupuesto aprobado, la fecha y define qué porcentaje del gasto se imputará a cada rubro.</p>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase">
+                  {editingCargaId ? 'Editando Carga de Horas / Viáticos' : 'Configuración de Imputación'}
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">Selecciona si la carga pertenece a un Presupuesto o Contrato de Mantenimiento y define la distribución por rubros.</p>
               </div>
+              {editingCargaId && (
+                <button 
+                  onClick={() => { setEditingCargaId(null); setActiveTab('historial_carga'); }}
+                  className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
+                >
+                  Cancelar Edición
+                </button>
+              )}
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-                  <FileText className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Presupuesto Aprobado *
+            {/* SECTOR DE SELECCIÓN TIPO DE PROYECTO (OBRA VS CONTRATO) */}
+            <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+              <label className="block text-xs font-bold text-slate-700 uppercase">Destino del Parte de Horas *</label>
+              <div className="flex gap-6">
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                  <input 
+                    type="radio" 
+                    name="tipo_proyecto_carga" 
+                    checked={tipoProyectoCarga === 'obra'} 
+                    onChange={() => setTipoProyectoCarga('obra')} 
+                    className="accent-amber-500"
+                  />
+                  Presupuesto / Obra
                 </label>
-                <select 
-                  value={presupuestoSeleccionadoCarga}
-                  onChange={(e) => setPresupuestoSeleccionadoCarga(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
-                >
-                  <option value="">-- Seleccione un Presupuesto Aprobado --</option>
-                  {(presupuestosAprobados.length > 0 ? presupuestosAprobados : safePresupuestos).map((p, pIdx) => {
-                    const pId = p.id || p.ID || p.codigo || pIdx;
-                    const pNombre = p.nombre || p.Nombre || p.codigo || `Presupuesto #${pId}`;
-                    const estadoText = p.estado || p.estado_presupuesto || '';
-                    return <option key={pId} value={pId}>{pNombre} {estadoText ? `(${estadoText})` : ''}</option>;
-                  })}
-                </select>
+                <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+                  <input 
+                    type="radio" 
+                    name="tipo_proyecto_carga" 
+                    checked={tipoProyectoCarga === 'contrato'} 
+                    onChange={() => setTipoProyectoCarga('contrato')} 
+                    className="accent-amber-500"
+                  />
+                  Contrato de Mantenimiento
+                </label>
               </div>
 
-              <div>
-                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
-                  <Calendar className="w-3.5 h-3.5 text-amber-600" /> Fecha de Liquidación / Parte *
-                </label>
-                <input 
-                  type="date"
-                  value={fechaCarga}
-                  onChange={(e) => setFechaCarga(e.target.value)}
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
+                {tipoProyectoCarga === 'obra' ? (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                      <FileText className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Presupuesto Aprobado *
+                    </label>
+                    <select 
+                      value={presupuestoSeleccionadoCarga}
+                      onChange={(e) => setPresupuestoSeleccionadoCarga(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                    >
+                      <option value="">-- Seleccione un Presupuesto Aprobado --</option>
+                      {(presupuestosAprobados.length > 0 ? presupuestosAprobados : safePresupuestos).map((p, pIdx) => {
+                        const pId = p.id || p.ID || p.codigo || pIdx;
+                        const pNombre = p.nombre || p.Nombre || p.codigo || `Presupuesto #${pId}`;
+                        return <option key={pId} value={pId}>{pNombre}</option>;
+                      })}
+                    </select>
+                  </div>
+                ) : (
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                      <FileText className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Contrato de Mantenimiento *
+                    </label>
+                    <select 
+                      value={contratoSeleccionadoCarga}
+                      onChange={(e) => setContratoSeleccionadoCarga(e.target.value)}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                    >
+                      <option value="">-- Seleccione Contrato de Mantenimiento --</option>
+                      {safeContratos.map((c, cIdx) => {
+                        const cId = c.id || c.ID || cIdx;
+                        const cNombre = c.nombre || c.Nombre || c.codigo || `Contrato #${cId}`;
+                        return <option key={cId} value={cId}>{cNombre}</option>;
+                      })}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-amber-600" /> Fecha de Liquidación / Parte *
+                  </label>
+                  <input 
+                    type="date"
+                    value={fechaCarga}
+                    onChange={(e) => setFechaCarga(e.target.value)}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                  />
+                </div>
               </div>
             </div>
 
             <div className="space-y-3 bg-amber-50/40 p-4 rounded-xl border border-amber-200">
               <div className="flex justify-between items-center">
                 <h4 className="text-xs font-extrabold text-amber-900 uppercase flex items-center gap-1.5">
-                  <PieChart className="w-4 h-4 text-amber-600" /> Distribución por Rubros del Presupuesto (Suma total debe ser 100%)
+                  <PieChart className="w-4 h-4 text-amber-600" /> Distribución por Rubros (Suma total debe ser 100%)
                 </h4>
                 <button
                   type="button"
@@ -1684,7 +1837,7 @@ export default function Rrhh({
                       onChange={(e) => handleActualizarRubro(r.id, 'rubro', e.target.value)}
                       className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 text-slate-900"
                     >
-                      <option value="">-- Seleccionar Rubro del Presupuesto --</option>
+                      <option value="">-- Seleccionar Rubro --</option>
                       {rubrosDisponiblesPresupuesto.map((rubName, rubIdx) => (
                         <option key={rubIdx} value={rubName}>{rubName}</option>
                       ))}
@@ -1702,7 +1855,6 @@ export default function Rrhh({
                       type="button"
                       onClick={() => handleEliminarRubro(r.id)}
                       className="p-1.5 text-slate-400 hover:text-red-600 cursor-pointer bg-white border border-slate-200 rounded-lg shadow-sm"
-                      title="Quitar rubro"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -1722,15 +1874,15 @@ export default function Rrhh({
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
             <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
               <div>
-                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos por Presupuesto</h3>
-                <p className="text-xs text-slate-500 mt-0.5">Registra la asistencia real y viáticos del personal para imputarlo a los rubros y tesorería.</p>
+                <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos</h3>
+                <p className="text-xs text-slate-500 mt-0.5">Registra la asistencia real y viáticos del personal.</p>
               </div>
               
               <button 
                 onClick={handleGuardarCargaSalarial}
                 className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
               >
-                <CheckCircle2 className="w-4 h-4" /> Registrar Carga de Sueldos ($ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
+                <CheckCircle2 className="w-4 h-4" /> {editingCargaId ? 'Actualizar Carga' : 'Registrar Carga de Sueldos'} ($ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
               </button>
             </div>
 
@@ -1812,7 +1964,7 @@ export default function Rrhh({
             <div className="bg-slate-900 text-white p-6 rounded-2xl flex flex-col sm:flex-row justify-between items-center gap-4">
               <div>
                 <p className="text-xs text-slate-400 font-bold uppercase">Resumen de Liquidación</p>
-                <h4 className="text-lg font-black">{presupuestoSeleccionadoCarga ? `Presupuesto ID: ${presupuestoSeleccionadoCarga}` : 'Seleccione un presupuesto para liquidar'}</h4>
+                <h4 className="text-lg font-black">{tipoProyectoCarga === 'obra' ? `Presupuesto ID: ${presupuestoSeleccionadoCarga || '---'}` : `Contrato Mantenimiento ID: ${contratoSeleccionadoCarga || '---'}`}</h4>
               </div>
               <div className="text-right">
                 <span className="text-xs text-slate-400 uppercase font-bold block">TOTAL GENERAL A PAGAR / IMPUTAR</span>
@@ -1829,7 +1981,6 @@ export default function Rrhh({
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-blue-600" /> Cálculo de Cargas Sociales (5 Días Base)
                 </h3>
-                <p className="text-xs text-slate-500 mt-0.5">Se calcula aplicando el porcentaje sobre el costo diario por 5 días de los operarios tildados arriba.</p>
               </div>
 
               <div className="flex items-center gap-3 bg-blue-50 px-4 py-2 rounded-xl border border-blue-200">
@@ -1862,6 +2013,76 @@ export default function Rrhh({
                 </button>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* MÓDULO HISTORIAL DE CARGAS REALIZADAS */}
+      {activeTab === 'historial_carga' && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Cargas Realizadas</h3>
+              <p className="text-xs text-slate-500 mt-0.5">Visualiza, edita o elimina los partes semanales de horas y viáticos guardados.</p>
+            </div>
+            <button 
+              onClick={() => { setEditingCargaId(null); setActiveTab('carga'); }}
+              className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
+            >
+              <Plus className="w-4 h-4" /> Nueva Carga
+            </button>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+            {cargasHorasLista.length === 0 ? (
+              <div className="p-16 text-center text-slate-400 text-xs flex flex-col items-center justify-center gap-2">
+                <FileText className="w-10 h-10 text-slate-300" />
+                <span>No hay cargas de horas registradas en el historial.</span>
+              </div>
+            ) : (
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                    <th className="px-6 py-4">Fecha</th>
+                    <th className="px-4 py-4">Tipo Proyecto</th>
+                    <th className="px-4 py-4">Destino (Presupuesto / Contrato)</th>
+                    <th className="px-4 py-4 text-right">Monto Total ($)</th>
+                    <th className="px-6 py-4 text-right">Acciones</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {cargasHorasLista.map((c, idx) => {
+                    const cId = c.id || c.ID || idx;
+                    const cTipo = String(c.tipo_proyecto || (c.contrato_mantenimiento_id ? 'contrato' : 'obra')).toUpperCase();
+                    const cPresu = c.presupuesto_id || c.Presupuesto_id || '---';
+                    const cContrato = c.contrato_mantenimiento_id || c.Contrato_mantenimiento_id || '---';
+                    const cTotal = Number(c.total_general || c.Total_general || 0);
+                    const cFecha = c.fecha || c.Fecha || '---';
+
+                    return (
+                      <tr key={cId} className="hover:bg-slate-50">
+                        <td className="px-6 py-4 font-bold text-slate-900">{cFecha}</td>
+                        <td className="px-4 py-4">
+                          <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${cTipo === 'OBRA' ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
+                            {cTipo}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 font-semibold text-slate-700">
+                          {cTipo === 'OBRA' ? `Presupuesto ID: ${cPresu}` : `Contrato Mantenimiento ID: ${cContrato}`}
+                        </td>
+                        <td className="px-4 py-4 text-right font-black text-blue-600">
+                          $ {cTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="px-6 py-4 text-right space-x-2">
+                          <button onClick={() => handleEditarCargaHistorial(c)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Ver / Editar"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEliminarCargaHistorial(cId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            )}
           </div>
         </div>
       )}
