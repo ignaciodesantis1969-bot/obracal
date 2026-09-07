@@ -5,7 +5,8 @@ export default function ComparativoTab({
   presupuestos = [],
   facturas = [],
   tesoreria = [],
-  contratos = [], // <- Agregado para soportar contratos
+  contratosList: propContratos = [],
+  contratos: propContratosAlt = [],
   allReportesSice = []
 }) {
   const [tipoProyecto, setTipoProyecto] = useState('obra');
@@ -13,19 +14,60 @@ export default function ComparativoTab({
 
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
+  const extraerArrayDatos = (fuente) => {
+    if (Array.isArray(fuente)) return fuente;
+    if (fuente && typeof fuente === 'object') {
+      if (Array.isArray(fuente.data)) return fuente.data;
+      if (Array.isArray(fuente.items)) return fuente.items;
+      if (Array.isArray(fuente.result)) return fuente.result;
+      if (Array.isArray(fuente.contratos_mantenimiento)) return fuente.contratos_mantenimiento;
+      if (Array.isArray(fuente.contratosMantenimiento)) return fuente.contratosMantenimiento;
+      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+      if (posibleArray) return posibleArray;
+    }
+    return [];
+  };
+
+  const contratosList = useMemo(() => {
+    const p = extraerArrayDatos(propContratos);
+    const s = extraerArrayDatos(propContratosAlt);
+    
+    let extraGlobales = [];
+    if (p.length === 0 && s.length === 0) {
+      if (typeof window !== 'undefined' && window.globalData) {
+        extraGlobales = extraerArrayDatos(window.globalData.contratos || window.globalData.contratosList || window.globalData.contratos_mantenimiento);
+      }
+    }
+
+    const combinados = [...p, ...s, ...extraGlobales];
+    const unicosMap = new Map();
+    combinados.forEach((item, index) => {
+      if (!item) return;
+      const key = String(item?.id || item?.ID || item?.codigo || item?.Codigo || item?.contrato_id || item?.nro_contrato || index);
+      if (!unicosMap.has(key)) {
+        unicosMap.set(key, item);
+      }
+    });
+
+    return Array.from(unicosMap.values());
+  }, [propContratos, propContratosAlt]);
+
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
       const est = String(p?.estado_presupuesto || p?.estado || p?.Estado_presupuesto || '').toLowerCase().trim();
-      return est === 'aprobado' || est === 'aprobada';
+      return !est || est.includes('aprobad') || est.includes('aprobado');
     });
   }, [presupuestos]);
 
   const contratosActivos = useMemo(() => {
-    return contratos.filter(c => {
-      const est = String(c?.estado || c?.status || '').toLowerCase().trim();
-      return est.includes('activo') || est.includes('vigente') || est.includes('aprobado') || est === '';
+    if (!contratosList || contratosList.length === 0) return [];
+    const filtrados = contratosList.filter(c => {
+      const est = String(c?.estado || c?.Estado || c?.ESTADO || c?.status || '').toLowerCase().trim();
+      if (!est) return true;
+      return est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo') || est.includes('en curso');
     });
-  }, [contratos]);
+    return filtrados.length > 0 ? filtrados : contratosList;
+  }, [contratosList]);
 
   const presupuestoSeleccionado = useMemo(() => {
     if (tipoProyecto !== 'obra' || !proyectoId) return null;
@@ -34,8 +76,8 @@ export default function ComparativoTab({
 
   const contratoSeleccionado = useMemo(() => {
     if (tipoProyecto !== 'contrato' || !proyectoId) return null;
-    return contratos.find(c => String(c?.id || c?.ID || c?.codigo || c?.Codigo) === String(proyectoId));
-  }, [proyectoId, tipoProyecto, contratos]);
+    return contratosList.find(c => String(c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id) === String(proyectoId));
+  }, [proyectoId, tipoProyecto, contratosList]);
 
   const limpiarTexto = (str) => {
     if (!str) return '';
@@ -123,8 +165,8 @@ export default function ComparativoTab({
     if (tipoProyecto === 'contrato') {
       if (!contratoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
       
-      const cIdReal = String(contratoSeleccionado?.id || contratoSeleccionado?.ID || '').trim();
-      const cCodReal = String(contratoSeleccionado?.codigo || contratoSeleccionado?.Codigo || '').trim();
+      const cIdReal = String(contratoSeleccionado?.id || contratoSeleccionado?.ID || contratoSeleccionado?.contrato_id || '').trim();
+      const cCodReal = String(contratoSeleccionado?.codigo || contratoSeleccionado?.Codigo || contratoSeleccionado?.nro_contrato || '').trim();
 
       const facturasDelPto = todosLosEgresos.filter(f => {
         const fContrato = String(f?.contrato_id || f?.contratoId || '').trim();
@@ -140,7 +182,7 @@ export default function ComparativoTab({
       
       const categoriasMap = {};
       ordenCategorias.forEach(cat => { categoriasMap[cat] = { presupuestado: 0, real: 0, desvio: 0 }; });
-      categoriasMap['Materiales'].presupuestado = totalContrato; // Asignamos el monto base a una categoría general
+      categoriasMap['Materiales'].presupuestado = totalContrato;
 
       let totalRealRubro = 0;
 
@@ -159,7 +201,7 @@ export default function ComparativoTab({
 
       const resultadosRubros = [{
         id: cIdReal || 'C1',
-        nombre: contratoSeleccionado?.nombre || contratoSeleccionado?.nombre_contrato || 'Mantenimiento General',
+        nombre: contratoSeleccionado?.nombre || contratoSeleccionado?.nombre_contrato || contratoSeleccionado?.Nombre_contrato || 'Mantenimiento General',
         presupuestado: totalContrato,
         real: totalRealRubro,
         desvio: totalContrato - totalRealRubro,
@@ -404,8 +446,10 @@ export default function ComparativoTab({
               <>
                 <option value="">-- Seleccionar Contrato ({contratosActivos.length}) --</option>
                 {contratosActivos.map(c => {
-                  const cId = c?.id || c?.ID || c?.codigo;
-                  return <option key={cId} value={cId}>[{c?.codigo || cId}] {c?.nombre || c?.nombre_contrato || 'Contrato'}</option>;
+                  const cId = c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id;
+                  const cCod = c?.codigo || c?.Codigo || c?.nro_contrato || 'S/C';
+                  const cNom = c?.nombre || c?.nombre_contrato || c?.Nombre_contrato || c?.cliente || 'Contrato';
+                  return <option key={cId} value={cId}>[{cCod}] {cNom}</option>;
                 })}
               </>
             )}
