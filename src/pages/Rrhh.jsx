@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2 } from 'lucide-react';
 
 export default function Rrhh({ 
   GOOGLE_SCRIPT_URL = '', 
@@ -21,10 +21,9 @@ export default function Rrhh({
   // Respaldos seguros locales por si el componente padre no envía alguna prop
   const safePersonal = Array.isArray(personalInicial) ? personalInicial : [];
   const safeInsumos = Array.isArray(insumos) ? insumos : [];
-  const safeObras = Array.isArray(obras) ? obras : [];
-  const safeRubros = Array.isArray(rubros) ? rubros : [];
   const safePresupuestos = Array.isArray(presupuestos) ? presupuestos : [];
   const safeContratos = Array.isArray(contratosMantenimiento) ? contratosMantenimiento : [];
+  const safeRubros = Array.isArray(rubros) ? rubros : [];
   const safeLegajos = Array.isArray(legajosIniciales) ? legajosIniciales : [];
   const safeCargasHoras = Array.isArray(cargasHorasIniciales) ? cargasHorasIniciales : [];
 
@@ -115,7 +114,7 @@ export default function Rrhh({
     if (safePersonal.length > 0 && !legajoEmpleadoSeleccionado) {
       setLegajoEmpleadoSeleccionado(String(safePersonal[0].id || safePersonal[0].ID || ''));
     }
-  }, [safePersonal]);
+  }, [safePersonal, legajoEmpleadoSeleccionado]);
 
   // Estado para la distribución por Rubros del Presupuesto
   const [distribucionRubros, setDistribucionRubros] = useState([
