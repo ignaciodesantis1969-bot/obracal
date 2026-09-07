@@ -7,6 +7,7 @@ export default function ComparativoTab({
   tesoreria = [],
   contratos = [],
   contratosList = [],
+  contratos_mantenimiento = [],
   allReportesSice = []
 }) {
   const [tipoProyecto, setTipoProyecto] = useState('obra');
@@ -22,6 +23,7 @@ export default function ComparativoTab({
       if (Array.isArray(fuente.result)) return fuente.result;
       if (Array.isArray(fuente.contratos_mantenimiento)) return fuente.contratos_mantenimiento;
       if (Array.isArray(fuente.contratosMantenimiento)) return fuente.contratosMantenimiento;
+      if (Array.isArray(fuente.contratos)) return fuente.contratos;
       const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
       if (posibleArray) return posibleArray;
     }
@@ -29,17 +31,28 @@ export default function ComparativoTab({
   };
 
   const listaContratosUnificada = useMemo(() => {
+    // Recopilamos de todas las fuentes posibles de props o globales
     const c1 = extraerArrayDatos(contratos);
     const c2 = extraerArrayDatos(contratosList);
+    const c3 = extraerArrayDatos(contratos_mantenimiento);
     
     let extraGlobales = [];
-    if (c1.length === 0 && c2.length === 0) {
-      if (typeof window !== 'undefined' && window.globalData) {
-        extraGlobales = extraerArrayDatos(window.globalData.contratos || window.globalData.contratosList || window.globalData.contratos_mantenimiento);
+    if (typeof window !== 'undefined') {
+      if (window.globalData) {
+        extraGlobales = [
+          ...extraerArrayDatos(window.globalData.contratos),
+          ...extraerArrayDatos(window.globalData.contratosList),
+          ...extraerArrayDatos(window.globalData.contratos_mantenimiento)
+        ];
       }
+      if (window.contratos) extraGlobales.push(...extraerArrayDatos(window.contratos));
     }
 
-    const combinados = [...c1, ...c2, ...extraGlobales];
+    const combinados = [...c1, ...c2, ...c3, ...extraGlobales];
+    
+    // Depuración en consola del navegador (F12) para ver qué contratos detecta
+    console.log("CONTRATOS DETECTADOS EN COMPARATIVO:", combinados);
+
     const unicosMap = new Map();
     combinados.forEach((item, index) => {
       if (!item) return;
@@ -50,7 +63,7 @@ export default function ComparativoTab({
     });
 
     return Array.from(unicosMap.values());
-  }, [contratos, contratosList]);
+  }, [contratos, contratosList, contratos_mantenimiento]);
 
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
@@ -62,14 +75,8 @@ export default function ComparativoTab({
   const contratosActivos = useMemo(() => {
     if (!listaContratosUnificada || listaContratosUnificada.length === 0) return [];
     
-    // Si no hay un filtro estricto de estado que matchee, devolvemos todos los contratos para asegurar que se listen en el selector
-    const filtrados = listaContratosUnificada.filter(c => {
-      const est = String(c?.estado || c?.Estado || c?.ESTADO || c?.status || '').toLowerCase().trim();
-      if (!est) return true;
-      return est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo') || est.includes('en curso');
-    });
-    
-    return filtrados.length > 0 ? filtrados : listaContratosUnificada;
+    // Devolvemos todos los contratos sin filtrar estrictamente por estado para garantizar que aparezcan en el desplegable
+    return listaContratosUnificada;
   }, [listaContratosUnificada]);
 
   const presupuestoSeleccionado = useMemo(() => {
@@ -79,7 +86,7 @@ export default function ComparativoTab({
 
   const contratoSeleccionado = useMemo(() => {
     if (tipoProyecto !== 'contrato' || !proyectoId) return null;
-    return listaContratosUnificada.find(c => String(c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id) === String(proyectoId));
+    return listaContratosUnificada.find(c => String(c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id || c?.nro_contrato) === String(proyectoId));
   }, [proyectoId, tipoProyecto, listaContratosUnificada]);
 
   const limpiarTexto = (str) => {
@@ -162,9 +169,6 @@ export default function ComparativoTab({
   const { analisisRubrosDetallado, gastosGeneralesDetalle } = useMemo(() => {
     if (!proyectoId) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
 
-    // ==============================================
-    // LÓGICA PARA CONTRATOS DE MANTENIMIENTO
-    // ==============================================
     if (tipoProyecto === 'contrato') {
       if (!contratoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
       
@@ -204,7 +208,7 @@ export default function ComparativoTab({
 
       const resultadosRubros = [{
         id: cIdReal || 'C1',
-        nombre: contratoSeleccionado?.nombre || contratoSeleccionado?.nombre_contrato || contratoSeleccionado?.Nombre_contrato || 'Mantenimiento General',
+        nombre: contratoSeleccionado?.nombre || contratoSeleccionado?.nombre_contrato || contratoSeleccionado?.Nombre_contrato || contratoSeleccionado?.cliente || 'Mantenimiento General',
         presupuestado: totalContrato,
         real: totalRealRubro,
         desvio: totalContrato - totalRealRubro,
@@ -214,9 +218,6 @@ export default function ComparativoTab({
       return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: [] };
     }
 
-    // ==============================================
-    // LÓGICA ORIGINAL INTACTA PARA PRESUPUESTOS (OBRAS)
-    // ==============================================
     if (!presupuestoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
 
     let rawDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle || presupuestoSeleccionado?.rubros || [];
@@ -449,7 +450,7 @@ export default function ComparativoTab({
               <>
                 <option value="">-- Seleccionar Contrato ({contratosActivos.length}) --</option>
                 {contratosActivos.map(c => {
-                  const cId = c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id;
+                  const cId = c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id || c?.nro_contrato;
                   const cCod = c?.codigo || c?.Codigo || c?.nro_contrato || 'S/C';
                   const cNom = c?.nombre || c?.nombre_contrato || c?.Nombre_contrato || c?.cliente || 'Contrato';
                   return <option key={cId} value={cId}>[{cCod}] {cNom}</option>;
