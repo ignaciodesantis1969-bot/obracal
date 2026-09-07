@@ -31,7 +31,6 @@ export default function ComparativoTab({
   };
 
   const listaContratosUnificada = useMemo(() => {
-    // Recopilamos de todas las fuentes posibles de props o globales
     const c1 = extraerArrayDatos(contratos);
     const c2 = extraerArrayDatos(contratosList);
     const c3 = extraerArrayDatos(contratos_mantenimiento);
@@ -49,10 +48,6 @@ export default function ComparativoTab({
     }
 
     const combinados = [...c1, ...c2, ...c3, ...extraGlobales];
-    
-    // Depuración en consola del navegador (F12) para ver qué contratos detecta
-    console.log("CONTRATOS DETECTADOS EN COMPARATIVO:", combinados);
-
     const unicosMap = new Map();
     combinados.forEach((item, index) => {
       if (!item) return;
@@ -74,8 +69,6 @@ export default function ComparativoTab({
 
   const contratosActivos = useMemo(() => {
     if (!listaContratosUnificada || listaContratosUnificada.length === 0) return [];
-    
-    // Devolvemos todos los contratos sin filtrar estrictamente por estado para garantizar que aparezcan en el desplegable
     return listaContratosUnificada;
   }, [listaContratosUnificada]);
 
@@ -111,7 +104,14 @@ export default function ComparativoTab({
     return Number(s) || 0;
   };
 
-  const resolverTipoInsumoOficial = (textoCompleto) => {
+  const resolverTipoInsumoOficial = (textoCompleto, tipoExplicito = '') => {
+    const tipoExp = limpiarTexto(tipoExplicito);
+    if (tipoExp.includes('mano de obra') || tipoExp.includes('rrhh') || tipoExp.includes('personal')) return 'Mano de Obra';
+    if (tipoExp.includes('subcontrato') || tipoExp.includes('servicio')) return 'Subcontratos';
+    if (tipoExp.includes('equipo') || tipoExp.includes('maquinaria') || tipoExp.includes('herramienta') || tipoExp.includes('alquiler')) return 'Equipos';
+    if (tipoExp.includes('gasto') || tipoExp.includes('general') || tipoExp.includes('imprevisto') || tipoExp.includes('seguridad')) return 'Gastos Generales';
+    if (tipoExp.includes('material') || tipoExp.includes('insumo')) return 'Materiales';
+
     const tc = limpiarTexto(textoCompleto);
     
     if (
@@ -120,14 +120,27 @@ export default function ComparativoTab({
       tc.includes('viatico') || 
       tc.includes('cargas sociales') || 
       tc.includes('jornal') ||
-      tc.includes('rrhh')
+      tc.includes('oficial') ||
+      tc.includes('ayudante')
     ) {
       return 'Mano de Obra';
     }
 
-    if (tc.includes('subcontrato') || tc.includes('servicio')) return 'Subcontratos';
-    if (tc.includes('equipo') || tc.includes('maquinaria') || tc.includes('herramienta') || tc.includes('alquiler')) return 'Equipos';
-    if (tc.includes('gasto') || tc.includes('general') || tc.includes('imprevisto') || tc.includes('seguridad e higiene') || tc.includes('ropa de trabajo') || tc.includes('epp')) return 'Gastos Generales';
+    if (tc.includes('subcontrato') || tc.includes('contratista') || tc.includes('servicio de terceros')) return 'Subcontratos';
+    
+    if (
+      tc.includes('alquiler de equipo') || 
+      tc.includes('maquinaria pesada') || 
+      tc.includes('retroexcavadora') || 
+      tc.includes('hormigonera') || 
+      tc.includes('andamio') ||
+      tc.includes('guinche') ||
+      tc.includes('compactadora')
+    ) {
+      return 'Equipos';
+    }
+
+    if (tc.includes('gasto general') || tc.includes('imprevisto') || tc.includes('seguridad e higiene') || tc.includes('epp')) return 'Gastos Generales';
     
     return 'Materiales'; 
   };
@@ -151,9 +164,9 @@ export default function ComparativoTab({
           if (typeof insList === 'string') { try { insList = JSON.parse(insList); } catch { insList = []; } }
           if (Array.isArray(insList)) {
             insList.forEach(ins => {
-              const nombreIns = limpiarTexto(ins?.nombre || ins?.descripcion || t?.tarea || '');
-              const tipoIns = ins?.tipo || ins?.categoria || t?.tipo || 'Materiales';
-              if (nombreIns) map[nombreIns] = resolverTipoInsumoOficial(`${tipoIns} ${nombreIns}`);
+              const tipoExplicit = ins?.tipo || ins?.categoria || ins?.rubro || t?.tipo || '';
+              const nombreIns = ins?.nombre || ins?.descripcion || t?.tarea || '';
+              if (nombreIns) map[limpiarTexto(nombreIns)] = resolverTipoInsumoOficial(nombreIns, tipoExplicit);
             });
           }
         });
@@ -278,13 +291,16 @@ export default function ComparativoTab({
 
           if (!Array.isArray(insumosList) || insumosList.length === 0) {
             const tareaTotal = parsearMonto(t?.total) || (parsearMonto(t?.cantidad || 1) * parsearMonto(t?.costo_unitario || 0));
-            const esMano = limpiarTexto(t?.descripcion || '').includes('mano de obra') || limpiarTexto(t?.unidad || '').includes('hs');
-            const catDestino = esMano ? 'Mano de Obra' : 'Materiales';
+            const tipoExplicitTarea = t?.tipo || '';
+            const descTarea = t?.descripcion || t?.tarea || '';
+            const catDestino = resolverTipoInsumoOficial(descTarea, tipoExplicitTarea);
             categoriasMap[catDestino].presupuestado += tareaTotal;
             totalRubroPresupuestado += tareaTotal;
           } else {
             insumosList.forEach(ins => {
-              const catDestino = resolverTipoInsumoOficial(`${ins?.tipo || ins?.categoria || ins?.rubro || ''} ${ins?.nombre || ''}`);
+              const tipoExplicit = ins?.tipo || ins?.categoria || ins?.rubro || t?.tipo || '';
+              const nombreIns = ins?.nombre || ins?.descripcion || t?.tarea || '';
+              const catDestino = resolverTipoInsumoOficial(nombreIns, tipoExplicit);
               const insTotal = parsearMonto(ins?.total) || (parsearMonto(ins?.cantidad || 1) * parsearMonto(ins?.costo_unitario || ins?.precio || 0));
               categoriasMap[catDestino].presupuestado += insTotal;
               totalRubroPresupuestado += insTotal;
@@ -361,7 +377,7 @@ export default function ComparativoTab({
         const montoFactura = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
         const textoCompletoFac = `${f?.tipo_insumo || ''} ${f?.tipoInsumo || ''} ${f?.categoria_insumo || ''} ${f?.categoria || ''} ${f?.tipo || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.observaciones || ''}`;
         
-        let catDestino = resolverTipoInsumoOficial(textoCompletoFac);
+        let catDestino = resolverTipoInsumoOficial(textoCompletoFac, f?.tipo_insumo || f?.tipoInsumo || f?.tipo || '');
         
         if (catDestino === 'Materiales') {
           const tLimpiado = limpiarTexto(textoCompletoFac);
