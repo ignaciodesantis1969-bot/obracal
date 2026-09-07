@@ -45,11 +45,13 @@ function ReportesContent(props) {
   const facturas = Array.isArray(props?.facturas) ? props.facturas : [];
   const empleadosListProps = Array.isArray(props?.empleados) ? props.empleados : [];
   const reportesProps = Array.isArray(props?.allReportesSice) ? props.allReportesSice : [];
+  const insumosProps = Array.isArray(props?.insumos) ? props.insumos : [];
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
   const [fetchedCertificados, setFetchedCertificados] = useState([]);
   const [fetchedProveedores, setFetchedProveedores] = useState([]);
+  const [fetchedInsumos, setFetchedInsumos] = useState([]);
   
   const [activeTab, setActiveTab] = useState(esOperador ? 'Reportes Diarios' : 'Certificaciones');
 
@@ -62,6 +64,9 @@ function ReportesContent(props) {
     
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Proveedores', action: 'get' }) })
       .then(res => res.json()).then(data => setFetchedProveedores(extraerArrayDatos(data))).catch(() => {});
+
+    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Insumos', action: 'get' }) })
+      .then(res => res.json()).then(data => setFetchedInsumos(extraerArrayDatos(data))).catch(() => {});
 
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' }) })
       .then(res => res.json())
@@ -86,7 +91,15 @@ function ReportesContent(props) {
     return arr.length > 0 ? arr : CONTRATO_DEFAULT;
   }, [fetchedContratos]);
 
-  const proveedoresList = extraerArrayDatos(fetchedProveedores);
+  const proveedoresList = useMemo(() => {
+    const combinados = [...extraerArrayDatos(fetchedProveedores)];
+    return combinados;
+  }, [fetchedProveedores]);
+
+  const insumosList = useMemo(() => {
+    const combinados = [...insumosProps, ...extraerArrayDatos(fetchedInsumos)];
+    return combinados;
+  }, [insumosProps, fetchedInsumos]);
 
   const allReportesSiceConsolidados = useMemo(() => {
     let localCache = [];
@@ -183,7 +196,10 @@ function ReportesContent(props) {
 
       {activeTab === 'Listado de Insumos' && (
         <ListadoInsumosTab
-          presupuestos={presupuestos} insumos={[]} proveedorNombreMap={proveedorNombreMap}
+          presupuestos={presupuestos} 
+          insumos={insumosList} 
+          proveedores={proveedoresList}
+          proveedorNombreMap={proveedorNombreMap}
           obtenerClienteDePresupuesto={obtenerClienteDePresupuesto}
         />
       )}
