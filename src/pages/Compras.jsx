@@ -19,6 +19,7 @@ export default function Compras({
     const normalizar = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
     const objKeys = Object.keys(obj);
     
+    // 1. Búsqueda exacta priorizando 'n_factura'
     for (const key of keys) {
       if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
       
@@ -29,6 +30,7 @@ export default function Compras({
       }
     }
 
+    // 2. Búsqueda por subcadena
     for (const key of keys) {
       const keyNorm = normalizar(key);
       const realKey = objKeys.find(k => normalizar(k).includes(keyNorm) || keyNorm.includes(normalizar(k)));
@@ -681,8 +683,7 @@ export default function Compras({
                   const totalVal = Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL'])) || 0;
                   const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO', 'estadopago']) || 'pendiente').toLowerCase();
                   
-                  // Búsqueda ampliada incluyendo 'numero_comp' que era la clave real en la consola
-                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['numero_comp', 'n_factura', 'N_factura', 'N_FACTURA', 'numero', 'numero_factura', 'nfactura']) || '---';
+                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '---';
                   const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo', 'archivourl']) || '';
                   const tipoGastoDisplay = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto', 'tipogasto']) || 'Presupuesto';
