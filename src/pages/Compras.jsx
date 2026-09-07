@@ -649,12 +649,7 @@ export default function Compras({
         <button onClick={() => setActiveTab('facturas')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'facturas' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Facturas ({facturas.length})</button>
       </div>
 
-      {activeTab === 'facturas' && (
-        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-          <div className="p-3 bg-slate-100 border-b text-[11px] text-slate-600 flex justify-between items-center">
-            <span>Total de facturas recibidas: <b>{facturas.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
-          </div>
-
+      
           {facturasFiltradas.length === 0 ? (
             <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
               <FileText className="w-10 h-10 text-slate-300" />
@@ -1128,6 +1123,3 @@ export default function Compras({
           </div>
         </div>
       )}
-    </div>
-  );
-}
