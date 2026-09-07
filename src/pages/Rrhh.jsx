@@ -696,7 +696,7 @@ export default function Rrhh({
     return true;
   };
 
-  // Guardar Carga Salarial (Registra en CargasSemanales y Egreso PAGADO en Tesorería)
+  // Guardar Carga Salarial (Registra en CargasSemanales con tipo_registro: 'Sueldos' y Egreso PAGADO en Tesorería)
   const handleGuardarCargaSalarial = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -720,13 +720,14 @@ export default function Rrhh({
         }
       }
 
-      // 1. Guardar o actualizar registro de Carga en la tabla "CargasSemanales"
+      // 1. Guardar o actualizar registro de Carga en la tabla "CargasSemanales" con tipo_registro: 'Sueldos'
       const payloadCargaHistorial = {
         tipo_proyecto: tipoProyectoCarga,
         presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
         obra_id: obraIdAsociada,
         contrato_mantenimiento_id: tipoProyectoCarga === 'contrato' ? contratoSeleccionadoCarga : '',
         fecha: fechaCarga,
+        tipo_registro: 'Sueldos',
         detalle_personal: JSON.stringify(detalleCargaCalculado),
         distribucion_rubros: JSON.stringify(distribucionRubros),
         total_general: totalGeneralCarga
@@ -835,7 +836,7 @@ export default function Rrhh({
     }
   };
 
-  // Botón Azul: Registrar Cargas Sociales (Registra en Facturas a Pagar y en CargasSemanales)
+  // Botón Azul: Registrar Cargas Sociales (Registra en Tesorería como Egreso Pendiente y en CargasSemanales con tipo_registro: 'Cargas Sociales')
   const handleRegistrarCargasSociales = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -859,13 +860,14 @@ export default function Rrhh({
         }
       }
 
-      // 1. Registrar también en CargasSemanales el parte de cargas sociales
+      // 1. Registrar también en CargasSemanales el parte de cargas sociales con tipo_registro: 'Cargas Sociales'
       const payloadCargaHistorialCS = {
         tipo_proyecto: tipoProyectoCarga,
         presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
         obra_id: obraIdAsociada,
         contrato_mantenimiento_id: tipoProyectoCarga === 'contrato' ? contratoSeleccionadoCarga : '',
         fecha: fechaCarga,
+        tipo_registro: 'Cargas Sociales',
         detalle_personal: JSON.stringify(detalleCargaCalculado),
         distribucion_rubros: JSON.stringify(distribucionRubros),
         total_general: totalCargasSociales
@@ -881,17 +883,17 @@ export default function Rrhh({
         })
       });
 
-      // 2. Registrar en Facturas como Facturas a Pagar
+      // 2. Registrar en Tesorería como Egreso Pendiente (AFIP)
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
         const montoRubro = Math.round((totalCargasSociales * (pct / 100)) * 100) / 100;
 
-        const payloadFacturaPagar = {
-          tipo: 'Factura a Pagar',
+        const payloadTesoreriaCS = {
+          tipo: 'Egreso',
           estado: 'Pendiente',
           fecha: fechaCarga,
-          concepto: `Mano de Obra: Cargas Sociales (${porcentajeCargasSociales}%) - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
+          concepto: `Cargas Sociales (${porcentajeCargasSociales}%) - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
           proveedor: 'AFIP / Cargas Sociales',
           referencia: 'RRHH - Cargas Sociales',
@@ -906,14 +908,14 @@ export default function Rrhh({
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
-            tabla: 'Facturas',
+            tabla: 'Tesoreria',
             action: 'create',
-            data: payloadFacturaPagar
+            data: payloadTesoreriaCS
           })
         });
       }
 
-      alert("¡Cargas sociales registradas en Cargas Semanales y como Factura a Pagar con éxito!");
+      alert("¡Cargas sociales registradas en Cargas Semanales y como Egreso Pendiente en Tesorería con éxito!");
       cargarDatos();
     } catch (err) {
       console.error(err);
@@ -2128,6 +2130,7 @@ export default function Rrhh({
                 <thead>
                   <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
                     <th className="px-6 py-4">Fecha</th>
+                    <th className="px-4 py-4">Tipo de Registro</th>
                     <th className="px-4 py-4">Tipo Proyecto</th>
                     <th className="px-4 py-4">Destino (Presupuesto / Contrato)</th>
                     <th className="px-4 py-4">Obra ID</th>
@@ -2138,6 +2141,7 @@ export default function Rrhh({
                 <tbody className="divide-y divide-slate-100">
                   {cargasHorasLista.map((c, idx) => {
                     const cId = c.id || c.ID || idx;
+                    const cTipoReg = String(c.tipo_registro || c.Tipo_registro || 'Sueldos').trim();
                     const cTipo = String(c.tipo_proyecto || (c.contrato_mantenimiento_id ? 'contrato' : 'obra')).toUpperCase();
                     const cPresu = c.presupuesto_id || c.Presupuesto_id || '---';
                     const cContrato = c.contrato_mantenimiento_id || c.Contrato_mantenimiento_id || '---';
@@ -2148,6 +2152,15 @@ export default function Rrhh({
                     return (
                       <tr key={cId} className="hover:bg-slate-50">
                         <td className="px-6 py-4 font-bold text-slate-900">{cFecha}</td>
+                        <td className="px-4 py-4">
+                          <span className={`px-2.5 py-1 rounded-full font-extrabold text-[10px] uppercase ${
+                            cTipoReg.toLowerCase().includes('social') 
+                              ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                              : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                          }`}>
+                            {cTipoReg}
+                          </span>
+                        </td>
                         <td className="px-4 py-4">
                           <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${cTipo === 'OBRA' ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>
                             {cTipo}
@@ -2180,102 +2193,119 @@ export default function Rrhh({
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
-              <h3 className="font-bold text-slate-900">{editingId ? 'Editar Personal' : 'Nuevo Personal'}</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer"><X className="w-5 h-5"/></button>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase">
+                {editingId ? 'Editar Personal' : 'Nuevo Personal'}
+              </h3>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 cursor-pointer">
+                <X className="w-5 h-5" />
+              </button>
             </div>
-            
             <form onSubmit={handleGuardarPersonal} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre Completo *</label>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Nombre Completo *</label>
                 <input 
-                  type="text" required placeholder="Ej: Pérez Juan Carlos"
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                  value={formData.nombre} onChange={(e) => setFormData({...formData, nombre: e.target.value})} 
+                  type="text"
+                  required
+                  value={formData.nombre}
+                  onChange={(e) => setFormData({ ...formData, nombre: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                 />
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">CUIL *</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">CUIL</label>
                   <input 
-                    type="text" required placeholder="Ej: 20-30816383-1"
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.cuil} onChange={(e) => setFormData({...formData, cuil: e.target.value})} 
+                    type="text"
+                    value={formData.cuil}
+                    onChange={(e) => setFormData({ ...formData, cuil: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Especialidad *</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Especialidad / Rol</label>
                   <input 
-                    type="text" required placeholder="Ej: Oficial Especializado"
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.especialidad} onChange={(e) => setFormData({...formData, especialidad: e.target.value})} 
+                    type="text"
+                    value={formData.especialidad}
+                    onChange={(e) => setFormData({ ...formData, especialidad: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                   />
                 </div>
               </div>
-
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Costo en Mano Diario ($) *</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Teléfono</label>
                   <input 
-                    type="number" step="0.01" required placeholder="Ej: 92550.50"
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.costo_en_mano} onChange={(e) => setFormData({...formData, costo_en_mano: Number(e.target.value)})} 
+                    type="text"
+                    value={formData.telefono}
+                    onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mes de Acuerdo (Paritaria)</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Email</label>
                   <input 
-                    type="text" placeholder="Ej: Agosto 2026"
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.mes_acuerdo} onChange={(e) => setFormData({...formData, mes_acuerdo: e.target.value})} 
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
                   />
                 </div>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Dirección</label>
+                <input 
+                  type="text"
+                  value={formData.direccion}
+                  onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado</label>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Costo en Mano ($)</label>
+                  <input 
+                    type="number"
+                    step="0.01"
+                    value={formData.costo_en_mano}
+                    onChange={(e) => setFormData({ ...formData, costo_en_mano: Number(e.target.value) })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Mes de Acuerdo</label>
+                  <input 
+                    type="text"
+                    value={formData.mes_acuerdo}
+                    onChange={(e) => setFormData({ ...formData, mes_acuerdo: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Estado</label>
                   <select
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500"
                     value={formData.estado}
-                    onChange={(e) => setFormData({...formData, estado: e.target.value})}
+                    onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500 cursor-pointer"
                   >
                     <option value="activo">Activo</option>
                     <option value="baja">De Baja</option>
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Teléfono</label>
-                  <input 
-                    type="text" placeholder="Ej: +54 9 11..."
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.telefono} onChange={(e) => setFormData({...formData, telefono: e.target.value})} 
-                  />
-                </div>
               </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Mail</label>
-                  <input 
-                    type="email" placeholder="correo@ejemplo.com"
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.email} onChange={(e) => setFormData({...formData, email: e.target.value})} 
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Dirección</label>
-                  <input 
-                    type="text" placeholder="Ej: Av. San Martín 1234"
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500" 
-                    value={formData.direccion} onChange={(e) => setFormData({...formData, direccion: e.target.value})} 
-                  />
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t">
-                <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 cursor-pointer">Cancelar</button>
-                <button type="submit" className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer">Guardar</button>
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold cursor-pointer shadow-sm"
+                >
+                  Guardar
+                </button>
               </div>
             </form>
           </div>
