@@ -293,8 +293,8 @@ export default function Compras({
             subtotal: Math.abs(Number(data && data.subtotal) || prev.subtotal),
             iva_21: Math.abs(Number(data && data.iva_21) || prev.iva_21),
             iva_10_5: Math.abs(Number(data && data.iva_10_5) || prev.iva_10_5),
-            persp_iibb_bs_as: Math.abs(Number(data && (data.persp_iibb_bs_as || data.percepcion_iibb)) || prev.persp_iibb_bs_as),
-            persp_iibb_caba: Math.abs(Number(data && data.persp_iibb_caba) || prev.persp_iibb_caba),
+            persp_iibb_bs_as: Math.abs(Number(data && (data.persp_iibb_bs_as || data.percepcion_iibb || data.iibb_bs_as)) || prev.persp_iibb_bs_as),
+            persp_iibb_caba: Math.abs(Number(data && (data.persp_iibb_caba || data.percepcion_iibb_caba)) || prev.persp_iibb_caba),
             otros_impuestos: Math.abs(Number(data && data.otros_impuestos) || prev.otros_impuestos),
             total: Math.abs(Number(data && data.total) || prev.total),
             archivo_url: base64Data
@@ -354,8 +354,8 @@ export default function Compras({
       subtotal: Math.abs(Number(buscarValorEnObjeto(f, ['subtotal', 'Subtotal']) || 0)),
       iva_21: Math.abs(Number(buscarValorEnObjeto(f, ['iva_21', 'Iva_21']) || 0)),
       iva_10_5: Math.abs(Number(buscarValorEnObjeto(f, ['iva_10_5', 'Iva_10_5']) || 0)),
-      persp_iibb_bs_as: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_bs_as', 'Persp_iibb_bs_as']) || 0)),
-      persp_iibb_caba: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_caba', 'Persp_iibb_caba']) || 0)),
+      persp_iibb_bs_as: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_bs_as', 'Persp_iibb_bs_as', 'percepcion_iibb', 'iibb_bs_as']) || 0)),
+      persp_iibb_caba: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_caba', 'Persp_iibb_caba', 'percepcion_iibb_caba']) || 0)),
       otros_impuestos: Math.abs(Number(buscarValorEnObjeto(f, ['otros_impuestos', 'Otros_impuestos']) || 0)),
       total: Math.abs(Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL']) || 0)),
       archivo_url: buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || ''
