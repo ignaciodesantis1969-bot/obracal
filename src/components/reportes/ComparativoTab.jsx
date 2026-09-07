@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { TrendingUp, Printer } from 'lucide-react';
+import { TrendingUp, Printer, TrendingUp as ArrowUpRight, TrendingDown as ArrowDownRight } from 'lucide-react';
 
 export default function ComparativoTab({
   presupuestos = [],
@@ -145,35 +145,20 @@ export default function ComparativoTab({
     return 'Materiales'; 
   };
 
-  const mapaInsumosPresupuesto = useMemo(() => {
-    if (!presupuestoSeleccionado) return {};
-    let rawDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle || presupuestoSeleccionado?.rubros || [];
-    if (typeof rawDetalle === 'string') { try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = []; } }
-    
-    let rubrosList = rawDetalle?.rubros || rawDetalle;
-    if (typeof rubrosList === 'string') { try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; } }
-    if (!Array.isArray(rubrosList)) rubrosList = [rubrosList];
-
-    const map = {};
-    rubrosList.forEach(r => {
-      let tareasList = r?.tareas || r?.items || [];
-      if (typeof tareasList === 'string') { try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; } }
-      if (Array.isArray(tareasList)) {
-        tareasList.forEach(t => {
-          let insList = t?.insumos || t?.materiales || [];
-          if (typeof insList === 'string') { try { insList = JSON.parse(insList); } catch { insList = []; } }
-          if (Array.isArray(insList)) {
-            insList.forEach(ins => {
-              const tipoExplicit = ins?.tipo || ins?.categoria || ins?.rubro || t?.tipo || '';
-              const nombreIns = ins?.nombre || ins?.descripcion || t?.tarea || '';
-              if (nombreIns) map[limpiarTexto(nombreIns)] = resolverTipoInsumoOficial(nombreIns, tipoExplicit);
-            });
-          }
-        });
-      }
-    });
-    return map;
-  }, [presupuestoSeleccionado]);
+  const renderDesvioConFlecha = (monto) => {
+    const esPositivo = monto >= 0;
+    const colorClase = esPositivo ? 'text-emerald-500' : 'text-rose-500';
+    return (
+      <span className={`inline-flex items-center justify-end gap-1 font-bold ${colorClase}`}>
+        {esPositivo ? (
+          <ArrowUpRight className="w-3.5 h-3.5 shrink-0" />
+        ) : (
+          <ArrowDownRight className="w-3.5 h-3.5 shrink-0" />
+        )}
+        $ {Math.abs(monto).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+      </span>
+    );
+  };
 
   const todosLosEgresos = useMemo(() => {
     return [...(Array.isArray(facturas) ? facturas : []), ...(Array.isArray(tesoreria) ? tesoreria : [])];
@@ -269,6 +254,12 @@ export default function ComparativoTab({
 
     let ggList = comercialObj?.gastos_generales_insumos || rawDetalle?.gastos_generales_insumos || rawDetalle?.gastos_generales || [];
     if (typeof ggList === 'string') { try { ggList = JSON.parse(ggList); } catch { ggList = []; } }
+
+    if ((!ggList || ggList.length === 0) && presupuestoSeleccionado?.gastos_generales_insumos) {
+      let ggAlt = presupuestoSeleccionado.gastos_generales_insumos;
+      if (typeof ggAlt === 'string') { try { ggAlt = JSON.parse(ggAlt); } catch { ggAlt = []; } }
+      if (Array.isArray(ggAlt)) ggList = ggAlt;
+    }
     
     let granTotalPresupuestadoRubrosTemp = 0;
     const rubrosIntermedios = rubrosList.map((r, rIdx) => {
@@ -325,7 +316,11 @@ export default function ComparativoTab({
         const facturasGG = facturasDelPto.filter(f => {
           if (facturasUsadas.has(f._uid)) return false;
           const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_imputacion || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.tipo_insumo || ''}`);
-          if (textoFacGG.includes(normGG) || textoFacGG.includes('gastos generales')) {
+          if (normGG && (textoFacGG.includes(normGG) || normGG.includes(textoFacGG))) {
+            facturasUsadas.add(f._uid);
+            return true;
+          }
+          if (textoFacGG.includes('gastos generales') || textoFacGG.includes('gasto general')) {
             facturasUsadas.add(f._uid);
             return true;
           }
@@ -407,7 +402,7 @@ export default function ComparativoTab({
     });
 
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
-  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias, mapaInsumosPresupuesto, presupuestosAprobados]);
+  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias, presupuestosAprobados]);
 
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
@@ -506,8 +501,8 @@ export default function ComparativoTab({
                       <td className="px-4 py-2.5">{rubro.nombre}</td>
                       <td className="px-4 py-2.5 text-right">$ {rubro.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                       <td className="px-4 py-2.5 text-right text-amber-400">$ {rubro.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                      <td className={`px-4 py-2.5 text-right ${rubro.desvio >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        $ {rubro.desvio.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                      <td className="px-4 py-2.5 text-right">
+                        {renderDesvioConFlecha(rubro.desvio)}
                       </td>
                     </tr>
                     
@@ -526,8 +521,8 @@ export default function ComparativoTab({
                           <td className="px-4 py-2 text-right text-amber-700 font-bold">
                             $ {catData.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                           </td>
-                          <td className={`px-4 py-2 text-right font-bold ${catData.desvio >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                            $ {catData.desvio.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                          <td className="px-4 py-2 text-right font-bold">
+                            {renderDesvioConFlecha(catData.desvio)}
                           </td>
                         </tr>
                       );
@@ -539,8 +534,8 @@ export default function ComparativoTab({
                   <td className="px-4 py-3">SUBTOTAL {tipoProyecto === 'obra' ? 'RUBROS DE OBRA' : 'CONTRATO'}</td>
                   <td className="px-4 py-3 text-right">$ {granTotalPresupuestadoRubros.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                   <td className="px-4 py-3 text-right text-amber-800">$ {granTotalRealRubros.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  <td className={`px-4 py-3 text-right ${(granTotalPresupuestadoRubros - granTotalRealRubros) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                    $ {(granTotalPresupuestadoRubros - granTotalRealRubros).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                  <td className="px-4 py-3 text-right">
+                    {renderDesvioConFlecha(granTotalPresupuestadoRubros - granTotalRealRubros)}
                   </td>
                 </tr>
 
@@ -554,8 +549,8 @@ export default function ComparativoTab({
                         <td className="px-8 py-2 text-slate-700">{gg.concepto}</td>
                         <td className="px-4 py-2 text-right font-bold text-slate-800">$ {gg.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                         <td className="px-4 py-2 text-right text-amber-700 font-bold">$ {gg.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                        <td className={`px-4 py-2 text-right font-bold ${gg.desvio >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-                          $ {gg.desvio.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                        <td className="px-4 py-2 text-right font-bold">
+                          {renderDesvioConFlecha(gg.desvio)}
                         </td>
                       </tr>
                     ))}
@@ -564,8 +559,8 @@ export default function ComparativoTab({
                       <td className="px-4 py-3">SUBTOTAL GASTOS GENERALES</td>
                       <td className="px-4 py-3 text-right">$ {totalGGPresupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                       <td className="px-4 py-3 text-right text-amber-800">$ {totalGGReal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                      <td className={`px-4 py-3 text-right ${(totalGGPresupuestado - totalGGReal) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
-                        $ {(totalGGPresupuestado - totalGGReal).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                      <td className="px-4 py-3 text-right">
+                        {renderDesvioConFlecha(totalGGPresupuestado - totalGGReal)}
                       </td>
                     </tr>
                   </>
@@ -577,8 +572,8 @@ export default function ComparativoTab({
                   <td className="px-4 py-4">TOTAL GENERAL</td>
                   <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoRubros + totalGGPresupuestado).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                   <td className="px-4 py-4 text-right text-amber-400">$ {(granTotalRealRubros + totalGGReal).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  <td className={`px-4 py-4 text-right ${((granTotalPresupuestadoRubros + totalGGPresupuestado) - (granTotalRealRubros + totalGGReal)) >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    $ {((granTotalPresupuestadoRubros + totalGGPresupuestado) - (granTotalRealRubros + totalGGReal)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                  <td className="px-4 py-4 text-right">
+                    {renderDesvioConFlecha((granTotalPresupuestadoRubros + totalGGPresupuestado) - (granTotalRealRubros + totalGGReal))}
                   </td>
                 </tr>
               </tfoot>
