@@ -218,44 +218,29 @@ export default function ComparativoTab({
 
     if (!presupuestoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
 
-    let rawDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle || presupuestoSeleccionado?.rubros || [];
-    if (typeof rawDetalle === 'string') { try { rawDetalle = JSON.parse(rawDetalle); } catch { rawDetalle = []; } }
-    
-    // Extracción segura del JSON plano de Supabase/Sheets (columna H o items_detalle)
-    let rubrosList = rawDetalle?.rubros || rawDetalle;
+    let parsedItemsDetalle = {};
+    const rawItemsDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle;
+    if (typeof rawItemsDetalle === 'string') {
+      try { parsedItemsDetalle = JSON.parse(rawItemsDetalle); } catch { parsedItemsDetalle = {}; }
+    } else if (typeof rawItemsDetalle === 'object' && rawItemsDetalle !== null) {
+      parsedItemsDetalle = rawItemsDetalle;
+    }
+
+    let rubrosList = parsedItemsDetalle?.rubros || presupuestoSeleccionado?.rubros || [];
     if (typeof rubrosList === 'string') { try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; } }
     if (!Array.isArray(rubrosList)) rubrosList = [rubrosList];
 
-    let comercialObj = rawDetalle?.comercial || presupuestoSeleccionado?.comercial || {};
+    let comercialObj = parsedItemsDetalle?.comercial || presupuestoSeleccionado?.comercial || {};
     if (typeof comercialObj === 'string') { try { comercialObj = JSON.parse(comercialObj); } catch { comercialObj = {}; } }
 
-    let ggList = comercialObj?.gastos_generales_insumos || rawDetalle?.gastos_generales_insumos || rawDetalle?.gastos_generales || [];
+    let ggList = comercialObj?.gastos_generales_insumos 
+      || parsedItemsDetalle?.gastos_generales_insumos 
+      || presupuestoSeleccionado?.gastos_generales_insumos 
+      || comercialObj?.gastos_generales 
+      || [];
+
     if (typeof ggList === 'string') { try { ggList = JSON.parse(ggList); } catch { ggList = []; } }
-
-    if ((!ggList || ggList.length === 0) && presupuestoSeleccionado?.gastos_generales_insumos) {
-      let ggAlt = presupuestoSeleccionado.gastos_generales_insumos;
-      if (typeof ggAlt === 'string') { try { ggAlt = JSON.parse(ggAlt); } catch { ggAlt = []; } }
-      if (Array.isArray(ggAlt)) ggList = ggAlt;
-    }
-    if ((!ggList || ggList.length === 0) && comercialObj?.gastos_generales) {
-      let ggAlt2 = comercialObj.gastos_generales;
-      if (typeof ggAlt2 === 'string') { try { ggAlt2 = JSON.parse(ggAlt2); } catch { ggAlt2 = []; } }
-      if (Array.isArray(ggAlt2)) ggList = ggAlt2;
-    }
-
-    // EXTRACCIÓN ROBUSTA ADICIONAL: Si el JSON de items_detalle viene como string que contiene claves de Gastos Generales o Comercial anidadas
-    if ((!ggList || ggList.length === 0) && typeof presupuestoSeleccionado?.items_detalle === 'string') {
-      try {
-        const parsedAll = JSON.parse(presupuestoSeleccionado.items_detalle);
-        if (parsedAll?.comercial?.gastos_generales_insumos) {
-          ggList = parsedAll.comercial.gastos_generales_insumos;
-        } else if (parsedAll?.gastos_generales_insumos) {
-          ggList = parsedAll.gastos_generales_insumos;
-        }
-      } catch {
-        // Ignorar si falla
-      }
-    }
+    if (!Array.isArray(ggList)) ggList = [];
 
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
@@ -334,7 +319,6 @@ export default function ComparativoTab({
         const presupuestadoGG = parsearMonto(gg?.total || gg?.monto) || (cantGG * unitGG);
         const normGG = limpiarTexto(nombreGG);
 
-        // ASIGNACIÓN REAL DE GASTOS GENERALES: Filtramos los egresos que coincidan con este concepto específico de G.G.
         const facturasGG = facturasDelPto.filter(f => {
           if (facturasUsadas.has(f._uid)) return false;
           const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_imputacion || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.tipo_insumo || ''}`);
