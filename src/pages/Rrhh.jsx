@@ -748,7 +748,7 @@ export default function Rrhh({
         return;
       }
 
-      // 2. Generar o actualizar movimientos en Tesorería por cada rubro
+      // 2. Generar o actualizar movimientos en Tesorería por cada rubro (Pago realizado)
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
@@ -850,37 +850,39 @@ export default function Rrhh({
         }
       }
 
+      // Registro de Cargas Sociales en Tesorería como Facturas a Pagar
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
         const montoRubro = Math.round((totalCargasSociales * (pct / 100)) * 100) / 100;
 
-        const payloadTesoreria = {
-          tipo: 'Egreso',
+        const payloadFacturaPagar = {
+          tipo: 'Factura a Pagar',
+          estado: 'Pendiente',
           fecha: fechaCarga,
           concepto: `Mano de Obra: Cargas Sociales (${porcentajeCargasSociales}%) - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
-          medio_pago: 'transferencia',
+          proveedor: 'AFIP / Cargas Sociales',
           referencia: 'RRHH - Cargas Sociales',
           rubro: r.rubro,
           rubro_imputacion: r.rubro,
           tipo_insumo: 'Mano de Obra',
           presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
-          obra_id: obraIdAsociada // SE ENVÍA EL OBRA ID PARA TESORERÍA
+          obra_id: obraIdAsociada
         };
 
         await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
-            tabla: 'Tesoreria',
+            tabla: 'Facturas',
             action: 'create',
-            data: payloadTesoreria
+            data: payloadFacturaPagar
           })
         });
       }
 
-      alert("¡Cargas sociales registradas e imputadas por rubros en Tesorería con éxito!");
+      alert("¡Cargas sociales registradas como Facturas a Pagar en Tesorería con éxito!");
       cargarDatos();
     } catch (err) {
       console.error(err);

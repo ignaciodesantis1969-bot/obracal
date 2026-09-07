@@ -11,6 +11,7 @@ export default function Tesoreria({
   obras = [], 
   presupuestos = [],
   rubros = [],
+  contratos = [],
   cargarDatos 
 }) {
   const [activeTab, setActiveTab] = useState('movimientos');
@@ -44,6 +45,7 @@ export default function Tesoreria({
     monto: 0,
     obra_id: '',
     presupuesto_id: '',
+    contrato_id: '',
     rubro_imputacion: '',
     tipo_insumo: 'Materiales',
     medio_pago: 'transferencia',
@@ -144,6 +146,52 @@ export default function Tesoreria({
     return str;
   };
 
+  const handleEditarMovimiento = (m) => {
+    const mId = m.id || m.ID || m.Id;
+    setEditingId(mId);
+
+    let facturasAplicadasParsed = [{ id: Date.now(), factura_id: '', monto: 0 }];
+    const faRaw = m.facturas_aplicadas || m.Facturas_aplicadas;
+    if (faRaw) {
+      try {
+        facturasAplicadasParsed = typeof faRaw === 'string' ? JSON.parse(faRaw) : faRaw;
+        if (!Array.isArray(facturasAplicadasParsed) || facturasAplicadasParsed.length === 0) {
+          facturasAplicadasParsed = [{ id: Date.now(), factura_id: '', monto: 0 }];
+        }
+      } catch (e) {
+        // Fallback si falla el parseo
+      }
+    }
+
+    const brutoOriginal = Number(m.monto || m.Monto || 0) + 
+                          Number(m.retencion_suss || m.Retencion_suss || 0) + 
+                          Number(m.retencion_iva || m.Retencion_iva || 0) + 
+                          Number(m.retencion_ganancias || m.Retencion_ganancias || 0) + 
+                          Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0) + 
+                          Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0);
+
+    setFormData({
+      tipo: m.tipo || m.Tipo || 'Egreso',
+      fecha: formatearFechaParaInput(m.fecha || m.Fecha) || new Date().toISOString().split('T')[0],
+      concepto: m.concepto || m.Concepto || '',
+      monto: brutoOriginal > 0 ? brutoOriginal : Number(m.monto || m.Monto || 0),
+      obra_id: m.obra_id || m.Obra_id || '',
+      presupuesto_id: m.presupuesto_id || m.Presupuesto_id || '',
+      contrato_id: m.contrato_id || m.Contrato_id || m.contratoid || '',
+      rubro_imputacion: m.rubro_imputacion || m.Rubro_imputacion || '',
+      tipo_insumo: m.tipo_insumo || m.Tipo_insumo || 'Materiales',
+      medio_pago: m.medio_pago || m.Medio_pago || 'transferencia',
+      referencia: m.referencia || m.Referencia || '',
+      retencion_suss: Number(m.retencion_suss || m.Retencion_suss || 0),
+      retencion_iva: Number(m.retencion_iva || m.Retencion_iva || 0),
+      retencion_ganancias: Number(m.retencion_ganancias || m.Retencion_ganancias || 0),
+      retencion_iibb_pba: Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0),
+      retencion_iibb_caba: Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0),
+      facturas_aplicadas: facturasAplicadasParsed
+    });
+    setIsModalOpen(true);
+  };
+
   const handleCobrarFacturaVenta = (f) => {
     const facturaIdReal = f.id || f.ID;
     const clienteObj = clientes.find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
@@ -156,6 +204,7 @@ export default function Tesoreria({
       monto: montoTotalFac,
       obra_id: f.obra_id || '',
       presupuesto_id: f.presupuesto_id || '',
+      contrato_id: f.contrato_id || '',
       rubro_imputacion: f.rubro_imputacion || '',
       tipo_insumo: f.tipo_insumo || 'Materiales',
       medio_pago: 'transferencia',
@@ -184,6 +233,7 @@ export default function Tesoreria({
       monto: montoTotalFac,
       obra_id: f.obra_id || '',
       presupuesto_id: f.presupuesto_id || '',
+      contrato_id: f.contrato_id || '',
       rubro_imputacion: f.rubro_imputacion || '',
       tipo_insumo: f.tipo_insumo || 'Materiales',
       medio_pago: 'transferencia',
@@ -704,6 +754,7 @@ export default function Tesoreria({
               monto: 0,
               obra_id: '',
               presupuesto_id: '',
+              contrato_id: '',
               rubro_imputacion: '',
               tipo_insumo: 'Materiales',
               medio_pago: 'transferencia',
@@ -810,10 +861,11 @@ export default function Tesoreria({
                   <th className="w-24 px-3 py-4">Fecha</th>
                   <th className="w-20 px-3 py-4">Tipo</th>
                   <th className="w-auto px-4 py-4">Concepto</th>
+                  <th className="w-32 px-3 py-4">Contrato ID</th>
                   <th className="w-40 px-3 py-4">Imputación / Rubro</th>
                   <th className="w-24 px-3 py-4">Medio Pago</th>
                   <th className="w-40 px-4 py-4 text-right">Monto Neto</th>
-                  <th className="w-16 px-3 py-4 text-right">Acciones</th>
+                  <th className="w-24 px-3 py-4 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -822,6 +874,7 @@ export default function Tesoreria({
                   const monto = Number(m.monto || m.Monto) || 0;
                   const rubroImputacion = m.rubro_imputacion || m.Rubro_imputacion || '---';
                   const tipoInsumo = m.tipo_insumo || m.Tipo_insumo || '';
+                  const contratoIdVal = m.contrato_id || m.Contrato_id || m.contratoid || '---';
 
                   return (
                     <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
@@ -832,6 +885,7 @@ export default function Tesoreria({
                         </span>
                       </td>
                       <td className="px-4 py-4 font-bold text-slate-900 break-words">{m.concepto || m.Concepto || '---'}</td>
+                      <td className="px-3 py-4 text-slate-600 truncate font-mono">{contratoIdVal}</td>
                       <td className="px-3 py-4 text-slate-700">
                         <span className="font-semibold block truncate">{rubroImputacion}</span>
                         {tipoInsumo && <span className="text-[10px] text-slate-400 truncate block">{tipoInsumo}</span>}
@@ -840,7 +894,8 @@ export default function Tesoreria({
                       <td className={`px-4 py-4 text-right font-black whitespace-nowrap ${tipo === 'ingreso' ? 'text-emerald-600' : 'text-slate-900'}`}>
                         $ {monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                       </td>
-                      <td className="px-3 py-4 text-right">
+                      <td className="px-3 py-4 text-right space-x-1">
+                        <button onClick={() => handleEditarMovimiento(m)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
                         <button onClick={() => handleEliminarMovimiento(m)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                       </td>
                     </tr>
@@ -1096,12 +1151,12 @@ export default function Tesoreria({
         </div>
       )}
 
-      {/* MODAL NUEVO MOVIMIENTO */}
+      {/* MODAL NUEVO / EDITAR MOVIMIENTO */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
-              <h3 className="font-bold text-slate-900">Nuevo Movimiento con Retenciones</h3>
+              <h3 className="font-bold text-slate-900">{editingId ? 'Editar Movimiento' : 'Nuevo Movimiento con Retenciones'}</h3>
               <button onClick={() => setIsModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
             
@@ -1155,6 +1210,23 @@ export default function Tesoreria({
                 </div>
 
                 <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contrato (Opcional)</label>
+                  <select 
+                    disabled={isSaving} 
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                    value={formData.contrato_id} 
+                    onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}
+                  >
+                    <option value="">Seleccione contrato...</option>
+                    {contratos.map(c => (
+                      <option key={c.id || c.ID} value={c.id || c.ID}>
+                        {c.codigo || c.Codigo || `Contrato #${c.id || c.ID}`} - {c.nombre || c.Nombre || ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
                   <select 
                     disabled={isSaving} 
@@ -1170,7 +1242,7 @@ export default function Tesoreria({
                   </select>
                 </div>
 
-                <div>
+                <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
                   {String(formData.tipo_insumo).toLowerCase() === 'gastos generales' ? (
                     <select 
@@ -1327,7 +1399,7 @@ export default function Tesoreria({
                 <button type="button" onClick={() => setIsModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Cancelar</button>
                 <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
                   {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {isSaving ? 'Registrando...' : 'Registrar'}
+                  {isSaving ? 'Registrando...' : (editingId ? 'Actualizar' : 'Registrar')}
                 </button>
               </div>
             </form>
@@ -1536,7 +1608,7 @@ export default function Tesoreria({
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Total ($)</label>
-                    <input type="number" step="0.01" required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
+                    <input type="number" step="0.01" required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVentA.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
                   </div>
                 </div>
 
