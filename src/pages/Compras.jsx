@@ -99,7 +99,7 @@ export default function Compras({
 
   // Filtrar solo presupuestos aprobados
   const presupuestosAprobados = presupuestos.filter(pr => {
-    const est = String(pr.estado || pr.Estado || pr.ESTADO || '').toLowerCase();
+    const est = String(buscarValorEnObjeto(pr, ['estado', 'Estado', 'ESTADO']) || '').toLowerCase();
     return !est || est.includes('aprobad') || est.includes('aprobado');
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
@@ -136,7 +136,7 @@ export default function Compras({
     if (!contratosList || contratosList.length === 0) return [];
     
     const filtrados = contratosList.filter(c => {
-      const est = String(c.estado || c.Estado || c.ESTADO || c.status || '').toLowerCase();
+      const est = String(buscarValorEnObjeto(c, ['estado', 'Estado', 'ESTADO', 'status']) || '').toLowerCase();
       return !est || est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo') || est.includes('en curso');
     });
 
@@ -145,7 +145,7 @@ export default function Compras({
 
   // EXTRACCIÓN DINÁMICA DE RUBROS DESDE EL JSON DEL PRESUPUESTO SELECCIONADO
   const presupuestoSeleccionadoObj = presupuestos.find(pr => {
-    const pId = pr.id || pr.ID || pr.Id;
+    const pId = buscarValorEnObjeto(pr, ['id', 'ID', 'Id']);
     return String(pId).trim() === String(formData.presupuesto_id).trim();
   });
 
@@ -153,7 +153,7 @@ export default function Compras({
   let gastosGeneralesDelPresupuesto = [];
 
   if (presupuestoSeleccionadoObj) {
-    const rawItemsDetalle = presupuestoSeleccionadoObj.items_detalle || presupuestoSeleccionadoObj.Items_detalle || presupuestoSeleccionadoObj.items || presupuestoSeleccionadoObj.detalle;
+    const rawItemsDetalle = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['items_detalle', 'Items_detalle', 'items', 'detalle']);
     
     try {
       let parsedData = rawItemsDetalle;
@@ -167,7 +167,7 @@ export default function Compras({
         rubrosDelPresupuesto = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
       }
 
-      let rawGG = presupuestoSeleccionadoObj.gastos_generales_insumos || presupuestoSeleccionadoObj.Gastos_generales_insumos;
+      let rawGG = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['gastos_generales_insumos', 'Gastos_generales_insumos']);
       if (typeof rawGG === 'string') {
         try { rawGG = JSON.parse(rawGG); } catch(e) {}
       }
@@ -208,7 +208,7 @@ export default function Compras({
   const generarSiguienteCodigoFactura = () => {
     if (!facturas || facturas.length === 0) return 'FAC-0001';
     const maxNum = facturas.reduce((max, f) => {
-      const codeStr = f.codigo || f.Codigo || f.CODIGO || '';
+      const codeStr = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || '';
       const match = codeStr.match(/FAC-(\d+)/i);
       if (match) {
         const num = parseInt(match[1], 10);
@@ -222,7 +222,7 @@ export default function Compras({
   const generarSiguienteCodigoOc = () => {
     if (!ordenesCompra || ordenesCompra.length === 0) return 'OC-0001';
     const maxNum = ordenesCompra.reduce((max, oc) => {
-      const codeStr = oc.codigo || oc.Codigo || oc.CODIGO || '';
+      const codeStr = buscarValorEnObjeto(oc, ['codigo', 'Codigo', 'CODIGO']) || '';
       const match = codeStr.match(/OC-(\d+)/i);
       if (match) {
         const num = parseInt(match[1], 10);
@@ -276,11 +276,12 @@ export default function Compras({
           
           let proveedorEncontradoId = '';
           if (data && data.proveedor && proveedores.length > 0) {
-            const provMatch = proveedores.find(p => 
-              (p.razon_social && p.razon_social.toLowerCase().includes(data.proveedor.toLowerCase())) ||
-              (p.nombre && p.nombre.toLowerCase().includes(data.proveedor.toLowerCase()))
-            );
-            if (provMatch) proveedorEncontradoId = provMatch.id || provMatch.ID || provMatch.Id;
+            const provMatch = proveedores.find(p => {
+              const rSocial = buscarValorEnObjeto(p, ['razon_social', 'Razon_social', 'razonSocial']) || '';
+              const nom = buscarValorEnObjeto(p, ['nombre', 'Nombre']) || '';
+              return rSocial.toLowerCase().includes(data.proveedor.toLowerCase()) || nom.toLowerCase().includes(data.proveedor.toLowerCase());
+            });
+            if (provMatch) proveedorEncontradoId = buscarValorEnObjeto(provMatch, ['id', 'ID', 'Id']);
           }
 
           const tipoCompIA = data && (data.comprobante_tipo || data.tipo_comprobante || data.tipo);
@@ -348,7 +349,7 @@ export default function Compras({
   };
 
   const handleVerArchivo = (f) => {
-    const archivoUrl = f.archivo_url || f.Archivo_url || f.archivo || '';
+    const archivoUrl = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || '';
     if (!archivoUrl || archivoUrl === 'Comprobante_Adjunto') {
       alert("No hay un enlace de archivo válido o el comprobante es antiguo.");
       return;
@@ -368,39 +369,38 @@ export default function Compras({
   };
 
   const handleEditarFacturaClick = (f) => {
-    const realId = f.id || f.ID || f.Id;
+    const realId = buscarValorEnObjeto(f, ['id', 'ID', 'Id']);
     setEditingId(realId);
 
-    const fechaCruda = f.fecha || f.Fecha || f.FECHA;
-    const vencCrudo = f.vencimiento || f.Vencimiento || f.VENCIMIENTO;
+    const fechaCruda = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
+    const vencCrudo = buscarValorEnObjeto(f, ['vencimiento', 'Vencimiento', 'VENCIMIENTO']);
     
-    // Mapeo seguro de columnas nuevas y antiguas de respaldo
-    const rubroImputacionVal = f.rubro_imputacion || f.Rubro_imputacion || f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '';
-    const tipoInsumoVal = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || f.renglon || f.Renglon || 'Material';
-    const tipoComp = f.comprobante_tipo || f.Comprobante_tipo || 'Factura A';
+    const rubroImputacionVal = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
+    const tipoInsumoVal = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']) || 'Material';
+    const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo']) || 'Factura A';
     const esNC = String(tipoComp).toLowerCase().includes('nota de crédito') || String(tipoComp).toLowerCase().includes('nota de credito');
 
     setFormData({ 
       ...f, 
       comprobante_tipo: tipoComp,
-      tipo_gasto: f.tipo_gasto || f.Tipo_gasto || 'Presupuesto',
-      obra_id: f.obra_id || f.Obra_id || '',
-      presupuesto_id: f.presupuesto_id || f.Presupuesto_id || '',
-      contrato_id: f.contrato_id || f.Contrato_id || '',
+      tipo_gasto: buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto',
+      obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id']) || '',
+      presupuesto_id: buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) || '',
+      contrato_id: buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) || '',
       rubro_imputacion: rubroImputacionVal,
       tipo_insumo: tipoInsumoVal,
-      detalle_gasto: f.detalle_gasto || f.Detalle_gasto || '',
+      detalle_gasto: buscarValorEnObjeto(f, ['detalle_gasto', 'Detalle_gasto']) || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
-      estado_pago: f.estado_pago || f.Estado_pago || (esNC ? 'contabilizado' : 'pendiente'),
-      subtotal: Math.abs(Number(f.subtotal || f.Subtotal || 0)),
-      iva_21: Math.abs(Number(f.iva_21 || f.Iva_21 || 0)),
-      iva_10_5: Math.abs(Number(f.iva_10_5 || f.Iva_10_5 || 0)),
-      persp_iibb_bs_as: Math.abs(Number(f.persp_iibb_bs_as || f.Persp_iibb_bs_as || 0)),
-      persp_iibb_caba: Math.abs(Number(f.persp_iibb_caba || f.Persp_iibb_caba || 0)),
-      otros_impuestos: Math.abs(Number(f.otros_impuestos || f.Otros_impuestos || 0)),
-      total: Math.abs(Number(f.total || f.Total || 0)),
-      archivo_url: f.archivo_url || f.Archivo_url || f.archivo || ''
+      estado_pago: buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO']) || (esNC ? 'contabilizado' : 'pendiente'),
+      subtotal: Math.abs(Number(buscarValorEnObjeto(f, ['subtotal', 'Subtotal']) || 0)),
+      iva_21: Math.abs(Number(buscarValorEnObjeto(f, ['iva_21', 'Iva_21']) || 0)),
+      iva_10_5: Math.abs(Number(buscarValorEnObjeto(f, ['iva_10_5', 'Iva_10_5']) || 0)),
+      persp_iibb_bs_as: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_bs_as', 'Persp_iibb_bs_as']) || 0)),
+      persp_iibb_caba: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_caba', 'Persp_iibb_caba']) || 0)),
+      otros_impuestos: Math.abs(Number(buscarValorEnObjeto(f, ['otros_impuestos', 'Otros_impuestos']) || 0)),
+      total: Math.abs(Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL']) || 0)),
+      archivo_url: buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || ''
     });
     setIsFacturaModalOpen(true);
   };
@@ -442,7 +442,6 @@ export default function Compras({
         tipo_gasto: formData.tipo_gasto,
         rubro_imputacion: formData.rubro_imputacion,
         tipo_insumo: formData.tipo_insumo,
-        // Respaldo para compatibilidad en otras vistas
         rubro_presupuesto: formData.rubro_imputacion,
         rubro: formData.rubro_imputacion,
         insumo: formData.tipo_insumo,
@@ -461,8 +460,8 @@ export default function Compras({
       });
 
       if (esNotaCredito && action === 'create') {
-        const provObj = proveedores.find(p => String(p.id || p.ID) === String(formData.proveedor_id));
-        const nombreProv = provObj ? (provObj.razon_social || provObj.nombre) : 'Proveedor';
+        const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(formData.proveedor_id));
+        const nombreProv = provObj ? (buscarValorEnObjeto(provObj, ['razon_social', 'nombre']) || 'Proveedor') : 'Proveedor';
 
         await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
@@ -506,7 +505,7 @@ export default function Compras({
   };
 
   const handleEliminarFactura = async (f) => {
-    const facturaId = f.id || f.ID || f.Id;
+    const facturaId = buscarValorEnObjeto(f, ['id', 'ID', 'Id']);
     if (!facturaId) {
       alert("⚠️ Error: No se pudo identificar el ID de esta factura.");
       return;
@@ -584,10 +583,10 @@ export default function Compras({
   };
 
   const handleEditarOcClick = (oc) => {
-    const realId = oc.id || oc.ID || oc.Id;
+    const realId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id']);
     setEditingOcId(realId);
     let insumosParseados = [];
-    const rawInsumos = oc.insumos_oc || oc.Insumos_oc || oc.INSUMOS_OC;
+    const rawInsumos = buscarValorEnObjeto(oc, ['insumos_oc', 'Insumos_oc', 'INSUMOS_OC']);
     try {
       if (typeof rawInsumos === 'string') {
         insumosParseados = JSON.parse(rawInsumos);
@@ -602,8 +601,8 @@ export default function Compras({
       insumosParseados = [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
     }
 
-    const fechaCruda = oc.fecha || oc.Fecha || oc.FECHA;
-    const entregaCruda = oc.fecha_entrega || oc.Fecha_entrega || oc.FECHA_ENTREGA;
+    const fechaCruda = buscarValorEnObjeto(oc, ['fecha', 'Fecha', 'FECHA']);
+    const entregaCruda = buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega', 'FECHA_ENTREGA']);
 
     setFormDataOc({ 
       ...oc, 
@@ -661,7 +660,7 @@ export default function Compras({
   };
 
   const handleEliminarOc = async (oc) => {
-    const ocId = oc.id || oc.ID || oc.Id;
+    const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id']);
     if (!ocId) {
       alert("⚠️ Error: No se pudo identificar el ID de esta Orden de Compra.");
       return;
@@ -685,9 +684,9 @@ export default function Compras({
   };
 
   const facturasFiltradas = facturas.filter(f => {
-    const provId = f.proveedor_id || f.Proveedor_id || f.PROVEEDOR_ID;
+    const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID']);
     const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
-    const fFecha = f.fecha || f.Fecha || f.FECHA;
+    const fFecha = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
     let matchFecha = true;
     if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
     if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
@@ -695,9 +694,9 @@ export default function Compras({
   });
 
   const ordenesFiltradas = ordenesCompra.filter(oc => {
-    const provId = oc.proveedor_id || oc.Proveedor_id || oc.PROVEEDOR_ID;
+    const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID']);
     const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
-    const ocFecha = oc.fecha || oc.Fecha || oc.FECHA;
+    const ocFecha = buscarValorEnObjeto(oc, ['fecha', 'Fecha', 'FECHA']);
     let matchFecha = true;
     if (filtroFechaDesde && ocFecha && ocFecha < filtroFechaDesde) matchFecha = false;
     if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
@@ -727,7 +726,7 @@ export default function Compras({
               insumos_oc: [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }]
             });
             setIsOcModalOpen(true);
-          }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
+          }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer">
             <Plus className="w-4 h-4" /> Nueva OC
           </button>
           <button onClick={() => {
@@ -758,7 +757,7 @@ export default function Compras({
               archivo_url: ''
             });
             setIsUploadModalOpen(true);
-          }} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
+          }} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer">
             <Plus className="w-4 h-4" /> Nueva Factura
           </button>
         </div>
@@ -767,9 +766,9 @@ export default function Compras({
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
-          <select value={filtroProveedor} onChange={(e) => setFiltroProveedor(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500">
+          <select value={filtroProveedor} onChange={(e) => setFiltroProveedor(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
             <option value="">Todos los Proveedores</option>
-            {proveedores.map(p => <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>)}
+            {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre'])}</option>)}
           </select>
         </div>
         <div>
@@ -789,8 +788,8 @@ export default function Compras({
       </div>
 
       <div className="flex gap-2 border-b border-slate-200 pb-2">
-        <button onClick={() => setActiveTab('ordenes')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'ordenes' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Órdenes de Compra ({ordenesCompra.length})</button>
-        <button onClick={() => setActiveTab('facturas')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'facturas' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Facturas ({facturas.length})</button>
+        <button onClick={() => setActiveTab('ordenes')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'ordenes' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Órdenes de Compra ({ordenesCompra.length})</button>
+        <button onClick={() => setActiveTab('facturas')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'facturas' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Facturas ({facturas.length})</button>
       </div>
 
       {activeTab === 'facturas' && (
@@ -818,40 +817,41 @@ export default function Compras({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {facturasFiltradas.map((f, index) => {
-                  const provId = f.proveedor_id || f.Proveedor_id || f.PROVEEDOR_ID;
-                  const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
-                  const totalVal = Number(f.total || f.Total || f.TOTAL) || 0;
-                  const estadoPago = String(f.estado_pago || f.Estado_pago || f.ESTADO_PAGO || 'pendiente').toLowerCase();
-                  const numeroFacturaDisplay = f.n_factura || f.N_factura || f.N_FACTURA || '---';
-                  const codigoDisplay = f.codigo || f.Codigo || f.CODIGO || `FAC-${String(index + 1).padStart(4, '0')}`;
-                  const archivoLink = f.archivo_url || f.Archivo_url || f.archivo || '';
-                  const tipoGastoDisplay = f.tipo_gasto || f.Tipo_gasto || 'Presupuesto';
+                  const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID']);
+                  const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
+                  const totalVal = Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL'])) || 0;
+                  const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO']) || 'pendiente').toLowerCase();
+                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA']) || '---';
+                  const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
+                  const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || '';
+                  const tipoGastoDisplay = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
                   
-                  const rubroImputacion = f.rubro_imputacion || f.Rubro_imputacion || f.rubro_presupuesto || f.Rubro_presupuesto || f.rubro || f.Rubro || '';
-                  const tipoInsumo = f.tipo_insumo || f.Tipo_insumo || f.insumo || f.Insumo || f.renglon || f.Renglon || '';
-                  const detalleDisplay = rubroImputacion ? `${rubroImputacion} (${tipoInsumo})` : (f.rubro || '---');
+                  const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
+                  const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']);
+                  const detalleDisplay = rubroImputacion ? `${rubroImputacion} (${tipoInsumo})` : (buscarValorEnObjeto(f, ['rubro', 'Rubro']) || '---');
+                  const fechaFactura = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
 
                   return (
-                    <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
+                    <tr key={buscarValorEnObjeto(f, ['id', 'ID', 'Id']) || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-4 py-4 font-semibold text-slate-800">{numeroFacturaDisplay}</td>
                       <td className="px-4 py-4"><span className="px-2 py-0.5 bg-amber-50 text-amber-800 font-bold rounded text-[10px]">{tipoGastoDisplay}</span></td>
-                      <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || f.proveedor || 'Proveedor'}</td>
+                      <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600 font-medium">{detalleDisplay}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha)}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaFactura)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : estadoPago === 'contabilizado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{estadoPago}</span></td>
                       <td className="px-4 py-4 text-center">
                         {archivoLink && archivoLink !== 'Comprobante_Adjunto' ? (
-                          <button type="button" onClick={() => handleVerArchivo(f)} className="text-blue-600 hover:text-blue-800 p-1.5 bg-blue-50 rounded-lg shadow-sm" title="Ver comprobante en Google Drive"><Paperclip className="w-4 h-4" /></button>
+                          <button type="button" onClick={() => handleVerArchivo(f)} className="text-blue-600 hover:text-blue-800 p-1.5 bg-blue-50 rounded-lg shadow-sm cursor-pointer" title="Ver comprobante en Google Drive"><Paperclip className="w-4 h-4" /></button>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => handleEditarFacturaClick(f)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarFactura(f)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEditarFacturaClick(f)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEliminarFactura(f)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
                     </tr>
@@ -886,21 +886,21 @@ export default function Compras({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {ordenesFiltradas.map((oc, index) => {
-                  const provId = oc.proveedor_id || oc.Proveedor_id;
-                  const obraId = oc.obra_id || oc.Obra_id;
-                  const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
-                  const obra = obras.find(o => String(o.id || o.ID) === String(obraId));
-                  const totalVal = Number(oc.total || oc.Total || oc.TOTAL) || 0;
-                  const estadoOc = String(oc.estado || oc.Estado || 'pendiente').toLowerCase();
-                  const codigoDisplay = oc.codigo || oc.Codigo || `OC-${String(index + 1).padStart(4, '0')}`;
+                  const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id']);
+                  const obraId = buscarValorEnObjeto(oc, ['obra_id', 'Obra_id']);
+                  const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
+                  const obra = obras.find(o => String(buscarValorEnObjeto(o, ['id', 'ID'])) === String(obraId));
+                  const totalVal = Number(buscarValorEnObjeto(oc, ['total', 'Total', 'TOTAL'])) || 0;
+                  const estadoOc = String(buscarValorEnObjeto(oc, ['estado', 'Estado']) || 'pendiente').toLowerCase();
+                  const codigoDisplay = buscarValorEnObjeto(oc, ['codigo', 'Codigo']) || `OC-${String(index + 1).padStart(4, '0')}`;
 
                   return (
-                    <tr key={oc.id || oc.ID || index} className="hover:bg-slate-50 transition-colors">
+                    <tr key={buscarValorEnObjeto(oc, ['id', 'ID', 'Id']) || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : (obra?.nombre || '---')}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(oc.fecha)}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(oc.fecha_entrega)}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(buscarValorEnObjeto(oc, ['fecha', 'Fecha']))}</td>
+                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega']))}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-center">
                         <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoOc === 'aprobada' ? 'bg-emerald-100 text-emerald-800' : estadoOc === 'recibida' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
@@ -909,8 +909,8 @@ export default function Compras({
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => handleEditarOcClick(oc)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarOc(oc)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEditarOcClick(oc)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => handleEliminarOc(oc)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
                     </tr>
@@ -928,22 +928,22 @@ export default function Compras({
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">{editingOcId ? 'Modificar Orden de Compra' : 'Nueva Orden de Compra'}</h3>
-              <button onClick={() => setIsOcModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
+              <button onClick={() => setIsOcModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50 cursor-pointer"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={handleGuardarOc} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra *</label>
-                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formDataOc.obra_id} onChange={(e) => setFormDataOc({...formDataOc, obra_id: e.target.value})}>
+                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formDataOc.obra_id} onChange={(e) => setFormDataOc({...formDataOc, obra_id: e.target.value})}>
                     <option value="">Seleccionar...</option>
-                    {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.codigo} - {o.nombre || o.nombre_obra}</option>)}
+                    {obras.map(o => <option key={buscarValorEnObjeto(o, ['id', 'ID'])} value={buscarValorEnObjeto(o, ['id', 'ID'])}>{o.codigo} - {o.nombre || o.nombre_obra}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Proveedor *</label>
-                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" value={formDataOc.proveedor_id} onChange={(e) => setFormDataOc({...formDataOc, proveedor_id: e.target.value})}>
+                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formDataOc.proveedor_id} onChange={(e) => setFormDataOc({...formDataOc, proveedor_id: e.target.value})}>
                     <option value="">Seleccionar...</option>
-                    {proveedores.map(p => <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>)}
+                    {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre'])}</option>)}
                   </select>
                 </div>
                 <div>
@@ -959,7 +959,7 @@ export default function Compras({
               <div className="space-y-3 pt-4 border-t">
                 <div className="flex justify-between items-center">
                   <h4 className="font-extrabold text-xs uppercase text-slate-800">Items</h4>
-                  <button type="button" onClick={handleAgregarInsumoOc} disabled={isSaving} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors disabled:opacity-50">
+                  <button type="button" onClick={handleAgregarInsumoOc} disabled={isSaving} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors disabled:opacity-50 cursor-pointer">
                     <Plus className="w-3.5 h-3.5" /> Agregar
                   </button>
                 </div>
@@ -983,7 +983,7 @@ export default function Compras({
                           <td className="px-3 py-2"><input type="text" disabled={isSaving} className="w-full bg-white border rounded-lg px-2 py-1.5 text-xs uppercase font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={item.unidad} onChange={(e) => handleCambiarInsumoOc(item.id, 'unidad', e.target.value)} /></td>
                           <td className="px-3 py-2 text-right"><input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500 disabled:bg-slate-100" value={item.p_unitario} onChange={(e) => handleCambiarInsumoOc(item.id, 'p_unitario', e.target.value)} /></td>
                           <td className="px-3 py-2 text-right font-black text-slate-900">$ {Number(item.total || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-3 py-2 text-center"><button type="button" onClick={() => handleQuitarInsumoOc(item.id)} disabled={isSaving} className="text-slate-400 hover:text-red-600 disabled:opacity-50"><Trash2 className="w-4 h-4 mx-auto" /></button></td>
+                          <td className="px-3 py-2 text-center"><button type="button" onClick={() => handleQuitarInsumoOc(item.id)} disabled={isSaving} className="text-slate-400 hover:text-red-600 disabled:opacity-50 cursor-pointer"><Trash2 className="w-4 h-4 mx-auto" /></button></td>
                         </tr>
                       ))}
                     </tbody>
@@ -992,8 +992,8 @@ export default function Compras({
               </div>
 
               <div className="flex justify-end gap-2 pt-4 border-t">
-                <button type="button" onClick={() => setIsOcModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Cancelar</button>
-                <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
+                <button type="button" onClick={() => setIsOcModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50 cursor-pointer">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer">
                   {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
                   {isSaving ? 'Guardando...' : (editingOcId ? 'Actualizar OC' : 'Crear OC')}
                 </button>
@@ -1009,7 +1009,7 @@ export default function Compras({
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">Nueva Factura — Subir comprobante</h3>
-              <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+              <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer"><X className="w-5 h-5"/></button>
             </div>
             <div className="p-8 text-center space-y-6">
               <p className="text-xs text-slate-500">Sube el archivo de la factura o nota de crédito. La IA leerá automáticamente los datos.</p>
@@ -1020,8 +1020,8 @@ export default function Compras({
                 <input type="file" className="hidden" onChange={handleArchivoSubido} disabled={localLoading} />
               </label>
               <div className="flex justify-between items-center pt-2">
-                <button onClick={() => setIsUploadModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-                <button onClick={() => { setIsUploadModalOpen(false); setIsFacturaModalOpen(true); }} className="text-xs font-bold text-amber-600 hover:underline">Cargar sin comprobante</button>
+                <button onClick={() => setIsUploadModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 cursor-pointer">Cancelar</button>
+                <button onClick={() => { setIsUploadModalOpen(false); setIsFacturaModalOpen(true); }} className="text-xs font-bold text-amber-600 hover:underline cursor-pointer">Cargar sin comprobante</button>
               </div>
             </div>
           </div>
@@ -1034,7 +1034,7 @@ export default function Compras({
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">Nueva Factura / Nota de Crédito (Confirmación y Corrección de Datos)</h3>
-              <button onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
+              <button onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50 cursor-pointer"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={handleGuardarFactura} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               
@@ -1048,7 +1048,7 @@ export default function Compras({
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo Comprobante</label>
                   <select 
                     disabled={isSaving} 
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" 
                     value={formData.comprobante_tipo} 
                     onChange={(e) => {
                       const tipoVal = e.target.value;
@@ -1074,25 +1074,25 @@ export default function Compras({
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Proveedor</label>
-                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.proveedor_id} onChange={(e) => setFormData({...formData, proveedor_id: e.target.value})}>
+                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.proveedor_id} onChange={(e) => setFormData({...formData, proveedor_id: e.target.value})}>
                     <option value="">Seleccione proveedor...</option>
-                    {proveedores.map(p => <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>)}
+                    {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre'])}</option>)}
                   </select>
                 </div>
 
                 {/* OBRA ID */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra *</label>
-                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
+                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
                     <option value="">Seleccione obra...</option>
-                    {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>[{o.codigo}] {o.nombre || o.nombre_obra}</option>)}
+                    {obras.map(o => <option key={buscarValorEnObjeto(o, ['id', 'ID'])} value={buscarValorEnObjeto(o, ['id', 'ID'])}>[{o.codigo}] {o.nombre || o.nombre_obra}</option>)}
                   </select>
                 </div>
 
                 {/* TIPO DE GASTO / DESTINO */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto *</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" 
                     value={formData.tipo_gasto} 
                     onChange={(e) => {
                       const val = e.target.value;
@@ -1117,12 +1117,12 @@ export default function Compras({
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Documento Aprobado *</label>
                     {formData.tipo_gasto === 'Presupuesto' ? (
-                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
+                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
                         <option value="">Seleccione presupuesto...</option>
-                        {listaPresupuestosFinal.map(pr => <option key={pr.id || pr.ID} value={pr.id || pr.ID}>{pr.codigo} - {pr.nombre}</option>)}
+                        {listaPresupuestosFinal.map(pr => <option key={buscarValorEnObjeto(pr, ['id', 'ID'])} value={buscarValorEnObjeto(pr, ['id', 'ID'])}>{pr.codigo} - {pr.nombre}</option>)}
                       </select>
                     ) : (
-                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.contrato_id} onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}>
+                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.contrato_id} onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}>
                         <option value="">Seleccione contrato ({listaContratosFinal.length} disp.)...</option>
                         {listaContratosFinal.map((c, i) => {
                           const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id']) || i);
@@ -1142,14 +1142,14 @@ export default function Compras({
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro Imputación *</label>
                     {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (
-                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.rubro_imputacion} onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}>
+                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.rubro_imputacion} onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}>
                         <option value="Materiales del Contrato">Materiales del Contrato</option>
                       </select>
                     ) : (
                       <select 
                         required 
                         disabled={isSaving} 
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" 
                         value={formData.rubro_imputacion} 
                         onChange={(e) => {
                           const nuevoRubro = e.target.value;
@@ -1182,7 +1182,7 @@ export default function Compras({
                   <select 
                     required
                     disabled={isSaving} 
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" 
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" 
                     value={formData.tipo_insumo} 
                     onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}
                   >
@@ -1218,7 +1218,7 @@ export default function Compras({
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado Pago</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.estado_pago} onChange={(e) => setFormData({...formData, estado_pago: e.target.value})}>
+                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100 cursor-pointer" value={formData.estado_pago} onChange={(e) => setFormData({...formData, estado_pago: e.target.value})}>
                     <option value="pendiente">Pendiente</option>
                     <option value="pagado">Pagado</option>
                     <option value="contabilizado">Contabilizado</option>
@@ -1261,8 +1261,8 @@ export default function Compras({
               )}
 
               <div className="flex justify-end gap-2 pt-4 border-t">
-                <button type="button" onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Cancelar</button>
-                <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
+                <button type="button" onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50 cursor-pointer">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer">
                   {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
                   {isSaving ? 'Guardando...' : (editingId ? 'Actualizar Comprobante' : 'Crear Comprobante')}
                 </button>
