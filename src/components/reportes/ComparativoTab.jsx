@@ -5,9 +5,11 @@ export default function ComparativoTab({
   presupuestos = [],
   facturas = [],
   tesoreria = [],
+  contratos = [], // <- Agregado para soportar contratos
   allReportesSice = []
 }) {
-  const [compPresupuestoId, setCompPresupuestoId] = useState('');
+  const [tipoProyecto, setTipoProyecto] = useState('obra');
+  const [proyectoId, setProyectoId] = useState('');
 
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
@@ -18,10 +20,22 @@ export default function ComparativoTab({
     });
   }, [presupuestos]);
 
+  const contratosActivos = useMemo(() => {
+    return contratos.filter(c => {
+      const est = String(c?.estado || c?.status || '').toLowerCase().trim();
+      return est.includes('activo') || est.includes('vigente') || est.includes('aprobado') || est === '';
+    });
+  }, [contratos]);
+
   const presupuestoSeleccionado = useMemo(() => {
-    if (!compPresupuestoId) return null;
-    return presupuestos.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(compPresupuestoId));
-  }, [compPresupuestoId, presupuestos]);
+    if (tipoProyecto !== 'obra' || !proyectoId) return null;
+    return presupuestos.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(proyectoId));
+  }, [proyectoId, tipoProyecto, presupuestos]);
+
+  const contratoSeleccionado = useMemo(() => {
+    if (tipoProyecto !== 'contrato' || !proyectoId) return null;
+    return contratos.find(c => String(c?.id || c?.ID || c?.codigo || c?.Codigo) === String(proyectoId));
+  }, [proyectoId, tipoProyecto, contratos]);
 
   const limpiarTexto = (str) => {
     if (!str) return '';
@@ -101,6 +115,63 @@ export default function ComparativoTab({
   }, [facturas, tesoreria]);
 
   const { analisisRubrosDetallado, gastosGeneralesDetalle } = useMemo(() => {
+    if (!proyectoId) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
+
+    // ==============================================
+    // LÓGICA PARA CONTRATOS DE MANTENIMIENTO
+    // ==============================================
+    if (tipoProyecto === 'contrato') {
+      if (!contratoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
+      
+      const cIdReal = String(contratoSeleccionado?.id || contratoSeleccionado?.ID || '').trim();
+      const cCodReal = String(contratoSeleccionado?.codigo || contratoSeleccionado?.Codigo || '').trim();
+
+      const facturasDelPto = todosLosEgresos.filter(f => {
+        const fContrato = String(f?.contrato_id || f?.contratoId || '').trim();
+        const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || f?.rubro_imputacion || '');
+        
+        if (cIdReal && fContrato === cIdReal) return true;
+        if (cCodReal && fContrato === cCodReal) return true;
+        if (cCodReal && fDesc.includes(cCodReal)) return true;
+        return false;
+      });
+
+      const totalContrato = parsearMonto(contratoSeleccionado?.monto || contratoSeleccionado?.total || contratoSeleccionado?.Monto || 0);
+      
+      const categoriasMap = {};
+      ordenCategorias.forEach(cat => { categoriasMap[cat] = { presupuestado: 0, real: 0, desvio: 0 }; });
+      categoriasMap['Materiales'].presupuestado = totalContrato; // Asignamos el monto base a una categoría general
+
+      let totalRealRubro = 0;
+
+      facturasDelPto.forEach(f => {
+        const montoFactura = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
+        const textoCompletoFac = `${f?.tipo_insumo || ''} ${f?.categoria_insumo || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
+        const catDestino = resolverTipoInsumoOficial(textoCompletoFac);
+        
+        categoriasMap[catDestino].real += montoFactura;
+        totalRealRubro += montoFactura;
+      });
+
+      ordenCategorias.forEach(cat => {
+        categoriasMap[cat].desvio = categoriasMap[cat].presupuestado - categoriasMap[cat].real;
+      });
+
+      const resultadosRubros = [{
+        id: cIdReal || 'C1',
+        nombre: contratoSeleccionado?.nombre || contratoSeleccionado?.nombre_contrato || 'Mantenimiento General',
+        presupuestado: totalContrato,
+        real: totalRealRubro,
+        desvio: totalContrato - totalRealRubro,
+        categorias: categoriasMap
+      }];
+
+      return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: [] };
+    }
+
+    // ==============================================
+    // LÓGICA ORIGINAL INTACTA PARA PRESUPUESTOS (OBRAS)
+    // ==============================================
     if (!presupuestoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
 
     let rawDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle || presupuestoSeleccionado?.rubros || [];
@@ -114,9 +185,8 @@ export default function ComparativoTab({
     const pObraId = String(presupuestoSeleccionado?.obra_id || '').trim();
     const pNombreReal = String(presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || '').trim();
     
-    const indicePresupuesto = presupuestosAprobados.findIndex(p => String(p?.id || p?.ID || p?.codigo) === String(compPresupuestoId)) + 1;
+    const indicePresupuesto = presupuestosAprobados.findIndex(p => String(p?.id || p?.ID || p?.codigo) === String(proyectoId)) + 1;
 
-    // FILTRO FLEXIBILIZADO PARA FACTURAS Y TESORERÍA
     const facturasDelPto = todosLosEgresos
       .filter(f => {
         const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
@@ -133,9 +203,7 @@ export default function ComparativoTab({
           return true;
         }
 
-        // Si no especifica id explícito pero pertenece a la misma obra general, lo incluimos para evitar vacíos
         if (pObraId && fObra === pObraId) return true;
-
         return false;
       })
       .map((f, i) => ({ ...f, _uid: f.id || f.ID || f.n_factura || `fac_temp_${i}` }));
@@ -278,49 +346,83 @@ export default function ComparativoTab({
     });
 
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
-  }, [presupuestoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias, mapaInsumosPresupuesto, compPresupuestoId, presupuestosAprobados]);
+  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias, mapaInsumosPresupuesto, presupuestosAprobados]);
 
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
   const totalGGPresupuestado = useMemo(() => gastosGeneralesDetalle.reduce((acc, g) => acc + g.presupuestado, 0), [gastosGeneralesDetalle]);
   const totalGGReal = useMemo(() => gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0), [gastosGeneralesDetalle]);
 
+  const hasSeleccion = (tipoProyecto === 'obra' && presupuestoSeleccionado) || (tipoProyecto === 'contrato' && contratoSeleccionado);
+
   return (
     <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
+      <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200 print:hidden">
         <div>
           <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-amber-500" /> Análisis Comparativo (Presupuesto vs. Real)
+            <TrendingUp className="w-4 h-4 text-amber-500" /> Análisis Comparativo Económico
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales con subtotales.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales.</p>
         </div>
-        <div className="flex items-center gap-3">
+        
+        <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
+          <div className="flex gap-4 px-2">
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+              <input 
+                type="radio" 
+                checked={tipoProyecto === 'obra'} 
+                onChange={() => { setTipoProyecto('obra'); setProyectoId(''); }} 
+                className="accent-amber-500" 
+              />
+              Presupuestos
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+              <input 
+                type="radio" 
+                checked={tipoProyecto === 'contrato'} 
+                onChange={() => { setProyectoId(''); setTipoProyecto('contrato'); }} 
+                className="accent-amber-500" 
+              />
+              Contratos
+            </label>
+          </div>
+
           <select
-            value={compPresupuestoId}
-            onChange={(e) => setCompPresupuestoId(e.target.value)}
+            value={proyectoId}
+            onChange={(e) => setProyectoId(e.target.value)}
             className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[300px]"
           >
-            <option value="">-- Seleccionar Presupuesto Aprobado ({presupuestosAprobados.length} disp.) --</option>
-            {presupuestosAprobados.map(p => {
-              const pId = p?.id || p?.ID || p?.codigo;
-              const pCod = p?.codigo || pId;
-              const pNom = p?.nombre || p?.nombre_obra || 'Presupuesto';
-              return <option key={pId} value={pId}>[{pCod}] {pNom}</option>;
-            })}
+            {tipoProyecto === 'obra' ? (
+              <>
+                <option value="">-- Seleccionar Presupuesto ({presupuestosAprobados.length}) --</option>
+                {presupuestosAprobados.map(p => {
+                  const pId = p?.id || p?.ID || p?.codigo;
+                  return <option key={pId} value={pId}>[{p?.codigo || pId}] {p?.nombre || p?.nombre_obra || 'Presupuesto'}</option>;
+                })}
+              </>
+            ) : (
+              <>
+                <option value="">-- Seleccionar Contrato ({contratosActivos.length}) --</option>
+                {contratosActivos.map(c => {
+                  const cId = c?.id || c?.ID || c?.codigo;
+                  return <option key={cId} value={cId}>[{c?.codigo || cId}] {c?.nombre || c?.nombre_contrato || 'Contrato'}</option>;
+                })}
+              </>
+            )}
           </select>
           <button
             onClick={() => window.print()}
-            disabled={!presupuestoSeleccionado}
-            className={`px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-colors ${!presupuestoSeleccionado ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-600 cursor-pointer'}`}
+            disabled={!hasSeleccion}
+            className={`px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-colors ${!hasSeleccion ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-600 cursor-pointer'}`}
           >
             <Printer className="w-4 h-4" /> Exportar PDF
           </button>
         </div>
       </div>
 
-      {!presupuestoSeleccionado ? (
+      {!hasSeleccion ? (
         <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl print:hidden">
-          Por favor, seleccione un presupuesto aprobado para visualizar el análisis comparativo detallado.
+          Por favor, seleccione un documento aprobado para visualizar el análisis comparativo detallado.
         </div>
       ) : (
         <div className="space-y-6 print:m-0 print:p-0">
@@ -371,7 +473,7 @@ export default function ComparativoTab({
                 ))}
 
                 <tr className="bg-amber-100 font-black text-slate-900 uppercase text-[11px] border-t-2 border-slate-300 print:bg-amber-100" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                  <td className="px-4 py-3">SUBTOTAL RUBROS DE OBRA</td>
+                  <td className="px-4 py-3">SUBTOTAL {tipoProyecto === 'obra' ? 'RUBROS DE OBRA' : 'CONTRATO'}</td>
                   <td className="px-4 py-3 text-right">$ {granTotalPresupuestadoRubros.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                   <td className="px-4 py-3 text-right text-amber-800">$ {granTotalRealRubros.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                   <td className={`px-4 py-3 text-right ${(granTotalPresupuestadoRubros - granTotalRealRubros) >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
