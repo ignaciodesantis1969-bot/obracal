@@ -248,21 +248,18 @@ export default function ComparativoTab({
 
     const facturasDelPto = todosLosEgresos
       .filter(f => {
-        const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
-        const fObra = String(f?.obra_id || f?.obraId || '').trim();
-        const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || f?.rubro_imputacion || '');
+        const fPto = String(f?.presupuesto_id || f?.presupuestoId || f?.id_presupuesto || '').trim();
+        const fObra = String(f?.obra_id || f?.obraId || f?.id_obra || '').trim();
+        const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || f?.rubro_imputacion || f?.observaciones || '');
         
         if (pIdReal && fPto === pIdReal) return true;
         if (pCodReal && fPto === pCodReal) return true;
         if (pObraId && fObra === pObraId) return true;
-        if (pCodReal && fDesc.includes(pCodReal)) return true;
-        if (pNombreReal && fDesc.includes(pNombreReal)) return true;
-        
+        if (pCodReal && limpiarTexto(fDesc).includes(limpiarTexto(pCodReal))) return true;
+        if (pNombreReal && limpiarTexto(fDesc).includes(limpiarTexto(pNombreReal))) return true;
         if (fPto === String(indicePresupuesto) || fDesc.includes(`Presupuesto: ${pIdReal}`) || fDesc.includes(`Presupuesto: ${indicePresupuesto}`)) {
           return true;
         }
-
-        if (pObraId && fObra === pObraId) return true;
         return false;
       })
       .map((f, i) => ({ ...f, _uid: f.id || f.ID || f.n_factura || `fac_temp_${i}` }));
@@ -342,11 +339,15 @@ export default function ComparativoTab({
 
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
-      let totalHsSice = 0;
       
+      let totalHsSice = 0;
       allReportesSice.forEach(rep => {
+        const repRubro = limpiarTexto(rep?.rubro || rep?.obra_rubro || '');
         (rep?.items || []).forEach(it => {
-          if (limpiarTexto(it?.descripcion).includes(normRubro)) totalHsSice += parsearMonto(rep?.totalHorasSuma || 0);
+          const itDesc = limpiarTexto(it?.descripcion || '');
+          if (repRubro === normRubro || itDesc.includes(normRubro)) {
+            totalHsSice += parsearMonto(rep?.totalHorasSuma || rep?.horas || 0);
+          }
         });
       });
       ri.categoriasMap['Mano de Obra'].real += (totalHsSice * 15000);
@@ -354,39 +355,37 @@ export default function ComparativoTab({
       const facturasRubro = facturasDelPto.filter(f => {
         if (facturasUsadas.has(f._uid)) return false; 
         
-        const fTextRaw = `${f?.rubro || ''} ${f?.rubro_imputacion || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
-        const fTextLimpiado = limpiarTexto(fTextRaw);
+        const fRubro = limpiarTexto(f?.rubro || f?.rubro_imputacion || f?.rubro_presupuesto || '');
+        const fTextRaw = `${f?.concepto || ''} ${f?.descripcion || ''} ${f?.detalle_gasto || ''}`;
         
-        const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*-/i);
-        let rubroExtraido = '';
-        if (matchCorchetes && matchCorchetes[1]) {
-          rubroExtraido = limpiarTexto(matchCorchetes[1]);
-        }
-
-        if (
-          (rubroExtraido && (normRubro === rubroExtraido || normRubro.includes(rubroExtraido) || rubroExtraido.includes(normRubro))) || 
-          fTextLimpiado.includes(normRubro)
-        ) {
+        if (fRubro && (fRubro === normRubro || fRubro.includes(normRubro) || normRubro.includes(fRubro))) {
           facturasUsadas.add(f._uid);
           return true;
         }
+
+        const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*-/i);
+        if (matchCorchetes && matchCorchetes[1]) {
+          const rubroExtraido = limpiarTexto(matchCorchetes[1]);
+          if (rubroExtraido === normRubro || normRubro.includes(rubroExtraido)) {
+            facturasUsadas.add(f._uid);
+            return true;
+          }
+        }
+
+        if (limpiarTexto(fTextRaw).includes(normRubro)) {
+          facturasUsadas.add(f._uid);
+          return true;
+        }
+
         return false;
       });
 
       facturasRubro.forEach(f => {
         const montoFactura = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
-        const textoCompletoFac = `${f?.tipo_insumo || ''} ${f?.tipoInsumo || ''} ${f?.categoria_insumo || ''} ${f?.categoria || ''} ${f?.tipo || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.observaciones || ''}`;
+        const tipoExplicitoFactura = f?.tipo_insumo || f?.tipoInsumo || f?.categoria || f?.tipo || '';
+        const detalleFactura = f?.concepto || f?.descripcion || f?.detalle_gasto || '';
         
-        let catDestino = resolverTipoInsumoOficial(textoCompletoFac, f?.tipo_insumo || f?.tipoInsumo || f?.tipo || '');
-        
-        if (catDestino === 'Materiales') {
-          const tLimpiado = limpiarTexto(textoCompletoFac);
-          Object.keys(mapaInsumosPresupuesto).forEach(keyIns => {
-            if (tLimpiado.includes(keyIns)) {
-              catDestino = mapaInsumosPresupuesto[keyIns];
-            }
-          });
-        }
+        let catDestino = resolverTipoInsumoOficial(detalleFactura, tipoExplicitoFactura);
         
         ri.categoriasMap[catDestino].real += montoFactura;
       });
