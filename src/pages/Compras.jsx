@@ -16,7 +16,7 @@ export default function Compras({
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
     for (const key of keys) {
-      if (obj[key] !== undefined && obj[key] !== null) return obj[key];
+      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
     }
     return '';
   }
@@ -304,7 +304,7 @@ export default function Compras({
           setFormData(prev => ({
             ...prev,
             comprobante_tipo: tipoComprobanteFinal,
-            n_factura: (data && data.n_factura) || prev.n_factura,
+            n_factura: (data && (data.n_factura || data.numero_factura)) || prev.n_factura,
             proveedor_id: proveedorEncontradoId || prev.proveedor_id,
             fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
             vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
@@ -349,7 +349,7 @@ export default function Compras({
   };
 
   const handleVerArchivo = (f) => {
-    const archivoUrl = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || '';
+    const archivoUrl = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo']) || '';
     if (!archivoUrl || archivoUrl === 'Comprobante_Adjunto') {
       alert("No hay un enlace de archivo válido o el comprobante es antiguo.");
       return;
@@ -377,16 +377,18 @@ export default function Compras({
     
     const rubroImputacionVal = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
     const tipoInsumoVal = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']) || 'Material';
-    const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo']) || 'Factura A';
+    const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
     const esNC = String(tipoComp).toLowerCase().includes('nota de crédito') || String(tipoComp).toLowerCase().includes('nota de credito');
 
     setFormData({ 
       ...f, 
       comprobante_tipo: tipoComp,
-      tipo_gasto: buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto',
-      obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id']) || '',
+      n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_factura']) || '',
+      proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID']) || '',
+      obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID']) || '',
       presupuesto_id: buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) || '',
       contrato_id: buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) || '',
+      tipo_gasto: buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto',
       rubro_imputacion: rubroImputacionVal,
       tipo_insumo: tipoInsumoVal,
       detalle_gasto: buscarValorEnObjeto(f, ['detalle_gasto', 'Detalle_gasto']) || '',
@@ -768,7 +770,7 @@ export default function Compras({
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
           <select value={filtroProveedor} onChange={(e) => setFiltroProveedor(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
             <option value="">Todos los Proveedores</option>
-            {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre'])}</option>)}
+            {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre', 'Razon_social'])}</option>)}
           </select>
         </div>
         <div>
@@ -821,14 +823,14 @@ export default function Compras({
                   const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
                   const totalVal = Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL'])) || 0;
                   const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO']) || 'pendiente').toLowerCase();
-                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA']) || '---';
+                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_factura']) || '---';
                   const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
-                  const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || '';
+                  const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo']) || '';
                   const tipoGastoDisplay = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
                   
                   const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
                   const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']);
-                  const detalleDisplay = rubroImputacion ? `${rubroImputacion} (${tipoInsumo})` : (buscarValorEnObjeto(f, ['rubro', 'Rubro']) || '---');
+                  const detalleDisplay = rubroImputacion ? `${rubroImputacion} (${tipoInsumo})` : (buscarValorEnObjeto(f, ['rubro', 'Rubro', 'detalle_gasto']) || '---');
                   const fechaFactura = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
 
                   return (
@@ -836,7 +838,7 @@ export default function Compras({
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-4 py-4 font-semibold text-slate-800">{numeroFacturaDisplay}</td>
                       <td className="px-4 py-4"><span className="px-2 py-0.5 bg-amber-50 text-amber-800 font-bold rounded text-[10px]">{tipoGastoDisplay}</span></td>
-                      <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}</td>
+                      <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || prov?.Razon_social || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600 font-medium">{detalleDisplay}</td>
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaFactura)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
