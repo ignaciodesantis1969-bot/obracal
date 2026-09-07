@@ -49,11 +49,13 @@ export default function Usuarios() {
     cargarUsuarios();
   }, []);
 
+  // fix: 'gestor' no es ninguna de las opciones del <select> de abajo,
+  // por eso el dropdown arrancaba en blanco. Se alinea con una opción real.
   const [nuevoUsuario, setNuevoUsuario] = useState({ 
     email: '', 
     password: '', 
     nombre: '', 
-    role: 'gestor' 
+    role: 'operador' 
   });
 
   const handleCrear = async (e) => {
@@ -72,6 +74,9 @@ export default function Usuarios() {
 
       await createUserWithEmailAndPassword(secondaryAuth, nuevoUsuario.email, nuevoUsuario.password);
 
+      // fix: la contraseña YA vive en Firebase Auth (línea de arriba).
+      // No se vuelve a mandar a Apps Script/Sheets para que no quede
+      // en texto plano en una hoja que además viaja completa en cada 'list'.
       const response = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -81,7 +86,6 @@ export default function Usuarios() {
           data: {
             nombre: nuevoUsuario.nombre,
             email: nuevoUsuario.email,
-            password: nuevoUsuario.password,
             role: nuevoUsuario.role,
             obras_asignadas: ''
           }
@@ -93,7 +97,7 @@ export default function Usuarios() {
 
       if (res.success) {
         alert("Usuario creado con éxito. Se ha enviado el correo de bienvenida.");
-        setNuevoUsuario({ email: '', password: '', nombre: '', role: 'gestor' });
+        setNuevoUsuario({ email: '', password: '', nombre: '', role: 'operador' });
         cargarUsuarios();
       } else {
         alert("El usuario se creó en Firebase pero hubo un error al guardar en la hoja: " + res.error);
