@@ -26,19 +26,16 @@ export default function Compras({
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
 
-  // Modales Facturas
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isFacturaModalOpen, setIsFacturaModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // Modales Órdenes de Compra (OC)
   const [isOcModalOpen, setIsOcModalOpen] = useState(false);
   const [editingOcId, setEditingOcId] = useState(null);
 
   const [localLoading, setLocalLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Formulario Factura
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
     tipo: 'Compra',
@@ -65,7 +62,6 @@ export default function Compras({
     archivo_url: ''
   });
 
-  // Formulario Orden de Compra (OC)
   const [formDataOc, setFormDataOc] = useState({
     codigo: 'OC-0001',
     proveedor_id: '',
@@ -393,7 +389,7 @@ export default function Compras({
 
       if (data.success || data.id) {
         setIsFacturaModalOpen(false);
-        cargarDatos();
+        if (cargarDatos) cargarDatos();
       } else {
         alert("Error al guardar: " + (data.error || "Desconocido"));
       }
@@ -419,7 +415,7 @@ export default function Compras({
       });
       const data = await res.json().catch(() => ({ success: true }));
       if (data.success !== false) {
-        cargarDatos();
+        if (cargarDatos) cargarDatos();
       } else {
         alert("No se pudo eliminar.");
       }
@@ -495,7 +491,7 @@ export default function Compras({
       const data = await res.json().catch(() => ({ success: true }));
       if (data.success || data.id) {
         setIsOcModalOpen(false);
-        cargarDatos();
+        if (cargarDatos) cargarDatos();
       } else {
         alert("Error al guardar OC.");
       }
@@ -511,7 +507,7 @@ export default function Compras({
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ tabla: 'OrdenesCompra', action: 'delete', id: ocId })
       });
-      cargarDatos();
+      if (cargarDatos) cargarDatos();
     } catch (err) { console.error(err); }
   };
 
@@ -626,9 +622,8 @@ export default function Compras({
 
       {activeTab === 'facturas' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-          {/* 🔍 LOG DE DIAGNÓSTICO TEMPORAL */}
           <div className="p-3 bg-slate-100 border-b text-[11px] text-slate-600 flex justify-between items-center">
-            <span>Total de facturas recibidas en prop: <b>{facturas.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
+            <span>Total de facturas recibidas: <b>{facturas.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
           </div>
 
           {facturasFiltradas.length === 0 ? (
@@ -668,7 +663,6 @@ export default function Compras({
                   const detalleDisplay = rubroImputacion ? `${rubroImputacion} (${tipoInsumo})` : (buscarValorEnObjeto(f, ['rubro', 'Rubro', 'detalle_gasto']) || '---');
                   const fechaFactura = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
 
-                  // 🔑 KEY ÚNICA Y SEGURA PARA CADA FILA
                   const rowKey = `${buscarValorEnObjeto(f, ['id', 'ID']) || codigoDisplay}-${numeroFacturaDisplay}-${index}`;
 
                   return (
@@ -762,7 +756,6 @@ export default function Compras({
         </div>
       )}
 
-      {/* MODAL NUEVA / EDITAR ORDEN DE COMPRA */}
       {isOcModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
@@ -843,7 +836,6 @@ export default function Compras({
         </div>
       )}
 
-      {/* MODAL SUBIR FACTURA CON IA */}
       {isUploadModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden">
@@ -868,7 +860,6 @@ export default function Compras({
         </div>
       )}
 
-      {/* MODAL CREAR / EDITAR FACTURA */}
       {isFacturaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
@@ -920,7 +911,6 @@ export default function Compras({
                   </select>
                 </div>
 
-                {/* OBRA ID */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra *</label>
                   <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
@@ -929,7 +919,6 @@ export default function Compras({
                   </select>
                 </div>
 
-                {/* TIPO DE GASTO / DESTINO */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto *</label>
                   <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" 
@@ -952,7 +941,6 @@ export default function Compras({
                   </select>
                 </div>
 
-                {/* SI ES PRESUPUESTO O CONTRATO: SELECCIONAR DOCUMENTO */}
                 {(formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Documento Aprobado *</label>
@@ -977,7 +965,6 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* RUBRO IMPUTACION */}
                 {(formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro Imputación *</label>
@@ -1014,7 +1001,6 @@ export default function Compras({
                   </div>
                 )}
 
-                {/* TIPO DE INSUMO */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     {formData.rubro_imputacion === 'Gastos Generales' ? 'Renglón Gastos Generales *' : 'Tipo de Insumo *'}
