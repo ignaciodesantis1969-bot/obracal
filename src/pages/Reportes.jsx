@@ -12,9 +12,19 @@ const CONTRATO_DEFAULT = [{ id: "1", codigo: "CM001", nombre: "Mantenimiento Cor
 class ErrorBoundary extends React.Component {
   state = { hasError: false, error: null };
   static getDerivedStateFromError(error) { return { hasError: true, error }; }
+  componentDidCatch(error, errorInfo) {
+    console.error("Error capturado por Boundary:", error, errorInfo);
+  }
   render() {
     if (this.state.hasError) {
-      return <div className="p-8 bg-rose-50 border rounded-2xl text-center text-xs text-rose-900">Ocurrió un error en Reportes.</div>;
+      return (
+        <div className="p-8 bg-rose-50 border border-rose-300 rounded-2xl text-left text-xs text-rose-900 space-y-2">
+          <p className="font-black text-sm">Ocurrió un error en Reportes:</p>
+          <pre className="bg-white p-4 rounded-xl border border-rose-200 overflow-auto font-mono">
+            {String(this.state.error?.stack || this.state.error?.message || JSON.stringify(this.state.error))}
+          </pre>
+        </div>
+      );
     }
     return this.props.children;
   }
@@ -92,13 +102,11 @@ function ReportesContent(props) {
   }, [fetchedContratos]);
 
   const proveedoresList = useMemo(() => {
-    const combinados = [...extraerArrayDatos(fetchedProveedores)];
-    return combinados;
+    return extraerArrayDatos(fetchedProveedores);
   }, [fetchedProveedores]);
 
   const insumosList = useMemo(() => {
-    const combinados = [...insumosProps, ...extraerArrayDatos(fetchedInsumos)];
-    return combinados;
+    return [...insumosProps, ...extraerArrayDatos(fetchedInsumos)];
   }, [insumosProps, fetchedInsumos]);
 
   const allReportesSiceConsolidados = useMemo(() => {
