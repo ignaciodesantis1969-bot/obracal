@@ -20,7 +20,6 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-// Función auxiliar robusta para extraer arrays sin importar cómo los envíe Google Apps Script
 const extraerArrayDatos = (fuente) => {
   if (Array.isArray(fuente)) return fuente;
   if (fuente && typeof fuente === 'object') {
@@ -55,19 +54,15 @@ function ReportesContent(props) {
   const [activeTab, setActiveTab] = useState(esOperador ? 'Reportes Diarios' : 'Certificaciones');
 
   useEffect(() => {
-    // 1. Cargar Contratos de Mantenimiento
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' }) })
       .then(res => res.json()).then(data => setFetchedContratos(extraerArrayDatos(data))).catch(() => {});
     
-    // 2. Cargar Certificaciones
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificaciones', action: 'get' }) })
       .then(res => res.json()).then(data => setFetchedCertificados(extraerArrayDatos(data))).catch(() => {});
     
-    // 3. Cargar Proveedores
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Proveedores', action: 'get' }) })
       .then(res => res.json()).then(data => setFetchedProveedores(extraerArrayDatos(data))).catch(() => {});
 
-    // 4. Cargar Reportes SICE apuntando a la solapa correcta "ReportesSice"
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' }) })
       .then(res => res.json())
       .then(data => {
@@ -75,7 +70,6 @@ function ReportesContent(props) {
         if (arrayReportes.length > 0) {
           setFetchedReportesSice(arrayReportes);
         } else {
-          // Fallback por si acaso busca con la otra denominación
           return fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesDiariosSice', action: 'get' }) })
             .then(res => res.json())
             .then(dataAlt => {
@@ -94,7 +88,6 @@ function ReportesContent(props) {
 
   const proveedoresList = extraerArrayDatos(fetchedProveedores);
 
-  // Consolidar reportes de props, fetch local y caché de localStorage por seguridad
   const allReportesSiceConsolidados = useMemo(() => {
     let localCache = [];
     try {
@@ -197,7 +190,7 @@ function ReportesContent(props) {
 
       {activeTab === 'Comparativo' && (
         <ComparativoTab
-          presupuestos={presupuestos} obras={obras} facturas={facturas} movimientos={movimientos} limpiarTexto={limpiarTexto}
+          presupuestos={presupuestos} obras={obras} facturas={facturas} tesoreria={movimientos} contratos={contratosList} limpiarTexto={limpiarTexto}
         />
       )}
     </div>
