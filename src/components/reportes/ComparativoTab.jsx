@@ -5,8 +5,8 @@ export default function ComparativoTab({
   presupuestos = [],
   facturas = [],
   tesoreria = [],
-  contratosList: propContratos = [],
-  contratos: propContratosAlt = [],
+  contratos = [],
+  contratosList = [],
   allReportesSice = []
 }) {
   const [tipoProyecto, setTipoProyecto] = useState('obra');
@@ -28,18 +28,18 @@ export default function ComparativoTab({
     return [];
   };
 
-  const contratosList = useMemo(() => {
-    const p = extraerArrayDatos(propContratos);
-    const s = extraerArrayDatos(propContratosAlt);
+  const listaContratosUnificada = useMemo(() => {
+    const c1 = extraerArrayDatos(contratos);
+    const c2 = extraerArrayDatos(contratosList);
     
     let extraGlobales = [];
-    if (p.length === 0 && s.length === 0) {
+    if (c1.length === 0 && c2.length === 0) {
       if (typeof window !== 'undefined' && window.globalData) {
         extraGlobales = extraerArrayDatos(window.globalData.contratos || window.globalData.contratosList || window.globalData.contratos_mantenimiento);
       }
     }
 
-    const combinados = [...p, ...s, ...extraGlobales];
+    const combinados = [...c1, ...c2, ...extraGlobales];
     const unicosMap = new Map();
     combinados.forEach((item, index) => {
       if (!item) return;
@@ -50,7 +50,7 @@ export default function ComparativoTab({
     });
 
     return Array.from(unicosMap.values());
-  }, [propContratos, propContratosAlt]);
+  }, [contratos, contratosList]);
 
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
@@ -60,14 +60,17 @@ export default function ComparativoTab({
   }, [presupuestos]);
 
   const contratosActivos = useMemo(() => {
-    if (!contratosList || contratosList.length === 0) return [];
-    const filtrados = contratosList.filter(c => {
+    if (!listaContratosUnificada || listaContratosUnificada.length === 0) return [];
+    
+    // Si no hay un filtro estricto de estado que matchee, devolvemos todos los contratos para asegurar que se listen en el selector
+    const filtrados = listaContratosUnificada.filter(c => {
       const est = String(c?.estado || c?.Estado || c?.ESTADO || c?.status || '').toLowerCase().trim();
       if (!est) return true;
       return est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo') || est.includes('en curso');
     });
-    return filtrados.length > 0 ? filtrados : contratosList;
-  }, [contratosList]);
+    
+    return filtrados.length > 0 ? filtrados : listaContratosUnificada;
+  }, [listaContratosUnificada]);
 
   const presupuestoSeleccionado = useMemo(() => {
     if (tipoProyecto !== 'obra' || !proyectoId) return null;
@@ -76,8 +79,8 @@ export default function ComparativoTab({
 
   const contratoSeleccionado = useMemo(() => {
     if (tipoProyecto !== 'contrato' || !proyectoId) return null;
-    return contratosList.find(c => String(c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id) === String(proyectoId));
-  }, [proyectoId, tipoProyecto, contratosList]);
+    return listaContratosUnificada.find(c => String(c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id) === String(proyectoId));
+  }, [proyectoId, tipoProyecto, listaContratosUnificada]);
 
   const limpiarTexto = (str) => {
     if (!str) return '';
