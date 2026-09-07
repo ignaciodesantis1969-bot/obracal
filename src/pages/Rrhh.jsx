@@ -694,7 +694,7 @@ export default function Rrhh({
     return true;
   };
 
-  // Guardar o Editar Carga en Historial y Tesorería
+  // Guardar o Editar Carga en Historial y Facturas a Pagar
   const handleGuardarCargaSalarial = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -748,38 +748,39 @@ export default function Rrhh({
         return;
       }
 
-      // 2. Generar o actualizar movimientos en Tesorería por cada rubro (Pago realizado)
+      // 2. Generar o actualizar registros en Facturas (Factura a Pagar) por cada rubro
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
         const montoRubro = Math.round((totalGeneralCarga * (pct / 100)) * 100) / 100;
 
-        const payloadTesoreria = {
-          tipo: 'Egreso',
+        const payloadFacturaPagar = {
+          tipo: 'Factura a Pagar',
+          estado: 'Pendiente',
           fecha: fechaCarga,
           concepto: `Mano de Obra: Sueldos y Viáticos - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
-          medio_pago: 'transferencia',
+          proveedor: 'Personal / Sueldos',
           referencia: 'RRHH',
           rubro: r.rubro,
           rubro_imputacion: r.rubro,
           tipo_insumo: 'Mano de Obra',
           presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
-          obra_id: obraIdAsociada // SE ENVÍA EL OBRA ID PARA TESORERÍA
+          obra_id: obraIdAsociada
         };
 
         await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
-            tabla: 'Tesoreria',
+            tabla: 'Facturas',
             action: 'create',
-            data: payloadTesoreria
+            data: payloadFacturaPagar
           })
         });
       }
 
-      alert(editingCargaId ? "¡Carga actualizada e imputada correctamente!" : "¡Carga de sueldos registrada e imputada por rubros en Tesorería con éxito!");
+      alert(editingCargaId ? "¡Carga actualizada e imputada como factura a pagar correctamente!" : "¡Carga de sueldos registrada como factura a pagar en Tesorería con éxito!");
       setEditingCargaId(null);
       cargarDatos();
       setActiveTab('historial_carga');
@@ -2070,12 +2071,12 @@ export default function Rrhh({
         </div>
       )}
 
-      {/* MÓDULO HISTORIAL DE CARGAS REALIZADAS (CargasSemanales) */}
+      {/* MÓDULO HISTORIAL DE CARGAS REALIZADAS (CARGAS SEMANALES) */}
       {activeTab === 'historial_carga' && (
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Cargas Realizadas (CargasSemanales)</h3>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Cargas Realizadas (CARGAS SEMANALES)</h3>
               <p className="text-xs text-slate-500 mt-0.5">Visualiza, edita o elimina los partes semanales de horas y viáticos guardados.</p>
             </div>
           </div>
