@@ -36,11 +36,9 @@ export default function Compras({
   const [editingOcId, setEditingOcId] = useState(null);
 
   const [localLoading, setLocalLoading] = useState(false);
-  
-  // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSaving, setIsSaving] = useState(false);
 
-  // Formulario Factura adaptado a las columnas limpias de Sheets
+  // Formulario Factura
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
     tipo: 'Compra',
@@ -97,14 +95,12 @@ export default function Compras({
     return [];
   };
 
-  // Filtrar solo presupuestos aprobados
   const presupuestosAprobados = presupuestos.filter(pr => {
     const est = String(buscarValorEnObjeto(pr, ['estado', 'Estado', 'ESTADO']) || '').toLowerCase();
     return !est || est.includes('aprobad') || est.includes('aprobado');
   });
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  // 🔍 LÓGICA UNIFICADA Y ROBUSTA DE CONTRATOS
   const contratosList = useMemo(() => {
     const p = extraerArrayDatos(propContratos);
     const s = extraerArrayDatos(propContratosAlt);
@@ -117,33 +113,27 @@ export default function Compras({
     }
 
     const combinados = [...p, ...s, ...extraGlobales];
-    
     const unicosMap = new Map();
     combinados.forEach((item, index) => {
       if (!item) return;
-      const key = String(
-        buscarValorEnObjeto(item, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id', 'nro_contrato']) || index
-      );
+      const key = String(buscarValorEnObjeto(item, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id', 'nro_contrato']) || index);
       if (!unicosMap.has(key)) {
         unicosMap.set(key, item);
       }
     });
 
     return Array.from(unicosMap.values());
-  }, [propContratos, propContratosAlt, buscarValorEnObjeto]);
+  }, [propContratos, propContratosAlt]);
 
   const listaContratosFinal = useMemo(() => {
     if (!contratosList || contratosList.length === 0) return [];
-    
     const filtrados = contratosList.filter(c => {
       const est = String(buscarValorEnObjeto(c, ['estado', 'Estado', 'ESTADO', 'status']) || '').toLowerCase();
       return !est || est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo') || est.includes('en curso');
     });
-
     return filtrados.length > 0 ? filtrados : contratosList;
   }, [contratosList]);
 
-  // EXTRACCIÓN DINÁMICA DE RUBROS DESDE EL JSON DEL PRESUPUESTO SELECCIONADO
   const presupuestoSeleccionadoObj = presupuestos.find(pr => {
     const pId = buscarValorEnObjeto(pr, ['id', 'ID', 'Id']);
     return String(pId).trim() === String(formData.presupuesto_id).trim();
@@ -154,13 +144,11 @@ export default function Compras({
 
   if (presupuestoSeleccionadoObj) {
     const rawItemsDetalle = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['items_detalle', 'Items_detalle', 'items', 'detalle']);
-    
     try {
       let parsedData = rawItemsDetalle;
       if (typeof rawItemsDetalle === 'string') {
         parsedData = JSON.parse(rawItemsDetalle);
       }
-      
       if (parsedData && Array.isArray(parsedData.rubros)) {
         rubrosDelPresupuesto = parsedData.rubros.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
       } else if (Array.isArray(parsedData)) {
@@ -174,18 +162,15 @@ export default function Compras({
       if (Array.isArray(rawGG)) {
         gastosGeneralesDelPresupuesto = rawGG.map(item => item.concepto || item.nombre || item.descripcion).filter(Boolean);
       }
-
-      if (gastosGeneralesDelPresupuesto.length === 0 && parsedData && parsedData.comercial && Array.isArray(parsedData.comercial.gastos_generales_insumos)) {
-        gastosGeneralesDelPresupuesto = parsedData.comercial.gastos_generales_insumos.map(item => item.concepto || item.nombre || item.descripcion).filter(Boolean);
-      }
     } catch (e) {
-      console.error("Error al parsear los datos del presupuesto:", e);
+      console.error("Error al parsear presupuesto:", e);
     }
   }
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
-    const partes = String(fechaStr).split('T')[0].split('-');
+    const str = String(fechaStr).split('T')[0];
+    const partes = str.split('-');
     if (partes.length === 3) {
       return `${partes[2]}/${partes[1]}/${partes[0]}`;
     }
@@ -238,10 +223,8 @@ export default function Compras({
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
       return;
     }
-
     const archivo = e.target.files[0];
     if (!archivo) return;
-
     setLocalLoading(true);
 
     const nombreArchivo = archivo.name.toLowerCase();
@@ -251,10 +234,8 @@ export default function Compras({
     try {
       const reader = new FileReader();
       reader.readAsDataURL(archivo);
-      
       reader.onload = async () => {
         const base64Data = reader.result;
-        
         try {
           const res = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
@@ -265,14 +246,9 @@ export default function Compras({
               mimeType: archivo.type
             })
           });
-
           const textoRespuesta = await res.text();
           let data;
-          try {
-            data = JSON.parse(textoRespuesta);
-          } catch (parseErr) {
-            data = { success: false };
-          }
+          try { data = JSON.parse(textoRespuesta); } catch (parseErr) { data = { success: false }; }
           
           let proveedorEncontradoId = '';
           if (data && data.proveedor && proveedores.length > 0) {
@@ -286,20 +262,8 @@ export default function Compras({
 
           const tipoCompIA = data && (data.comprobante_tipo || data.tipo_comprobante || data.tipo);
           const esNcIA = tipoCompIA && (tipoCompIA.toLowerCase().includes('nota de crédito') || tipoCompIA.toLowerCase().includes('nota de credito'));
-          
           const esNotaCreditoFinal = esNcArchivo || esNcIA;
-          let tipoComprobanteFinal = 'Factura A';
-          if (esNotaCreditoFinal) {
-            if (tipoCompIA && tipoCompIA.toLowerCase().includes('b')) {
-              tipoComprobanteFinal = 'Nota de Crédito B';
-            } else if (tipoCompIA && tipoCompIA.toLowerCase().includes('a')) {
-              tipoComprobanteFinal = 'Nota de Crédito A';
-            } else {
-              tipoComprobanteFinal = tipoNcSugerido;
-            }
-          } else if (tipoCompIA) {
-            tipoComprobanteFinal = tipoCompIA;
-          }
+          let tipoComprobanteFinal = esNotaCreditoFinal ? tipoNcSugerido : (tipoCompIA || 'Factura A');
 
           setFormData(prev => ({
             ...prev,
@@ -320,15 +284,8 @@ export default function Compras({
           }));
           setIsUploadModalOpen(false);
           setIsFacturaModalOpen(true);
-
         } catch (fetchErr) {
-          console.error("Error en el fetch:", fetchErr);
-          setFormData(prev => ({
-            ...prev,
-            comprobante_tipo: esNcArchivo ? tipoNcSugerido : prev.comprobante_tipo,
-            estado_pago: esNcArchivo ? 'contabilizado' : prev.estado_pago,
-            archivo_url: base64Data
-          }));
+          setFormData(prev => ({ ...prev, archivo_url: base64Data }));
           setIsUploadModalOpen(false);
           setIsFacturaModalOpen(true);
         } finally {
@@ -336,45 +293,27 @@ export default function Compras({
           e.target.value = "";
         }
       };
-
-      reader.onerror = () => {
-        setLocalLoading(false);
-        alert("Error al leer el archivo local.");
-      };
-
     } catch (err) {
       setLocalLoading(false);
-      alert("Error inesperado: " + err.message);
+      alert("Error: " + err.message);
     }
   };
 
   const handleVerArchivo = (f) => {
     const archivoUrl = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo']) || '';
     if (!archivoUrl || archivoUrl === 'Comprobante_Adjunto') {
-      alert("No hay un enlace de archivo válido o el comprobante es antiguo.");
+      alert("No hay un enlace de archivo válido.");
       return;
     }
-    if (archivoUrl.startsWith('http') || archivoUrl.startsWith('https') || archivoUrl.includes('drive.google.com')) {
-      window.open(archivoUrl, '_blank');
-    } else if (archivoUrl.startsWith('data:')) {
-      const win = window.open();
-      if (win) {
-        win.document.write(`<iframe src="${archivoUrl}" frameborder="0" style="border:0; top:0; left:0; bottom:0; right:0; width:100%; height:100%;" allowfullscreen></iframe>`);
-      } else {
-        alert("El navegador bloqueó la ventana emergente para mostrar el archivo.");
-      }
-    } else {
-      window.open(archivoUrl, '_blank');
-    }
+    window.open(archivoUrl, '_blank');
   };
 
   const handleEditarFacturaClick = (f) => {
-    const realId = buscarValorEnObjeto(f, ['id', 'ID', 'Id']);
+    const realId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     setEditingId(realId);
 
     const fechaCruda = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
     const vencCrudo = buscarValorEnObjeto(f, ['vencimiento', 'Vencimiento', 'VENCIMIENTO']);
-    
     const rubroImputacionVal = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
     const tipoInsumoVal = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']) || 'Material';
     const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
@@ -410,44 +349,28 @@ export default function Compras({
   const handleGuardarFactura = async (e) => {
     e.preventDefault();
     if (isSaving) return;
-
     setIsSaving(true);
     try {
       const action = editingId ? 'update' : 'create';
-      const codigoFinal = editingId ? formData.codigo : generarSiguienteCodigoFactura();
+      const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
 
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
 
-      const subtotalNum = Math.abs(Number(formData.subtotal) || 0) * factorSigno;
-      const iva21Num = Math.abs(Number(formData.iva_21) || 0) * factorSigno;
-      const iva105Num = Math.abs(Number(formData.iva_10_5) || 0) * factorSigno;
-      const iibbBsAsNum = Math.abs(Number(formData.persp_iibb_bs_as) || 0) * factorSigno;
-      const iibbCabaNum = Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno;
-      const otrosImpNum = Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno;
-      const totalNum = Math.abs(Number(formData.total) || 0) * factorSigno;
-
       const payloadData = {
         ...formData,
-        subtotal: subtotalNum,
-        iva_21: iva21Num,
-        iva_10_5: iva105Num,
-        persp_iibb_bs_as: iibbBsAsNum,
-        persp_iibb_caba: iibbCabaNum,
-        otros_impuestos: otrosImpNum,
-        total: totalNum,
+        subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
+        iva_21: Math.abs(Number(formData.iva_21) || 0) * factorSigno,
+        iva_10_5: Math.abs(Number(formData.iva_10_5) || 0) * factorSigno,
+        persp_iibb_bs_as: Math.abs(Number(formData.persp_iibb_bs_as) || 0) * factorSigno,
+        persp_iibb_caba: Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno,
+        otros_impuestos: Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno,
+        total: Math.abs(Number(formData.total) || 0) * factorSigno,
         estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago,
         codigo: codigoFinal,
-        obra_id: formData.obra_id,
-        presupuesto_id: formData.presupuesto_id,
-        contrato_id: formData.contrato_id,
-        tipo_gasto: formData.tipo_gasto,
-        rubro_imputacion: formData.rubro_imputacion,
-        tipo_insumo: formData.tipo_insumo,
         rubro_presupuesto: formData.rubro_imputacion,
         rubro: formData.rubro_imputacion,
-        insumo: formData.tipo_insumo,
-        archivo_url: formData.archivo_url || ''
+        insumo: formData.tipo_insumo
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -461,34 +384,10 @@ export default function Compras({
         })
       });
 
-      if (esNotaCredito && action === 'create') {
-        const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(formData.proveedor_id));
-        const nombreProv = provObj ? (buscarValorEnObjeto(provObj, ['razon_social', 'nombre']) || 'Proveedor') : 'Proveedor';
-
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            tabla: 'Movimientos',
-            action: 'create',
-            data: {
-              fecha: formData.fecha,
-              tipo: 'CONTABILIZADO',
-              concepto: `Nota de Crédito ${formData.n_factura || codigoFinal} - ${nombreProv}`,
-              medio_pago: '---',
-              retenciones: '---',
-              monto: totalNum 
-            }
-          })
-        }).catch(err => console.error("Error al registrar movimiento automático en tesorería:", err));
-      }
-
       const textoRespuesta = await res.text();
       let data;
-      try {
-        data = JSON.parse(textoRespuesta);
-      } catch (parseErr) {
-        alert("Error del servidor (Apps Script devolvió HTML en lugar de JSON).");
+      try { data = JSON.parse(textoRespuesta); } catch (parseErr) {
+        alert("Error del servidor.");
         return;
       }
 
@@ -496,20 +395,19 @@ export default function Compras({
         setIsFacturaModalOpen(false);
         cargarDatos();
       } else {
-        alert("Error al guardar factura: " + (data.error || "Desconocido"));
+        alert("Error al guardar: " + (data.error || "Desconocido"));
       }
     } catch (err) {
-      console.error(err);
-      alert("Error de conexión al guardar factura: " + err.message);
+      alert("Error de conexión: " + err.message);
     } finally {
       setIsSaving(false);
     }
   };
 
   const handleEliminarFactura = async (f) => {
-    const facturaId = buscarValorEnObjeto(f, ['id', 'ID', 'Id']);
+    const facturaId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     if (!facturaId) {
-      alert("⚠️ Error: No se pudo identificar el ID de esta factura.");
+      alert("⚠️ Error: No se pudo identificar el ID.");
       return;
     }
     if (!window.confirm("¿Estás seguro de eliminar esta factura?")) return;
@@ -517,31 +415,23 @@ export default function Compras({
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ 
-          tabla: 'Facturas', 
-          action: 'delete', 
-          id: facturaId 
-        })
+        body: JSON.stringify({ tabla: 'Facturas', action: 'delete', id: facturaId })
       });
       const data = await res.json().catch(() => ({ success: true }));
       if (data.success !== false) {
         cargarDatos();
       } else {
-        alert("No se pudo eliminar la factura.");
+        alert("No se pudo eliminar.");
       }
     } catch (err) {
       console.error(err);
     }
   };
 
-  // Handlers para Órdenes de Compra (OC)
   const handleAgregarInsumoOc = () => {
     setFormDataOc(prev => ({
       ...prev,
-      insumos_oc: [
-        ...prev.insumos_oc,
-        { id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }
-      ]
+      insumos_oc: [...prev.insumos_oc, { id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }]
     }));
   };
 
@@ -556,60 +446,33 @@ export default function Compras({
       }
       return item;
     });
-
     const nuevoSubtotal = nuevos.reduce((acc, curr) => acc + (Number(curr.total) || 0), 0);
-    const nuevoIva = nuevoSubtotal * 0.21;
-    const nuevoTotal = nuevoSubtotal + nuevoIva;
-
-    setFormDataOc(prev => ({
-      ...prev,
-      insumos_oc: nuevos,
-      subtotal: nuevoSubtotal,
-      iva_21: nuevoIva,
-      total: nuevoTotal
-    }));
+    setFormDataOc(prev => ({ ...prev, insumos_oc: nuevos, subtotal: nuevoSubtotal, iva_21: nuevoSubtotal * 0.21, total: nuevoSubtotal * 1.21 }));
   };
 
   const handleQuitarInsumoOc = (id) => {
     const nuevos = formDataOc.insumos_oc.filter(i => i.id !== id);
     const nuevoSubtotal = nuevos.reduce((acc, curr) => acc + (Number(curr.total) || 0), 0);
-    const nuevoIva = nuevoSubtotal * 0.21;
-    const nuevoTotal = nuevoSubtotal + nuevoIva;
-    setFormDataOc(prev => ({
-      ...prev,
-      insumos_oc: nuevos,
-      subtotal: nuevoSubtotal,
-      iva_21: nuevoIva,
-      total: nuevoTotal
-    }));
+    setFormDataOc(prev => ({ ...prev, insumos_oc: nuevos, subtotal: nuevoSubtotal, iva_21: nuevoSubtotal * 0.21, total: nuevoSubtotal * 1.21 }));
   };
 
   const handleEditarOcClick = (oc) => {
-    const realId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id']);
+    const realId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
     setEditingOcId(realId);
     let insumosParseados = [];
     const rawInsumos = buscarValorEnObjeto(oc, ['insumos_oc', 'Insumos_oc', 'INSUMOS_OC']);
     try {
-      if (typeof rawInsumos === 'string') {
-        insumosParseados = JSON.parse(rawInsumos);
-      } else if (Array.isArray(rawInsumos)) {
-        insumosParseados = rawInsumos;
-      }
-    } catch (err) {
-      insumosParseados = [];
-    }
+      insumosParseados = typeof rawInsumos === 'string' ? JSON.parse(rawInsumos) : (Array.isArray(rawInsumos) ? rawInsumos : []);
+    } catch (err) { insumosParseados = []; }
 
-    if (!Array.isArray(insumosParseados) || insumosParseados.length === 0) {
+    if (insumosParseados.length === 0) {
       insumosParseados = [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
     }
 
-    const fechaCruda = buscarValorEnObjeto(oc, ['fecha', 'Fecha', 'FECHA']);
-    const entregaCruda = buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega', 'FECHA_ENTREGA']);
-
     setFormDataOc({ 
       ...oc, 
-      fecha: formatearFechaParaInput(fechaCruda),
-      fecha_entrega: formatearFechaParaInput(entregaCruda),
+      fecha: formatearFechaParaInput(buscarValorEnObjeto(oc, ['fecha', 'Fecha'])),
+      fecha_entrega: formatearFechaParaInput(buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega'])),
       insumos_oc: insumosParseados 
     });
     setIsOcModalOpen(true);
@@ -618,71 +481,38 @@ export default function Compras({
   const handleGuardarOc = async (e) => {
     e.preventDefault();
     if (isSaving) return;
-
     setIsSaving(true);
     try {
       const action = editingOcId ? 'update' : 'create';
       const codigoFinal = editingOcId ? formDataOc.codigo : generarSiguienteCodigoOc();
-
-      const payloadData = {
-        ...formDataOc,
-        codigo: codigoFinal,
-        insumos_oc: JSON.stringify(formDataOc.insumos_oc)
-      };
+      const payloadData = { ...formDataOc, codigo: codigoFinal, insumos_oc: JSON.stringify(formDataOc.insumos_oc) };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'OrdenesCompra',
-          action: action,
-          id: editingOcId,
-          data: payloadData
-        })
+        body: JSON.stringify({ tabla: 'OrdenesCompra', action: action, id: editingOcId, data: payloadData })
       });
-      const textoRespuesta = await res.text();
-      let data;
-      try {
-        data = JSON.parse(textoRespuesta);
-      } catch (parseErr) {
-        alert("Error del servidor: " + textoRespuesta.substring(0, 150));
-        return;
-      }
+      const data = await res.json().catch(() => ({ success: true }));
       if (data.success || data.id) {
         setIsOcModalOpen(false);
         cargarDatos();
       } else {
-        alert("Error al guardar Orden de Compra: " + (data.error || "Desconocido"));
+        alert("Error al guardar OC.");
       }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSaving(false);
-    }
+    } catch (err) { console.error(err); } finally { setIsSaving(false); }
   };
 
   const handleEliminarOc = async (oc) => {
-    const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id']);
-    if (!ocId) {
-      alert("⚠️ Error: No se pudo identificar el ID de esta Orden de Compra.");
-      return;
-    }
-    if (!window.confirm("¿Estás seguro de eliminar esta Orden de Compra?")) return;
+    const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
+    if (!ocId || !window.confirm("¿Eliminar Orden de Compra?")) return;
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+      await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ tabla: 'OrdenesCompra', action: 'delete', id: ocId })
       });
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
-        cargarDatos();
-      } else {
-        alert("No se pudo eliminar la Orden de Compra.");
-      }
-    } catch (err) {
-      console.error(err);
-    }
+      cargarDatos();
+    } catch (err) { console.error(err); }
   };
 
   const facturasFiltradas = facturas.filter(f => {
@@ -796,6 +626,11 @@ export default function Compras({
 
       {activeTab === 'facturas' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+          {/* 🔍 LOG DE DIAGNÓSTICO TEMPORAL */}
+          <div className="p-3 bg-slate-100 border-b text-[11px] text-slate-600 flex justify-between items-center">
+            <span>Total de facturas recibidas en prop: <b>{facturas.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
+          </div>
+
           {facturasFiltradas.length === 0 ? (
             <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
               <FileText className="w-10 h-10 text-slate-300" />
@@ -833,8 +668,11 @@ export default function Compras({
                   const detalleDisplay = rubroImputacion ? `${rubroImputacion} (${tipoInsumo})` : (buscarValorEnObjeto(f, ['rubro', 'Rubro', 'detalle_gasto']) || '---');
                   const fechaFactura = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
 
+                  // 🔑 KEY ÚNICA Y SEGURA PARA CADA FILA
+                  const rowKey = `${buscarValorEnObjeto(f, ['id', 'ID']) || codigoDisplay}-${numeroFacturaDisplay}-${index}`;
+
                   return (
-                    <tr key={buscarValorEnObjeto(f, ['id', 'ID', 'Id']) || index} className="hover:bg-slate-50 transition-colors">
+                    <tr key={rowKey} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-4 py-4 font-semibold text-slate-800">{numeroFacturaDisplay}</td>
                       <td className="px-4 py-4"><span className="px-2 py-0.5 bg-amber-50 text-amber-800 font-bold rounded text-[10px]">{tipoGastoDisplay}</span></td>
@@ -897,7 +735,7 @@ export default function Compras({
                   const codigoDisplay = buscarValorEnObjeto(oc, ['codigo', 'Codigo']) || `OC-${String(index + 1).padStart(4, '0')}`;
 
                   return (
-                    <tr key={buscarValorEnObjeto(oc, ['id', 'ID', 'Id']) || index} className="hover:bg-slate-50 transition-colors">
+                    <tr key={buscarValorEnObjeto(oc, ['id', 'ID']) || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : (obra?.nombre || '---')}</td>
