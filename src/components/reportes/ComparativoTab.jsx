@@ -111,28 +111,31 @@ export default function ComparativoTab({
 
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
+    const pObraId = String(presupuestoSeleccionado?.obra_id || '').trim();
     const pNombreReal = String(presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || '').trim();
     
-    // Identificamos el índice o número corto (ej: si el id es "1" o el selector manda el índice)
     const indicePresupuesto = presupuestosAprobados.findIndex(p => String(p?.id || p?.ID || p?.codigo) === String(compPresupuestoId)) + 1;
 
-    // FILTRO SEGURO: Solo acepta registros cuyo ID coincida con la obra o cuyo texto mencione específicamente este presupuesto.
+    // FILTRO FLEXIBILIZADO PARA FACTURAS Y TESORERÍA
     const facturasDelPto = todosLosEgresos
       .filter(f => {
         const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
-        const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '');
+        const fObra = String(f?.obra_id || f?.obraId || '').trim();
+        const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || f?.rubro_imputacion || '');
         
-        // 1. Coincidencia exacta por ID o código de obra
-        if (fPto === pIdReal || fPto === pCodReal) return true;
+        if (pIdReal && fPto === pIdReal) return true;
+        if (pCodReal && fPto === pCodReal) return true;
+        if (pObraId && fObra === pObraId) return true;
         if (pCodReal && fDesc.includes(pCodReal)) return true;
         if (pNombreReal && fDesc.includes(pNombreReal)) return true;
         
-        // 2. Coincidencia por número de presupuesto grabado por RRHH/Tesorería (ej: "Presupuesto: 1")
-        if (fDesc.includes(`Presupuesto: ${pIdReal}`) || fDesc.includes(`Presupuesto: ${indicePresupuesto}`)) {
+        if (fPto === String(indicePresupuesto) || fDesc.includes(`Presupuesto: ${pIdReal}`) || fDesc.includes(`Presupuesto: ${indicePresupuesto}`)) {
           return true;
         }
 
-        // Si no tiene asignado ningún presupuesto, se asume que no pertenece a esta obra y se descarta por seguridad.
+        // Si no especifica id explícito pero pertenece a la misma obra general, lo incluimos para evitar vacíos
+        if (pObraId && fObra === pObraId) return true;
+
         return false;
       })
       .map((f, i) => ({ ...f, _uid: f.id || f.ID || f.n_factura || `fac_temp_${i}` }));
@@ -143,12 +146,6 @@ export default function ComparativoTab({
     let ggList = comercialObj?.gastos_generales_insumos || rawDetalle?.gastos_generales_insumos || rawDetalle?.gastos_generales || [];
     if (typeof ggList === 'string') { try { ggList = JSON.parse(ggList); } catch { ggList = []; } }
     
-    let valorHoraReferencia = 15000;
-    try {
-      const primeraTarea = rubrosList[0]?.tareas?.[0] || rubrosList[0]?.items?.[0];
-      if (primeraTarea?.costo_unitario) valorHoraReferencia = parsearMonto(primeraTarea.costo_unitario) || 15000;
-    } catch (e) {}
-
     let granTotalPresupuestadoRubrosTemp = 0;
     const rubrosIntermedios = rubrosList.map((r, rIdx) => {
       const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
@@ -200,8 +197,8 @@ export default function ComparativoTab({
 
         const facturasGG = facturasDelPto.filter(f => {
           if (facturasUsadas.has(f._uid)) return false;
-          const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.tipo_insumo || ''}`);
-          if (textoFacGG.includes(normGG)) {
+          const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_imputacion || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.tipo_insumo || ''}`);
+          if (textoFacGG.includes(normGG) || textoFacGG.includes('gastos generales')) {
             facturasUsadas.add(f._uid);
             return true;
           }
@@ -222,15 +219,14 @@ export default function ComparativoTab({
           if (limpiarTexto(it?.descripcion).includes(normRubro)) totalHsSice += parsearMonto(rep?.totalHorasSuma || 0);
         });
       });
-      ri.categoriasMap['Mano de Obra'].real += (totalHsSice * valorHoraReferencia);
+      ri.categoriasMap['Mano de Obra'].real += (totalHsSice * 15000);
 
       const facturasRubro = facturasDelPto.filter(f => {
         if (facturasUsadas.has(f._uid)) return false; 
         
-        const fTextRaw = `${f?.rubro || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
+        const fTextRaw = `${f?.rubro || ''} ${f?.rubro_imputacion || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
         const fTextLimpiado = limpiarTexto(fTextRaw);
         
-        // Extraemos el nombre del rubro dentro del corchete de Tesorería (ej: [Rubro: DEMOLICIONES - 100%])
         const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*-/i);
         let rubroExtraido = '';
         if (matchCorchetes && matchCorchetes[1]) {
