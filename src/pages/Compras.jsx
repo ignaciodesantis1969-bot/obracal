@@ -15,8 +15,22 @@ export default function Compras({
   cargarDatos,
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
+    
+    // 1. Búsqueda exacta directa
     for (const key of keys) {
       if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
+    }
+    
+    // 2. Búsqueda normalizada flexible (elimina tildes, símbolos especiales, mayúsculas, espacios y guiones bajos)
+    const normalizar = (str) => String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+    const objKeys = Object.keys(obj);
+    
+    for (const key of keys) {
+      const keyNorm = normalizar(key);
+      const realKey = objKeys.find(k => normalizar(k) === keyNorm);
+      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
+        return obj[realKey];
+      }
     }
     return '';
   }
@@ -353,6 +367,7 @@ export default function Compras({
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
 
+      // Se envían llaves duales para asegurar compatibilidad estricta con cualquier estructura en Google Sheets
       const payloadData = {
         ...formData,
         subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
@@ -364,8 +379,15 @@ export default function Compras({
         total: Math.abs(Number(formData.total) || 0) * factorSigno,
         estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago,
         codigo: codigoFinal,
+        n_factura: formData.n_factura,
+        proveedor_id: formData.proveedor_id,
+        obra_id: formData.obra_id,
+        presupuesto_id: formData.presupuesto_id,
+        contrato_id: formData.contrato_id,
+        rubro_imputacion: formData.rubro_imputacion,
         rubro_presupuesto: formData.rubro_imputacion,
         rubro: formData.rubro_imputacion,
+        tipo_insumo: formData.tipo_insumo,
         insumo: formData.tipo_insumo
       };
 
