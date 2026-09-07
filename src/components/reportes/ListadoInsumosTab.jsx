@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { Package, FileText, Filter, ArrowUpDown } from 'lucide-react';
@@ -47,6 +47,61 @@ export default function ListadoInsumosTab({
       .catch(() => {});
   }, []);
 
+  const limpiarTexto = (str) => {
+    if (!str) return '';
+    return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
+  };
+
+  // Función unificada y robusta para resolver la categoría oficial de insumos/subcontratos
+  const resolverTipoInsumoOficial = (textoCompleto, tipoExplicito = '') => {
+    const tipoExp = limpiarTexto(tipoExplicito);
+    if (tipoExp.includes('mano de obra') || tipoExp.includes('rrhh') || tipoExp.includes('personal')) return 'Mano de Obra';
+    if (tipoExp.includes('subcontrato') || tipoExp.includes('servicio') || tipoExp.includes('contratista')) return 'Subcontratos';
+    if (tipoExp.includes('equipo') || tipoExp.includes('maquinaria') || tipoExp.includes('herramienta') || tipoExp.includes('alquiler')) return 'Equipos';
+    if (tipoExp.includes('gasto') || tipoExp.includes('general') || tipoExp.includes('imprevisto') || tipoExp.includes('seguridad')) return 'Gastos Generales';
+    if (tipoExp.includes('material') || tipoExp.includes('insumo')) return 'Materiales';
+
+    const tc = limpiarTexto(textoCompleto);
+    
+    if (
+      tc.includes('mano de obra') || 
+      tc.includes('sueldo') || 
+      tc.includes('viatico') || 
+      tc.includes('cargas sociales') || 
+      tc.includes('jornal') ||
+      tc.includes('oficial') ||
+      tc.includes('ayudante')
+    ) {
+      return 'Mano de Obra';
+    }
+
+    if (
+      tc.includes('subcontrato') || 
+      tc.includes('contratista') || 
+      tc.includes('servicio de terceros') || 
+      tc.includes('sub-contrato') ||
+      tc.includes('mano de obra subcontratada')
+    ) {
+      return 'Subcontratos';
+    }
+    
+    if (
+      tc.includes('alquiler de equipo') || 
+      tc.includes('maquinaria pesada') || 
+      tc.includes('retroexcavadora') || 
+      tc.includes('hormigonera') || 
+      tc.includes('andamio') ||
+      tc.includes('guinche') ||
+      tc.includes('compactadora')
+    ) {
+      return 'Equipos';
+    }
+
+    if (tc.includes('gasto general') || tc.includes('imprevisto') || tc.includes('seguridad e higiene') || tc.includes('epp')) return 'Gastos Generales';
+    
+    return 'Materiales'; 
+  };
+
   const proveedoresList = useMemo(() => {
     const combinados = [...propProveedores, ...(Array.isArray(proveedoresSheet) ? proveedoresSheet : []), ...fetchedProveedoresLocal];
     const map = {};
@@ -70,14 +125,7 @@ export default function ListadoInsumosTab({
       const codigo = String(ins.codigo || ins.Codigo || ins.id || '').trim().toLowerCase();
       const nombre = String(ins.nombre || ins.Nombre || '').trim().toLowerCase();
       
-      let tipoOficial = String(ins.tipo || ins.Tipo || ins.categoria || ins.rubro || 'Materiales').trim();
-      const tLower = tipoOficial.toLowerCase();
-      
-      if (tLower.includes('mano')) tipoOficial = 'Mano de Obra';
-      else if (tLower.includes('equipo') || tLower.includes('maquinaria')) tipoOficial = 'Equipos';
-      else if (tLower.includes('subcontrato')) tipoOficial = 'Subcontratos';
-      else if (tLower.includes('gasto') || tLower.includes('general')) tipoOficial = 'Gastos Generales';
-      else tipoOficial = 'Materiales';
+      const tipoOficial = resolverTipoInsumoOficial(ins.nombre || '', ins.tipo || ins.Tipo || ins.categoria || ins.rubro || '');
 
       const provId = String(ins.proveedor_id || ins.proveedorId || ins.proveedor || '').trim();
       const proveedorNombre = proveedoresList[provId] || proveedoresList[provId.toLowerCase()] || (isNaN(provId) && provId ? provId : 'Sin Proveedor');
@@ -95,7 +143,7 @@ export default function ListadoInsumosTab({
     return map;
   }, [propInsumos, insumosSheet, fetchedInsumosLocal, proveedoresList]);
 
-  const ordenCategorias = useMemo(() => ['Mano de Obra', 'Materiales', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
+  const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
@@ -149,18 +197,19 @@ export default function ListadoInsumosTab({
 
             if (!Array.isArray(insumosList) || insumosList.length === 0) {
               const codigoT = String(t?.codigo || t?.Cod || '').trim().toLowerCase();
-              const nombreT = String(t?.descripcion || t?.tarea || '').trim().toLowerCase();
-              const maestroInfo = maestroInsumosMap[codigoT] || maestroInsumosMap[nombreT] || {};
+              const nombreT = String(t?.descripcion || t?.tarea || '').trim();
+              const maestroInfo = maestroInsumosMap[codigoT.toLowerCase()] || maestroInsumosMap[nombreT.toLowerCase()] || {};
 
-              let catDestino = maestroInfo.tipo || t?.tipo || t?.categoria || t?.rubro || 'Materiales';
-              if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
+              const tipoExplicitT = t?.tipo || t?.categoria || t?.rubro || '';
+              const catDestino = maestroInfo.tipo || resolverTipoInsumoOficial(nombreT, tipoExplicitT);
+              const catFinal = ordenCategorias.includes(catDestino) ? catDestino : 'Materiales';
 
               const provItemRaw = String(t?.proveedor_id || t?.proveedor || '').trim();
               const provFinal = proveedoresList[provItemRaw] || proveedoresList[provItemRaw.toLowerCase()] || maestroInfo.proveedor || 'Sin Proveedor';
 
-              catsMap[catDestino].push({
+              catsMap[catFinal].push({
                 tarea: t?.descripcion || t?.tarea || 'Labor general',
-                nombre: t?.descripcion || t?.tarea || 'Ítem general',
+                nombre: nombreT || 'Ítem general',
                 proveedor: provFinal,
                 unidad: maestroInfo.unidad || t?.unidad || 'un',
                 cantidad: Number(t?.cantidad || t?.cant || 1),
@@ -170,11 +219,12 @@ export default function ListadoInsumosTab({
             } else {
               insumosList.forEach(ins => {
                 const codigoIns = String(ins?.codigo || ins?.Cod || '').trim().toLowerCase();
-                const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim().toLowerCase();
-                const maestroInfo = maestroInsumosMap[codigoIns] || maestroInsumosMap[nombreIns] || {};
+                const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim();
+                const maestroInfo = maestroInsumosMap[codigoIns.toLowerCase()] || maestroInfo.proveedor || {};
 
-                let catDestino = maestroInfo.tipo || ins?.tipo || ins?.categoria || ins?.rubro || 'Materiales';
-                if (!ordenCategorias.includes(catDestino)) catDestino = 'Materiales';
+                const tipoExplicitIns = ins?.tipo || ins?.categoria || ins?.rubro || t?.tipo || '';
+                const catDestino = maestroInfo.tipo || resolverTipoInsumoOficial(nombreIns, tipoExplicitIns);
+                const catFinal = ordenCategorias.includes(catDestino) ? catDestino : 'Materiales';
 
                 const provInsRaw = String(ins?.proveedor_id || ins?.proveedor || '').trim();
                 const provFinal = proveedoresList[provInsRaw] || proveedoresList[provInsRaw.toLowerCase()] || maestroInfo.proveedor || 'Sin Proveedor';
@@ -182,9 +232,9 @@ export default function ListadoInsumosTab({
                 const costoU = Number(maestroInfo.costo_unitario || ins?.costo_unitario || ins?.precio || 0);
                 const cant = Number(ins?.cantidad || ins?.cant || 1);
 
-                catsMap[catDestino].push({
+                catsMap[catFinal].push({
                   tarea: t?.descripcion || t?.tarea || 'Labor',
-                  nombre: ins?.nombre || ins?.descripcion || 'Insumo',
+                  nombre: nombreIns || 'Insumo',
                   proveedor: provFinal,
                   unidad: maestroInfo.unidad || ins?.unidad || 'un',
                   cantidad: cant,
@@ -199,7 +249,6 @@ export default function ListadoInsumosTab({
       });
     }
 
-    // EXTRACCIÓN DESDE COMERCIAL: gastos_generales_insumos Y porcentaje_imprevistos
     let comercialObj = rawDetalle?.comercial || presupuestoInsumosSeleccionado?.comercial || {};
     if (typeof comercialObj === 'string') {
       try { comercialObj = JSON.parse(comercialObj); } catch { comercialObj = {}; }
@@ -215,7 +264,6 @@ export default function ListadoInsumosTab({
 
     const porcentajeImprevistos = Number(comercialObj?.porcentaje_imprevistos || rawDetalle?.porcentaje_imprevistos || 0);
 
-    // Si existen gastos generales o imprevistos comerciales, los agrupamos bajo un rubro dedicado a Gastos Generales de Obra
     if ((Array.isArray(gastosGeneralesArray) && gastosGeneralesArray.length > 0) || porcentajeImprevistos > 0) {
       const nombreRubroGG = "Gastos Generales de Obra";
       if (!mapRubros[nombreRubroGG]) {
@@ -224,7 +272,6 @@ export default function ListadoInsumosTab({
         mapRubros[nombreRubroGG] = catsMapGG;
       }
 
-      // 1. Añadir los ítems de gastos generales
       if (Array.isArray(gastosGeneralesArray)) {
         gastosGeneralesArray.forEach(gg => {
           const concepto = String(gg?.concepto || gg?.nombre || gg?.descripcion || 'Gasto General').trim();
@@ -246,9 +293,7 @@ export default function ListadoInsumosTab({
         });
       }
 
-      // 2. Añadir Imprevistos si está definido en comercial
       if (porcentajeImprevistos > 0) {
-        // Calcular el subtotal acumulado de las demás tareas para hallar el valor monetario de los imprevistos si aplica
         let subtotalAcumulado = 0;
         Object.entries(mapRubros).forEach(([rName, cats]) => {
           if (rName === nombreRubroGG) return;
