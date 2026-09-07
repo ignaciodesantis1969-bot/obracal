@@ -52,7 +52,6 @@ export default function ListadoInsumosTab({
     return String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
   };
 
-  // Función unificada y robusta para resolver la categoría oficial de insumos/subcontratos
   const resolverTipoInsumoOficial = (textoCompleto, tipoExplicito = '') => {
     const tipoExp = limpiarTexto(tipoExplicito);
     if (tipoExp.includes('mano de obra') || tipoExp.includes('rrhh') || tipoExp.includes('personal')) return 'Mano de Obra';
@@ -220,7 +219,7 @@ export default function ListadoInsumosTab({
               insumosList.forEach(ins => {
                 const codigoIns = String(ins?.codigo || ins?.Cod || '').trim().toLowerCase();
                 const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim();
-                const maestroInfo = maestroInsumosMap[codigoIns.toLowerCase()] || maestroInfo.proveedor || {};
+                const maestroInfo = maestroInsumosMap[codigoIns.toLowerCase()] || maestroInsumosMap[nombreIns.toLowerCase()] || {};
 
                 const tipoExplicitIns = ins?.tipo || ins?.categoria || ins?.rubro || t?.tipo || '';
                 const catDestino = maestroInfo.tipo || resolverTipoInsumoOficial(nombreIns, tipoExplicitIns);
