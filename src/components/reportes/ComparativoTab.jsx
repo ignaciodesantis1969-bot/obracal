@@ -230,7 +230,7 @@ export default function ComparativoTab({
     if (typeof rubrosList === 'string') { try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; } }
     if (!Array.isArray(rubrosList)) rubrosList = [rubrosList];
 
-    // ESTRATEGIA REFORZADA DE GASTOS GENERALES E IMPREVISTOS
+    // ESTRATEGIA EXHAUSTIVA DE EXTRACCIÓN DE GASTOS GENERALES E IMPREVISTOS
     let comercialObj = parsedItemsDetalle?.comercial || presupuestoSeleccionado?.comercial || {};
     if (typeof comercialObj === 'string') { try { comercialObj = JSON.parse(comercialObj); } catch { comercialObj = {}; } }
 
@@ -243,8 +243,15 @@ export default function ComparativoTab({
     if (typeof ggList === 'string') { try { ggList = JSON.parse(ggList); } catch { ggList = []; } }
     if (!Array.isArray(ggList)) ggList = [];
 
-    // Si dentro de comercialObj o parsedItemsDetalle viene un campo imprevistos u otros cargos comerciales, los agregamos como concepto si no están
-    const imprevistosMonto = parsearMonto(comercialObj?.imprevistos_monto || comercialObj?.imprevisto || parsedItemsDetalle?.imprevistos || 0);
+    // BARRIDA TOTAL DE TODAS LAS PROPIEDADES DISPONIBLES PARA IMPREVISTOS
+    const imprevistosMonto = parsearMonto(
+      comercialObj?.imprevistos_monto 
+      || comercialObj?.imprevisto 
+      || parsedItemsDetalle?.imprevistos 
+      || presupuestoSeleccionado?.imprevistos 
+      || 0
+    );
+
     if (imprevistosMonto > 0 && !ggList.some(g => limpiarTexto(g?.concepto || g?.nombre || '').includes('imprevisto'))) {
       ggList.push({ concepto: 'Imprevistos', total: imprevistosMonto });
     }
@@ -326,15 +333,17 @@ export default function ComparativoTab({
         const presupuestadoGG = parsearMonto(gg?.total || gg?.monto) || (cantGG * unitGG);
         const normGG = limpiarTexto(nombreGG);
 
-        // ESTRATEGIA DE ASIGNACIÓN REAL DE GASTOS GENERALES
+        // NUEVA ESTRATEGIA DE ASIGNACIÓN REAL DE GASTOS GENERALES POR TÉRMINOS CLAVE
         const facturasGG = facturasDelPto.filter(f => {
           if (facturasUsadas.has(f._uid)) return false;
           const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_imputacion || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.tipo_insumo || ''}`);
           
           if (normGG) {
-            const palabrasClave = normGG.split(' ').filter(p => p.length > 3);
-            const coincideAlguna = palabrasClave.some(palabra => textoFacGG.includes(palabra));
-            if (textoFacGG.includes(normGG) || coincideAlguna) {
+            // Si el concepto es Licenciado - (Programa) o similar, validamos términos robustos
+            const palabras = normGG.split(/[\s\-_()]+/).filter(p => p.length > 2);
+            const matchesCount = palabras.filter(p => textoFacGG.includes(p)).length;
+            
+            if (textoFacGG.includes(normGG) || (palabras.length > 0 && matchesCount >= Math.min(2, palabras.length))) {
               facturasUsadas.add(f._uid);
               return true;
             }
