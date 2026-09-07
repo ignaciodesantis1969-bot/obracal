@@ -14,24 +14,32 @@ export default function Compras({
   rubros = [], 
   cargarDatos,
   buscarValorEnObjeto = (obj, keys) => {
-    if (!obj) return '';
+    if (!obj || typeof obj !== 'object') return '';
     
-    // 1. Búsqueda exacta directa
-    for (const key of keys) {
-      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
-    }
-    
-    // 2. Búsqueda normalizada flexible (elimina tildes, símbolos especiales, mayúsculas, espacios y guiones bajos)
-    const normalizar = (str) => String(str).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+    // Función robusta de normalización de claves para evitar problemas con guiones bajos, mayúsculas o espacios
+    const normalizar = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
     const objKeys = Object.keys(obj);
     
+    // 1. Búsqueda exacta y flexible normalizada
     for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
+      
       const keyNorm = normalizar(key);
       const realKey = objKeys.find(k => normalizar(k) === keyNorm);
       if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
         return obj[realKey];
       }
     }
+
+    // 2. Búsqueda por subcadena de respaldo (ideal para n_factura vs nfactura)
+    for (const key of keys) {
+      const keyNorm = normalizar(key);
+      const realKey = objKeys.find(k => normalizar(k).includes(keyNorm) || keyNorm.includes(normalizar(k)));
+      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
+        return obj[realKey];
+      }
+    }
+
     return '';
   }
 }) {
@@ -332,9 +340,9 @@ export default function Compras({
     setFormData({ 
       ...f, 
       comprobante_tipo: tipoComp,
-      n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_factura']) || '',
-      proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID']) || '',
-      obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID']) || '',
+      n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_factura', 'nfactura']) || '',
+      proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']) || '',
+      obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '',
       presupuesto_id: buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) || '',
       contrato_id: buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) || '',
       tipo_gasto: buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto',
@@ -367,7 +375,6 @@ export default function Compras({
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
 
-      // Se envían llaves duales para asegurar compatibilidad estricta con cualquier estructura en Google Sheets
       const payloadData = {
         ...formData,
         subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
@@ -534,7 +541,7 @@ export default function Compras({
   };
 
   const facturasFiltradas = facturas.filter(f => {
-    const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID']);
+    const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
     const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
     const fFecha = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
     let matchFecha = true;
@@ -544,7 +551,7 @@ export default function Compras({
   });
 
   const ordenesFiltradas = ordenesCompra.filter(oc => {
-    const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID']);
+    const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
     const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
     const ocFecha = buscarValorEnObjeto(oc, ['fecha', 'Fecha', 'FECHA']);
     let matchFecha = true;
@@ -671,18 +678,20 @@ export default function Compras({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {facturasFiltradas.map((f, index) => {
-                  const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID']);
+                  const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
                   const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
                   const totalVal = Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL'])) || 0;
-                  const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO']) || 'pendiente').toLowerCase();
-                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_factura']) || '---';
-                  const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
-                  const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo']) || '';
-                  const tipoGastoDisplay = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
+                  const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO', 'estadopago']) || 'pendiente').toLowerCase();
                   
-                  const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
-                  const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']);
-                  const detalleDisplay = rubroImputacion ? `${rubroImputacion} (${tipoInsumo})` : (buscarValorEnObjeto(f, ['rubro', 'Rubro', 'detalle_gasto']) || '---');
+                  // Búsqueda garantizada con la nueva función flexible
+                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_factura', 'nfactura']) || '---';
+                  const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
+                  const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo', 'archivourl']) || '';
+                  const tipoGastoDisplay = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto', 'tipogasto']) || 'Presupuesto';
+                  
+                  const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro', 'rubroimputacion']);
+                  const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon', 'tipoinsumo']);
+                  const detalleDisplay = rubroImputacion ? `${rubroImputacion} ${tipoInsumo ? '(' + tipoInsumo + ')' : ''}` : (buscarValorEnObjeto(f, ['rubro', 'Rubro', 'detalle_gasto', 'detalle']) || '---');
                   const fechaFactura = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
 
                   const rowKey = `${buscarValorEnObjeto(f, ['id', 'ID']) || codigoDisplay}-${numeroFacturaDisplay}-${index}`;
@@ -742,8 +751,8 @@ export default function Compras({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {ordenesFiltradas.map((oc, index) => {
-                  const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id']);
-                  const obraId = buscarValorEnObjeto(oc, ['obra_id', 'Obra_id']);
+                  const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'proveedorid']);
+                  const obraId = buscarValorEnObjeto(oc, ['obra_id', 'Obra_id', 'obraid']);
                   const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
                   const obra = obras.find(o => String(buscarValorEnObjeto(o, ['id', 'ID'])) === String(obraId));
                   const totalVal = Number(buscarValorEnObjeto(oc, ['total', 'Total', 'TOTAL'])) || 0;
