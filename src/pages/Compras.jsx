@@ -16,7 +16,11 @@ export default function Compras({
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj || typeof obj !== 'object') return '';
     
-    // Función robusta de normalización de claves para evitar problemas con guiones bajos, mayúsculas o espacios
+    // Inspección de depuración en consola para ver qué keys exactas llegan
+    if (Math.random() < 0.1) {
+      console.log("Estructura de objeto recibido en Compras:", obj);
+    }
+
     const normalizar = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
     const objKeys = Object.keys(obj);
     
@@ -31,7 +35,7 @@ export default function Compras({
       }
     }
 
-    // 2. Búsqueda por subcadena de respaldo (ideal para n_factura vs nfactura)
+    // 2. Búsqueda por subcadena ampliada
     for (const key of keys) {
       const keyNorm = normalizar(key);
       const realKey = objKeys.find(k => normalizar(k).includes(keyNorm) || keyNorm.includes(normalizar(k)));
@@ -649,7 +653,12 @@ export default function Compras({
         <button onClick={() => setActiveTab('facturas')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'facturas' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Facturas ({facturas.length})</button>
       </div>
 
-      
+      {activeTab === 'facturas' && (
+        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+          <div className="p-3 bg-slate-100 border-b text-[11px] text-slate-600 flex justify-between items-center">
+            <span>Total de facturas recibidas: <b>{facturas.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
+          </div>
+
           {facturasFiltradas.length === 0 ? (
             <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
               <FileText className="w-10 h-10 text-slate-300" />
@@ -678,7 +687,6 @@ export default function Compras({
                   const totalVal = Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL'])) || 0;
                   const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO', 'estadopago']) || 'pendiente').toLowerCase();
                   
-                  // Búsqueda garantizada con la nueva función flexible
                   const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_factura', 'nfactura']) || '---';
                   const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo', 'archivourl']) || '';
@@ -1123,3 +1131,6 @@ export default function Compras({
           </div>
         </div>
       )}
+    </div>
+  );
+}
