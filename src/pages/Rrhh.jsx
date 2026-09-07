@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, Calculator, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2 } from 'lucide-react';
 
 export default function Rrhh({ 
   GOOGLE_SCRIPT_URL = '', 
@@ -15,6 +15,8 @@ export default function Rrhh({
 }) {
   const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga' | 'historial_carga'
   const [searchTerm, setSearchTerm] = useState('');
+  const [guardandoCarga, setGuardandoCarga] = useState(false);
+  const [guardandoCargasSociales, setGuardandoCargasSociales] = useState(false);
 
   // Respaldos seguros locales por si el componente padre no envía alguna prop
   const safePersonal = Array.isArray(personalInicial) ? personalInicial : [];
@@ -694,7 +696,7 @@ export default function Rrhh({
     return true;
   };
 
-  // Guardar o Editar Carga en Historial y Facturas a Pagar
+  // Guardar Carga Salarial (Registra en CargasSemanales y Egreso PAGADO en Tesorería)
   const handleGuardarCargaSalarial = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -703,6 +705,7 @@ export default function Rrhh({
       return;
     }
 
+    setGuardandoCarga(true);
     try {
       const destinoNombre = tipoProyectoCarga === 'obra' 
         ? `Presupuesto: ${presupuestoSeleccionadoCarga}` 
@@ -721,7 +724,7 @@ export default function Rrhh({
       const payloadCargaHistorial = {
         tipo_proyecto: tipoProyectoCarga,
         presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
-        obra_id: obraIdAsociada, // SE AGREGA PARA EL HISTORIAL
+        obra_id: obraIdAsociada,
         contrato_mantenimiento_id: tipoProyectoCarga === 'contrato' ? contratoSeleccionadoCarga : '',
         fecha: fechaCarga,
         detalle_personal: JSON.stringify(detalleCargaCalculado),
@@ -745,23 +748,24 @@ export default function Rrhh({
 
       if (dataCargaRes.success === false) {
         alert("Error al guardar en el historial de cargas.");
+        setGuardandoCarga(false);
         return;
       }
 
-      // 2. Generar o actualizar registros en Facturas (Factura a Pagar) por cada rubro
+      // 2. Registrar directamente en Tesorería como Egreso Pagado por cada rubro
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
         const montoRubro = Math.round((totalGeneralCarga * (pct / 100)) * 100) / 100;
 
-        const payloadFacturaPagar = {
-          tipo: 'Factura a Pagar',
-          estado: 'Pendiente',
+        const payloadTesoreriaPagado = {
+          tipo: 'Egreso',
+          estado: 'Pagado',
           fecha: fechaCarga,
-          concepto: `Mano de Obra: Sueldos y Viáticos - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
+          concepto: `Sueldos y Viáticos - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
           monto: montoRubro,
           proveedor: 'Personal / Sueldos',
-          referencia: 'RRHH',
+          referencia: 'RRHH - Pago Directo',
           rubro: r.rubro,
           rubro_imputacion: r.rubro,
           tipo_insumo: 'Mano de Obra',
@@ -773,20 +777,22 @@ export default function Rrhh({
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify({
-            tabla: 'Facturas',
+            tabla: 'Tesoreria',
             action: 'create',
-            data: payloadFacturaPagar
+            data: payloadTesoreriaPagado
           })
         });
       }
 
-      alert(editingCargaId ? "¡Carga actualizada e imputada como factura a pagar correctamente!" : "¡Carga de sueldos registrada como factura a pagar en Tesorería con éxito!");
+      alert(editingCargaId ? "¡Carga actualizada y registrada en Tesorería correctamente!" : "¡Carga de sueldos registrada en Cargas Semanales y pagada en Tesorería con éxito!");
       setEditingCargaId(null);
       cargarDatos();
       setActiveTab('historial_carga');
     } catch (err) {
       console.error(err);
       alert("Error de conexión al guardar la carga salarial.");
+    } finally {
+      setGuardandoCarga(false);
     }
   };
 
@@ -829,6 +835,7 @@ export default function Rrhh({
     }
   };
 
+  // Botón Azul: Registrar Cargas Sociales (Registra en Facturas a Pagar y en CargasSemanales)
   const handleRegistrarCargasSociales = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -837,6 +844,7 @@ export default function Rrhh({
       return;
     }
 
+    setGuardandoCargasSociales(true);
     try {
       const destinoNombre = tipoProyectoCarga === 'obra' 
         ? `Presupuesto: ${presupuestoSeleccionadoCarga}` 
@@ -851,7 +859,29 @@ export default function Rrhh({
         }
       }
 
-      // Registro de Cargas Sociales en Tesorería como Facturas a Pagar
+      // 1. Registrar también en CargasSemanales el parte de cargas sociales
+      const payloadCargaHistorialCS = {
+        tipo_proyecto: tipoProyectoCarga,
+        presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
+        obra_id: obraIdAsociada,
+        contrato_mantenimiento_id: tipoProyectoCarga === 'contrato' ? contratoSeleccionadoCarga : '',
+        fecha: fechaCarga,
+        detalle_personal: JSON.stringify(detalleCargaCalculado),
+        distribucion_rubros: JSON.stringify(distribucionRubros),
+        total_general: totalCargasSociales
+      };
+
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'CargasSemanales',
+          action: 'create',
+          data: payloadCargaHistorialCS
+        })
+      });
+
+      // 2. Registrar en Facturas como Facturas a Pagar
       for (let r of distribucionRubros) {
         const pct = Number(r.porcentaje) || 0;
         if (pct <= 0) continue;
@@ -883,11 +913,13 @@ export default function Rrhh({
         });
       }
 
-      alert("¡Cargas sociales registradas como Facturas a Pagar en Tesorería con éxito!");
+      alert("¡Cargas sociales registradas en Cargas Semanales y como Factura a Pagar con éxito!");
       cargarDatos();
     } catch (err) {
       console.error(err);
       alert("Error de conexión al guardar las cargas sociales.");
+    } finally {
+      setGuardandoCargasSociales(false);
     }
   };
 
@@ -1934,9 +1966,11 @@ export default function Rrhh({
               
               <button 
                 onClick={handleGuardarCargaSalarial}
-                className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
+                disabled={guardandoCarga}
+                className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
               >
-                <CheckCircle2 className="w-4 h-4" /> {editingCargaId ? 'Actualizar Carga' : 'Registrar Carga de Sueldos'} ($ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})
+                {guardandoCarga ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} 
+                {guardandoCarga ? 'Registrando...' : (editingCargaId ? 'Actualizar Carga' : `Registrar Carga de Sueldos ($ ${totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})`)}
               </button>
             </div>
 
@@ -2061,9 +2095,11 @@ export default function Rrhh({
                 </span>
                 <button 
                   onClick={handleRegistrarCargasSociales}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
+                  disabled={guardandoCargasSociales}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
                 >
-                  <CheckCircle2 className="w-4 h-4" /> Registrar Cargas Sociales en Tesorería
+                  {guardandoCargasSociales ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} 
+                  {guardandoCargasSociales ? 'Registrando...' : 'Registrar Cargas Sociales en Tesorería'}
                 </button>
               </div>
             </div>
@@ -2076,7 +2112,7 @@ export default function Rrhh({
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
-              <h3 className="text-sm font-extrabold text-slate-900 uppercase">Historial de Cargas Realizadas (CARGAS SEMANALES)</h3>
+              <h3 className="text-sm font-extrabold text-slate-900 uppercase">HISTORIAL DE CARGAS REALIZADAS (CARGAS SEMANALES)</h3>
               <p className="text-xs text-slate-500 mt-0.5">Visualiza, edita o elimina los partes semanales de horas y viáticos guardados.</p>
             </div>
           </div>
