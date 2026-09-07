@@ -16,15 +16,9 @@ export default function Compras({
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj || typeof obj !== 'object') return '';
     
-    // Inspección de depuración en consola para ver qué keys exactas llegan
-    if (Math.random() < 0.1) {
-      console.log("Estructura de objeto recibido en Compras:", obj);
-    }
-
     const normalizar = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
     const objKeys = Object.keys(obj);
     
-    // 1. Búsqueda exacta y flexible normalizada
     for (const key of keys) {
       if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
       
@@ -35,7 +29,6 @@ export default function Compras({
       }
     }
 
-    // 2. Búsqueda por subcadena ampliada
     for (const key of keys) {
       const keyNorm = normalizar(key);
       const realKey = objKeys.find(k => normalizar(k).includes(keyNorm) || keyNorm.includes(normalizar(k)));
@@ -290,7 +283,7 @@ export default function Compras({
           setFormData(prev => ({
             ...prev,
             comprobante_tipo: tipoComprobanteFinal,
-            n_factura: (data && (data.n_factura || data.numero_factura)) || prev.n_factura,
+            n_factura: (data && (data.n_factura || data.numero_comp || data.numero_factura)) || prev.n_factura,
             proveedor_id: proveedorEncontradoId || prev.proveedor_id,
             fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
             vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
@@ -344,7 +337,7 @@ export default function Compras({
     setFormData({ 
       ...f, 
       comprobante_tipo: tipoComp,
-      n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_factura', 'nfactura']) || '',
+      n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '',
       proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']) || '',
       obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '',
       presupuesto_id: buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) || '',
@@ -391,6 +384,7 @@ export default function Compras({
         estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago,
         codigo: codigoFinal,
         n_factura: formData.n_factura,
+        numero_comp: formData.n_factura,
         proveedor_id: formData.proveedor_id,
         obra_id: formData.obra_id,
         presupuesto_id: formData.presupuesto_id,
@@ -687,7 +681,8 @@ export default function Compras({
                   const totalVal = Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL'])) || 0;
                   const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO', 'estadopago']) || 'pendiente').toLowerCase();
                   
-                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_factura', 'nfactura']) || '---';
+                  // Búsqueda ampliada incluyendo 'numero_comp' que era la clave real en la consola
+                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['numero_comp', 'n_factura', 'N_factura', 'N_FACTURA', 'numero', 'numero_factura', 'nfactura']) || '---';
                   const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo', 'archivourl']) || '';
                   const tipoGastoDisplay = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto', 'tipogasto']) || 'Presupuesto';
