@@ -112,17 +112,32 @@ export default function ComparativoTab({
 
   const resolverTipoInsumoOficial = (tipoExplicito = '', textoCompleto = '') => {
     const tipoExp = limpiarTexto(tipoExplicito);
-    if (tipoExp.includes('mano de obra') || tipoExp.includes('rrhh') || tipoExp.includes('personal') || tipoExp.includes('viatico')) return 'Mano de Obra';
-    if (tipoExp.includes('subcontrato') || tipoExp.includes('servicio')) return 'Subcontratos';
-    if (tipoExp.includes('equipo') || tipoExp.includes('maquinaria') || tipoExp.includes('alquiler')) return 'Equipos';
-    if (tipoExp.includes('gasto') || tipoExp.includes('general') || tipoExp.includes('imprevisto') || tipoExp.includes('seguridad') || tipoExp.includes('epp')) return 'Gastos Generales';
-    if (tipoExp.includes('material') || tipoExp.includes('insumo')) return 'Materiales';
-
     const tc = limpiarTexto(textoCompleto);
-    if (tc.includes('viatico') || tc.includes('mano de obra') || tc.includes('sueldo') || tc.includes('jornal')) return 'Mano de Obra';
-    if (tc.includes('gasto general') || tc.includes('imprevisto') || tc.includes('seguridad') || tc.includes('epp') || tc.includes('medico') || tc.includes('ropa')) return 'Gastos Generales';
-    if (tc.includes('subcontrato') || tc.includes('contratista')) return 'Subcontratos';
-    if (tc.includes('alquiler') || tc.includes('maquinaria')) return 'Equipos';
+    const combinado = `${tipoExp} ${tc}`;
+
+    // Validación ampliada para capturar sueldos, cargas sociales y afines dentro de Mano de Obra
+    if (
+      combinado.includes('mano de obra') || 
+      combinado.includes('rrhh') || 
+      combinado.includes('personal') || 
+      combinado.includes('viatico') || 
+      combinado.includes('sueldo') || 
+      combinado.includes('jornal') || 
+      combinado.includes('carga social') || 
+      combinado.includes('cargas sociales') || 
+      combinado.includes('f931') || 
+      combinado.includes('931') || 
+      combinado.includes('remuneracion') || 
+      combinado.includes('aporte') || 
+      combinado.includes('sindicato')
+    ) {
+      return 'Mano de Obra';
+    }
+
+    if (combinado.includes('subcontrato') || combinado.includes('servicio')) return 'Subcontratos';
+    if (combinado.includes('equipo') || combinado.includes('maquinaria') || combinado.includes('alquiler')) return 'Equipos';
+    if (combinado.includes('gasto') || combinado.includes('general') || combinado.includes('imprevisto') || combinado.includes('seguridad') || combinado.includes('epp')) return 'Gastos Generales';
+    if (combinado.includes('material') || combinado.includes('insumo')) return 'Materiales';
     
     return 'Materiales';
   };
@@ -172,7 +187,7 @@ export default function ComparativoTab({
       let totalRealRubro = 0;
       facturasDelPto.forEach(f => {
         const monto = f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal);
-        const cat = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
+        const cat = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''} ${f?.rubro_imputacion || ''}`);
         categoriasMap[cat].real += monto;
         totalRealRubro += monto;
       });
@@ -270,7 +285,7 @@ export default function ComparativoTab({
       return (pIdReal && fPto === pIdReal) || (pCodReal && fPto === pCodReal) || (pCodReal && fDesc.includes(pCodReal));
     });
 
-    // 1. ASIGNACIÓN DE GASTOS GENERALES EXACTA (Compara nombre exacto del renglón)
+    // 1. ASIGNACIÓN DE GASTOS GENERALES
     const resultadosGG = [];
     ggList.forEach((gg, idx) => {
       const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
@@ -283,7 +298,6 @@ export default function ComparativoTab({
         const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
 
         if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          // Coincidencia exacta de renglón para evitar que un gasto pise a los demás
           if (tipoIns === normGG) {
             realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal));
           }
@@ -322,7 +336,7 @@ export default function ComparativoTab({
 
         if (coincideRubro && !rubroImp.includes('gasto') && !rubroImp.includes('imprevisto')) {
           const monto = f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal);
-          const categoriaDestino = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
+          const categoriaDestino = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''} ${f?.rubro_imputacion || ''}`);
           ri.categoriasMap[categoriaDestino].real += monto;
         }
       });
