@@ -104,17 +104,36 @@ export default function ComparativoTab({
     return Number(s) || 0;
   };
 
+  const extraerMontoNetoFactura = (f) => {
+    return parsearMonto(
+      f?.neto || 
+      f?.subtotal || 
+      f?.importe_neto || 
+      f?.neto_gravado || 
+      (parsearMonto(f?.total || f?.monto || f?.importe) / 1.21)
+    );
+  };
+
+  // Clasificador reforzado que incluye explícitamente viáticos dentro de Mano de Obra
   const resolverTipoInsumoOficial = (tipoExplicito = '', textoCompleto = '') => {
     const tipoExp = limpiarTexto(tipoExplicito);
-    if (tipoExp.includes('mano de obra') || tipoExp.includes('rrhh') || tipoExp.includes('personal')) return 'Mano de Obra';
+    if (
+      tipoExp.includes('mano de obra') || 
+      tipoExp.includes('rrhh') || 
+      tipoExp.includes('personal') || 
+      tipoExp.includes('cargas sociales') ||
+      tipoExp.includes('viatico')
+    ) {
+      return 'Mano de Obra';
+    }
     if (tipoExp.includes('subcontrato') || tipoExp.includes('servicio')) return 'Subcontratos';
     if (tipoExp.includes('equipo') || tipoExp.includes('maquinaria') || tipoExp.includes('alquiler')) return 'Equipos';
     if (tipoExp.includes('gasto') || tipoExp.includes('general') || tipoExp.includes('imprevisto') || tipoExp.includes('seguridad') || tipoExp.includes('epp')) return 'Gastos Generales';
     if (tipoExp.includes('material') || tipoExp.includes('insumo')) return 'Materiales';
 
     const tc = limpiarTexto(textoCompleto);
+    if (tc.includes('viatico') || tc.includes('mano de obra') || tc.includes('sueldo') || tc.includes('jornal') || tc.includes('cargas sociales')) return 'Mano de Obra';
     if (tc.includes('gasto general') || tc.includes('imprevisto') || tc.includes('seguridad') || tc.includes('epp') || tc.includes('medico') || tc.includes('ropa')) return 'Gastos Generales';
-    if (tc.includes('mano de obra') || tc.includes('sueldo') || tc.includes('jornal')) return 'Mano de Obra';
     if (tc.includes('subcontrato') || tc.includes('contratista')) return 'Subcontratos';
     if (tc.includes('alquiler') || tc.includes('maquinaria')) return 'Equipos';
     
@@ -136,8 +155,35 @@ export default function ComparativoTab({
     );
   };
 
-  const todosLosEgresos = useMemo(() => {
-    return [...(Array.isArray(facturas) ? facturas : []), ...(Array.isArray(tesoreria) ? tesoreria : [])];
+  // Consolidación de egresos: Facturas (Neto) + Tesorería (Restringida a Mano de Obra / Cargas Sociales)
+  const egresosValidadosUnificados = useMemo(() => {
+    const listaFacturas = (Array.isArray(facturas) ? facturas : []).map(f => ({
+      ...f,
+      _montoReal: extraerMontoNetoFactura(f),
+      _fuenteOrigen: 'factura'
+    }));
+
+    const listaTesoreria = (Array.isArray(tesoreria) ? tesoreria : []).filter(t => {
+      const tipoIns = limpiarTexto(t?.tipo_insumo || '');
+      const conceptoT = limpiarTexto(`${t?.concepto || ''} ${t?.detalle_gasto || ''} ${t?.rubro_imputacion || ''}`);
+      return (
+        tipoIns.includes('mano de obra') || 
+        tipoIns.includes('rrhh') || 
+        tipoIns.includes('cargas sociales') || 
+        tipoIns.includes('viatico') || 
+        conceptoT.includes('mano de obra') || 
+        conceptoT.includes('sueldo') || 
+        conceptoT.includes('jornal') || 
+        conceptoT.includes('cargas sociales') || 
+        conceptoT.includes('viatico')
+      );
+    }).map(t => ({
+      ...t,
+      _montoReal: parsearMonto(t?.total || t?.monto || t?.importe || t?.subtotal),
+      _fuenteOrigen: 'tesoreria'
+    }));
+
+    return [...listaFacturas, ...listaTesoreria];
   }, [facturas, tesoreria]);
 
   const { analisisRubrosDetallado, gastosGeneralesDetalle } = useMemo(() => {
@@ -148,10 +194,10 @@ export default function ComparativoTab({
       const cIdReal = String(contratoSeleccionado?.id || contratoSeleccionado?.contrato_id || '').trim();
       const cCodReal = String(contratoSeleccionado?.codigo || contratoSeleccionado?.nro_contrato || '').trim();
 
-      const facturasDelPto = todosLosEgresos.filter(f => {
-        const fContrato = String(f?.contrato_id || f?.contratoId || '').trim();
-        const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '');
-        return (cIdReal && fContrato === cIdReal) || (cCodReal && fContrato === cCodReal) || (cCodReal && fDesc.includes(cCodReal));
+      const egresosDelPto = egresosValidadosUnificados.filter(e => {
+        const eContrato = String(e?.contrato_id || e?.contratoId || '').trim();
+        const eDesc = String(e?.concepto || e?.descripcion || e?.detalle_gasto || '');
+        return (cIdReal && eContrato === cIdReal) || (cCodReal && eContrato === cCodReal) || (cCodReal && eDesc.includes(cCodReal));
       });
 
       const totalContrato = parsearMonto(contratoSeleccionado?.monto || contratoSeleccionado?.total || 0);
@@ -160,11 +206,10 @@ export default function ComparativoTab({
       categoriasMap['Materiales'].presupuestado = totalContrato;
 
       let totalRealRubro = 0;
-      facturasDelPto.forEach(f => {
-        const monto = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
-        const cat = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
-        categoriasMap[cat].real += monto;
-        totalRealRubro += monto;
+      egresosDelPto.forEach(e => {
+        const cat = resolverTipoInsumoOficial(e?.tipo_insumo, `${e?.concepto || ''} ${e?.detalle_gasto || ''}`);
+        categoriasMap[cat].real += e._montoReal;
+        totalRealRubro += e._montoReal;
       });
 
       ordenCategorias.forEach(cat => { categoriasMap[cat].desvio = categoriasMap[cat].presupuestado - categoriasMap[cat].real; });
@@ -254,14 +299,13 @@ export default function ComparativoTab({
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
 
-    // Filtrar egresos del presupuesto seleccionado
-    const egresosProyecto = todosLosEgresos.filter(f => {
-      const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
-      const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '');
-      return (pIdReal && fPto === pIdReal) || (pCodReal && fPto === pCodReal) || (pCodReal && fDesc.includes(pCodReal));
+    const egresosProyecto = egresosValidadosUnificados.filter(e => {
+      const ePto = String(e?.presupuesto_id || e?.presupuestoId || '').trim();
+      const eDesc = String(e?.concepto || e?.descripcion || e?.detalle_gasto || '');
+      return (pIdReal && ePto === pIdReal) || (pCodReal && ePto === pCodReal) || (pCodReal && eDesc.includes(pCodReal));
     });
 
-    // 1. ASIGNACIÓN DE GASTOS GENERALES USANDO `rubro_imputacion` Y `tipo_insumo`
+    // 1. ASIGNACIÓN DE GASTOS GENERALES
     const resultadosGG = [];
     ggList.forEach((gg, idx) => {
       const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
@@ -269,14 +313,16 @@ export default function ComparativoTab({
       const normGG = limpiarTexto(nombreGG);
 
       let realGG = 0;
-      egresosProyecto.forEach(f => {
-        const tipoIns = limpiarTexto(f?.tipo_insumo || '');
-        const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
-        const conceptoFull = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
+      egresosProyecto.forEach(e => {
+        if (e._fuenteOrigen === 'factura') {
+          const tipoIns = limpiarTexto(e?.tipo_insumo || '');
+          const rubroImp = limpiarTexto(e?.rubro_imputacion || e?.rubro || '');
+          const conceptoFull = limpiarTexto(`${e?.concepto || ''} ${e?.detalle_gasto || ''}`);
 
-        if (tipoIns.includes('gasto') || tipoIns.includes('general') || rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          if (rubroImp.includes(normGG) || normGG.includes(rubroImp) || conceptoFull.includes(normGG)) {
-            realGG += parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
+          if (tipoIns.includes('gasto') || tipoIns.includes('general') || rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
+            if (rubroImp.includes(normGG) || normGG.includes(rubroImp) || conceptoFull.includes(normGG)) {
+              realGG += e._montoReal;
+            }
           }
         }
       });
@@ -284,7 +330,7 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 2. ASIGNACIÓN DE RUBROS DE OBRA USANDO `rubro_imputacion` Y `tipo_insumo`
+    // 2. ASIGNACIÓN DE RUBROS DE OBRA (CON SOPORTE DE VIÁTICOS A MANO DE OBRA)
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
@@ -300,11 +346,11 @@ export default function ComparativoTab({
       });
       ri.categoriasMap['Mano de Obra'].real += (totalHsSice * 15000);
 
-      // Egresos por rubro_imputacion exacto
-      egresosProyecto.forEach(f => {
-        const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
-        const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
-        const conceptoFull = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
+      // Egresos por rubro_imputacion exacto o aproximado
+      egresosProyecto.forEach(e => {
+        const rubroImp = limpiarTexto(e?.rubro_imputacion || e?.rubro || '');
+        const tipoIns = limpiarTexto(e?.tipo_insumo || e?.categoria || '');
+        const conceptoFull = limpiarTexto(`${e?.concepto || ''} ${e?.detalle_gasto || ''}`);
 
         let coincideRubro = false;
         if (rubroImp && (rubroImp === normRubro || rubroImp.includes(normRubro) || normRubro.includes(rubroImp))) {
@@ -314,9 +360,8 @@ export default function ComparativoTab({
         }
 
         if (coincideRubro && !tipoIns.includes('gasto general') && !tipoIns.includes('imprevisto')) {
-          const monto = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
-          const categoriaDestino = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
-          ri.categoriasMap[categoriaDestino].real += monto;
+          const categoriaDestino = resolverTipoInsumoOficial(e?.tipo_insumo, `${e?.concepto || ''} ${e?.detalle_gasto || ''}`);
+          ri.categoriasMap[categoriaDestino].real += e._montoReal;
         }
       });
 
@@ -337,7 +382,7 @@ export default function ComparativoTab({
     });
 
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
-  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias]);
+  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, egresosValidadosUnificados, ordenCategorias]);
 
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
@@ -353,7 +398,7 @@ export default function ComparativoTab({
           <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-amber-500" /> Análisis Comparativo Económico
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales (Netos de IVA).</p>
         </div>
         
         <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
@@ -425,7 +470,7 @@ export default function ComparativoTab({
                 <tr className="bg-slate-100 text-slate-600 font-bold uppercase border-b border-slate-300 text-[10px]">
                   <th className="px-4 py-3">Concepto / Rubro / Subcategoría</th>
                   <th className="px-4 py-3 text-right">Monto Presupuestado</th>
-                  <th className="px-4 py-3 text-right">Monto Real Imputado</th>
+                  <th className="px-4 py-3 text-right">Monto Real Imputado (Neto)</th>
                   <th className="px-4 py-3 text-right">Desvío por Categoría</th>
                 </tr>
               </thead>
