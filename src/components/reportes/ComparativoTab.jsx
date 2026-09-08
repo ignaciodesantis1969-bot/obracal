@@ -270,7 +270,7 @@ export default function ComparativoTab({
       return (pIdReal && fPto === pIdReal) || (pCodReal && fPto === pCodReal) || (pCodReal && fDesc.includes(pCodReal));
     });
 
-    // 1. ASIGNACIÓN DE GASTOS GENERALES FLEXIBLE
+    // 1. ASIGNACIÓN DE GASTOS GENERALES CORREGIDA (Evalúa rubro y tipo_insumo específico)
     const resultadosGG = [];
     ggList.forEach((gg, idx) => {
       const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
@@ -279,16 +279,17 @@ export default function ComparativoTab({
 
       let realGG = 0;
       egresosProyecto.forEach(f => {
-        const tipoIns = limpiarTexto(f?.tipo_insumo || '');
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
+        const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
         const conceptoFull = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
 
-        // Condición flexible: si es gasto general y el texto tiene una coincidencia parcial o palabra clave
-        if (tipoIns.includes('gasto') || tipoIns.includes('general') || rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          const palabrasGG = normGG.split(' ').filter(p => p.length > 3);
-          const coincideParcial = palabrasGG.some(palabra => rubroImp.includes(palabra) || conceptoFull.includes(palabra));
+        // Verificamos si es una factura imputada a Gastos Generales
+        if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
+          const palabrasGG = normGG.split(' ').filter(p => p.length > 2);
+          const coincideExacto = tipoIns === normGG || tipoIns.includes(normGG) || normGG.includes(tipoIns);
+          const coincideParcial = palabrasGG.some(palabra => tipoIns.includes(palabra) || conceptoFull.includes(palabra));
           
-          if (rubroImp.includes(normGG) || normGG.includes(rubroImp) || conceptoFull.includes(normGG) || coincideParcial) {
+          if (coincideExacto || coincideParcial || conceptoFull.includes(normGG)) {
             realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal));
           }
         }
@@ -324,7 +325,7 @@ export default function ComparativoTab({
           coincideRubro = true;
         }
 
-        if (coincideRubro && !tipoIns.includes('gasto general') && !tipoIns.includes('imprevisto')) {
+        if (coincideRubro && !rubroImp.includes('gasto') && !rubroImp.includes('imprevisto')) {
           const monto = f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal);
           const categoriaDestino = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
           ri.categoriasMap[categoriaDestino].real += monto;
