@@ -104,28 +104,37 @@ export default function ComparativoTab({
     return Number(s) || 0;
   };
 
-  // NUEVA FUNCIÓN: Asegura que el monto extraído sea siempre NETO SIN IVA
+  // NUEVA FUNCIÓN DINÁMICA: Calcula el neto garantizado
   const obtenerMontoNeto = (item) => {
-    // 1. Intentar usar la columna neto o subtotal si ya viene directa
-    const neto = parsearMonto(item?.neto || item?.subtotal || item?.importe_neto || item?.neto_gravado);
+    if (!item) return 0;
+    
+    const total = parsearMonto(item.total || item.monto || item.importe);
+    const neto = parsearMonto(item.neto || item.subtotal || item.importe_neto || item.neto_gravado);
+    
+    // 1. Si existe la columna "subtotal" o "neto" y tiene un valor, se usa directo.
     if (neto > 0) return neto;
 
-    // 2. Si solo tenemos el total, descontamos los impuestos discriminados de tu planilla
-    const total = parsearMonto(item?.total || item?.monto || item?.importe);
-    const iva105 = parsearMonto(item?.iva_105 || item?.iva105);
-    const iva21 = parsearMonto(item?.iva_21 || item?.iva21 || item?.iva);
-    const percepIIBB = parsearMonto(item?.percep_iibb);
-    const percepBsaersp = parsearMonto(item?.percep_basaersp);
-    const percepCaba = parsearMonto(item?.percep_caba || item?.percepciones || item?.otros_impuestos);
-    
-    const totalImpuestos = iva105 + iva21 + percepIIBB + percepBsaersp + percepCaba;
+    // 2. Si no hay neto explícito, revisamos TODAS las columnas en búsqueda de impuestos para restarlos.
+    if (total > 0) {
+      let totalImpuestos = 0;
+      Object.keys(item).forEach(key => {
+        const k = String(key).toLowerCase().trim();
+        // Si la columna se llama de alguna forma relacionada a impuestos, suma su valor
+        if (k.includes('iva') || k.includes('percep') || k.includes('impuesto') || k.includes('iibb')) {
+          totalImpuestos += parsearMonto(item[key]);
+        }
+      });
 
-    if (totalImpuestos > 0) {
-      return total - totalImpuestos;
+      // Si encontramos impuestos, se los descontamos al total bruto
+      if (totalImpuestos > 0 && totalImpuestos < total) {
+        return total - totalImpuestos;
+      }
+      
+      // Si el ítem no tiene impuestos discriminados, asumimos el total.
+      return total;
     }
-
-    // 3. Fallback (Si no hay impuestos cargados, devuelve el monto que encontró)
-    return total;
+    
+    return 0;
   };
 
   const resolverTipoInsumoOficial = (tipoExplicito = '', textoCompleto = '') => {
@@ -185,7 +194,7 @@ export default function ComparativoTab({
 
       let totalRealRubro = 0;
       facturasDelPto.forEach(f => {
-        const monto = obtenerMontoNeto(f);
+        const monto = obtenerMontoNeto(f); // <--- APLICADO ACÁ
         const cat = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
         categoriasMap[cat].real += monto;
         totalRealRubro += monto;
@@ -300,7 +309,7 @@ export default function ComparativoTab({
 
         if (tipoIns.includes('gasto') || tipoIns.includes('general') || rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
           if (rubroImp.includes(normGG) || normGG.includes(rubroImp) || conceptoFull.includes(normGG)) {
-            realGG += obtenerMontoNeto(f);
+            realGG += obtenerMontoNeto(f); // <--- APLICADO ACÁ
           }
         }
       });
@@ -338,7 +347,7 @@ export default function ComparativoTab({
         }
 
         if (coincideRubro && !tipoIns.includes('gasto general') && !tipoIns.includes('imprevisto')) {
-          const monto = obtenerMontoNeto(f);
+          const monto = obtenerMontoNeto(f); // <--- APLICADO ACÁ
           const categoriaDestino = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
           ri.categoriasMap[categoriaDestino].real += monto;
         }
@@ -449,7 +458,7 @@ export default function ComparativoTab({
                 <tr className="bg-slate-100 text-slate-600 font-bold uppercase border-b border-slate-300 text-[10px]">
                   <th className="px-4 py-3">Concepto / Rubro / Subcategoría</th>
                   <th className="px-4 py-3 text-right">Monto Presupuestado</th>
-                  <th className="px-4 py-3 text-right">Monto Real Imputado</th>
+                  <th className="px-4 py-3 text-right">Monto Real Imputado (Neto)</th>
                   <th className="px-4 py-3 text-right">Desvío por Categoría</th>
                 </tr>
               </thead>
