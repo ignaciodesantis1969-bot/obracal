@@ -27,7 +27,7 @@ export default function ReportesDiariosTab({
 
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
   
-  // Lista de IDs eliminados sincronizada de forma segura
+  // Lista de IDs y números eliminados sincronizada de forma segura
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
     try {
       const eliminados = localStorage.getItem('sice_partes_eliminados_ids');
@@ -46,10 +46,10 @@ export default function ReportesDiariosTab({
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
-          // Filtrar de inmediato los eliminados al recibir los datos del servidor
           const filtradosServidor = data.filter(item => {
-            const idItem = String(item?.id || item?.ID || item?.nro || item?.Nro || '').trim();
-            return !idsEliminadosLocales.includes(idItem);
+            const idItem = String(item?.id || item?.ID || '').trim();
+            const nroItem = String(item?.nro || item?.Nro || '').trim();
+            return !idsEliminadosLocales.includes(idItem) && !idsEliminadosLocales.includes(nroItem);
           });
           setFetchedReportesLocal(filtradosServidor);
         }
@@ -75,7 +75,7 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación de fuentes filtrando de forma estricta y limpiando el caché local corrupto/obsoleto
+  // Consolidación y filtrado estricto final absoluto
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
     const s = extraerArrayDatos(reportesSheet);
@@ -86,10 +86,10 @@ export default function ReportesDiariosTab({
       const cached = localStorage.getItem('sice_partes_local_cache_v2');
       if (cached) {
         const parsed = JSON.parse(cached);
-        // Excluir elementos eliminados también del caché local de inmediato
         localCache = parsed.filter(item => {
-          const idItem = String(item?.id || item?.ID || item?.nro || item?.Nro || '').trim();
-          return !idsEliminadosLocales.includes(idItem);
+          const idItem = String(item?.id || item?.ID || '').trim();
+          const nroItem = String(item?.nro || item?.Nro || '').trim();
+          return !idsEliminadosLocales.includes(idItem) && !idsEliminadosLocales.includes(nroItem);
         });
       }
     } catch (e) {}
@@ -99,12 +99,13 @@ export default function ReportesDiariosTab({
     
     combinados.forEach(item => {
       if (!item) return;
-      const idItem = String(item.id || item.ID || item.nro || item.Nro || '').trim();
+      const idItem = String(item.id || item.ID || '').trim();
+      const nroItem = String(item.nro || item.Nro || item.numero || '').trim();
       
-      // Filtro estricto: Si el ID está en la lista negra de eliminados, se omite por completo
-      if (idsEliminadosLocales.includes(idItem)) return; 
+      // FILTRO ESTRICTO: Si el ID o el Nro están en la lista negra, se descartan por completo
+      if (idsEliminadosLocales.includes(idItem) || idsEliminadosLocales.includes(nroItem)) return; 
 
-      const key = idItem || Math.random();
+      const key = idItem || nroItem || Math.random();
       if (!unicosMap.has(key)) unicosMap.set(key, item);
     });
 
@@ -332,12 +333,9 @@ export default function ReportesDiariosTab({
     setOperariosSeleccionados(operariosSeleccionados.filter((_, i) => i !== index));
   };
 
-  // Función exclusiva para administradores encargada de borrar el parte
-  const eliminarParteServidor = async (idParte) => {
+  const eliminarParteServidor = async (idParte, nroParte) => {
     const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
     const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
-    
-    // Doble validación de seguridad estricta: Si es operador, se bloquea la ejecución de inmediato
     if (esRolOperadorRestringido) {
       toast.error('Acción no autorizada para usuarios con rol operativo.');
       return;
@@ -353,24 +351,39 @@ export default function ReportesDiariosTab({
       });
 
       const idLimpio = String(idParte).trim();
+      const nroLimpio = String(nroParte || '').trim();
 
-      // Guardar de forma persistente en la lista de eliminados en localStorage
-      const nuevosEliminados = Array.from(new Set([...idsEliminadosLocales, idLimpio]));
+      // Guardar de forma persistente tanto ID como Nro en la lista negra local
+      const nuevosEliminados = Array.from(new Set([...idsEliminadosLocales, idLimpio, nroLimpio].filter(Boolean)));
       setIdsEliminadosLocales(nuevosEliminados);
       localStorage.setItem('sice_partes_eliminados_ids', JSON.stringify(nuevosEliminados));
 
-      // Limpiar y actualizar la caché local para que desaparezca al instante en cualquier sesión
+      // Limpiar caché local
       try {
         const cached = localStorage.getItem('sice_partes_local_cache_v2');
         if (cached) {
           const parsedCache = JSON.parse(cached);
-          const cacheFiltrada = parsedCache.filter(p => String(p.id || p.ID || p.nro || '').trim() !== idLimpio);
+          const cacheFiltrada = parsedCache.filter(p => {
+            const pId = String(p.id || p.ID || '').trim();
+            const pNro = String(p.nro || p.Nro || '').trim();
+            return pId !== idLimpio && pNro !== nroLimpio;
+          });
           localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(cacheFiltrada));
         }
       } catch (e) {}
 
-      setFetchedReportesLocal(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])).trim() !== idLimpio));
-      setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])).trim() !== idLimpio));
+      setFetchedReportesLocal(prev => prev.filter(p => {
+        const pId = String(buscarValorEnObjeto(p, ['id', 'ID'])).trim();
+        const pNro = String(buscarValorEnObjeto(p, ['nro', 'Nro'])).trim();
+        return pId !== idLimpio && pNro !== nroLimpio;
+      }));
+
+      setFetchedReportesSice(prev => prev.filter(p => {
+        const pId = String(buscarValorEnObjeto(p, ['id', 'ID'])).trim();
+        const pNro = String(buscarValorEnObjeto(p, ['nro', 'Nro'])).trim();
+        return pId !== idLimpio && pNro !== nroLimpio;
+      }));
+
       if (typeof refetchReportes === 'function') refetchReportes();
 
       toast.success('Parte diario eliminado exitosamente', { id: toastId });
@@ -915,7 +928,7 @@ export default function ReportesDiariosTab({
                     {/* Botón de borrado condicional y blindado: Solo visible para Administradores */}
                     {!esRolOperadorRestringido && (
                       <button 
-                        onClick={() => eliminarParteServidor(parteId)}
+                        onClick={() => eliminarParteServidor(parteId, parte?.nro)}
                         className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
                         title="Eliminar reporte"
                       >
