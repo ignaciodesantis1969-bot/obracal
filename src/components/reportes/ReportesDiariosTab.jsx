@@ -26,6 +26,8 @@ export default function ReportesDiariosTab({
   const { data: personalSheet } = useObraData('Personal');
 
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
+  
+  // Lista de IDs eliminados sincronizada de forma segura
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
     try {
       const eliminados = localStorage.getItem('sice_partes_eliminados_ids');
@@ -43,10 +45,17 @@ export default function ReportesDiariosTab({
     })
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) setFetchedReportesLocal(data);
+        if (Array.isArray(data)) {
+          // Filtrar de inmediato los eliminados al recibir los datos del servidor
+          const filtradosServidor = data.filter(item => {
+            const idItem = String(item?.id || item?.ID || item?.nro || item?.Nro || '').trim();
+            return !idsEliminadosLocales.includes(idItem);
+          });
+          setFetchedReportesLocal(filtradosServidor);
+        }
       })
       .catch(err => console.error("Error al cargar ReportesDiariosSice directo:", err));
-  }, []);
+  }, [idsEliminadosLocales]);
 
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
@@ -66,7 +75,7 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación de fuentes filtrando estrictamente los IDs eliminados por administradores
+  // Consolidación de fuentes filtrando de forma estricta y limpiando el caché local corrupto/obsoleto
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
     const s = extraerArrayDatos(reportesSheet);
@@ -75,7 +84,14 @@ export default function ReportesDiariosTab({
     let localCache = [];
     try {
       const cached = localStorage.getItem('sice_partes_local_cache_v2');
-      if (cached) localCache = JSON.parse(cached);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        // Excluir elementos eliminados también del caché local de inmediato
+        localCache = parsed.filter(item => {
+          const idItem = String(item?.id || item?.ID || item?.nro || item?.Nro || '').trim();
+          return !idsEliminadosLocales.includes(idItem);
+        });
+      }
     } catch (e) {}
 
     const combinados = [...p, ...s, ...l, ...localCache];
@@ -84,7 +100,9 @@ export default function ReportesDiariosTab({
     combinados.forEach(item => {
       if (!item) return;
       const idItem = String(item.id || item.ID || item.nro || item.Nro || '').trim();
-      if (idsEliminadosLocales.includes(idItem)) return; // Excluir eliminados
+      
+      // Filtro estricto: Si el ID está en la lista negra de eliminados, se omite por completo
+      if (idsEliminadosLocales.includes(idItem)) return; 
 
       const key = idItem || Math.random();
       if (!unicosMap.has(key)) unicosMap.set(key, item);
@@ -314,10 +332,16 @@ export default function ReportesDiariosTab({
     setOperariosSeleccionados(operariosSeleccionados.filter((_, i) => i !== index));
   };
 
+  // Función exclusiva para administradores encargada de borrar el parte
   const eliminarParteServidor = async (idParte) => {
     const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
     const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
-    if (esRolOperadorRestringido) return;
+    
+    // Doble validación de seguridad estricta: Si es operador, se bloquea la ejecución de inmediato
+    if (esRolOperadorRestringido) {
+      toast.error('Acción no autorizada para usuarios con rol operativo.');
+      return;
+    }
 
     if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
     const toastId = toast.loading('Eliminando parte diario...');
@@ -330,12 +354,12 @@ export default function ReportesDiariosTab({
 
       const idLimpio = String(idParte).trim();
 
-      // Guardar en lista negra de eliminados en localStorage
-      const nuevosEliminados = [...idsEliminadosLocales, idLimpio];
+      // Guardar de forma persistente en la lista de eliminados en localStorage
+      const nuevosEliminados = Array.from(new Set([...idsEliminadosLocales, idLimpio]));
       setIdsEliminadosLocales(nuevosEliminados);
       localStorage.setItem('sice_partes_eliminados_ids', JSON.stringify(nuevosEliminados));
 
-      // Limpiar caché local
+      // Limpiar y actualizar la caché local para que desaparezca al instante en cualquier sesión
       try {
         const cached = localStorage.getItem('sice_partes_local_cache_v2');
         if (cached) {
@@ -849,7 +873,7 @@ export default function ReportesDiariosTab({
               const cNombre = (cObj && typeof cObj === 'object') ? (cObj.nombre || '---') : (cObj || '---');
               const cCargo = (cObj && typeof cObj === 'object') ? (cObj.cargo || '---') : '';
 
-              // Verificación estricta de roles para ocultar botones de borrado a operadores y operadores II
+              // Verificación estricta de roles: Oculta por completo el botón de borrado a operadores y operadores II
               const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
               const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
 
@@ -888,6 +912,7 @@ export default function ReportesDiariosTab({
                       </button>
                     )}
                     
+                    {/* Botón de borrado condicional y blindado: Solo visible para Administradores */}
                     {!esRolOperadorRestringido && (
                       <button 
                         onClick={() => eliminarParteServidor(parteId)}
