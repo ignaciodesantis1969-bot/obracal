@@ -270,7 +270,7 @@ export default function ComparativoTab({
       return (pIdReal && fPto === pIdReal) || (pCodReal && fPto === pCodReal) || (pCodReal && fDesc.includes(pCodReal));
     });
 
-    // 1. ASIGNACIÓN DE GASTOS GENERALES CORREGIDA (Evalúa rubro y tipo_insumo específico)
+    // 1. ASIGNACIÓN DE GASTOS GENERALES EXACTA (Compara nombre exacto del renglón)
     const resultadosGG = [];
     ggList.forEach((gg, idx) => {
       const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
@@ -281,15 +281,10 @@ export default function ComparativoTab({
       egresosProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
-        const conceptoFull = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
 
-        // Verificamos si es una factura imputada a Gastos Generales
         if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          const palabrasGG = normGG.split(' ').filter(p => p.length > 2);
-          const coincideExacto = tipoIns === normGG || tipoIns.includes(normGG) || normGG.includes(tipoIns);
-          const coincideParcial = palabrasGG.some(palabra => tipoIns.includes(palabra) || conceptoFull.includes(palabra));
-          
-          if (coincideExacto || coincideParcial || conceptoFull.includes(normGG)) {
+          // Coincidencia exacta de renglón para evitar que un gasto pise a los demás
+          if (tipoIns === normGG) {
             realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal));
           }
         }
