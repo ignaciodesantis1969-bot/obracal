@@ -104,6 +104,16 @@ export default function ComparativoTab({
     return Number(s) || 0;
   };
 
+  // NUEVO: helper para leer una cantidad respetando el 0 explícito.
+  // parsearMonto(x || 1) trataba 0 como "sin dato" y lo reemplazaba por 1,
+  // inventando montos (cantidad 0 x costo unitario > 0 dejaba de dar $0
+  // y pasaba a dar el costo unitario completo). Solo usamos 1 como
+  // default cuando el valor realmente no vino (undefined/null/'').
+  const parsearCantidad = (val, porDefecto = 1) => {
+    if (val === undefined || val === null || val === '') return porDefecto;
+    return parsearMonto(val);
+  };
+
   const obtenerMontoNetoFactura = (f) => {
     const subtotal = parsearMonto(f?.subtotal || f?.neto || f?.importe_neto);
     if (subtotal !== 0) return subtotal;
@@ -115,6 +125,7 @@ export default function ComparativoTab({
     const tc = limpiarTexto(textoCompleto);
     const combinado = `${tipoExp} ${tc}`;
 
+    // Validación ampliada para capturar sueldos, cargas sociales y afines dentro de Mano de Obra
     if (
       combinado.includes('mano de obra') || 
       combinado.includes('rrhh') || 
@@ -246,14 +257,16 @@ export default function ComparativoTab({
           if (typeof insumosList === 'string') { try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; } }
 
           if (!Array.isArray(insumosList) || insumosList.length === 0) {
-            const tareaTotal = parsearMonto(t?.total) || (parsearMonto(t?.cantidad || 1) * parsearMonto(t?.costo_unitario || 0));
+            // fix: cantidad 0 explícita ya no se pisa con 1.
+            const tareaTotal = parsearMonto(t?.total) || (parsearCantidad(t?.cantidad) * parsearMonto(t?.costo_unitario || 0));
             const cat = resolverTipoInsumoOficial(t?.tipo, t?.descripcion || t?.tarea);
             categoriasMap[cat].presupuestado += tareaTotal;
             totalRubroPresupuestado += tareaTotal;
           } else {
             insumosList.forEach(ins => {
               const cat = resolverTipoInsumoOficial(ins?.tipo || ins?.categoria, ins?.nombre || ins?.descripcion);
-              const insTotal = parsearMonto(ins?.total) || (parsearMonto(ins?.cantidad || 1) * parsearMonto(ins?.costo_unitario || ins?.precio || 0));
+              // fix: mismo caso, cantidad 0 explícita ya no se pisa con 1.
+              const insTotal = parsearMonto(ins?.total) || (parsearCantidad(ins?.cantidad) * parsearMonto(ins?.costo_unitario || ins?.precio || 0));
               categoriasMap[cat].presupuestado += insTotal;
               totalRubroPresupuestado += insTotal;
             });
@@ -288,7 +301,7 @@ export default function ComparativoTab({
     const resultadosGG = [];
     ggList.forEach((gg, idx) => {
       const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
-      const presupuestadoGG = gg?.presupuestado_calc || parsearMonto(gg?.total || gg?.monto) || (parsearMonto(gg?.cantidad || 1) * parsearMonto(gg?.unitario || 0));
+      const presupuestadoGG = gg?.presupuestado_calc || parsearMonto(gg?.total || gg?.monto) || (parsearCantidad(gg?.cantidad) * parsearMonto(gg?.unitario || 0));
       const normGG = limpiarTexto(nombreGG);
 
       let realGG = 0;
@@ -297,7 +310,7 @@ export default function ComparativoTab({
         const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
 
         if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          if (tipoIns === normGG || tipoIns.includes(normGG) || normGG.includes(tipoIns)) {
+          if (tipoIns === normGG) {
             realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal));
           }
         }
@@ -306,7 +319,7 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 2. ASIGNACIÓN DE RUBROS DE OBRA (Flexible y robusta para evitar mezclas)
+    // 2. ASIGNACIÓN DE RUBROS DE OBRA
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
@@ -323,12 +336,13 @@ export default function ComparativoTab({
 
       egresosProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
+        const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
         const conceptoFull = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
 
         let coincideRubro = false;
         if (rubroImp && (rubroImp === normRubro || rubroImp.includes(normRubro) || normRubro.includes(rubroImp))) {
           coincideRubro = true;
-        } else if (normRubro.split(' ').some(palabra => palabra.length > 3 && (rubroImp.includes(palabra) || conceptoFull.includes(palabra)))) {
+        } else if (conceptoFull.includes(normRubro)) {
           coincideRubro = true;
         }
 
