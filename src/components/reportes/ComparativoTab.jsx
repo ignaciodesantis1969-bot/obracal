@@ -104,7 +104,6 @@ export default function ComparativoTab({
     return Number(s) || 0;
   };
 
-  // LECTURA DIRECTA DEL NETO DE LA COLUMNA `subtotal` (con fallback al total si no existiera)
   const obtenerMontoNetoFactura = (f) => {
     const subtotal = parsearMonto(f?.subtotal || f?.neto || f?.importe_neto);
     if (subtotal !== 0) return subtotal;
@@ -271,7 +270,7 @@ export default function ComparativoTab({
       return (pIdReal && fPto === pIdReal) || (pCodReal && fPto === pCodReal) || (pCodReal && fDesc.includes(pCodReal));
     });
 
-    // 1. ASIGNACIÓN DE GASTOS GENERALES
+    // 1. ASIGNACIÓN DE GASTOS GENERALES FLEXIBLE
     const resultadosGG = [];
     ggList.forEach((gg, idx) => {
       const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
@@ -284,8 +283,12 @@ export default function ComparativoTab({
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         const conceptoFull = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
 
+        // Condición flexible: si es gasto general y el texto tiene una coincidencia parcial o palabra clave
         if (tipoIns.includes('gasto') || tipoIns.includes('general') || rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          if (rubroImp.includes(normGG) || normGG.includes(rubroImp) || conceptoFull.includes(normGG)) {
+          const palabrasGG = normGG.split(' ').filter(p => p.length > 3);
+          const coincideParcial = palabrasGG.some(palabra => rubroImp.includes(palabra) || conceptoFull.includes(palabra));
+          
+          if (rubroImp.includes(normGG) || normGG.includes(rubroImp) || conceptoFull.includes(normGG) || coincideParcial) {
             realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal));
           }
         }

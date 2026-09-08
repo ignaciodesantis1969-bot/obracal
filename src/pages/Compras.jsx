@@ -172,7 +172,20 @@ export default function Compras({
         rubrosDelPresupuesto = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
       }
 
-      let rawGG = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['gastos_generales_insumos', 'Gastos_generales_insumos']);
+      // EXTRACCIÓN FLEXIBLE DE GASTOS GENERALES (Cubre todas las variantes de nombres y objetos comerciales)
+      let rawGG = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['gastos_generales_insumos', 'Gastos_generales_insumos', 'gastos_generales', 'Gastos_generales']);
+      if (!rawGG && parsedData && typeof parsedData === 'object') {
+        rawGG = parsedData.gastos_generales_insumos || parsedData.gastos_generales || (parsedData.comercial && (parsedData.comercial.gastos_generales_insumos || parsedData.comercial.gastos_generales));
+      }
+      
+      let comercialObj = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['comercial', 'Comercial']);
+      if (typeof comercialObj === 'string') {
+        try { comercialObj = JSON.parse(comercialObj); } catch(e) {}
+      }
+      if (!rawGG && comercialObj && typeof comercialObj === 'object') {
+        rawGG = comercialObj.gastos_generales_insumos || comercialObj.gastos_generales;
+      }
+
       if (typeof rawGG === 'string') {
         try { rawGG = JSON.parse(rawGG); } catch(e) {}
       }
