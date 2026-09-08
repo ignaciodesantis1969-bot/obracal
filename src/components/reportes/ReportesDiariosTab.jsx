@@ -12,6 +12,7 @@ export default function ReportesDiariosTab({
   listaEmpleadosActivos: propEmpleados = [],
   personal: propPersonal = [],
   esOperador = false,
+  currentUser = null, // Recibimos el usuario actual si está disponible
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
     for (const key of keys) {
@@ -94,6 +95,20 @@ export default function ReportesDiariosTab({
 
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
+
+  // Obtener el contrato seleccionado actualmente y extraer su número de contrato de cliente
+  const contratoActivoObj = useMemo(() => {
+    if (!contratoSeleccionadoId) return null;
+    return contratosList.find(c => {
+      const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id'])).trim();
+      return cId === String(contratoSeleccionadoId).trim();
+    });
+  }, [contratosList, contratoSeleccionadoId, buscarValorEnObjeto]);
+
+  const nroContratoClienteDinamico = useMemo(() => {
+    if (!contratoActivoObj) return '---';
+    return buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'nro_contrato', 'contratoCliente']) || '---';
+  }, [contratoActivoObj, buscarValorEnObjeto]);
   
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
@@ -198,32 +213,21 @@ export default function ReportesDiariosTab({
   }, [buscarValorEnObjeto]);
 
   const clavesContratoActual = useMemo(() => {
-    const contratoActivo = contratosList.find(c => {
-      const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id'])).trim();
-      return cId === String(contratoSeleccionadoId).trim();
-    });
-    if (contratoActivo) {
-      const extracted = extraerDatosContrato(contratoActivo);
+    if (contratoActivoObj) {
+      const extracted = extraerDatosContrato(contratoActivoObj);
       return { proveedorKey: extracted.pKey, clienteKey: extracted.cKey };
     }
     return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
-  }, [contratosList, contratoSeleccionadoId, buscarValorEnObjeto, extraerDatosContrato]);
+  }, [contratoActivoObj, extraerDatosContrato]);
 
   useEffect(() => {
-    if (contratoSeleccionadoId) {
-      const contrato = contratosList.find(c => {
-        const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id'])).trim();
-        return cId === String(contratoSeleccionadoId).trim();
-      });
-      if (contrato) {
-        const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contrato);
-        setSiceRespProveedor(prev => ({ cargo: pCargo, nombre: pNombre, clave: prev?.clave || '' }));
-        setSiceRespCliente(prev => ({ cargo: cCargo, nombre: cNombre, clave: prev?.clave || '' }));
-      }
+    if (contratoActivoObj) {
+      const { pCargo, pNombre, cCargo, cNombre } = extraerDatosContrato(contratoActivoObj);
+      setSiceRespProveedor(prev => ({ cargo: pCargo, nombre: pNombre, clave: prev?.clave || '' }));
+      setSiceRespCliente(prev => ({ cargo: cCargo, nombre: cNombre, clave: prev?.clave || '' }));
     }
-  }, [contratoSeleccionadoId, contratosList, buscarValorEnObjeto, extraerDatosContrato]);
+  }, [contratoActivoObj, extraerDatosContrato]);
 
-  // Filtrado super blindado: Busca coincidencia exacta o "includes"
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
     if (contratoSeleccionadoId) {
@@ -254,6 +258,7 @@ export default function ReportesDiariosTab({
       }
 
       const rawSuma = parseFloat(buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma', 'TotalHorasSuma']) || 0);
+      const usuarioGen = buscarValorEnObjeto(r, ['generadopor', 'generadoPor', 'usuario', 'Usuario']) || 'Sistema';
 
       return {
         id: buscarValorEnObjeto(r, ['id', 'ID', 'nro', 'Nro']) || `sice-${Math.random()}`,
@@ -268,6 +273,7 @@ export default function ReportesDiariosTab({
         proveedor: provParsed || { nombre: '', cargo: '' },
         cliente: cliParsed || { nombre: '', cargo: '' },
         totalHorasSuma: rawSuma.toFixed(2),
+        generadoPor: usuarioGen,
         pdfUrl: buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'urlPdf', 'pdfURL']) || ''
       };
     });
@@ -379,18 +385,23 @@ export default function ReportesDiariosTab({
     setIsSavingSice(true);
     const toastId = toast.loading('Generando PDF en Google Drive y guardando...');
 
+    // Detectar nombre del usuario generador (props, localStorage o genérico)
+    const nombreUsuarioGenerador = currentUser?.nombre || currentUser?.name || localStorage.getItem('usuario_actual') || 'Usuario Operativo';
+
     try {
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
         tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice',
         contratoId: String(contratoSeleccionadoId),
+        nroContratoCliente: String(nroContratoClienteDinamico),
         fecha: String(siceFecha),
         nro: String(siceParteNro),
         items: siceItems,
         operarios: operariosFinales,
         proveedor: { cargo: String(siceRespProveedor.cargo || ''), nombre: String(siceRespProveedor.nombre || '') },
         cliente: { cargo: String(siceRespCliente.cargo || ''), nombre: String(siceRespCliente.nombre || '') },
-        totalHorasSuma: Number(granTotalHorasHombre)
+        totalHorasSuma: Number(granTotalHorasHombre),
+        generadoPor: nombreUsuarioGenerador
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -412,11 +423,13 @@ export default function ReportesDiariosTab({
         nro: String(siceParteNro),
         fecha: String(siceFecha),
         contratoid: String(contratoSeleccionadoId),
+        nroContratoCliente: String(nroContratoClienteDinamico),
         items: [...siceItems],
         operarios: operariosFinales,
         proveedor: { cargo: String(siceRespProveedor.cargo), nombre: String(siceRespProveedor.nombre) },
         cliente: { cargo: String(siceRespCliente.cargo), nombre: String(siceRespCliente.nombre) },
         totalHorasSuma: Number(granTotalHorasHombre).toFixed(2),
+        generadoPor: nombreUsuarioGenerador,
         pdfUrl: pdfUrlFinal
       };
 
@@ -459,7 +472,7 @@ export default function ReportesDiariosTab({
               onChange={(e) => setContratoSeleccionadoId(e.target.value)}
               className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
             >
-              <option value="">-- Todos los Contratos ({contratosList.length} disp.) --</option>
+              <option value="">-- Seleccionar Contrato de Mantenimiento --</option>
               {contratosList.map((c, i) => {
                 const cId = String(c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id || c?._id || i);
                 const cCod = c?.codigo || c?.Codigo || c?.nro_contrato || 'S/C';
@@ -490,7 +503,7 @@ export default function ReportesDiariosTab({
             <p className="font-extrabold text-blue-900 text-sm">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-2">
               <div><span className="text-slate-500 font-semibold">C.U.I.T. Nro.:</span> <span className="font-bold">30-71573431-8</span></div>
-              <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
+              <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">{contratoActivoObj?.cliente || 'LDC Argentina S.A.'}</span></div>
               <div>
                 <span className="text-slate-500 font-semibold">Fecha:</span>{' '}
                 <input 
@@ -501,10 +514,15 @@ export default function ReportesDiariosTab({
                 />
               </div>
               <div><span className="text-slate-500 font-semibold">Número de Proveedor Nro.:</span> <span className="font-bold">1490175</span></div>
-              <div><span className="text-slate-500 font-semibold">Contrato Nro.:</span> <span className="font-bold">5000002190</span></div>
+              <div>
+                <span className="text-slate-500 font-semibold">Nº Contrato Cliente:</span>{' '}
+                <span className="font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+                  {nroContratoClienteDinamico}
+                </span>
+              </div>
               <div>
                 <span className="text-slate-500 font-semibold">Parte Nro.:</span>
-                <span className="font-black text-amber-600 font-mono text-sm">{siceParteNro}</span>
+                <span className="font-black text-amber-600 font-mono text-sm ml-1">{siceParteNro}</span>
               </div>
             </div>
           </div>
@@ -720,7 +738,7 @@ export default function ReportesDiariosTab({
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: FF9912):</label>
+                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres):</label>
                     <input 
                       type="password" 
                       required
@@ -758,7 +776,7 @@ export default function ReportesDiariosTab({
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: tr2291):</label>
+                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres):</label>
                     <input 
                       type="password" 
                       required
@@ -815,7 +833,11 @@ export default function ReportesDiariosTab({
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte?.nro}</span>
                       <span className="text-xs font-medium text-slate-500">Fecha: {parte?.fecha}</span>
+                      {parte?.nroContratoCliente && (
+                        <span className="text-xs font-bold px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200">Nº Contrato Cliente: {parte.nroContratoCliente}</span>
+                      )}
                       <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte?.totalHorasSuma} hs</span>
+                      <span className="text-[11px] font-medium text-slate-500">Generado por: <strong className="text-slate-700">{parte?.generadoPor || 'Sistema'}</strong></span>
                     </div>
                     <p className="text-slate-700 text-xs mt-2">
                       Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cCargo})
@@ -878,6 +900,10 @@ export default function ReportesDiariosTab({
                 <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
                 <div><span className="text-slate-500 font-semibold">Fecha:</span> <span className="font-bold">{parteVisualizando?.fecha}</span></div>
                 <div><span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono">{parteVisualizando?.nro}</span></div>
+                {parteVisualizando?.nroContratoCliente && (
+                  <div><span className="text-slate-500 font-semibold">Nº Contrato Cliente:</span> <span className="font-bold text-blue-700">{parteVisualizando.nroContratoCliente}</span></div>
+                )}
+                <div><span className="text-slate-500 font-semibold">Generado por:</span> <span className="font-bold text-slate-700">{parteVisualizando?.generadoPor || 'Sistema'}</span></div>
               </div>
             </div>
 
@@ -929,6 +955,13 @@ export default function ReportesDiariosTab({
                   ))}
                 </tbody>
               </table>
+            </div>
+
+            <div className="bg-amber-100/60 border-2 border-amber-300 rounded-xl p-4 flex justify-between items-center shadow-sm">
+              <p className="text-amber-900 font-bold text-xs">Total Horas Hombre Registradas en el Reporte:</p>
+              <div className="text-right bg-amber-500 text-slate-950 px-6 py-2 rounded-lg shadow-sm">
+                <p className="font-black text-2xl">{parteVisualizando?.totalHorasSuma || '0.00'} <span className="text-sm">hs</span></p>
+              </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border border-slate-300 rounded-xl p-4 bg-slate-50 text-xs">
