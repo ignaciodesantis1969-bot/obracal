@@ -104,6 +104,30 @@ export default function ComparativoTab({
     return Number(s) || 0;
   };
 
+  // NUEVA FUNCIÓN: Asegura que el monto extraído sea siempre NETO SIN IVA
+  const obtenerMontoNeto = (item) => {
+    // 1. Intentar usar la columna neto o subtotal si ya viene directa
+    const neto = parsearMonto(item?.neto || item?.subtotal || item?.importe_neto || item?.neto_gravado);
+    if (neto > 0) return neto;
+
+    // 2. Si solo tenemos el total, descontamos los impuestos discriminados de tu planilla
+    const total = parsearMonto(item?.total || item?.monto || item?.importe);
+    const iva105 = parsearMonto(item?.iva_105 || item?.iva105);
+    const iva21 = parsearMonto(item?.iva_21 || item?.iva21 || item?.iva);
+    const percepIIBB = parsearMonto(item?.percep_iibb);
+    const percepBsaersp = parsearMonto(item?.percep_basaersp);
+    const percepCaba = parsearMonto(item?.percep_caba || item?.percepciones || item?.otros_impuestos);
+    
+    const totalImpuestos = iva105 + iva21 + percepIIBB + percepBsaersp + percepCaba;
+
+    if (totalImpuestos > 0) {
+      return total - totalImpuestos;
+    }
+
+    // 3. Fallback (Si no hay impuestos cargados, devuelve el monto que encontró)
+    return total;
+  };
+
   const resolverTipoInsumoOficial = (tipoExplicito = '', textoCompleto = '') => {
     const tipoExp = limpiarTexto(tipoExplicito);
     if (tipoExp.includes('mano de obra') || tipoExp.includes('rrhh') || tipoExp.includes('personal')) return 'Mano de Obra';
@@ -161,7 +185,7 @@ export default function ComparativoTab({
 
       let totalRealRubro = 0;
       facturasDelPto.forEach(f => {
-        const monto = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
+        const monto = obtenerMontoNeto(f);
         const cat = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
         categoriasMap[cat].real += monto;
         totalRealRubro += monto;
@@ -276,7 +300,7 @@ export default function ComparativoTab({
 
         if (tipoIns.includes('gasto') || tipoIns.includes('general') || rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
           if (rubroImp.includes(normGG) || normGG.includes(rubroImp) || conceptoFull.includes(normGG)) {
-            realGG += parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
+            realGG += obtenerMontoNeto(f);
           }
         }
       });
@@ -314,7 +338,7 @@ export default function ComparativoTab({
         }
 
         if (coincideRubro && !tipoIns.includes('gasto general') && !tipoIns.includes('imprevisto')) {
-          const monto = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
+          const monto = obtenerMontoNeto(f);
           const categoriaDestino = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
           ri.categoriasMap[categoriaDestino].real += monto;
         }
