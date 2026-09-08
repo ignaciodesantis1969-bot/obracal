@@ -720,12 +720,12 @@ export default function ReportesDiariosTab({
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: AT1020):</label>
+                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: FF9912):</label>
                     <input 
                       type="password" 
                       required
                       maxLength={6}
-                      placeholder="Ej: AT1020"
+                      placeholder="Ej: FF9912"
                       value={siceRespProveedor.clave}
                       onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
@@ -758,12 +758,12 @@ export default function ReportesDiariosTab({
                     />
                   </div>
                   <div>
-                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: CM7030):</label>
+                    <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres, Ej: tr2291):</label>
                     <input 
                       type="password" 
                       required
                       maxLength={6}
-                      placeholder="Ej: CM7030"
+                      placeholder="Ej: TR2291"
                       value={siceRespCliente.clave}
                       onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-mono font-bold text-emerald-700 tracking-widest uppercase focus:outline-none focus:border-amber-500"
