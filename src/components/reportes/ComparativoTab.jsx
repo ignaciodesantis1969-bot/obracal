@@ -104,36 +104,28 @@ export default function ComparativoTab({
     return Number(s) || 0;
   };
 
+  // Función específica para extraer el valor NETO de las facturas (evitando el total con IVA)
   const extraerMontoNetoFactura = (f) => {
     return parsearMonto(
       f?.neto || 
       f?.subtotal || 
       f?.importe_neto || 
       f?.neto_gravado || 
-      (parsearMonto(f?.total || f?.monto || f?.importe) / 1.21)
+      (parsearMonto(f?.total || f?.monto || f?.importe) / 1.21) // Fallback matemático si solo viene el total con IVA 21%
     );
   };
 
-  // Clasificador reforzado que incluye explícitamente viáticos dentro de Mano de Obra
   const resolverTipoInsumoOficial = (tipoExplicito = '', textoCompleto = '') => {
     const tipoExp = limpiarTexto(tipoExplicito);
-    if (
-      tipoExp.includes('mano de obra') || 
-      tipoExp.includes('rrhh') || 
-      tipoExp.includes('personal') || 
-      tipoExp.includes('cargas sociales') ||
-      tipoExp.includes('viatico')
-    ) {
-      return 'Mano de Obra';
-    }
+    if (tipoExp.includes('mano de obra') || tipoExp.includes('rrhh') || tipoExp.includes('personal') || tipoExp.includes('cargas sociales')) return 'Mano de Obra';
     if (tipoExp.includes('subcontrato') || tipoExp.includes('servicio')) return 'Subcontratos';
     if (tipoExp.includes('equipo') || tipoExp.includes('maquinaria') || tipoExp.includes('alquiler')) return 'Equipos';
     if (tipoExp.includes('gasto') || tipoExp.includes('general') || tipoExp.includes('imprevisto') || tipoExp.includes('seguridad') || tipoExp.includes('epp')) return 'Gastos Generales';
     if (tipoExp.includes('material') || tipoExp.includes('insumo')) return 'Materiales';
 
     const tc = limpiarTexto(textoCompleto);
-    if (tc.includes('viatico') || tc.includes('mano de obra') || tc.includes('sueldo') || tc.includes('jornal') || tc.includes('cargas sociales')) return 'Mano de Obra';
     if (tc.includes('gasto general') || tc.includes('imprevisto') || tc.includes('seguridad') || tc.includes('epp') || tc.includes('medico') || tc.includes('ropa')) return 'Gastos Generales';
+    if (tc.includes('mano de obra') || tc.includes('sueldo') || tc.includes('jornal') || tc.includes('cargas sociales')) return 'Mano de Obra';
     if (tc.includes('subcontrato') || tc.includes('contratista')) return 'Subcontratos';
     if (tc.includes('alquiler') || tc.includes('maquinaria')) return 'Equipos';
     
@@ -155,7 +147,9 @@ export default function ComparativoTab({
     );
   };
 
-  // Consolidación de egresos: Facturas (Neto) + Tesorería (Restringida a Mano de Obra / Cargas Sociales)
+  // ESTRATEGIA SEGURA DE EGRESOS:
+  // - Facturas: Usamos neto / subtotal.
+  // - Tesorería: Filtramos estrictamente solo para Mano de Obra y Cargas Sociales.
   const egresosValidadosUnificados = useMemo(() => {
     const listaFacturas = (Array.isArray(facturas) ? facturas : []).map(f => ({
       ...f,
@@ -166,17 +160,8 @@ export default function ComparativoTab({
     const listaTesoreria = (Array.isArray(tesoreria) ? tesoreria : []).filter(t => {
       const tipoIns = limpiarTexto(t?.tipo_insumo || '');
       const conceptoT = limpiarTexto(`${t?.concepto || ''} ${t?.detalle_gasto || ''} ${t?.rubro_imputacion || ''}`);
-      return (
-        tipoIns.includes('mano de obra') || 
-        tipoIns.includes('rrhh') || 
-        tipoIns.includes('cargas sociales') || 
-        tipoIns.includes('viatico') || 
-        conceptoT.includes('mano de obra') || 
-        conceptoT.includes('sueldo') || 
-        conceptoT.includes('jornal') || 
-        conceptoT.includes('cargas sociales') || 
-        conceptoT.includes('viatico')
-      );
+      // REGLA DE NEGOCIO: Tesorería solo se permite si es Mano de Obra o Cargas Sociales
+      return tipoIns.includes('mano de obra') || tipoIns.includes('rrhh') || tipoIns.includes('cargas sociales') || conceptoT.includes('mano de obra') || conceptoT.includes('sueldo') || conceptoT.includes('jornal') || conceptoT.includes('cargas sociales') || conceptoT.includes('viatico');
     }).map(t => ({
       ...t,
       _montoReal: parsearMonto(t?.total || t?.monto || t?.importe || t?.subtotal),
@@ -305,7 +290,7 @@ export default function ComparativoTab({
       return (pIdReal && ePto === pIdReal) || (pCodReal && ePto === pCodReal) || (pCodReal && eDesc.includes(pCodReal));
     });
 
-    // 1. ASIGNACIÓN DE GASTOS GENERALES
+    // 1. ASIGNACIÓN DE GASTOS GENERALES (EXCLUSIVAMENTE DESDE FACTURAS NETAS)
     const resultadosGG = [];
     ggList.forEach((gg, idx) => {
       const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
@@ -330,7 +315,7 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 2. ASIGNACIÓN DE RUBROS DE OBRA (CON SOPORTE DE VIÁTICOS A MANO DE OBRA)
+    // 2. ASIGNACIÓN DE RUBROS DE OBRA (FACTURAS NETAS + TESORERÍA DE MANO DE OBRA)
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
@@ -346,7 +331,7 @@ export default function ComparativoTab({
       });
       ri.categoriasMap['Mano de Obra'].real += (totalHsSice * 15000);
 
-      // Egresos por rubro_imputacion exacto o aproximado
+      // Egresos validados (Facturas Netas y Tesorería filtrada)
       egresosProyecto.forEach(e => {
         const rubroImp = limpiarTexto(e?.rubro_imputacion || e?.rubro || '');
         const tipoIns = limpiarTexto(e?.tipo_insumo || e?.categoria || '');
