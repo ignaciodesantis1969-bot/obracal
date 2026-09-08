@@ -104,45 +104,38 @@ export default function ComparativoTab({
     return Number(s) || 0;
   };
 
+  // Motor principal para clasificar entre Rubros vs Gastos Generales
   const resolverTipoInsumoOficial = (textoCompleto, tipoExplicito = '') => {
     const tipoExp = limpiarTexto(tipoExplicito);
     if (tipoExp.includes('mano de obra') || tipoExp.includes('rrhh') || tipoExp.includes('personal')) return 'Mano de Obra';
     if (tipoExp.includes('subcontrato') || tipoExp.includes('servicio')) return 'Subcontratos';
-    if (tipoExp.includes('equipo') || tipoExp.includes('maquinaria') || tipoExp.includes('herramienta') || tipoExp.includes('alquiler')) return 'Equipos';
-    if (tipoExp.includes('gasto') || tipoExp.includes('general') || tipoExp.includes('imprevisto') || tipoExp.includes('seguridad')) return 'Gastos Generales';
+    if (tipoExp.includes('equipo') || tipoExp.includes('maquinaria') || tipoExp.includes('alquiler')) return 'Equipos';
+    if (tipoExp.includes('gasto') || tipoExp.includes('general') || tipoExp.includes('imprevisto') || tipoExp.includes('seguridad') || tipoExp.includes('epp')) return 'Gastos Generales';
     if (tipoExp.includes('material') || tipoExp.includes('insumo')) return 'Materiales';
 
     const tc = limpiarTexto(textoCompleto);
     
-    if (
-      tc.includes('mano de obra') || 
-      tc.includes('sueldo') || 
-      tc.includes('viatico') || 
-      tc.includes('cargas sociales') || 
-      tc.includes('jornal') ||
-      tc.includes('oficial') ||
-      tc.includes('ayudante')
-    ) {
-      return 'Mano de Obra';
+    if (tc.includes('gasto general') || tc.includes('imprevisto') || tc.includes('seguridad') || tc.includes('higiene') || tc.includes('epp') || tc.includes('medico') || tc.includes('ropa de trabajo') || tc.includes('botines')) {
+      return 'Gastos Generales';
     }
-
-    if (tc.includes('subcontrato') || tc.includes('contratista') || tc.includes('servicio de terceros')) return 'Subcontratos';
-    
-    if (
-      tc.includes('alquiler de equipo') || 
-      tc.includes('maquinaria pesada') || 
-      tc.includes('retroexcavadora') || 
-      tc.includes('hormigonera') || 
-      tc.includes('andamio') ||
-      tc.includes('guinche') ||
-      tc.includes('compactadora')
-    ) {
-      return 'Equipos';
-    }
-
-    if (tc.includes('gasto general') || tc.includes('imprevisto') || tc.includes('seguridad e higiene') || tc.includes('epp')) return 'Gastos Generales';
+    if (tc.includes('mano de obra') || tc.includes('sueldo') || tc.includes('cargas sociales') || tc.includes('jornal')) return 'Mano de Obra';
+    if (tc.includes('subcontrato') || tc.includes('contratista') || tc.includes('terceros')) return 'Subcontratos';
+    if (tc.includes('alquiler') || tc.includes('maquinaria') || tc.includes('retroexcavadora') || tc.includes('hormigonera')) return 'Equipos';
     
     return 'Materiales'; 
+  };
+
+  // Mini-Motor de Diccionario de Sinónimos para cruzar gastos generales reales con filas presupuestadas
+  const obtenerSinonimosGG = (texto) => {
+    const t = limpiarTexto(texto);
+    let sin = [t];
+    if (t.includes('seguridad') || t.includes('higiene') || t.includes('licenciado')) sin.push('seguridad', 'higiene', 'licenciado', 'programa', 'visita', 'tecnico');
+    if (t.includes('ropa')) sin.push('ropa', 'pantalon', 'camisa', 'botin', 'indumentaria');
+    if (t.includes('epp') || t.includes('casco') || t.includes('gafas')) sin.push('epp', 'casco', 'guante', 'gafa', 'protector', 'proteccion');
+    if (t.includes('medico') || t.includes('examen')) sin.push('medico', 'preocupacional', 'examen', 'salud', 'clinica');
+    if (t.includes('revision') || t.includes('certificacion')) sin.push('revision', 'certificacion', 'ypf', 'gas');
+    if (t.includes('imprevisto')) sin.push('imprevisto', 'extra', 'contingencia');
+    return sin;
   };
 
   const renderDesvioConFlecha = (monto) => {
@@ -167,57 +160,53 @@ export default function ComparativoTab({
   const { analisisRubrosDetallado, gastosGeneralesDetalle } = useMemo(() => {
     if (!proyectoId) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
 
+    // Lógica rápida para contratos (mantenimiento)
     if (tipoProyecto === 'contrato') {
       if (!contratoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
       
-      const cIdReal = String(contratoSeleccionado?.id || contratoSeleccionado?.ID || contratoSeleccionado?.contrato_id || '').trim();
-      const cCodReal = String(contratoSeleccionado?.codigo || contratoSeleccionado?.Codigo || contratoSeleccionado?.nro_contrato || '').trim();
+      const cIdReal = String(contratoSeleccionado?.id || contratoSeleccionado?.contrato_id || '').trim();
+      const cCodReal = String(contratoSeleccionado?.codigo || contratoSeleccionado?.nro_contrato || '').trim();
 
       const facturasDelPto = todosLosEgresos.filter(f => {
         const fContrato = String(f?.contrato_id || f?.contratoId || '').trim();
-        const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || f?.rubro_imputacion || '');
-        
+        const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '');
         if (cIdReal && fContrato === cIdReal) return true;
         if (cCodReal && fContrato === cCodReal) return true;
         if (cCodReal && fDesc.includes(cCodReal)) return true;
         return false;
       });
 
-      const totalContrato = parsearMonto(contratoSeleccionado?.monto || contratoSeleccionado?.total || contratoSeleccionado?.Monto || 0);
-      
+      const totalContrato = parsearMonto(contratoSeleccionado?.monto || contratoSeleccionado?.total || 0);
       const categoriasMap = {};
       ordenCategorias.forEach(cat => { categoriasMap[cat] = { presupuestado: 0, real: 0, desvio: 0 }; });
       categoriasMap['Materiales'].presupuestado = totalContrato;
 
       let totalRealRubro = 0;
-
       facturasDelPto.forEach(f => {
         const montoFactura = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
-        const textoCompletoFac = `${f?.tipo_insumo || ''} ${f?.categoria_insumo || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''}`;
-        const catDestino = resolverTipoInsumoOficial(textoCompletoFac);
-        
+        const catDestino = resolverTipoInsumoOficial(`${f?.tipo_insumo || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''}`);
         categoriasMap[catDestino].real += montoFactura;
         totalRealRubro += montoFactura;
       });
 
-      ordenCategorias.forEach(cat => {
-        categoriasMap[cat].desvio = categoriasMap[cat].presupuestado - categoriasMap[cat].real;
-      });
+      ordenCategorias.forEach(cat => { categoriasMap[cat].desvio = categoriasMap[cat].presupuestado - categoriasMap[cat].real; });
 
-      const resultadosRubros = [{
-        id: cIdReal || 'C1',
-        nombre: contratoSeleccionado?.nombre || contratoSeleccionado?.nombre_contrato || contratoSeleccionado?.Nombre_contrato || contratoSeleccionado?.cliente || 'Mantenimiento General',
-        presupuestado: totalContrato,
-        real: totalRealRubro,
-        desvio: totalContrato - totalRealRubro,
-        categorias: categoriasMap
-      }];
-
-      return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: [] };
+      return {
+        analisisRubrosDetallado: [{
+          id: cIdReal || 'C1',
+          nombre: contratoSeleccionado?.nombre || contratoSeleccionado?.cliente || 'Mantenimiento General',
+          presupuestado: totalContrato,
+          real: totalRealRubro,
+          desvio: totalContrato - totalRealRubro,
+          categorias: categoriasMap
+        }],
+        gastosGeneralesDetalle: []
+      };
     }
 
     if (!presupuestoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
 
+    // LÓGICA ROBUSTA PARA PRESUPUESTOS DE OBRA
     let parsedItemsDetalle = {};
     const rawItemsDetalle = presupuestoSeleccionado?.items_detalle || presupuestoSeleccionado?.itemsDetalle;
     if (typeof rawItemsDetalle === 'string') {
@@ -230,68 +219,27 @@ export default function ComparativoTab({
     if (typeof rubrosList === 'string') { try { rubrosList = JSON.parse(rubrosList); } catch { rubrosList = []; } }
     if (!Array.isArray(rubrosList)) rubrosList = [rubrosList];
 
-    // ESTRATEGIA EXHAUSTIVA DE EXTRACCIÓN DE GASTOS GENERALES E IMPREVISTOS
     let comercialObj = parsedItemsDetalle?.comercial || presupuestoSeleccionado?.comercial || {};
     if (typeof comercialObj === 'string') { try { comercialObj = JSON.parse(comercialObj); } catch { comercialObj = {}; } }
 
     let ggList = comercialObj?.gastos_generales_insumos 
       || parsedItemsDetalle?.gastos_generales_insumos 
-      || presupuestoSeleccionado?.gastos_generales_insumos 
       || comercialObj?.gastos_generales 
       || [];
-
     if (typeof ggList === 'string') { try { ggList = JSON.parse(ggList); } catch { ggList = []; } }
     if (!Array.isArray(ggList)) ggList = [];
 
-    // BARRIDA TOTAL DE TODAS LAS PROPIEDADES DISPONIBLES PARA IMPREVISTOS
-    const imprevistosMonto = parsearMonto(
-      comercialObj?.imprevistos_monto 
-      || comercialObj?.imprevisto 
-      || parsedItemsDetalle?.imprevistos 
-      || presupuestoSeleccionado?.imprevistos 
-      || 0
-    );
-
-    if (imprevistosMonto > 0 && !ggList.some(g => limpiarTexto(g?.concepto || g?.nombre || '').includes('imprevisto'))) {
-      ggList.push({ concepto: 'Imprevistos', total: imprevistosMonto });
-    }
-
-    const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
-    const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
-    const pObraId = String(presupuestoSeleccionado?.obra_id || '').trim();
-    const pNombreReal = String(presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || '').trim();
-    
-    const indicePresupuesto = presupuestosAprobados.findIndex(p => String(p?.id || p?.ID || p?.codigo) === String(proyectoId)) + 1;
-
-    const facturasDelPto = todosLosEgresos
-      .filter(f => {
-        const fPto = String(f?.presupuesto_id || f?.presupuestoId || f?.id_presupuesto || '').trim();
-        const fObra = String(f?.obra_id || f?.obraId || f?.id_obra || '').trim();
-        const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || f?.rubro_imputacion || f?.observaciones || '');
-        
-        if (pIdReal && fPto === pIdReal) return true;
-        if (pCodReal && fPto === pCodReal) return true;
-        if (pObraId && fObra === pObraId) return true;
-        if (pCodReal && limpiarTexto(fDesc).includes(limpiarTexto(pCodReal))) return true;
-        if (pNombreReal && limpiarTexto(fDesc).includes(limpiarTexto(pNombreReal))) return true;
-        if (fPto === String(indicePresupuesto) || fDesc.includes(`Presupuesto: ${pIdReal}`) || fDesc.includes(`Presupuesto: ${indicePresupuesto}`)) {
-          return true;
-        }
-        return false;
-      })
-      .map((f, i) => ({ ...f, _uid: f.id || f.ID || f.n_factura || `fac_temp_${i}` }));
-
-    let granTotalPresupuestadoRubrosTemp = 0;
+    // --- PILAR 1: CÁLCULO DEL COSTO DIRECTO Y EXTRACCIÓN DE IMPREVISTOS ---
+    let costoDirectoTotal = 0;
     const rubrosIntermedios = rubrosList.map((r, rIdx) => {
       const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
-      let tareasList = r?.tareas || r?.items || r?.subitems || [];
+      let tareasList = r?.tareas || r?.items || [];
       if (typeof tareasList === 'string') { try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; } }
 
       const categoriasMap = {};
       ordenCategorias.forEach(cat => { categoriasMap[cat] = { presupuestado: 0, real: 0, desvio: 0 }; });
 
       let totalRubroPresupuestado = 0;
-
       if (Array.isArray(tareasList)) {
         tareasList.forEach(t => {
           let insumosList = t?.insumos || t?.materiales || [];
@@ -299,16 +247,12 @@ export default function ComparativoTab({
 
           if (!Array.isArray(insumosList) || insumosList.length === 0) {
             const tareaTotal = parsearMonto(t?.total) || (parsearMonto(t?.cantidad || 1) * parsearMonto(t?.costo_unitario || 0));
-            const tipoExplicitTarea = t?.tipo || '';
-            const descTarea = t?.descripcion || t?.tarea || '';
-            const catDestino = resolverTipoInsumoOficial(descTarea, tipoExplicitTarea);
+            const catDestino = resolverTipoInsumoOficial(`${t?.descripcion || t?.tarea || ''}`, t?.tipo || '');
             categoriasMap[catDestino].presupuestado += tareaTotal;
             totalRubroPresupuestado += tareaTotal;
           } else {
             insumosList.forEach(ins => {
-              const tipoExplicit = ins?.tipo || ins?.categoria || ins?.rubro || t?.tipo || '';
-              const nombreIns = ins?.nombre || ins?.descripcion || t?.tarea || '';
-              const catDestino = resolverTipoInsumoOficial(nombreIns, tipoExplicit);
+              const catDestino = resolverTipoInsumoOficial(`${ins?.nombre || ins?.descripcion || ''}`, ins?.tipo || ins?.categoria || '');
               const insTotal = parsearMonto(ins?.total) || (parsearMonto(ins?.cantidad || 1) * parsearMonto(ins?.costo_unitario || ins?.precio || 0));
               categoriasMap[catDestino].presupuestado += insTotal;
               totalRubroPresupuestado += insTotal;
@@ -318,95 +262,126 @@ export default function ComparativoTab({
       }
       
       const montoRubroBase = totalRubroPresupuestado > 0 ? totalRubroPresupuestado : parsearMonto(r?.total || 0);
-      granTotalPresupuestadoRubrosTemp += montoRubroBase;
+      costoDirectoTotal += montoRubroBase;
 
       return { id: r?.id || rIdx, nombreRubro, categoriasMap, montoRubroBase };
     });
 
-    const facturasUsadas = new Set();
-    const resultadosGG = [];
-    if (Array.isArray(ggList)) {
-      ggList.forEach((gg, idx) => {
-        const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
-        const cantGG = parsearMonto(gg?.cantidad || gg?.cant || 1);
-        const unitGG = parsearMonto(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
-        const presupuestadoGG = parsearMonto(gg?.total || gg?.monto) || (cantGG * unitGG);
-        const normGG = limpiarTexto(nombreGG);
+    // Inyección del "Imprevisto" mediante porcentaje sobre Costo Directo
+    const pctImprevisto = parsearMonto(comercialObj?.porcentaje_imprevistos || comercialObj?.porcentaje_imprevisto || 0);
+    let montoImprevistosFijo = parsearMonto(comercialObj?.imprevistos_monto || comercialObj?.imprevisto || parsedItemsDetalle?.imprevistos || 0);
+    
+    if (pctImprevisto > 0 && montoImprevistosFijo === 0) {
+      montoImprevistosFijo = costoDirectoTotal * (pctImprevisto / 100);
+    }
+    if (montoImprevistosFijo > 0 && !ggList.some(g => limpiarTexto(g?.concepto || g?.nombre || '').includes('imprevisto'))) {
+      ggList.push({ id: 'gg_imprevisto_calc', concepto: 'Imprevistos', presupuestado_calc: montoImprevistosFijo });
+    }
 
-        // NUEVA ESTRATEGIA DE ASIGNACIÓN REAL DE GASTOS GENERALES POR TÉRMINOS CLAVE
-        const facturasGG = facturasDelPto.filter(f => {
-          if (facturasUsadas.has(f._uid)) return false;
-          const textoFacGG = limpiarTexto(`${f?.rubro || ''} ${f?.rubro_imputacion || ''} ${f?.rubro_presupuesto || ''} ${f?.detalle_gasto || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.tipo_insumo || ''}`);
-          
-          if (normGG) {
-            // Si el concepto es Licenciado - (Programa) o similar, validamos términos robustos
-            const palabras = normGG.split(/[\s\-_()]+/).filter(p => p.length > 2);
-            const matchesCount = palabras.filter(p => textoFacGG.includes(p)).length;
-            
-            if (textoFacGG.includes(normGG) || (palabras.length > 0 && matchesCount >= Math.min(2, palabras.length))) {
-              facturasUsadas.add(f._uid);
-              return true;
-            }
-          }
-          return false;
-        });
+    // --- PILAR 2: SEPARACIÓN DE EGRESOS EN DOS BOLSAS (Obra vs Gastos Generales) ---
+    const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
+    const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
+    
+    const bolsaObra = [];
+    const bolsaGG = [];
+
+    todosLosEgresos.forEach((f, i) => {
+      const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
+      const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || f?.rubro_imputacion || '');
+      
+      let perteneceAlProyecto = false;
+      if (pIdReal && fPto === pIdReal) perteneceAlProyecto = true;
+      if (pCodReal && fPto === pCodReal) perteneceAlProyecto = true;
+      if (pCodReal && limpiarTexto(fDesc).includes(limpiarTexto(pCodReal))) perteneceAlProyecto = true;
+
+      if (perteneceAlProyecto) {
+        const textoFull = `${f?.rubro_imputacion || ''} ${f?.concepto || ''} ${f?.descripcion || ''} ${f?.detalle_gasto || ''}`;
+        const tipoMacro = resolverTipoInsumoOficial(textoFull, f?.tipo_insumo || '');
+        const objGasto = { ...f, _uid: `fac_${i}`, _usada: false, _catAsignada: tipoMacro };
         
-        const realGG = facturasGG.reduce((acc, f) => acc + parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe), 0);
-        resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
+        if (tipoMacro === 'Gastos Generales') {
+          bolsaGG.push(objGasto);
+        } else {
+          bolsaObra.push(objGasto);
+        }
+      }
+    });
+
+    // --- PILAR 3: ASIGNACIÓN INTELIGENTE DE GASTOS GENERALES ---
+    const resultadosGG = [];
+    ggList.forEach((gg, idx) => {
+      const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
+      const cantGG = parsearMonto(gg?.cantidad || gg?.cant || 1);
+      const unitGG = parsearMonto(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
+      const presupuestadoGG = gg?.presupuestado_calc || (parsearMonto(gg?.total || gg?.monto) || (cantGG * unitGG));
+      
+      const sinonimos = obtenerSinonimosGG(nombreGG);
+      let realGG = 0;
+
+      bolsaGG.forEach(f => {
+        if (!f._usada) {
+          const textoFac = limpiarTexto(`${f.rubro_imputacion || ''} ${f.concepto || ''} ${f.detalle_gasto || ''}`);
+          // Busca coincidencia en el diccionario de sinónimos
+          if (sinonimos.some(sin => textoFac.includes(sin))) {
+            realGG += parsearMonto(f.subtotal || f.total || f.monto || f.importe);
+            f._usada = true; // Marcar como consumida
+          }
+        }
+      });
+      resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
+    });
+
+    // --- PILAR 4: FILA SALVAVIDAS PARA GASTOS GENERALES NO CLASIFICADOS ---
+    let ggRealNoClasificado = 0;
+    bolsaGG.forEach(f => {
+      if (!f._usada) {
+        ggRealNoClasificado += parsearMonto(f.subtotal || f.total || f.monto || f.importe);
+        f._usada = true;
+      }
+    });
+
+    if (ggRealNoClasificado > 0) {
+      resultadosGG.push({
+        id: 'gg_no_clasificado',
+        concepto: 'Otros Gastos Generales (Fuera de Cotización)',
+        presupuestado: 0,
+        real: ggRealNoClasificado,
+        desvio: -ggRealNoClasificado
       });
     }
 
+    // --- ASIGNACIÓN DE RUBROS DE OBRA ---
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
       
+      // Asignar reportes SICE (Horas de mano de obra directas)
       let totalHsSice = 0;
       allReportesSice.forEach(rep => {
         const repRubro = limpiarTexto(rep?.rubro || rep?.obra_rubro || '');
         (rep?.items || []).forEach(it => {
-          const itDesc = limpiarTexto(it?.descripcion || '');
-          if (repRubro === normRubro || itDesc.includes(normRubro)) {
+          if (repRubro === normRubro || limpiarTexto(it?.descripcion || '').includes(normRubro)) {
             totalHsSice += parsearMonto(rep?.totalHorasSuma || rep?.horas || 0);
           }
         });
       });
       ri.categoriasMap['Mano de Obra'].real += (totalHsSice * 15000);
 
-      const facturasRubro = facturasDelPto.filter(f => {
-        if (facturasUsadas.has(f._uid)) return false; 
-        
-        const fRubro = limpiarTexto(f?.rubro || f?.rubro_imputacion || f?.rubro_presupuesto || '');
-        const fTextRaw = `${f?.concepto || ''} ${f?.descripcion || ''} ${f?.detalle_gasto || ''}`;
-        
-        if (fRubro && (fRubro === normRubro || fRubro.includes(normRubro) || normRubro.includes(fRubro))) {
-          facturasUsadas.add(f._uid);
-          return true;
-        }
+      // Asignar egresos de la bolsaObra al rubro correspondiente
+      bolsaObra.forEach(f => {
+        if (!f._usada) {
+          const fRubro = limpiarTexto(f?.rubro_imputacion || f?.rubro_presupuesto || f?.rubro || '');
+          const fTextRaw = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
+          
+          let coincide = false;
+          if (fRubro && (fRubro === normRubro || fRubro.includes(normRubro) || normRubro.includes(fRubro))) coincide = true;
+          else if (fTextRaw.includes(normRubro)) coincide = true;
 
-        const matchCorchetes = fTextRaw.match(/\[Rubro:\s*(.*?)\s*-/i);
-        if (matchCorchetes && matchCorchetes[1]) {
-          const rubroExtraido = limpiarTexto(matchCorchetes[1]);
-          if (rubroExtraido === normRubro || normRubro.includes(rubroExtraido)) {
-            facturasUsadas.add(f._uid);
-            return true;
+          if (coincide) {
+            const montoF = parsearMonto(f.subtotal || f.total || f.monto || f.importe);
+            ri.categoriasMap[f._catAsignada].real += montoF;
+            f._usada = true;
           }
         }
-
-        if (limpiarTexto(fTextRaw).includes(normRubro)) {
-          facturasUsadas.add(f._uid);
-          return true;
-        }
-
-        return false;
-      });
-
-      facturasRubro.forEach(f => {
-        const montoFactura = parsearMonto(f?.subtotal || f?.total || f?.monto || f?.importe);
-        const tipoExplicitoFactura = f?.tipo_insumo || f?.tipoInsumo || f?.categoria || f?.tipo || '';
-        const detalleFactura = f?.concepto || f?.descripcion || f?.detalle_gasto || '';
-        
-        let catDestino = resolverTipoInsumoOficial(detalleFactura, tipoExplicitoFactura);
-        
-        ri.categoriasMap[catDestino].real += montoFactura;
       });
 
       let totalRealRubro = 0;
@@ -426,7 +401,7 @@ export default function ComparativoTab({
     });
 
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
-  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias, presupuestosAprobados]);
+  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias]);
 
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
@@ -569,10 +544,10 @@ export default function ComparativoTab({
                       <td colSpan="4" className="px-4 py-2.5">GASTOS GENERALES E IMPREVISTOS</td>
                     </tr>
                     {gastosGeneralesDetalle.map((gg) => (
-                      <tr key={`gg-${gg.id}`} className="hover:bg-slate-50 font-medium text-[11px]">
-                        <td className="px-8 py-2 text-slate-700">{gg.concepto}</td>
+                      <tr key={`gg-${gg.id}`} className={`hover:bg-slate-50 font-medium text-[11px] ${gg.id === 'gg_no_clasificado' ? 'bg-rose-50/50' : ''}`}>
+                        <td className={`px-8 py-2 ${gg.id === 'gg_no_clasificado' ? 'text-rose-700 font-bold' : 'text-slate-700'}`}>{gg.concepto}</td>
                         <td className="px-4 py-2 text-right font-bold text-slate-800">$ {gg.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-4 py-2 text-right text-amber-700 font-bold">$ {gg.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                        <td className={`px-4 py-2 text-right font-bold ${gg.id === 'gg_no_clasificado' ? 'text-rose-700' : 'text-amber-700'}`}>$ {gg.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                         <td className="px-4 py-2 text-right font-bold">
                           {renderDesvioConFlecha(gg.desvio)}
                         </td>
