@@ -28,21 +28,24 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const formatearMesBase = (val) => {
     if (!val) return '---';
     try {
-      let fecha = new Date(val);
-      if (!isNaN(fecha.getTime())) {
-        const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-        const mes = meses[fecha.getUTCMonth()];
-        const anio = fecha.getUTCFullYear();
-        return `${mes}-${anio}`;
-      }
+      // Si viene en formato mm/aaaa o yyyy-mm
+      if (val.includes('/')) return val;
       if (val.includes('-')) {
         const partes = val.split('-');
         if (partes.length >= 2) {
-          const anio = partes[0];
-          const numMes = parseInt(partes[1], 10) - 1;
-          const meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-          if (meses[numMes]) return `${meses[numMes]}-${anio}`;
+          // Podría ser yyyy-mm
+          if (partes[0].length === 4) {
+            return `${partes[1]}/${partes[0]}`;
+          }
+          // O mm-yyyy
+          return `${partes[0]}/${partes[1]}`;
         }
+      }
+      let fecha = new Date(val);
+      if (!isNaN(fecha.getTime())) {
+        const mes = String(fecha.getUTCMonth() + 1).padStart(2, '0');
+        const anio = fecha.getUTCFullYear();
+        return `${mes}/${anio}`;
       }
     } catch (e) {}
     return val;
@@ -251,6 +254,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
   const [formData, setFormData] = useState({
     codigo: '',
+    nro_contrato_cliente: '',
     nombre_contrato: '',
     cliente: '',
     ubicacion: '',
@@ -315,12 +319,15 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
   const abrirModalNuevo = () => {
     setContratoEditando(null);
+    const fechaActual = new Date();
+    const mesActualStr = `${String(fechaActual.getMonth() + 1).padStart(2, '0')}/${fechaActual.getFullYear()}`;
     setFormData({
       codigo: generarNuevoCodigo(),
+      nro_contrato_cliente: '',
       nombre_contrato: '',
       cliente: '',
       ubicacion: '',
-      mes_base: new Date().toISOString().slice(0, 7),
+      mes_base: mesActualStr,
       actualizacion: 'Polinómica',
       estado: 'Borrador',
       descripcion: '',
@@ -365,6 +372,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
     setFormData({
       codigo: c.codigo || generarNuevoCodigo(),
+      nro_contrato_cliente: c.nro_contrato_cliente || c.nroContratoCliente || '',
       nombre_contrato: c.nombre_contrato || '',
       cliente: c.cliente || '',
       ubicacion: c.ubicacion || '',
@@ -483,6 +491,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     const estado = String(c.estado || '').toLowerCase();
     const matchBusqueda = 
       String(c.codigo || '').toLowerCase().includes(busqueda.toLowerCase()) ||
+      String(c.nro_contrato_cliente || '').toLowerCase().includes(busqueda.toLowerCase()) ||
       String(c.nombre_contrato || '').toLowerCase().includes(busqueda.toLowerCase()) ||
       String(c.cliente || '').toLowerCase().includes(busqueda.toLowerCase()) ||
       String(c.ubicacion || '').toLowerCase().includes(busqueda.toLowerCase());
@@ -607,8 +616,11 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <ArrowLeft className="w-5 h-5" />
             </button>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-xs font-bold px-2.5 py-0.5 bg-amber-500/10 text-amber-600 rounded-full border border-amber-500/20">{contratoDetalle.codigo}</span>
+                {contratoDetalle.nro_contrato_cliente && (
+                  <span className="text-xs font-bold px-2.5 py-0.5 bg-blue-500/10 text-blue-700 rounded-full border border-blue-500/20">Nº Cliente: {contratoDetalle.nro_contrato_cliente}</span>
+                )}
                 <h1 className="text-xl font-black text-slate-800">{contratoDetalle.nombre_contrato || 'Contrato sin nombre'}</h1>
                 <span className="text-xs font-semibold px-2.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg">{contratoDetalle.estado}</span>
               </div>
@@ -1088,7 +1100,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
         {subTabDetalle === 'general' && (
           <div className="space-y-6">
-            {/* Barra de Acciones de Exportación */}
             <div className="flex flex-wrap items-center justify-between gap-4 bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
               <div>
                 <h3 className="text-sm font-black text-slate-800 uppercase">Exportar Contrato</h3>
@@ -1116,7 +1127,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               </div>
             </div>
 
-            {/* Configuración de Firmantes, Cargos y Claves de Seguridad */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-4">
               <h3 className="text-sm font-black text-slate-800 uppercase flex items-center gap-2">
                 <Key className="w-4 h-4 text-amber-500" /> Configuración de Firmantes y Claves para Reportes Diarios
@@ -1124,7 +1134,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <p className="text-xs text-slate-500">Modifique los datos por defecto (Cargos, Nombres y Claves) que se precargarán al redactar un parte diario con este contrato.</p>
               
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-2">
-                {/* PROVEEDOR */}
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
                   <h4 className="text-xs font-bold uppercase text-slate-700 bg-slate-200/60 p-1.5 rounded">Responsable Proveedor</h4>
                   <div>
@@ -1170,7 +1179,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   </div>
                 </div>
 
-                {/* CLIENTE */}
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
                   <h4 className="text-xs font-bold uppercase text-slate-700 bg-slate-200/60 p-1.5 rounded">Responsable Cliente</h4>
                   <div>
@@ -1218,12 +1226,16 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               </div>
             </div>
 
-            {/* Contenido Imprimible y Exportable */}
             <div id="documento-contrato-imprimible" className="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 space-y-6 max-w-4xl mx-auto text-slate-800">
               <div className="flex justify-between items-start border-b border-slate-200 pb-6">
                 <div>
                   <h2 className="text-xl font-black text-slate-900">CONTRATO DE SERVICIOS DE MANTENIMIENTO</h2>
-                  <p className="text-xs text-slate-500 mt-1">Código de Referencia: <strong className="text-amber-600">{contratoDetalle.codigo}</strong></p>
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-xs text-slate-500">Código Interno: <strong className="text-amber-600">{contratoDetalle.codigo}</strong></p>
+                    {contratoDetalle.nro_contrato_cliente && (
+                      <p className="text-xs text-slate-500">• Nº Contrato Cliente: <strong className="text-blue-600">{contratoDetalle.nro_contrato_cliente}</strong></p>
+                    )}
+                  </div>
                 </div>
                 <div className="text-right">
                   <span className="text-xs font-bold px-3 py-1 bg-amber-500/10 text-amber-700 rounded-full border border-amber-500/20 uppercase">{contratoDetalle.estado}</span>
@@ -1257,7 +1269,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
               </div>
 
-              {/* Botones para Subir Contrato General y Acuerdo Económico */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col items-center text-center space-y-3">
                   <h4 className="text-xs font-black uppercase tracking-wider text-slate-700">Contrato General</h4>
@@ -1384,7 +1395,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           <table className="w-full text-left border-collapse text-sm">
             <thead>
               <tr className="bg-slate-50 text-slate-500 font-semibold border-b border-slate-200">
-                <th className="p-4">Código</th>
+                <th className="p-4">Código / Nº Cliente</th>
                 <th className="p-4">Nombre del Contrato</th>
                 <th className="p-4">Cliente</th>
                 <th className="p-4">Ubicación / Planta</th>
@@ -1404,7 +1415,12 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               ) : (
                 contratosFiltrados.map((c) => (
                   <tr key={c.id} className="hover:bg-slate-50/80 transition-colors">
-                    <td className="p-4 font-bold text-slate-700">{c.codigo}</td>
+                    <td className="p-4 font-bold text-slate-700">
+                      <div>{c.codigo}</div>
+                      {c.nro_contrato_cliente && (
+                        <span className="text-[11px] text-blue-600 font-semibold">Nº: {c.nro_contrato_cliente}</span>
+                      )}
+                    </td>
                     <td className="p-4 font-semibold text-slate-800">{c.nombre_contrato || 'Sin Nombre'}</td>
                     <td className="p-4 text-slate-600">{c.cliente || '---'}</td>
                     <td className="p-4 text-slate-600 flex items-center gap-1.5 pt-5">
@@ -1477,7 +1493,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
             </div>
 
             <form onSubmit={guardarContrato} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Código (Automático)</label>
                   <input 
@@ -1485,6 +1501,16 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                     disabled
                     value={formData.codigo}
                     className="w-full bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-500 font-bold"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Nº de Contrato (Cliente)</label>
+                  <input 
+                    type="text" 
+                    placeholder="Ej: CTR-2026-99"
+                    value={formData.nro_contrato_cliente}
+                    onChange={(e) => setFormData({...formData, nro_contrato_cliente: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-semibold text-blue-700"
                   />
                 </div>
                 <div>
@@ -1559,13 +1585,13 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Mes Base</label>
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Mes Base (MM/AAAA)</label>
                   <input 
                     type="text" 
                     value={formData.mes_base}
                     onChange={(e) => setFormData({...formData, mes_base: e.target.value})}
-                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-                    placeholder="Ej: Agosto-2026"
+                    className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-mono"
+                    placeholder="Ej: 08/2026"
                   />
                 </div>
                 <div>
@@ -1582,7 +1608,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
               </div>
 
-              {/* CUADROS PARA CONFIGURAR DATOS POR DEFECTO DE FIRMANTES Y CLAVES EN EL MODAL */}
               <div className="border-2 border-amber-500/40 rounded-2xl p-4 bg-amber-50/30 space-y-4">
                 <h4 className="font-black text-amber-900 uppercase flex items-center gap-2 text-xs">
                   <ShieldCheck className="w-4 h-4 text-amber-600" /> Configuración de Firmantes y Claves para Reportes Diarios
@@ -1592,7 +1617,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </p>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* PROVEEDOR */}
                   <div className="bg-white p-4 rounded-xl border border-slate-300 space-y-3 shadow-sm">
                     <h5 className="font-extrabold text-slate-800 uppercase text-[11px] bg-slate-100 p-1.5 rounded">Responsable Proveedor</h5>
                     <div>
@@ -1628,7 +1652,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                     </div>
                   </div>
 
-                  {/* CLIENTE */}
                   <div className="bg-white p-4 rounded-xl border border-slate-300 space-y-3 shadow-sm">
                     <h5 className="font-extrabold text-slate-800 uppercase text-[11px] bg-slate-100 p-1.5 rounded">Responsable Cliente</h5>
                     <div>
