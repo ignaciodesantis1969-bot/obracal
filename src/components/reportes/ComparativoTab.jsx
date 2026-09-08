@@ -168,11 +168,20 @@ export default function ComparativoTab({
   };
 
   const todosLosEgresos = useMemo(() => {
+    // fix: Tesorería nunca tiene "subtotal" (guarda el importe en "monto"),
+    // así que había que calcular _montoReal para esos registros también,
+    // no solo para "facturas". Antes, todo lo cargado directo en Tesorería
+    // (sueldos, cargas sociales, pagos manuales) se contaba como $0 real
+    // porque el código buscaba f.subtotal donde no existe.
     const facturasProcesadas = (Array.isArray(facturas) ? facturas : []).map(f => ({
       ...f,
       _montoReal: obtenerMontoNetoFactura(f)
     }));
-    return [...facturasProcesadas, ...(Array.isArray(tesoreria) ? tesoreria : [])];
+    const tesoreriaProcesada = (Array.isArray(tesoreria) ? tesoreria : []).map(t => ({
+      ...t,
+      _montoReal: parsearMonto(t?.monto ?? t?.subtotal ?? t?.total ?? t?.importe)
+    }));
+    return [...facturasProcesadas, ...tesoreriaProcesada];
   }, [facturas, tesoreria]);
 
   const { analisisRubrosDetallado, gastosGeneralesDetalle } = useMemo(() => {
@@ -311,7 +320,7 @@ export default function ComparativoTab({
 
         if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
           if (tipoIns === normGG) {
-            realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal));
+            realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.monto ?? f?.subtotal));
           }
         }
       });
@@ -347,7 +356,7 @@ export default function ComparativoTab({
         }
 
         if (coincideRubro && !rubroImp.includes('gasto') && !rubroImp.includes('imprevisto')) {
-          const monto = f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal);
+          const monto = f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.monto ?? f?.subtotal);
           const categoriaDestino = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''} ${f?.rubro_imputacion || ''}`);
           ri.categoriasMap[categoriaDestino].real += monto;
         }

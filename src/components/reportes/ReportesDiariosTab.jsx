@@ -315,7 +315,10 @@ export default function ReportesDiariosTab({
   };
 
   const eliminarParteServidor = async (idParte) => {
-    if (esOperador) return;
+    const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
+    const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
+    if (esRolOperadorRestringido) return;
+
     if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
     const toastId = toast.loading('Eliminando parte diario...');
     try {
@@ -846,6 +849,10 @@ export default function ReportesDiariosTab({
               const cNombre = (cObj && typeof cObj === 'object') ? (cObj.nombre || '---') : (cObj || '---');
               const cCargo = (cObj && typeof cObj === 'object') ? (cObj.cargo || '---') : '';
 
+              // Verificación estricta de roles para ocultar botones de borrado a operadores y operadores II
+              const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
+              const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
+
               return (
                 <div key={parteId} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <div>
@@ -880,7 +887,8 @@ export default function ReportesDiariosTab({
                         <Eye className="w-4 h-4" /> Visualizar
                       </button>
                     )}
-                    {!esOperador && (
+                    
+                    {!esRolOperadorRestringido && (
                       <button 
                         onClick={() => eliminarParteServidor(parteId)}
                         className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
