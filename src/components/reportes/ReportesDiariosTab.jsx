@@ -12,7 +12,7 @@ export default function ReportesDiariosTab({
   listaEmpleadosActivos: propEmpleados = [],
   personal: propPersonal = [],
   esOperador = false,
-  currentUser = null, // Recibimos el usuario actual si está disponible
+  currentUser = null,
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
     for (const key of keys) {
@@ -25,8 +25,15 @@ export default function ReportesDiariosTab({
   const { data: reportesSheet, refetch: refetchReportes } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: personalSheet } = useObraData('Personal');
 
-  // Estado local para fetch independiente blindado
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
+  const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
+    try {
+      const eliminados = localStorage.getItem('sice_partes_eliminados_ids');
+      return eliminados ? JSON.parse(eliminados) : [];
+    } catch {
+      return [];
+    }
+  });
 
   useEffect(() => {
     fetch(GOOGLE_SCRIPT_URL, {
@@ -59,7 +66,7 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación de fuentes (Props + Hook + Fetch Independiente + Caché Local)
+  // Consolidación de fuentes filtrando estrictamente los IDs eliminados por administradores
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
     const s = extraerArrayDatos(reportesSheet);
@@ -76,12 +83,15 @@ export default function ReportesDiariosTab({
     
     combinados.forEach(item => {
       if (!item) return;
-      const key = String(item.id || item.ID || item.nro || item.Nro || Math.random());
+      const idItem = String(item.id || item.ID || item.nro || item.Nro || '').trim();
+      if (idsEliminadosLocales.includes(idItem)) return; // Excluir eliminados
+
+      const key = idItem || Math.random();
       if (!unicosMap.has(key)) unicosMap.set(key, item);
     });
 
     return Array.from(unicosMap.values());
-  }, [propReportes, reportesSheet, fetchedReportesLocal]);
+  }, [propReportes, reportesSheet, fetchedReportesLocal, idsEliminadosLocales]);
 
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
@@ -96,7 +106,6 @@ export default function ReportesDiariosTab({
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
 
-  // Obtener el contrato seleccionado actualmente y extraer su número de contrato de cliente
   const contratoActivoObj = useMemo(() => {
     if (!contratoSeleccionadoId) return null;
     return contratosList.find(c => {
@@ -259,12 +268,14 @@ export default function ReportesDiariosTab({
 
       const rawSuma = parseFloat(buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma', 'TotalHorasSuma']) || 0);
       const usuarioGen = buscarValorEnObjeto(r, ['generadopor', 'generadoPor', 'usuario', 'Usuario']) || 'Sistema';
+      const nroCli = buscarValorEnObjeto(r, ['nrocontratocliente', 'nroContratoCliente', 'contrato_cliente']) || '---';
 
       return {
         id: buscarValorEnObjeto(r, ['id', 'ID', 'nro', 'Nro']) || `sice-${Math.random()}`,
         nro: buscarValorEnObjeto(r, ['nro', 'Nro', 'numero', 'Numero']) || '00001',
         fecha: buscarValorEnObjeto(r, ['fecha', 'Fecha']) || '',
         contratoid: buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id']) || '',
+        nroContratoCliente: nroCli,
         items: Array.isArray(itemsParsed) ? itemsParsed : [],
         operarios: Array.isArray(operariosParsed) ? operariosParsed.map(op => ({
           ...op,
@@ -314,17 +325,27 @@ export default function ReportesDiariosTab({
         body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', action: 'delete', id: idParte })
       });
 
+      const idLimpio = String(idParte).trim();
+
+      // Guardar en lista negra de eliminados en localStorage
+      const nuevosEliminados = [...idsEliminadosLocales, idLimpio];
+      setIdsEliminadosLocales(nuevosEliminados);
+      localStorage.setItem('sice_partes_eliminados_ids', JSON.stringify(nuevosEliminados));
+
+      // Limpiar caché local
       try {
         const cached = localStorage.getItem('sice_partes_local_cache_v2');
         if (cached) {
-          const parsedCache = JSON.parse(cached).filter(p => String(p.id || p.nro) !== String(idParte));
-          localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(parsedCache));
+          const parsedCache = JSON.parse(cached);
+          const cacheFiltrada = parsedCache.filter(p => String(p.id || p.ID || p.nro || '').trim() !== idLimpio);
+          localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(cacheFiltrada));
         }
       } catch (e) {}
 
-      setFetchedReportesLocal(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
-      setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])) !== String(idParte)));
+      setFetchedReportesLocal(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])).trim() !== idLimpio));
+      setFetchedReportesSice(prev => prev.filter(p => String(buscarValorEnObjeto(p, ['id', 'ID', 'nro'])).trim() !== idLimpio));
       if (typeof refetchReportes === 'function') refetchReportes();
+
       toast.success('Parte diario eliminado exitosamente', { id: toastId });
     } catch (err) {
       toast.error('Ocurrió un error al intentar eliminar el parte', { id: toastId });
@@ -384,8 +405,6 @@ export default function ReportesDiariosTab({
 
     setIsSavingSice(true);
     const toastId = toast.loading('Generando PDF en Google Drive y guardando...');
-
-    // Detectar nombre del usuario generador (props, localStorage o genérico)
     const nombreUsuarioGenerador = currentUser?.nombre || currentUser?.name || localStorage.getItem('usuario_actual') || 'Usuario Operativo';
 
     try {
@@ -900,9 +919,7 @@ export default function ReportesDiariosTab({
                 <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">LDC Argentina S.A.</span></div>
                 <div><span className="text-slate-500 font-semibold">Fecha:</span> <span className="font-bold">{parteVisualizando?.fecha}</span></div>
                 <div><span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono">{parteVisualizando?.nro}</span></div>
-                {parteVisualizando?.nroContratoCliente && (
-                  <div><span className="text-slate-500 font-semibold">Nº Contrato Cliente:</span> <span className="font-bold text-blue-700">{parteVisualizando.nroContratoCliente}</span></div>
-                )}
+                <div><span className="text-slate-500 font-semibold">Nº Contrato Cliente:</span> <span className="font-bold text-blue-700">{parteVisualizando?.nroContratoCliente || '---'}</span></div>
                 <div><span className="text-slate-500 font-semibold">Generado por:</span> <span className="font-bold text-slate-700">{parteVisualizando?.generadoPor || 'Sistema'}</span></div>
               </div>
             </div>
