@@ -115,7 +115,6 @@ export default function ComparativoTab({
     const tc = limpiarTexto(textoCompleto);
     const combinado = `${tipoExp} ${tc}`;
 
-    // Validación ampliada para capturar sueldos, cargas sociales y afines dentro de Mano de Obra
     if (
       combinado.includes('mano de obra') || 
       combinado.includes('rrhh') || 
@@ -298,7 +297,7 @@ export default function ComparativoTab({
         const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
 
         if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          if (tipoIns === normGG) {
+          if (tipoIns === normGG || tipoIns.includes(normGG) || normGG.includes(tipoIns)) {
             realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.subtotal));
           }
         }
@@ -307,7 +306,7 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 2. ASIGNACIÓN DE RUBROS DE OBRA
+    // 2. ASIGNACIÓN DE RUBROS DE OBRA (Flexible y robusta para evitar mezclas)
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
@@ -324,13 +323,12 @@ export default function ComparativoTab({
 
       egresosProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
-        const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
         const conceptoFull = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
 
         let coincideRubro = false;
         if (rubroImp && (rubroImp === normRubro || rubroImp.includes(normRubro) || normRubro.includes(rubroImp))) {
           coincideRubro = true;
-        } else if (conceptoFull.includes(normRubro)) {
+        } else if (normRubro.split(' ').some(palabra => palabra.length > 3 && (rubroImp.includes(palabra) || conceptoFull.includes(palabra)))) {
           coincideRubro = true;
         }
 
