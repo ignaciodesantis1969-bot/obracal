@@ -27,10 +27,10 @@ export default function ReportesDiariosTab({
 
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
 
-  // Lista negra global compartida de IDs y números eliminados
+  // Lista negra global compartida sincronizada en el navegador
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
     try {
-      const eliminados = localStorage.getItem('sice_partes_eliminados_global_v4');
+      const eliminados = localStorage.getItem('sice_partes_eliminados_global_v5');
       return eliminados ? JSON.parse(eliminados) : [];
     } catch {
       return [];
@@ -74,7 +74,7 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación y filtrado estricto aplicando la lista negra global
+  // Consolidación y filtrado estricto aplicando la lista negra global y eliminando duplicados
   const allReportesSice = useMemo(() => {
     const l = extraerArrayDatos(fetchedReportesLocal);
     const s = extraerArrayDatos(reportesSheet);
@@ -91,7 +91,7 @@ export default function ReportesDiariosTab({
       const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
       const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
 
-      // Verificar si está en la lista negra global de eliminados
+      // Validar contra la lista negra global de eliminados
       const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
       const estaEliminadoPorNro = nroCrud && (
         idsEliminadosLocales.includes(nroCrud) || 
@@ -377,7 +377,7 @@ export default function ReportesDiariosTab({
       const nroNum = nroOriginal ? parseInt(nroOriginal.replace(/\D/g, ''), 10).toString() : '';
       const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
 
-      // Actualizar la lista negra global en localStorage
+      // Registrar en la lista negra global
       const nuevosEliminados = Array.from(new Set([
         ...idsEliminadosLocales,
         idLimpio,
@@ -387,7 +387,7 @@ export default function ReportesDiariosTab({
       ].filter(Boolean)));
 
       setIdsEliminadosLocales(nuevosEliminados);
-      localStorage.setItem('sice_partes_eliminados_global_v4', JSON.stringify(nuevosEliminados));
+      localStorage.setItem('sice_partes_eliminados_global_v5', JSON.stringify(nuevosEliminados));
 
       setFetchedReportesLocal(prev => prev.filter(item => {
         const iId = String(item?.id || item?.ID || '').trim();
