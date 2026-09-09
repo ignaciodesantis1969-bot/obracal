@@ -27,7 +27,6 @@ export default function ReportesDiariosTab({
 
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
 
-  // Carga directa de datos del servidor sin intermediación de localBlacklist
   const cargarReportesServidor = useCallback(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -65,7 +64,7 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación limpia unificando por ID o Número real proveniente de Google Sheets
+  // Consolidación inteligente que elimina duplicados normalizando el número de parte (ej: '1' y '00001')
   const allReportesSice = useMemo(() => {
     const l = extraerArrayDatos(fetchedReportesLocal);
     const s = extraerArrayDatos(reportesSheet);
@@ -79,10 +78,23 @@ export default function ReportesDiariosTab({
       
       const idItem = String(item.id || item.ID || '').trim();
       const nroCrud = String(item.nro || item.Nro || item.numero || '').trim();
-      const key = idItem || nroCrud;
+      
+      // Normalizar número eliminando ceros a la izquierda para detectar duplicados (1 == 00001)
+      const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
+      
+      // Clave unificada priorizando el número normalizado para evitar duplicados en el historial
+      const key = nroNormalizado ? `nro-${nroNormalizado}` : (idItem || Math.random());
 
-      if (key && !unicosMap.has(key)) {
+      if (!unicosMap.has(key)) {
         unicosMap.set(key, item);
+      } else {
+        // Si ya existe, nos aseguramos de conservar el que tenga URL de PDF o más datos completos
+        const existente = unicosMap.get(key);
+        const tienePdfNuevo = Boolean(item?.pdf_url || item?.pdfUrl);
+        const tienePdfViejo = Boolean(existente?.pdf_url || existente?.pdfUrl);
+        if (tienePdfNuevo && !tienePdfViejo) {
+          unicosMap.set(key, item);
+        }
       }
     });
 
@@ -263,12 +275,23 @@ export default function ReportesDiariosTab({
       }
 
       const rawSuma = parseFloat(buscarValorEnObjeto(r, ['totalhorassuma', 'totalHorasSuma', 'TotalHorasSuma']) || 0);
-      const usuarioGen = buscarValorEnObjeto(r, ['generadopor', 'generadoPor', 'usuario', 'Usuario']) || 'Sistema';
+      const nroCrud = String(buscarValorEnObjeto(r, ['nro', 'Nro', 'numero', 'Numero']) || '1');
+      const nroLimpio = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString().padStart(5, '0') : '00001';
+
+      // Determinar dinámicamente "Generado por" según el rol o el campo guardado
+      const rawGeneradoPor = String(buscarValorEnObjeto(r, ['generadopor', 'generadoPor', 'usuario', 'Usuario']) || '').trim();
+      let generadoPorFinal = rawGeneradoPor;
+      const rolUserLower = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
+      
+      if (!generadoPorFinal || generadoPorFinal.toLowerCase() === 'sistema') {
+        generadoPorFinal = (rolUserLower === 'administrador' || rolUserLower === 'admin') ? 'Administrador' : 'Operario';
+      }
+
       const nroCli = buscarValorEnObjeto(r, ['nrocontratocliente', 'nroContratoCliente', 'contrato_cliente']) || '---';
 
       return {
         id: buscarValorEnObjeto(r, ['id', 'ID', 'nro', 'Nro']) || `sice-${Math.random()}`,
-        nro: buscarValorEnObjeto(r, ['nro', 'Nro', 'numero', 'Numero']) || '00001',
+        nro: nroLimpio,
         fecha: buscarValorEnObjeto(r, ['fecha', 'Fecha']) || '',
         contratoid: buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id']) || '',
         nroContratoCliente: nroCli,
@@ -280,11 +303,11 @@ export default function ReportesDiariosTab({
         proveedor: provParsed || { nombre: '', cargo: '' },
         cliente: cliParsed || { nombre: '', cargo: '' },
         totalHorasSuma: rawSuma.toFixed(2),
-        generadoPor: usuarioGen,
+        generadoPor: generadoPorFinal,
         pdfUrl: buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'urlPdf', 'pdfURL']) || ''
       };
     });
-  }, [contratoSeleccionadoId, allReportesSice, buscarValorEnObjeto]);
+  }, [contratoSeleccionadoId, allReportesSice, buscarValorEnObjeto, currentUser]);
 
   const agregarOperarioFila = () => {
     setOperariosSeleccionados([
@@ -322,7 +345,6 @@ export default function ReportesDiariosTab({
     const toastId = toast.loading('Eliminando parte diario del servidor...');
     
     try {
-      // Elimina directamente en Google Sheets mediante Apps Script
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -337,14 +359,12 @@ export default function ReportesDiariosTab({
       const idLimpio = String(idParte).trim();
       const nroOriginal = String(nroParte || '').trim();
 
-      // Limpia la caché local de este navegador para no mantener el objeto en memoria
       setFetchedReportesLocal(prev => prev.filter(item => {
         const iId = String(item?.id || item?.ID || '').trim();
         const iNro = String(item?.nro || item?.Nro || '').trim();
         return iId !== idLimpio && iNro !== nroOriginal;
       }));
 
-      // Limpia cualquier versión vieja cacheada localmente
       try {
         localStorage.removeItem('sice_partes_local_cache');
         localStorage.removeItem('sice_partes_local_cache_v2');
@@ -413,7 +433,8 @@ export default function ReportesDiariosTab({
 
     setIsSavingSice(true);
     const toastId = toast.loading('Generando PDF en Google Drive y guardando...');
-    const nombreUsuarioGenerador = currentUser?.nombre || currentUser?.name || localStorage.getItem('usuario_actual') || 'Usuario Operativo';
+    const rolActualUsuario = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
+    const nombreUsuarioGenerador = (rolActualUsuario === 'administrador' || rolActualUsuario === 'admin') ? 'Administrador' : 'Operario';
 
     try {
       const payloadPdf = {
@@ -860,7 +881,7 @@ export default function ReportesDiariosTab({
                         <span className="text-xs font-bold px-2 py-0.5 bg-blue-50 text-blue-700 rounded border border-blue-200">Nº Contrato Cliente: {parte.nroContratoCliente}</span>
                       )}
                       <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte?.totalHorasSuma} hs</span>
-                      <span className="text-[11px] font-medium text-slate-500">Generado por: <strong className="text-slate-700">{parte?.generadoPor || 'Sistema'}</strong></span>
+                      <span className="text-[11px] font-medium text-slate-500">Generado por: <strong className="text-slate-700">{parte?.generadoPor}</strong></span>
                     </div>
                     <p className="text-slate-700 text-xs mt-2">
                       Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cCargo})
@@ -925,7 +946,7 @@ export default function ReportesDiariosTab({
                 <div><span className="text-slate-500 font-semibold">Fecha:</span> <span className="font-bold">{parteVisualizando?.fecha}</span></div>
                 <div><span className="text-slate-500 font-semibold">Parte Nro.:</span> <span className="font-black text-amber-600 font-mono">{parteVisualizando?.nro}</span></div>
                 <div><span className="text-slate-500 font-semibold">Nº Contrato Cliente:</span> <span className="font-bold text-blue-700">{parteVisualizando?.nroContratoCliente || '---'}</span></div>
-                <div><span className="text-slate-500 font-semibold">Generado por:</span> <span className="font-bold text-slate-700">{parteVisualizando?.generadoPor || 'Sistema'}</span></div>
+                <div><span className="text-slate-500 font-semibold">Generado por:</span> <span className="font-bold text-slate-700">{parteVisualizando?.generadoPor}</span></div>
               </div>
             </div>
 
