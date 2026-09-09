@@ -48,8 +48,14 @@ export default function ReportesDiariosTab({
         if (Array.isArray(data)) {
           const filtradosServidor = data.filter(item => {
             const idItem = String(item?.id || item?.ID || '').trim();
-            const nroItem = String(item?.nro || item?.Nro || '').trim();
-            return !idsEliminadosLocales.includes(idItem) && !idsEliminadosLocales.includes(nroItem);
+            const nroCrud = String(item?.nro || item?.Nro || '').trim();
+            const nroNum = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
+            const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
+
+            const matchId = idItem && idsEliminadosLocales.includes(idItem);
+            const matchNro = nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNum) || idsEliminadosLocales.includes(nroPadded));
+
+            return !matchId && !matchNro;
           });
           setFetchedReportesLocal(filtradosServidor);
         }
@@ -75,7 +81,7 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación y filtrado estricto final absoluto
+  // Consolidación y filtrado estricto con normalización de ceros a la izquierda
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
     const s = extraerArrayDatos(reportesSheet);
@@ -88,8 +94,14 @@ export default function ReportesDiariosTab({
         const parsed = JSON.parse(cached);
         localCache = parsed.filter(item => {
           const idItem = String(item?.id || item?.ID || '').trim();
-          const nroItem = String(item?.nro || item?.Nro || '').trim();
-          return !idsEliminadosLocales.includes(idItem) && !idsEliminadosLocales.includes(nroItem);
+          const nroCrud = String(item?.nro || item?.Nro || '').trim();
+          const nroNum = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
+          const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
+
+          const matchId = idItem && idsEliminadosLocales.includes(idItem);
+          const matchNro = nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNum) || idsEliminadosLocales.includes(nroPadded));
+
+          return !matchId && !matchNro;
         });
       }
     } catch (e) {}
@@ -99,13 +111,18 @@ export default function ReportesDiariosTab({
     
     combinados.forEach(item => {
       if (!item) return;
-      const idItem = String(item.id || item.ID || '').trim();
-      const nroItem = String(item.nro || item.Nro || item.numero || '').trim();
       
-      // FILTRO ESTRICTO: Si el ID o el Nro están en la lista negra, se descartan por completo
-      if (idsEliminadosLocales.includes(idItem) || idsEliminadosLocales.includes(nroItem)) return; 
+      const idItem = String(item.id || item.ID || '').trim();
+      const nroCrud = String(item.nro || item.Nro || item.numero || '').trim();
+      const nroNum = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
+      const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
 
-      const key = idItem || nroItem || Math.random();
+      const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
+      const estaEliminadoPorNro = nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNum) || idsEliminadosLocales.includes(nroPadded));
+
+      if (estaEliminadoPorId || estaEliminadoPorNro) return; // Se descarta permanentemente
+
+      const key = idItem || nroCrud || Math.random();
       if (!unicosMap.has(key)) unicosMap.set(key, item);
     });
 
@@ -351,14 +368,21 @@ export default function ReportesDiariosTab({
       });
 
       const idLimpio = String(idParte).trim();
-      const nroLimpio = String(nroParte || '').trim();
+      const nroOriginal = String(nroParte || '').trim();
+      const nroNumerico = nroOriginal ? parseInt(nroOriginal.replace(/\D/g, ''), 10).toString() : '';
 
-      // Guardar de forma persistente tanto ID como Nro en la lista negra local
-      const nuevosEliminados = Array.from(new Set([...idsEliminadosLocales, idLimpio, nroLimpio].filter(Boolean)));
+      // Agregar todas las variaciones posibles a la lista negra local
+      const nuevosEliminados = Array.from(new Set([
+        ...idsEliminadosLocales, 
+        idLimpio, 
+        nroOriginal, 
+        nroNumerico,
+        nroNumerico ? nroNumerico.padStart(5, '0') : ''
+      ].filter(Boolean)));
+
       setIdsEliminadosLocales(nuevosEliminados);
       localStorage.setItem('sice_partes_eliminados_ids', JSON.stringify(nuevosEliminados));
 
-      // Limpiar caché local
       try {
         const cached = localStorage.getItem('sice_partes_local_cache_v2');
         if (cached) {
@@ -366,23 +390,12 @@ export default function ReportesDiariosTab({
           const cacheFiltrada = parsedCache.filter(p => {
             const pId = String(p.id || p.ID || '').trim();
             const pNro = String(p.nro || p.Nro || '').trim();
-            return pId !== idLimpio && pNro !== nroLimpio;
+            const pNroNum = pNro ? parseInt(pNro.replace(/\D/g, ''), 10).toString() : '';
+            return pId !== idLimpio && pNro !== nroOriginal && pNroNum !== nroNumerico;
           });
           localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(cacheFiltrada));
         }
       } catch (e) {}
-
-      setFetchedReportesLocal(prev => prev.filter(p => {
-        const pId = String(buscarValorEnObjeto(p, ['id', 'ID'])).trim();
-        const pNro = String(buscarValorEnObjeto(p, ['nro', 'Nro'])).trim();
-        return pId !== idLimpio && pNro !== nroLimpio;
-      }));
-
-      setFetchedReportesSice(prev => prev.filter(p => {
-        const pId = String(buscarValorEnObjeto(p, ['id', 'ID'])).trim();
-        const pNro = String(buscarValorEnObjeto(p, ['nro', 'Nro'])).trim();
-        return pId !== idLimpio && pNro !== nroLimpio;
-      }));
 
       if (typeof refetchReportes === 'function') refetchReportes();
 
