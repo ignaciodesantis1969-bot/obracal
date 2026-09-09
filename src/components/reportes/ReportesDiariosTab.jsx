@@ -26,6 +26,7 @@ export default function ReportesDiariosTab({
   const { data: personalSheet } = useObraData('Personal');
 
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
+  const [statusFetchLocal, setStatusFetchLocal] = useState('idle');
 
   // Lista negra global compartida sincronizada en el navegador
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
@@ -38,6 +39,7 @@ export default function ReportesDiariosTab({
   });
 
   const cargarReportesServidor = useCallback(() => {
+    setStatusFetchLocal('loading');
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -47,9 +49,15 @@ export default function ReportesDiariosTab({
       .then(data => {
         if (Array.isArray(data)) {
           setFetchedReportesLocal(data);
+          setStatusFetchLocal('success');
+        } else {
+          setStatusFetchLocal('error');
         }
       })
-      .catch(err => console.error("Error al cargar ReportesDiariosSice:", err));
+      .catch(err => {
+        console.error("Error al cargar ReportesDiariosSice:", err);
+        setStatusFetchLocal('error');
+      });
   }, []);
 
   useEffect(() => {
@@ -74,13 +82,20 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación y filtrado estricto aplicando la lista negra global y eliminando duplicados
+  // LÓGICA CORREGIDA: Prioridad absoluta al servidor para evitar que la caché reviva partes borrados
   const allReportesSice = useMemo(() => {
-    const l = extraerArrayDatos(fetchedReportesLocal);
-    const s = extraerArrayDatos(reportesSheet);
-    const p = extraerArrayDatos(propReportes);
+    let combinados = [];
 
-    const combinados = [...l, ...s, ...p];
+    if (statusFetchLocal === 'success') {
+      // Si el servidor ya respondió, ES LA ÚNICA VERDAD. Ignoramos la caché vieja (propReportes).
+      combinados = extraerArrayDatos(fetchedReportesLocal);
+    } else {
+      // Si aún está cargando, usamos la caché como fallback visual temporal.
+      const s = extraerArrayDatos(reportesSheet);
+      const p = extraerArrayDatos(propReportes);
+      combinados = s.length > 0 ? s : p;
+    }
+
     const unicosMap = new Map();
     
     combinados.forEach(item => {
@@ -91,7 +106,7 @@ export default function ReportesDiariosTab({
       const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
       const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
 
-      // Validar contra la lista negra global de eliminados
+      // Validar contra la lista negra global
       const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
       const estaEliminadoPorNro = nroCrud && (
         idsEliminadosLocales.includes(nroCrud) || 
@@ -115,8 +130,13 @@ export default function ReportesDiariosTab({
       }
     });
 
-    return Array.from(unicosMap.values());
-  }, [fetchedReportesLocal, reportesSheet, propReportes, idsEliminadosLocales]);
+    // Devolver ordenados del más nuevo al más viejo
+    return Array.from(unicosMap.values()).sort((a, b) => {
+      const nA = parseInt(String(a.nro).replace(/\D/g, '') || '0', 10);
+      const nB = parseInt(String(b.nro).replace(/\D/g, '') || '0', 10);
+      return nB - nA;
+    });
+  }, [fetchedReportesLocal, statusFetchLocal, reportesSheet, propReportes, idsEliminadosLocales]);
 
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
@@ -377,7 +397,6 @@ export default function ReportesDiariosTab({
       const nroNum = nroOriginal ? parseInt(nroOriginal.replace(/\D/g, ''), 10).toString() : '';
       const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
 
-      // Registrar en la lista negra global
       const nuevosEliminados = Array.from(new Set([
         ...idsEliminadosLocales,
         idLimpio,
