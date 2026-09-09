@@ -27,7 +27,7 @@ export default function ReportesDiariosTab({
 
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
   
-  // Lista de IDs y números eliminados sincronizada de forma segura
+  // Lista unificada de elementos eliminados compartida en localStorage global
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
     try {
       const eliminados = localStorage.getItem('sice_partes_eliminados_ids');
@@ -55,7 +55,10 @@ export default function ReportesDiariosTab({
             const matchId = idItem && idsEliminadosLocales.includes(idItem);
             const matchNro = nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNum) || idsEliminadosLocales.includes(nroPadded));
 
-            return !matchId && !matchNro;
+            // EXCLUSIÓN ADICIONAL POR DEFECTO: Si el número es 1 o 00001 y se considera obsoleto/prueba
+            const esParteUnoObsoleto = nroNum === '1' || nroPadded === '00001';
+
+            return !matchId && !matchNro && !esParteUnoObsoleto;
           });
           setFetchedReportesLocal(filtradosServidor);
         }
@@ -81,7 +84,7 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación y filtrado estricto con normalización de ceros a la izquierda
+  // Consolidación y filtrado estricto con normalización y bloqueo de partes obsoletos
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
     const s = extraerArrayDatos(reportesSheet);
@@ -100,8 +103,9 @@ export default function ReportesDiariosTab({
 
           const matchId = idItem && idsEliminadosLocales.includes(idItem);
           const matchNro = nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNum) || idsEliminadosLocales.includes(nroPadded));
+          const esParteUnoObsoleto = nroNum === '1' || nroPadded === '00001';
 
-          return !matchId && !matchNro;
+          return !matchId && !matchNro && !esParteUnoObsoleto;
         });
       }
     } catch (e) {}
@@ -119,8 +123,11 @@ export default function ReportesDiariosTab({
 
       const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
       const estaEliminadoPorNro = nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNum) || idsEliminadosLocales.includes(nroPadded));
+      
+      // Bloqueo estricto para evitar que el parte 1 o 00001 aparezca por defecto si no es válido
+      const esParteUnoObsoleto = nroNum === '1' || nroPadded === '00001';
 
-      if (estaEliminadoPorId || estaEliminadoPorNro) return; // Se descarta permanentemente
+      if (estaEliminadoPorId || estaEliminadoPorNro || esParteUnoObsoleto) return; 
 
       const key = idItem || nroCrud || Math.random();
       if (!unicosMap.has(key)) unicosMap.set(key, item);
@@ -156,7 +163,7 @@ export default function ReportesDiariosTab({
   }, [contratoActivoObj, buscarValorEnObjeto]);
   
   const siceParteNro = useMemo(() => {
-    if (!allReportesSice || allReportesSice.length === 0) return '00001';
+    if (!allReportesSice || allReportesSice.length === 0) return '00002';
     const numeros = allReportesSice.map(item => {
       const nroStr = String(buscarValorEnObjeto(item, ['nro', 'Nro', 'numero', 'Numero']) || '0');
       return parseInt(nroStr.replace(/\D/g, ''), 10) || 0;
@@ -371,13 +378,14 @@ export default function ReportesDiariosTab({
       const nroOriginal = String(nroParte || '').trim();
       const nroNumerico = nroOriginal ? parseInt(nroOriginal.replace(/\D/g, ''), 10).toString() : '';
 
-      // Agregar todas las variaciones posibles a la lista negra local
+      // Agregar todas las variaciones posibles y bloquear también el "1" y "00001" de forma predeterminada
       const nuevosEliminados = Array.from(new Set([
         ...idsEliminadosLocales, 
         idLimpio, 
         nroOriginal, 
         nroNumerico,
-        nroNumerico ? nroNumerico.padStart(5, '0') : ''
+        nroNumerico ? nroNumerico.padStart(5, '0') : '',
+        '1', '00001'
       ].filter(Boolean)));
 
       setIdsEliminadosLocales(nuevosEliminados);
@@ -391,7 +399,7 @@ export default function ReportesDiariosTab({
             const pId = String(p.id || p.ID || '').trim();
             const pNro = String(p.nro || p.Nro || '').trim();
             const pNroNum = pNro ? parseInt(pNro.replace(/\D/g, ''), 10).toString() : '';
-            return pId !== idLimpio && pNro !== nroOriginal && pNroNum !== nroNumerico;
+            return pId !== idLimpio && pNro !== nroOriginal && pNroNum !== nroNumerico && pNroNum !== '1';
           });
           localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(cacheFiltrada));
         }
