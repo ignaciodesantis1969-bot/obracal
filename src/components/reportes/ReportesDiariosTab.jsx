@@ -27,6 +27,16 @@ export default function ReportesDiariosTab({
 
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
 
+  // Lista negra global compartida de IDs y números eliminados
+  const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
+    try {
+      const eliminados = localStorage.getItem('sice_partes_eliminados_global_v4');
+      return eliminados ? JSON.parse(eliminados) : [];
+    } catch {
+      return [];
+    }
+  });
+
   const cargarReportesServidor = useCallback(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
@@ -64,7 +74,7 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación inteligente que elimina duplicados normalizando el número de parte (ej: '1' y '00001')
+  // Consolidación y filtrado estricto aplicando la lista negra global
   const allReportesSice = useMemo(() => {
     const l = extraerArrayDatos(fetchedReportesLocal);
     const s = extraerArrayDatos(reportesSheet);
@@ -78,17 +88,24 @@ export default function ReportesDiariosTab({
       
       const idItem = String(item.id || item.ID || '').trim();
       const nroCrud = String(item.nro || item.Nro || item.numero || '').trim();
-      
-      // Normalizar número eliminando ceros a la izquierda para detectar duplicados (1 == 00001)
       const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
-      
-      // Clave unificada priorizando el número normalizado para evitar duplicados en el historial
+      const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
+
+      // Verificar si está en la lista negra global de eliminados
+      const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
+      const estaEliminadoPorNro = nroCrud && (
+        idsEliminadosLocales.includes(nroCrud) || 
+        idsEliminadosLocales.includes(nroNormalizado) || 
+        idsEliminadosLocales.includes(nroPadded)
+      );
+
+      if (estaEliminadoPorId || estaEliminadoPorNro) return;
+
       const key = nroNormalizado ? `nro-${nroNormalizado}` : (idItem || Math.random());
 
       if (!unicosMap.has(key)) {
         unicosMap.set(key, item);
       } else {
-        // Si ya existe, nos aseguramos de conservar el que tenga URL de PDF o más datos completos
         const existente = unicosMap.get(key);
         const tienePdfNuevo = Boolean(item?.pdf_url || item?.pdfUrl);
         const tienePdfViejo = Boolean(existente?.pdf_url || existente?.pdfUrl);
@@ -99,7 +116,7 @@ export default function ReportesDiariosTab({
     });
 
     return Array.from(unicosMap.values());
-  }, [fetchedReportesLocal, reportesSheet, propReportes]);
+  }, [fetchedReportesLocal, reportesSheet, propReportes, idsEliminadosLocales]);
 
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
@@ -278,7 +295,6 @@ export default function ReportesDiariosTab({
       const nroCrud = String(buscarValorEnObjeto(r, ['nro', 'Nro', 'numero', 'Numero']) || '1');
       const nroLimpio = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString().padStart(5, '0') : '00001';
 
-      // Determinar dinámicamente "Generado por" según el rol o el campo guardado
       const rawGeneradoPor = String(buscarValorEnObjeto(r, ['generadopor', 'generadoPor', 'usuario', 'Usuario']) || '').trim();
       let generadoPorFinal = rawGeneradoPor;
       const rolUserLower = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
@@ -342,7 +358,7 @@ export default function ReportesDiariosTab({
     }
 
     if (!window.confirm("¿Está seguro de eliminar este parte diario del sistema?")) return;
-    const toastId = toast.loading('Eliminando parte diario del servidor...');
+    const toastId = toast.loading('Eliminando parte diario...');
     
     try {
       await fetch(GOOGLE_SCRIPT_URL, {
@@ -358,18 +374,27 @@ export default function ReportesDiariosTab({
 
       const idLimpio = String(idParte).trim();
       const nroOriginal = String(nroParte || '').trim();
+      const nroNum = nroOriginal ? parseInt(nroOriginal.replace(/\D/g, ''), 10).toString() : '';
+      const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
+
+      // Actualizar la lista negra global en localStorage
+      const nuevosEliminados = Array.from(new Set([
+        ...idsEliminadosLocales,
+        idLimpio,
+        nroOriginal,
+        nroNum,
+        nroPadded
+      ].filter(Boolean)));
+
+      setIdsEliminadosLocales(nuevosEliminados);
+      localStorage.setItem('sice_partes_eliminados_global_v4', JSON.stringify(nuevosEliminados));
 
       setFetchedReportesLocal(prev => prev.filter(item => {
         const iId = String(item?.id || item?.ID || '').trim();
         const iNro = String(item?.nro || item?.Nro || '').trim();
-        return iId !== idLimpio && iNro !== nroOriginal;
+        const iNroNum = iNro ? parseInt(iNro.replace(/\D/g, ''), 10).toString() : '';
+        return iId !== idLimpio && iNro !== nroOriginal && iNroNum !== nroNum;
       }));
-
-      try {
-        localStorage.removeItem('sice_partes_local_cache');
-        localStorage.removeItem('sice_partes_local_cache_v2');
-        localStorage.removeItem('sice_partes_local_cache_v3');
-      } catch (e) {}
 
       if (typeof refetchReportes === 'function') refetchReportes();
       cargarReportesServidor();
