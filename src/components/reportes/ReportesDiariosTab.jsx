@@ -26,18 +26,9 @@ export default function ReportesDiariosTab({
   const { data: personalSheet } = useObraData('Personal');
 
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
-  
-  // Lista unificada de elementos eliminados compartida en localStorage global
-  const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
-    try {
-      const eliminados = localStorage.getItem('sice_partes_eliminados_ids');
-      return eliminados ? JSON.parse(eliminados) : [];
-    } catch {
-      return [];
-    }
-  });
 
-  useEffect(() => {
+  // Carga directa de datos del servidor sin intermediación de localBlacklist
+  const cargarReportesServidor = useCallback(() => {
     fetch(GOOGLE_SCRIPT_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -46,25 +37,15 @@ export default function ReportesDiariosTab({
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
-          const filtradosServidor = data.filter(item => {
-            const idItem = String(item?.id || item?.ID || '').trim();
-            const nroCrud = String(item?.nro || item?.Nro || '').trim();
-            const nroNum = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
-            const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
-
-            const matchId = idItem && idsEliminadosLocales.includes(idItem);
-            const matchNro = nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNum) || idsEliminadosLocales.includes(nroPadded));
-
-            // EXCLUSIÓN ADICIONAL POR DEFECTO: Si el número es 1 o 00001 y se considera obsoleto/prueba
-            const esParteUnoObsoleto = nroNum === '1' || nroPadded === '00001';
-
-            return !matchId && !matchNro && !esParteUnoObsoleto;
-          });
-          setFetchedReportesLocal(filtradosServidor);
+          setFetchedReportesLocal(data);
         }
       })
-      .catch(err => console.error("Error al cargar ReportesDiariosSice directo:", err));
-  }, [idsEliminadosLocales]);
+      .catch(err => console.error("Error al cargar ReportesDiariosSice:", err));
+  }, []);
+
+  useEffect(() => {
+    cargarReportesServidor();
+  }, [cargarReportesServidor]);
 
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
@@ -84,33 +65,13 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // Consolidación y filtrado estricto con normalización y bloqueo de partes obsoletos
+  // Consolidación limpia unificando por ID o Número real proveniente de Google Sheets
   const allReportesSice = useMemo(() => {
-    const p = extraerArrayDatos(propReportes);
-    const s = extraerArrayDatos(reportesSheet);
     const l = extraerArrayDatos(fetchedReportesLocal);
-    
-    let localCache = [];
-    try {
-      const cached = localStorage.getItem('sice_partes_local_cache_v2');
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        localCache = parsed.filter(item => {
-          const idItem = String(item?.id || item?.ID || '').trim();
-          const nroCrud = String(item?.nro || item?.Nro || '').trim();
-          const nroNum = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
-          const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
+    const s = extraerArrayDatos(reportesSheet);
+    const p = extraerArrayDatos(propReportes);
 
-          const matchId = idItem && idsEliminadosLocales.includes(idItem);
-          const matchNro = nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNum) || idsEliminadosLocales.includes(nroPadded));
-          const esParteUnoObsoleto = nroNum === '1' || nroPadded === '00001';
-
-          return !matchId && !matchNro && !esParteUnoObsoleto;
-        });
-      }
-    } catch (e) {}
-
-    const combinados = [...p, ...s, ...l, ...localCache];
+    const combinados = [...l, ...s, ...p];
     const unicosMap = new Map();
     
     combinados.forEach(item => {
@@ -118,23 +79,15 @@ export default function ReportesDiariosTab({
       
       const idItem = String(item.id || item.ID || '').trim();
       const nroCrud = String(item.nro || item.Nro || item.numero || '').trim();
-      const nroNum = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
-      const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
+      const key = idItem || nroCrud;
 
-      const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
-      const estaEliminadoPorNro = nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNum) || idsEliminadosLocales.includes(nroPadded));
-      
-      // Bloqueo estricto para evitar que el parte 1 o 00001 aparezca por defecto si no es válido
-      const esParteUnoObsoleto = nroNum === '1' || nroPadded === '00001';
-
-      if (estaEliminadoPorId || estaEliminadoPorNro || esParteUnoObsoleto) return; 
-
-      const key = idItem || nroCrud || Math.random();
-      if (!unicosMap.has(key)) unicosMap.set(key, item);
+      if (key && !unicosMap.has(key)) {
+        unicosMap.set(key, item);
+      }
     });
 
     return Array.from(unicosMap.values());
-  }, [propReportes, reportesSheet, fetchedReportesLocal, idsEliminadosLocales]);
+  }, [fetchedReportesLocal, reportesSheet, propReportes]);
 
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
@@ -163,7 +116,7 @@ export default function ReportesDiariosTab({
   }, [contratoActivoObj, buscarValorEnObjeto]);
   
   const siceParteNro = useMemo(() => {
-    if (!allReportesSice || allReportesSice.length === 0) return '00002';
+    if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
       const nroStr = String(buscarValorEnObjeto(item, ['nro', 'Nro', 'numero', 'Numero']) || '0');
       return parseInt(nroStr.replace(/\D/g, ''), 10) || 0;
@@ -365,49 +318,43 @@ export default function ReportesDiariosTab({
       return;
     }
 
-    if (!window.confirm("¿Está seguro de eliminar este parte diario?")) return;
-    const toastId = toast.loading('Eliminando parte diario...');
+    if (!window.confirm("¿Está seguro de eliminar este parte diario del sistema?")) return;
+    const toastId = toast.loading('Eliminando parte diario del servidor...');
+    
     try {
+      // Elimina directamente en Google Sheets mediante Apps Script
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', action: 'delete', id: idParte })
+        body: JSON.stringify({ 
+          tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', 
+          action: 'delete', 
+          id: idParte,
+          nro: nroParte 
+        })
       });
 
       const idLimpio = String(idParte).trim();
       const nroOriginal = String(nroParte || '').trim();
-      const nroNumerico = nroOriginal ? parseInt(nroOriginal.replace(/\D/g, ''), 10).toString() : '';
 
-      // Agregar todas las variaciones posibles y bloquear también el "1" y "00001" de forma predeterminada
-      const nuevosEliminados = Array.from(new Set([
-        ...idsEliminadosLocales, 
-        idLimpio, 
-        nroOriginal, 
-        nroNumerico,
-        nroNumerico ? nroNumerico.padStart(5, '0') : '',
-        '1', '00001'
-      ].filter(Boolean)));
+      // Limpia la caché local de este navegador para no mantener el objeto en memoria
+      setFetchedReportesLocal(prev => prev.filter(item => {
+        const iId = String(item?.id || item?.ID || '').trim();
+        const iNro = String(item?.nro || item?.Nro || '').trim();
+        return iId !== idLimpio && iNro !== nroOriginal;
+      }));
 
-      setIdsEliminadosLocales(nuevosEliminados);
-      localStorage.setItem('sice_partes_eliminados_ids', JSON.stringify(nuevosEliminados));
-
+      // Limpia cualquier versión vieja cacheada localmente
       try {
-        const cached = localStorage.getItem('sice_partes_local_cache_v2');
-        if (cached) {
-          const parsedCache = JSON.parse(cached);
-          const cacheFiltrada = parsedCache.filter(p => {
-            const pId = String(p.id || p.ID || '').trim();
-            const pNro = String(p.nro || p.Nro || '').trim();
-            const pNroNum = pNro ? parseInt(pNro.replace(/\D/g, ''), 10).toString() : '';
-            return pId !== idLimpio && pNro !== nroOriginal && pNroNum !== nroNumerico && pNroNum !== '1';
-          });
-          localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(cacheFiltrada));
-        }
+        localStorage.removeItem('sice_partes_local_cache');
+        localStorage.removeItem('sice_partes_local_cache_v2');
+        localStorage.removeItem('sice_partes_local_cache_v3');
       } catch (e) {}
 
       if (typeof refetchReportes === 'function') refetchReportes();
+      cargarReportesServidor();
 
-      toast.success('Parte diario eliminado exitosamente', { id: toastId });
+      toast.success('Parte diario eliminado correctamente', { id: toastId });
     } catch (err) {
       toast.error('Ocurrió un error al intentar eliminar el parte', { id: toastId });
     }
@@ -512,13 +459,6 @@ export default function ReportesDiariosTab({
         generadoPor: nombreUsuarioGenerador,
         pdfUrl: pdfUrlFinal
       };
-
-      try {
-        const cached = localStorage.getItem('sice_partes_local_cache_v2');
-        const parsedCache = cached ? JSON.parse(cached) : [];
-        parsedCache.unshift(nuevoParte);
-        localStorage.setItem('sice_partes_local_cache_v2', JSON.stringify(parsedCache));
-      } catch (e) {}
 
       setFetchedReportesLocal(prev => [nuevoParte, ...prev]);
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
@@ -907,7 +847,6 @@ export default function ReportesDiariosTab({
               const cNombre = (cObj && typeof cObj === 'object') ? (cObj.nombre || '---') : (cObj || '---');
               const cCargo = (cObj && typeof cObj === 'object') ? (cObj.cargo || '---') : '';
 
-              // Verificación estricta de roles: Oculta por completo el botón de borrado a operadores y operadores II
               const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
               const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
 
@@ -946,7 +885,6 @@ export default function ReportesDiariosTab({
                       </button>
                     )}
                     
-                    {/* Botón de borrado condicional y blindado: Solo visible para Administradores */}
                     {!esRolOperadorRestringido && (
                       <button 
                         onClick={() => eliminarParteServidor(parteId, parte?.nro)}
