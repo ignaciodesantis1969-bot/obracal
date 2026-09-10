@@ -44,6 +44,7 @@ function ReportesContent({
   setFetchedReportesSice = () => {},
   listaEmpleadosActivos = [],
   esOperador = false,
+  currentUser = null,
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
     for (const key of keys) {
@@ -57,6 +58,11 @@ function ReportesContent({
   certificadosList = [],
   obras = []
 }) {
+  // Lógica exacta de roles
+  const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
+  const esOperadorEstandar = esOperador || rolStr === 'operador';
+  const esOperadorII = rolStr === 'operador_ii' || rolStr === 'operadorii' || rolStr === 'operador2';
+
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: tesoreriaSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.TESORERIA || 'Tesoreria');
@@ -122,7 +128,7 @@ function ReportesContent({
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet, reportesLocalesExtra]);
 
-  const [activeTab, setActiveTab] = useState('Certificaciones');
+  const [activeTab, setActiveTab] = useState(esOperadorII ? 'Reportes Diarios' : 'Certificaciones');
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
 
   const [certificadoNro, setCertificadoNro] = useState('1');
@@ -338,25 +344,42 @@ function ReportesContent({
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:hidden">
         <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes</h1>
         <p className="text-slate-500 text-sm mt-1">
-          {esOperador ? "(Vista de Operador - Reportes Diarios)" : "(Certificaciones - Reportes - Listado de Insumos - Comparativas)"}
+          {esOperadorEstandar ? "(Vista de Operador - Reportes Diarios)" : esOperadorII ? "(Vista de Operador II - Reportes y Contratos SICE)" : "(Certificaciones - Reportes - Listado de Insumos - Comparativas)"}
         </p>
       </div>
 
-      {!esOperador && (
+      {!esOperadorEstandar && (
         <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
-          {['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
-            <button
-              key={tab} 
-              onClick={() => setActiveTab(tab)} 
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === tab ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
-            >
-              {tab}
-            </button>
-          ))}
+          {esOperadorII ? (
+            <>
+              <button
+                onClick={() => setActiveTab('Reportes Diarios')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'Reportes Diarios' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+              >
+                Reportes Diarios SICE
+              </button>
+              <button
+                onClick={() => setActiveTab('Listado de Insumos')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'Listado de Insumos' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+              >
+                Listado de Insumos
+              </button>
+            </>
+          ) : (
+            ['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
+              <button
+                key={tab} 
+                onClick={() => setActiveTab(tab)} 
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === tab ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+              >
+                {tab}
+              </button>
+            ))
+          )}
         </div>
       )}
 
-      {!esOperador && activeTab === 'Certificaciones' && (
+      {!esOperadorEstandar && !esOperadorII && activeTab === 'Certificaciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
             <div>
@@ -947,22 +970,22 @@ function ReportesContent({
         </div>
       )}
 
-      {(activeTab === 'Reportes Diarios' || esOperador) && (
+      {(activeTab === 'Reportes Diarios' || esOperadorEstandar || esOperadorII) && (
         <ReportesDiariosTab
           contratosList={contratosList}
           allReportesSice={allReportesSice}
           setFetchedReportesSice={handleAgregarReporteLocal}
           listaEmpleadosActivos={listaEmpleadosActivos}
-          esOperador={esOperador}
+          esOperador={esOperadorEstandar}
           buscarValorEnObjeto={buscarValorEnObjeto}
         />
       )}
 
-      {!esOperador && activeTab === 'Listado de Insumos' && (
+      {!esOperadorEstandar && (activeTab === 'Listado de Insumos' || esOperadorII) && (
         <ListadoInsumosTab presupuestos={presupuestos} />
       )}
 
-      {!esOperador && activeTab === 'Comparativo' && (
+      {!esOperadorEstandar && !esOperadorII && activeTab === 'Comparativo' && (
         <ComparativoTab
           presupuestos={presupuestos}
           facturas={facturas}
