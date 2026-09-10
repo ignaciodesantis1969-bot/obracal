@@ -35,22 +35,17 @@ export default function Layout() {
 
   // Obtener y normalizar el rol del usuario actual
   const rolUsuario = String(user?.role || user?.rol || '').trim().toLowerCase();
-  const esOperadorEstandar = rolUsuario === 'operador' || rolUsuario === 'operador2';
+  const esOperadorEstandar = rolUsuario === 'operador';
+  const esOperadorII = rolUsuario === 'operador_ii' || rolUsuario === 'operadorii' || rolUsuario === 'operador2';
 
   // Filtrar módulos según el rol:
-  // - 'operador_ii' tiene acceso a Dashboard y Reportes (que contiene los partes diarios y certificaciones CM).
-  // - El operador estándar mantiene sus permisos habituales.
+  // - 'operador_ii' y operador estándar tienen acceso a Dashboard y Reportes.
   // - Administradores y otros roles ven todo según la configuración global (MODULOS).
   const modulosFiltrados = MODULOS.filter(mod => {
-    if (esOperadorEstandar) {
-      // Operador común: solo dashboard y reportes (partes diarios)
+    if (esOperadorEstandar || esOperadorII) {
       return ['dashboard', 'reportes'].includes(mod.id);
     }
-    if (rolUsuario === 'operador_ii') {
-      // Operador II: acceso a dashboard y reportes (partes y certificaciones CM)
-      return ['dashboard', 'reportes'].includes(mod.id);
-    }
-    return true; // Resto de roles (admin, finanzas, jefe de obra) ven todo
+    return true; // Resto de roles ven todo
   });
 
   return (
@@ -92,9 +87,20 @@ export default function Layout() {
 
         {/* Sección de Usuario y Cierre de Sesión */}
         <div className="pt-4 border-t border-slate-800 space-y-3">
-          <div className="px-2 bg-slate-800/50 p-2.5 rounded-lg border border-slate-800/80">
+          <div className="px-2 bg-slate-800/50 p-2.5 rounded-lg border border-slate-800/80 space-y-0.5">
             <p className="text-xs font-semibold text-slate-200 truncate">{user?.nombre || 'Administrador'}</p>
             <p className="text-[11px] text-slate-400 truncate">{user?.email || 'admin@obracal.com'}</p>
+            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider pt-0.5">
+              {(() => {
+                const r = rolUsuario;
+                if (r === 'operador_ii' || r === 'operadorii' || r === 'operador2') return 'OPERADOR II';
+                if (r === 'operador') return 'OPERADOR';
+                if (r === 'jefe_obra') return 'JEFE DE OBRA';
+                if (r === 'finanzas') return 'FINANZAS';
+                if (r === 'admin') return 'ADMINISTRADOR';
+                return r ? r.toUpperCase() : 'ADMINISTRADOR';
+              })()}
+            </p>
           </div>
           <button
             onClick={logout}
