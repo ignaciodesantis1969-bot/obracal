@@ -11,7 +11,6 @@ export default function Usuarios() {
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-
   const cargarUsuarios = async () => {
     setIsLoading(true);
     setError('');
@@ -49,8 +48,6 @@ export default function Usuarios() {
     cargarUsuarios();
   }, []);
 
-  // fix: 'gestor' no es ninguna de las opciones del <select> de abajo,
-  // por eso el dropdown arrancaba en blanco. Se alinea con una opción real.
   const [nuevoUsuario, setNuevoUsuario] = useState({ 
     email: '', 
     password: '', 
@@ -74,9 +71,6 @@ export default function Usuarios() {
 
       await createUserWithEmailAndPassword(secondaryAuth, nuevoUsuario.email, nuevoUsuario.password);
 
-      // fix: la contraseña YA vive en Firebase Auth (línea de arriba).
-      // No se vuelve a mandar a Apps Script/Sheets para que no quede
-      // en texto plano en una hoja que además viaja completa en cada 'list'.
       const response = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -187,6 +181,7 @@ export default function Usuarios() {
             <option value="finanzas">Finanzas</option>
             <option value="jefe_obra">Jefe de Obra</option>
             <option value="operador">Operador</option>
+            <option value="operador_ii">Operador II</option>
           </select>
           <button 
             type="submit" 
