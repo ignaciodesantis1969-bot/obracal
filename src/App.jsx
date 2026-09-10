@@ -131,7 +131,6 @@ const AuthenticatedApp = () => {
           legajos: data.legajos || [],
           contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || [],
           certificados: data.certificados || data.certificados_emitidos || [],
-          // ESTA LÍNEA ES CLAVE PARA QUE EL HISTORIAL NO MUESTRE (0)
           cargasSemanales: data.cargas_semanales || data.cargasSemanales || data.CargasSemanales || [] 
         });
       }
@@ -162,8 +161,10 @@ const AuthenticatedApp = () => {
     );
   }
 
-  const userRole = String(user.role || user.rol || '').toLowerCase();
-  const esOperador = userRole.includes('operador') || userRole === 'operator';
+  const userRole = String(user.role || user.rol || '').toLowerCase().trim();
+  
+  // Definimos estrictamente quién es un operador estándar limitado
+  const esOperadorEstandar = userRole === 'operador' || userRole === 'operator';
 
   return (
     <Suspense fallback={
@@ -173,12 +174,14 @@ const AuthenticatedApp = () => {
     }>
       <Routes>
         <Route element={<Layout />}>
-          {esOperador ? (
+          {esOperadorEstandar ? (
             <Route 
               path="*" 
               element={
                 <Reportes 
+                  currentUser={user}
                   userRole={userRole}
+                  esOperador={true}
                   obras={globalData.obras}
                   presupuestos={globalData.presupuestos}
                   movimientos={globalData.movimientos}
@@ -267,7 +270,7 @@ const AuthenticatedApp = () => {
                       insumosList={globalData.insumos}
                       rubros={globalData.rubros}
                       cargarDatos={cargarDatos}
-                    />    
+                    />   
                   </RequirePermiso>
                 } 
               />
@@ -296,6 +299,8 @@ const AuthenticatedApp = () => {
                 element={
                   <RequirePermiso modulo="reportes">
                     <Reportes 
+                      currentUser={user}
+                      userRole={userRole}
                       obras={globalData.obras}
                       presupuestos={globalData.presupuestos}
                       movimientos={globalData.movimientos}
