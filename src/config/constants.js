@@ -1,3 +1,4 @@
+
 export const OBRAS_CONFIG = {
   // Categorización de empleados extraída de la lógica de negocio
   determinarCategoriaEmpleado: (nombre) => {
@@ -9,6 +10,7 @@ export const OBRAS_CONFIG = {
   TABLAS: {
     REPORTES_SICE: 'ReportesDiariosSice',
     INSUMOS: 'Insumos',
-    CONTRATOS: 'ContratosMantenimiento'
+    CONTRATOS: 'ContratosMantenimiento',
+    USUARIOS: 'Usuarios' // <-- Agregado aquí para que el sistema lo consulte correctamente
   }
 };

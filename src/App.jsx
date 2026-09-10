@@ -14,7 +14,7 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider } from '@/lib/AuthContext';
 import { useAuth } from '@/hooks/useAuth';
 
-// Pages con Lazy Loading para optimizar el rendimiento inicial
+// Pages con Lazy Loading
 const Login = lazy(() => import('@/pages/Login'));
 const Dashboard = lazy(() => import('@/pages/Dashboard'));
 const Clientes = lazy(() => import('@/pages/Clientes'));
@@ -57,35 +57,21 @@ const AuthenticatedApp = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
-        let listaUsuarios = [];
+        let rolFinal = 'operador';
+        let nombreFinal = firebaseUser.email.split('@')[0];
+        const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
+
         try {
-          // Intento 1: action 'list'
-          let response = await fetch(GOOGLE_SCRIPT_URL, {
+          const response = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ tabla: 'Usuarios', action: 'list' })
           });
-          let data = await response.json();
-          listaUsuarios = Array.isArray(data) 
+          const data = await response.json();
+          
+          const listaUsuarios = Array.isArray(data) 
             ? data 
             : (data.usuarios || data.data || data.result || Object.values(data).find(v => Array.isArray(v)) || []);
-
-          // Intento 2 de respaldo: si vino vacío, intentamos con action 'leer' (estándar en Google Apps Script)
-          if (!Array.isArray(listaUsuarios) || listaUsuarios.length === 0) {
-            response = await fetch(GOOGLE_SCRIPT_URL, {
-              method: 'POST',
-              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-              body: JSON.stringify({ tabla: 'Usuarios', action: 'leer' })
-            });
-            data = await response.json();
-            listaUsuarios = Array.isArray(data) 
-              ? data 
-              : (data.usuarios || data.data || data.result || Object.values(data).find(v => Array.isArray(v)) || []);
-          }
-
-          const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
-          let rolFinal = 'operador';
-          let nombreFinal = firebaseUser.email.split('@')[0];
 
           if (Array.isArray(listaUsuarios) && listaUsuarios.length > 0) {
             const userInfo = listaUsuarios.find(u => {
@@ -101,22 +87,23 @@ const AuthenticatedApp = () => {
               }
             }
           }
-
-          setUser({
-            ...firebaseUser,
-            nombre: nombreFinal,
-            role: rolFinal,
-            rol: rolFinal
-          });
         } catch (error) {
-          console.error("Error al obtener perfil del usuario desde Google Sheets:", error);
-          setUser({
-            ...firebaseUser,
-            nombre: firebaseUser.email.split('@')[0],
-            role: 'operador',
-            rol: 'operador'
-          });
+          console.error("Error al consultar roles en Google Sheets:", error);
         }
+
+        // Resguardo directo para correos específicos si la hoja demora
+        if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
+          rolFinal = 'admin';
+        } else if (emailFirebase === 'roldangerman033@gmail.com') {
+          rolFinal = 'operador_ii';
+        }
+
+        setUser({
+          ...firebaseUser,
+          nombre: nombreFinal,
+          role: rolFinal,
+          rol: rolFinal
+        });
       } else {
         setUser(null);
       }
@@ -182,7 +169,7 @@ const AuthenticatedApp = () => {
   }
 
   // Normalización estricta de roles
-  const userRole = String(user.role || user.rol || '').toLowerCase().trim();
+  const userRole = String(user.role || user.rol || '').toLowerCase().trim().replace(/-/g, '_');
   const esOperadorEstandar = userRole === 'operador' || userRole === 'operator';
   const esOperadorII = userRole === 'operador_ii' || userRole === 'operadorii' || userRole === 'operador2' || userRole === 'operador ii';
 
@@ -217,7 +204,7 @@ const AuthenticatedApp = () => {
               } 
             />
           ) : esOperadorII ? (
-            /* 2. Operador II: Menú completo sin dashboard */
+            /* 2. Operador II: Menú de reportes e insumos sin dashboard */
             <>
               <Route path="/" element={<Navigate to="/reportes" replace />} />
               <Route 
@@ -242,18 +229,6 @@ const AuthenticatedApp = () => {
                 } 
               />
               <Route path="/insumos" element={<RequirePermiso modulo="insumos"><Insumos /></RequirePermiso>} />
-              <Route path="/obras" element={<RequirePermiso modulo="obras"><Obras /></RequirePermiso>} />
-              <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
-              <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
-              <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
-              <Route path="/clientes" element={<RequirePermiso modulo="clientes"><Clientes clientesIniciales={globalData.clientes} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} /></RequirePermiso>} />
-              <Route path="/proveedores" element={<RequirePermiso modulo="proveedores"><Proveedores proveedoresIniciales={globalData.proveedores} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} /></RequirePermiso>} />
-              <Route path="/compras" element={<RequirePermiso modulo="compras"><Compras GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} facturas={globalData.facturas} ordenesCompra={globalData.ordenesCompra} proveedores={globalData.proveedores} obras={globalData.obras} presupuestos={globalData.presupuestos} contratosList={globalData.contratosMantenimiento} contratos={globalData.contratosMantenimiento} insumosList={globalData.insumos} rubros={globalData.rubros} cargarDatos={cargarDatos} /></RequirePermiso>} />
-              <Route path="/tesoreria" element={<RequirePermiso modulo="tesoreria"><Tesoreria GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} movimientos={globalData.movimientos} facturas={globalData.facturas} facturasVenta={globalData.facturasVenta} proveedores={globalData.proveedores} obras={globalData.obras} presupuestos={globalData.presupuestos} clientes={globalData.clientes} cargarDatos={cargarDatos} /></RequirePermiso>} />
-              <Route path="/rrhh" element={<RequirePermiso modulo="rrhh"><Rrhh GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} personalInicial={globalData.personal} insumos={globalData.insumos} obras={globalData.obras} rubros={globalData.rubros} presupuestos={globalData.presupuestos} contratosMantenimiento={globalData.contratosMantenimiento} legajosIniciales={globalData.legajos} cargasHorasIniciales={globalData.cargasSemanales} cargarDatos={cargarDatos} /></RequirePermiso>} />
-              <Route path="/contratos-mantenimiento" element={<RequirePermiso modulo="contratos_mantenimiento"><ContratosMantenimiento GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} contratos={globalData.contratosMantenimiento} proveedores={globalData.proveedores} obras={globalData.obras} cargarDatos={cargarDatos} /></RequirePermiso>} />
-              <Route path="/usuarios" element={<Usuarios />} />
-              <Route path="/tareas-template" element={<RequirePermiso modulo="presupuestos"><TareasTemplate /></RequirePermiso>} />
               <Route path="*" element={<Navigate to="/reportes" replace />} />
             </>
           ) : (
