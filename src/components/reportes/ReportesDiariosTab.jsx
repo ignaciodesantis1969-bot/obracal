@@ -82,15 +82,12 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
-  // LÓGICA CORREGIDA: Prioridad absoluta al servidor para evitar que la caché reviva partes borrados
   const allReportesSice = useMemo(() => {
     let combinados = [];
 
     if (statusFetchLocal === 'success') {
-      // Si el servidor ya respondió, ES LA ÚNICA VERDAD. Ignoramos la caché vieja (propReportes).
       combinados = extraerArrayDatos(fetchedReportesLocal);
     } else {
-      // Si aún está cargando, usamos la caché como fallback visual temporal.
       const s = extraerArrayDatos(reportesSheet);
       const p = extraerArrayDatos(propReportes);
       combinados = s.length > 0 ? s : p;
@@ -106,7 +103,6 @@ export default function ReportesDiariosTab({
       const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
       const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
 
-      // Validar contra la lista negra global
       const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
       const estaEliminadoPorNro = nroCrud && (
         idsEliminadosLocales.includes(nroCrud) || 
@@ -130,7 +126,6 @@ export default function ReportesDiariosTab({
       }
     });
 
-    // Devolver ordenados del más nuevo al más viejo
     return Array.from(unicosMap.values()).sort((a, b) => {
       const nA = parseInt(String(a.nro).replace(/\D/g, '') || '0', 10);
       const nB = parseInt(String(b.nro).replace(/\D/g, '') || '0', 10);
