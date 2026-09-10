@@ -163,10 +163,8 @@ const AuthenticatedApp = () => {
 
   const userRole = String(user.role || user.rol || '').toLowerCase().trim();
   
-  // Operador estándar (solo partes diarios)
+  // Únicamente el operador estándar estricto se aislará en la vista de partes
   const esOperadorEstandar = userRole === 'operador' || userRole === 'operator';
-  // Operador II (reportes y contratos)
-  const esOperadorII = userRole === 'operador_ii' || userRole === 'operadorii' || userRole === 'operador2';
 
   return (
     <Suspense fallback={
@@ -299,39 +297,20 @@ const AuthenticatedApp = () => {
               <Route 
                 path="/reportes" 
                 element={
-                  esOperadorII ? (
-                    <Reportes 
-                      currentUser={user}
-                      userRole={userRole}
-                      obras={globalData.obras}
-                      presupuestos={globalData.presupuestos}
-                      movimientos={globalData.movimientos}
-                      insumos={globalData.insumos}
-                      rubros={globalData.rubros}
-                      facturas={globalData.facturas}
-                      maestroTareasRubros={globalData.maestroTareasRubros}
-                      contratosMantenimiento={globalData.contratosMantenimiento}
-                      certificados={globalData.certificados}
-                      setFetchedCertificados={cargarDatos}
-                    />
-                  ) : (
-                    <RequirePermiso modulo="reportes">
-                      <Reportes 
-                        currentUser={user}
-                        userRole={userRole}
-                        obras={globalData.obras}
-                        presupuestos={globalData.presupuestos}
-                        movimientos={globalData.movimientos}
-                        insumos={globalData.insumos}
-                        rubros={globalData.rubros}
-                        facturas={globalData.facturas}
-                        maestroTareasRubros={globalData.maestroTareasRubros}
-                        contratosMantenimiento={globalData.contratosMantenimiento}
-                        certificados={globalData.certificados}
-                        setFetchedCertificados={cargarDatos}
-                      />
-                    </RequirePermiso>
-                  )
+                  <Reportes 
+                    currentUser={user}
+                    userRole={userRole}
+                    obras={globalData.obras}
+                    presupuestos={globalData.presupuestos}
+                    movimientos={globalData.movimientos}
+                    insumos={globalData.insumos}
+                    rubros={globalData.rubros}
+                    facturas={globalData.facturas}
+                    maestroTareasRubros={globalData.maestroTareasRubros}
+                    contratosMantenimiento={globalData.contratosMantenimiento}
+                    certificados={globalData.certificados}
+                    setFetchedCertificados={cargarDatos}
+                  />
                 } 
               />
 
