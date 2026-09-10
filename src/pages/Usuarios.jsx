@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, UserX, Shield, Mail, Loader2 } from 'lucide-react';
+import { UserPlus, UserX, Shield, Mail, Loader2, Edit2, Check } from 'lucide-react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/firebase';
@@ -10,6 +10,8 @@ export default function Usuarios() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [editandoRolId, setEditandoRolId] = useState(null);
+  const [nuevoRolTemporal, setNuevoRolTemporal] = useState('');
 
   const cargarUsuarios = async () => {
     setIsLoading(true);
@@ -90,7 +92,7 @@ export default function Usuarios() {
       const res = JSON.parse(text);
 
       if (res.success) {
-        alert("Usuario creado con éxito. Se ha enviado el correo de bienvenida.");
+        alert("Usuario creado con éxito.");
         setNuevoUsuario({ email: '', password: '', nombre: '', role: 'operador' });
         cargarUsuarios();
       } else {
@@ -105,6 +107,38 @@ export default function Usuarios() {
       alert("Error al registrar usuario: " + mensajeError);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleCambiarRol = async (idUsuario, emailUsuario, nombreUsuario) => {
+    if (!nuevoRolTemporal) return;
+    try {
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'Usuarios',
+          action: 'update', // Asegúrate de que tu codigo.gs soporte 'update' o 'edit'
+          id: idUsuario,
+          data: {
+            email: emailUsuario,
+            nombre: nombreUsuario,
+            role: nuevoRolTemporal
+          }
+        })
+      });
+      const text = await response.text();
+      const res = JSON.parse(text);
+
+      if (res.success || res.status === 'ok') {
+        alert("Rol actualizado con éxito.");
+        setEditandoRolId(null);
+        cargarUsuarios();
+      } else {
+        alert("Error al actualizar rol: " + (res.error || 'Desconocido'));
+      }
+    } catch (err) {
+      alert("Error de red al actualizar rol.");
     }
   };
 
@@ -208,27 +242,80 @@ export default function Usuarios() {
               <Loader2 className="w-5 h-5 animate-spin text-amber-500" /> Leyendo usuarios...
             </div>
           ) : usuarios.length > 0 ? (
-            usuarios.map((u, index) => (
-              <div key={u.id || index} className="p-4 flex items-center justify-between hover:bg-slate-50">
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-600">
-                    {u.nombre ? u.nombre.charAt(0).toUpperCase() : 'U'}
+            usuarios.map((u, index) => {
+              const uId = u.id || index;
+              const isEditing = editandoRolId === uId;
+              const rolActual = String(u.role || u.rol || 'operador').toLowerCase();
+
+              return (
+                <div key={uId} className="p-4 flex items-center justify-between hover:bg-slate-50">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-full bg-slate-100 flex items-center justify-center font-bold text-slate-600">
+                      {u.nombre ? u.nombre.charAt(0).toUpperCase() : 'U'}
+                    </div>
+                    <div>
+                      <h4 className="font-semibold text-slate-800 text-sm">{u.nombre}</h4>
+                      <p className="text-xs text-slate-500 flex items-center gap-1"><Mail className="w-3 h-3" /> {u.email}</p>
+                    </div>
                   </div>
-                  <div>
-                    <h4 className="font-semibold text-slate-800 text-sm">{u.nombre}</h4>
-                    <p className="text-xs text-slate-500 flex items-center gap-1"><Mail className="w-3 h-3" /> {u.email}</p>
+
+                  <div className="flex items-center gap-4">
+                    {isEditing ? (
+                      <div className="flex items-center gap-2">
+                        <select
+                          className="border border-slate-300 rounded px-2 py-1 text-xs bg-white focus:outline-none focus:border-amber-500"
+                          value={nuevoRolTemporal || rolActual}
+                          onChange={(e) => setNuevoRolTemporal(e.target.value)}
+                        >
+                          <option value="admin">Administrador</option>
+                          <option value="finanzas">Finanzas</option>
+                          <option value="jefe_obra">Jefe de Obra</option>
+                          <option value="operador">Operador</option>
+                          <option value="operador_ii">Operador II</option>
+                        </select>
+                        <button
+                          onClick={() => handleCambiarRol(u.id, u.email, u.nombre)}
+                          className="p-1.5 bg-emerald-600 text-white rounded hover:bg-emerald-700 cursor-pointer"
+                          title="Guardar rol"
+                        >
+                          <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setEditandoRolId(null)}
+                          className="p-1.5 bg-slate-200 text-slate-700 rounded hover:bg-slate-300 cursor-pointer"
+                          title="Cancelar"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-slate-100 text-slate-700 flex items-center gap-1">
+                          <Shield className="w-3 h-3" /> {rolActual.toUpperCase()}
+                        </span>
+                        <button
+                          onClick={() => {
+                            setEditandoRolId(uId);
+                            setNuevoRolTemporal(rolActual);
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors cursor-pointer"
+                          title="Cambiar rol"
+                        >
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+
+                    <button 
+                      onClick={() => handleDarDeBaja(u.id, u.nombre)} 
+                      className="text-xs text-red-500 hover:text-red-700 bg-red-50 px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer"
+                    >
+                      <UserX className="w-4 h-4" /> Dar de baja
+                    </button>
                   </div>
                 </div>
-                <div className="flex items-center gap-6">
-                  <span className="px-2.5 py-1 text-xs font-medium rounded-full bg-slate-100 text-slate-700 flex items-center gap-1">
-                    <Shield className="w-3 h-3" /> {String(u.role || 'operador').toUpperCase()}
-                  </span>
-                  <button onClick={() => handleDarDeBaja(u.id, u.nombre)} className="text-xs text-red-500 hover:text-red-700 bg-red-50 px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer">
-                    <UserX className="w-4 h-4" /> Dar de baja
-                  </button>
-                </div>
-              </div>
-            ))
+              );
+            })
           ) : (
             <div className="p-8 text-center text-slate-500 text-sm">No hay usuarios registrados.</div>
           )}
