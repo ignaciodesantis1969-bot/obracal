@@ -72,8 +72,10 @@ const AuthenticatedApp = () => {
             );
             
             const nombreFinal = userInfo?.nombre || userInfo?.Nombre || firebaseUser.email.split('@')[0];
-            // Aquí quitamos el "|| 'admin'" por defecto para evitar escalar privilegios accidentalmente
-            const rolFinal = (userInfo?.role || userInfo?.rol || userInfo?.Role || 'usuario_sin_rol').toLowerCase().trim();
+            
+            // SEGURIDAD: Si el usuario existe en la tabla, tomamos su rol. Si no existe o hay error, cae en un rol seguro y restringido ('operador').
+            const rawRol = userInfo?.role || userInfo?.rol || userInfo?.Role || '';
+            const rolFinal = rawRol ? String(rawRol).toLowerCase().trim() : 'operador';
 
             setUser({
               ...firebaseUser,
@@ -82,11 +84,12 @@ const AuthenticatedApp = () => {
               rol: rolFinal
             });
           } else {
+            // Si la API falla al devolver un array, por seguridad asignamos el rol más restrictivo
             setUser({
               ...firebaseUser,
               nombre: firebaseUser.email.split('@')[0],
-              role: 'usuario_sin_rol',
-              rol: 'usuario_sin_rol'
+              role: 'operador',
+              rol: 'operador'
             });
           }
         } catch (error) {
@@ -94,8 +97,8 @@ const AuthenticatedApp = () => {
           setUser({
             ...firebaseUser,
             nombre: firebaseUser.email.split('@')[0],
-            role: 'usuario_sin_rol',
-            rol: 'usuario_sin_rol'
+            role: 'operador',
+            rol: 'operador'
           });
         }
       } else {
@@ -162,13 +165,13 @@ const AuthenticatedApp = () => {
     );
   }
 
-  // Obtenemos el rol limpio para evaluar de forma estricta
+  // Verificamos estrictamente los roles
   const userRole = String(user.role || user.rol || '').toLowerCase().trim();
   
-  // Operador estándar (solo partes diarios, acceso restringido)
+  // Operador estándar (restringido a partes diarios)
   const esOperadorEstandar = userRole === 'operador' || userRole === 'operator';
   
-  // Operador II (acceso a menú completo, pero en Reportes ve solapas especiales)
+  // Operador II (menú completo con solapas especiales en reportes)
   const esOperadorII = userRole === 'operador_ii' || userRole === 'operadorii' || userRole === 'operador2' || userRole === 'operador ii';
 
   return (
@@ -303,9 +306,6 @@ const AuthenticatedApp = () => {
               <Route 
                 path="/reportes" 
                 element={
-                  // Tanto admins como operador_ii pasan a reportes. 
-                  // El componente Reportes.jsx se encargará de mostrar u ocultar pestañas 
-                  // gracias a que ahora pasamos esOperadorII explícitamente.
                   <Reportes 
                     currentUser={user}
                     userRole={userRole}
