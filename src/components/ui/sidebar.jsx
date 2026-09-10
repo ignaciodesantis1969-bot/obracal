@@ -37,20 +37,17 @@ export default function Layout() {
   const rawRoleValue = user?.role || user?.rol || user?.claims?.role || '';
   const rolUsuario = String(rawRoleValue).trim().toLowerCase().replace(/-/g, '_');
   
-  // Condicionales de roles robustos y tolerantes a variaciones (operador_ii, operadorii, operador 2, etc.)
+  // Condicionales de roles robustos y tolerantes a variaciones
   const esOperadorEstandar = rolUsuario === 'operador' || rolUsuario === 'operator';
   const esOperadorII = rolUsuario === 'operador_ii' || rolUsuario === 'operadorii' || rolUsuario === 'operador2' || rolUsuario === 'operador ii';
 
-  // Filtrar módulos según el rol de forma limpia:
+  // Filtrar módulos según el rol de forma estricta y segura:
   // - Operador Estándar: SOLO ve 'reportes'
-  // - Operador II: Ve todo EXCEPTO el 'dashboard'
+  // - Operador II: Ve exclusivamente 'reportes' (y opcionalmente otros módulos seguros si se requiere, pero sin acceso a administración ni dashboard)
   // - Administradores / Otros: Ven todo el menú
   const modulosFiltrados = MODULOS.filter(mod => {
-    if (esOperadorEstandar) {
-      return mod.id === 'reportes'; 
-    }
-    if (esOperadorII) {
-      return mod.id !== 'dashboard'; 
+    if (esOperadorEstandar || esOperadorII) {
+      return ['reportes'].includes(mod.id);
     }
     return true; 
   });

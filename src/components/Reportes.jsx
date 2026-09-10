@@ -128,8 +128,9 @@ function ReportesContent({
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet, reportesLocalesExtra]);
 
+  // Si es Operador II, su pestaña inicial por defecto debe ser 'Reportes Diarios'
   const [activeTab, setActiveTab] = useState(isOp2 ? 'Reportes Diarios' : 'Certificaciones');
-  const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
+  const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState(isOp2 ? 'horas_hombre' : 'avance_obra');
 
   const [certificadoNro, setCertificadoNro] = useState('1');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
@@ -344,10 +345,11 @@ function ReportesContent({
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:hidden">
         <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes</h1>
         <p className="text-slate-500 text-sm mt-1">
-          {esOperadorEstandar ? "(Vista de Operador - Reportes Diarios)" : isOp2 ? "(Vista de Operador II - Reportes y Insumos)" : "(Certificaciones - Reportes - Listado de Insumos - Comparativas)"}
+          {esOperadorEstandar ? "(Vista de Operador - Reportes Diarios)" : isOp2 ? "(Vista de Operador II - Reportes y Certificaciones CM)" : "(Certificaciones - Reportes - Listado de Insumos - Comparativas)"}
         </p>
       </div>
 
+      {/* Selector de pestañas superior adaptado para Operador II y Admin/Otros */}
       {!esOperadorEstandar && (
         <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
           {isOp2 ? (
@@ -357,6 +359,12 @@ function ReportesContent({
                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'Reportes Diarios' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
               >
                 Reportes Diarios SICE
+              </button>
+              <button
+                onClick={() => setActiveTab('Certificaciones')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'Certificaciones' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+              >
+                Certificaciones (CM)
               </button>
               <button
                 onClick={() => setActiveTab('Listado de Insumos')}
@@ -379,7 +387,8 @@ function ReportesContent({
         </div>
       )}
 
-      {!esOperadorEstandar && !isOp2 && activeTab === 'Certificaciones' && (
+      {/* Panel de Certificaciones con restricción de Avance de Obra (P) para Operador II */}
+      {!esOperadorEstandar && activeTab === 'Certificaciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
             <div>
@@ -391,16 +400,18 @@ function ReportesContent({
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 print:hidden">
-            <button
-              type="button"
-              onClick={() => setTipoCertificadoSubTab('avance_obra')}
-              className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${tipoCertificadoSubTab === 'avance_obra' ? 'bg-amber-50 border-amber-500 shadow-xs' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
-            >
-              <div className="flex items-center gap-2 font-black text-xs text-slate-900 mb-1">
-                <Building2 className="w-4 h-4 text-amber-600" /> Avance de Obra
-              </div>
-              <p className="text-[11px] text-slate-500 leading-tight">Certificado Avance de Obra - Presupuesto</p>
-            </button>
+            {!isOp2 && (
+              <button
+                type="button"
+                onClick={() => setTipoCertificadoSubTab('avance_obra')}
+                className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${tipoCertificadoSubTab === 'avance_obra' ? 'bg-amber-50 border-amber-500 shadow-xs' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+              >
+                <div className="flex items-center gap-2 font-black text-xs text-slate-900 mb-1">
+                  <Building2 className="w-4 h-4 text-amber-600" /> Avance de Obra
+                </div>
+                <p className="text-[11px] text-slate-500 leading-tight">Certificado Avance de Obra - Presupuesto</p>
+              </button>
+            )}
 
             <button
               type="button"
@@ -425,7 +436,7 @@ function ReportesContent({
             </button>
           </div>
 
-          {tipoCertificadoSubTab === 'avance_obra' && (
+          {!isOp2 && tipoCertificadoSubTab === 'avance_obra' && (
             <div className="space-y-6 pt-2">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 print:hidden">
                 <div className="flex items-center gap-3 flex-wrap">
@@ -970,7 +981,7 @@ function ReportesContent({
         </div>
       )}
 
-      {/* Renderizado condicional preciso por pestañas */}
+      {/* Renderizado condicional preciso para Reportes Diarios y Listado de Insumos */}
       {(esOperadorEstandar || activeTab === 'Reportes Diarios') && (
         <ReportesDiariosTab
           contratosList={contratosList}
