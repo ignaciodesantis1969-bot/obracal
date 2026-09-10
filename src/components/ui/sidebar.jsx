@@ -35,17 +35,23 @@ export default function Layout() {
 
   // Obtener y normalizar el rol del usuario actual
   const rolUsuario = String(user?.role || user?.rol || '').trim().toLowerCase();
-  const esOperadorEstandar = rolUsuario === 'operador';
-  const esOperadorII = rolUsuario === 'operador_ii' || rolUsuario === 'operadorii' || rolUsuario === 'operador2';
+  
+  // Condicionales estrictos de roles
+  const esOperadorEstandar = rolUsuario === 'operador' || rolUsuario === 'operator';
+  const esOperadorII = rolUsuario === 'operador_ii' || rolUsuario === 'operadorii' || rolUsuario === 'operador2' || rolUsuario === 'operador ii';
 
   // Filtrar módulos según el rol:
-  // - 'operador_ii' y operador estándar tienen acceso a Dashboard y Reportes.
-  // - Administradores y otros roles ven todo según la configuración global (MODULOS).
+  // - Operador Estándar: SOLO 'reportes'
+  // - Operador II: TODO MENOS 'dashboard'
+  // - Admin / Resto: TODO
   const modulosFiltrados = MODULOS.filter(mod => {
-    if (esOperadorEstandar || esOperadorII) {
-      return ['dashboard', 'reportes'].includes(mod.id);
+    if (esOperadorEstandar) {
+      return mod.id === 'reportes'; 
     }
-    return true; // Resto de roles ven todo
+    if (esOperadorII) {
+      return mod.id !== 'dashboard'; // Ve todo excepto el dashboard
+    }
+    return true; 
   });
 
   return (
@@ -65,12 +71,14 @@ export default function Layout() {
           <nav className="space-y-1">
             {modulosFiltrados.map((mod) => {
               const Icono = iconos[mod.id] || LayoutDashboard;
-              const isActive = location.pathname === `/${mod.id}` || (mod.id === 'dashboard' && location.pathname === '/');
+              // Si el ID es dashboard, la ruta es '/', si no, es '/id'
+              const rutaBase = mod.id === 'dashboard' ? '/' : `/${mod.id}`;
+              const isActive = location.pathname === rutaBase || (mod.id === 'dashboard' && location.pathname === '/');
 
               return (
                 <Link
                   key={mod.id}
-                  to={`/${mod.id === 'dashboard' ? '' : mod.id}`}
+                  to={rutaBase}
                   className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors text-sm font-medium ${
                     isActive 
                       ? 'bg-amber-600 text-white shadow-md' 
@@ -92,13 +100,13 @@ export default function Layout() {
             <p className="text-[11px] text-slate-400 truncate">{user?.email || 'admin@obracal.com'}</p>
             <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider pt-0.5">
               {(() => {
-                const r = rolUsuario;
-                if (r === 'operador_ii' || r === 'operadorii' || r === 'operador2') return 'OPERADOR II';
-                if (r === 'operador') return 'OPERADOR';
-                if (r === 'jefe_obra') return 'JEFE DE OBRA';
-                if (r === 'finanzas') return 'FINANZAS';
-                if (r === 'admin') return 'ADMINISTRADOR';
-                return r ? r.toUpperCase() : 'ADMINISTRADOR';
+                if (esOperadorII) return 'OPERADOR II';
+                if (esOperadorEstandar) return 'OPERADOR';
+                if (rolUsuario === 'jefe_obra') return 'JEFE DE OBRA';
+                if (rolUsuario === 'finanzas') return 'FINANZAS';
+                if (rolUsuario === 'admin' || rolUsuario === 'administrador') return 'ADMINISTRADOR';
+                if (rolUsuario === 'usuario_sin_rol') return 'SIN ASIGNAR';
+                return rolUsuario ? rolUsuario.toUpperCase().replace('_', ' ') : 'ADMINISTRADOR';
               })()}
             </p>
           </div>
@@ -122,7 +130,7 @@ export default function Layout() {
           </button>
         </header>
 
-        {/* Área donde se renderizan las vistas (Dashboard, Usuarios, etc.) */}
+        {/* Área donde se renderizan las vistas */}
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>

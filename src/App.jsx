@@ -2,7 +2,7 @@ import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
 import { GOOGLE_SCRIPT_URL } from '@/api';
@@ -84,7 +84,6 @@ const AuthenticatedApp = () => {
               rol: rolFinal
             });
           } else {
-            // Si la API falla al devolver un array, por seguridad asignamos el rol más restrictivo
             setUser({
               ...firebaseUser,
               nombre: firebaseUser.email.split('@')[0],
@@ -167,11 +166,7 @@ const AuthenticatedApp = () => {
 
   // Verificamos estrictamente los roles
   const userRole = String(user.role || user.rol || '').toLowerCase().trim();
-  
-  // Operador estándar (restringido a partes diarios)
   const esOperadorEstandar = userRole === 'operador' || userRole === 'operator';
-  
-  // Operador II (menú completo con solapas especiales en reportes)
   const esOperadorII = userRole === 'operador_ii' || userRole === 'operadorii' || userRole === 'operador2' || userRole === 'operador ii';
 
   return (
@@ -205,17 +200,22 @@ const AuthenticatedApp = () => {
             />
           ) : (
             <>
+              {/* RUTA RAÍZ (DASHBOARD): Si es Operador II se redirige a /reportes. Si es Admin, ve el Dashboard */}
               <Route 
                 path="/" 
                 element={
-                  <Dashboard 
-                    movimientos={globalData.movimientos}
-                    facturas={globalData.facturas}
-                    obras={globalData.obras}
-                    presupuestos={globalData.presupuestos}
-                    clientes={globalData.clientes}
-                    proveedores={globalData.proveedores}
-                  />
+                  esOperadorII ? (
+                    <Navigate to="/reportes" replace />
+                  ) : (
+                    <Dashboard 
+                      movimientos={globalData.movimientos}
+                      facturas={globalData.facturas}
+                      obras={globalData.obras}
+                      presupuestos={globalData.presupuestos}
+                      clientes={globalData.clientes}
+                      proveedores={globalData.proveedores}
+                    />
+                  )
                 } 
               />
               
