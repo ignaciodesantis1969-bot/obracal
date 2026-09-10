@@ -57,27 +57,41 @@ const AuthenticatedApp = () => {
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        let listaUsuarios = [];
         try {
-          const response = await fetch(GOOGLE_SCRIPT_URL, {
+          // Intento 1: action 'list'
+          let response = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({ tabla: 'Usuarios', action: 'list' })
           });
-          const data = await response.json();
-          
-          // Extracción robusta de usuarios sin importar el formato devuelto por el Apps Script
-          const listaUsuarios = Array.isArray(data) 
+          let data = await response.json();
+          listaUsuarios = Array.isArray(data) 
             ? data 
             : (data.usuarios || data.data || data.result || Object.values(data).find(v => Array.isArray(v)) || []);
+
+          // Intento 2 de respaldo: si vino vacío, intentamos con action 'leer' (estándar en Google Apps Script)
+          if (!Array.isArray(listaUsuarios) || listaUsuarios.length === 0) {
+            response = await fetch(GOOGLE_SCRIPT_URL, {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+              body: JSON.stringify({ tabla: 'Usuarios', action: 'leer' })
+            });
+            data = await response.json();
+            listaUsuarios = Array.isArray(data) 
+              ? data 
+              : (data.usuarios || data.data || data.result || Object.values(data).find(v => Array.isArray(v)) || []);
+          }
 
           const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
           let rolFinal = 'operador';
           let nombreFinal = firebaseUser.email.split('@')[0];
 
           if (Array.isArray(listaUsuarios) && listaUsuarios.length > 0) {
-            const userInfo = listaUsuarios.find(u => 
-              String(u.email || '').trim().toLowerCase() === emailFirebase
-            );
+            const userInfo = listaUsuarios.find(u => {
+              const uEmail = String(u.email || u.Email || u.correo || '').trim().toLowerCase();
+              return uEmail === emailFirebase;
+            });
             
             if (userInfo) {
               nombreFinal = userInfo?.nombre || userInfo?.Nombre || nombreFinal;
@@ -88,11 +102,6 @@ const AuthenticatedApp = () => {
             }
           }
 
-          // Resguardo de seguridad para el administrador principal
-          if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
-            rolFinal = 'admin';
-          }
-
           setUser({
             ...firebaseUser,
             nombre: nombreFinal,
@@ -100,15 +109,12 @@ const AuthenticatedApp = () => {
             rol: rolFinal
           });
         } catch (error) {
-          console.error("Error al obtener perfil del usuario:", error);
-          const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
-          let rolFinal = emailFirebase === 'ignaciodesantis@sicesa.com.ar' ? 'admin' : 'operador';
-
+          console.error("Error al obtener perfil del usuario desde Google Sheets:", error);
           setUser({
             ...firebaseUser,
             nombre: firebaseUser.email.split('@')[0],
-            role: rolFinal,
-            rol: rolFinal
+            role: 'operador',
+            rol: 'operador'
           });
         }
       } else {
