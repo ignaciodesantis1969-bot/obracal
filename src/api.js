@@ -1,2 +1,2 @@
 // src/config/api.js
-export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyg7Bo3wERfiIe_dKUR3t4afS_7RLKYeiDhJumEjlnt7IECZXmGs4oCEwC-pr4VP0mNxg/exec";
+export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycby98opDSG3SlfIRfq58NSod14FHNFnPGTIxJwWEXssLrC9mf_2Qz3IW9xYsTtZCXk4UHg/exec";
