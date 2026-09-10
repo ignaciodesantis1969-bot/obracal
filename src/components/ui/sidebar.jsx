@@ -33,6 +33,26 @@ export default function Layout() {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
+  // Obtener y normalizar el rol del usuario actual
+  const rolUsuario = String(user?.role || user?.rol || '').trim().toLowerCase();
+  const esOperadorEstandar = rolUsuario === 'operador' || rolUsuario === 'operador2';
+
+  // Filtrar módulos según el rol:
+  // - 'operador_ii' tiene acceso a Dashboard y Reportes (que contiene los partes diarios y certificaciones CM).
+  // - El operador estándar mantiene sus permisos habituales.
+  // - Administradores y otros roles ven todo según la configuración global (MODULOS).
+  const modulosFiltrados = MODULOS.filter(mod => {
+    if (esOperadorEstandar) {
+      // Operador común: solo dashboard y reportes (partes diarios)
+      return ['dashboard', 'reportes'].includes(mod.id);
+    }
+    if (rolUsuario === 'operador_ii') {
+      // Operador II: acceso a dashboard y reportes (partes y certificaciones CM)
+      return ['dashboard', 'reportes'].includes(mod.id);
+    }
+    return true; // Resto de roles (admin, finanzas, jefe de obra) ven todo
+  });
+
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden">
       {/* Barra lateral / Sidebar */}
@@ -48,7 +68,7 @@ export default function Layout() {
 
           {/* Navegación principal */}
           <nav className="space-y-1">
-            {MODULOS.map((mod) => {
+            {modulosFiltrados.map((mod) => {
               const Icono = iconos[mod.id] || LayoutDashboard;
               const isActive = location.pathname === `/${mod.id}` || (mod.id === 'dashboard' && location.pathname === '/');
 
@@ -78,7 +98,7 @@ export default function Layout() {
           </div>
           <button
             onClick={logout}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors text-sm font-medium"
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-red-400 hover:bg-red-500/10 hover:text-red-300 transition-colors text-sm font-medium cursor-pointer"
           >
             <LogOut className="w-5 h-5" />
             Cerrar sesión
@@ -91,7 +111,7 @@ export default function Layout() {
         {/* Cabecera para dispositivos móviles */}
         <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 md:hidden">
           <span className="font-bold text-amber-600">ObraCal</span>
-          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-slate-600">
+          <button onClick={() => setSidebarOpen(!sidebarOpen)} className="text-slate-600 cursor-pointer">
             <Menu className="w-6 h-6" />
           </button>
         </header>
