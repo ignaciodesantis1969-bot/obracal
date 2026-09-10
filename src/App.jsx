@@ -65,12 +65,17 @@ const AuthenticatedApp = () => {
           });
           const data = await response.json();
           
+          // Extracción robusta de usuarios sin importar el formato devuelto por el Apps Script
+          const listaUsuarios = Array.isArray(data) 
+            ? data 
+            : (data.usuarios || data.data || data.result || Object.values(data).find(v => Array.isArray(v)) || []);
+
           const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
           let rolFinal = 'operador';
           let nombreFinal = firebaseUser.email.split('@')[0];
 
-          if (Array.isArray(data)) {
-            const userInfo = data.find(u => 
+          if (Array.isArray(listaUsuarios) && listaUsuarios.length > 0) {
+            const userInfo = listaUsuarios.find(u => 
               String(u.email || '').trim().toLowerCase() === emailFirebase
             );
             
@@ -83,7 +88,7 @@ const AuthenticatedApp = () => {
             }
           }
 
-          // Resguardo de seguridad para el administrador principal ante fallas de red o de la hoja
+          // Resguardo de seguridad para el administrador principal
           if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
             rolFinal = 'admin';
           }
