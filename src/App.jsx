@@ -163,8 +163,10 @@ const AuthenticatedApp = () => {
 
   const userRole = String(user.role || user.rol || '').toLowerCase().trim();
   
-  // Definimos estrictamente quién es un operador estándar limitado
+  // Operador estándar (solo partes diarios)
   const esOperadorEstandar = userRole === 'operador' || userRole === 'operator';
+  // Operador II (reportes y contratos)
+  const esOperadorII = userRole === 'operador_ii' || userRole === 'operadorii' || userRole === 'operador2';
 
   return (
     <Suspense fallback={
@@ -297,7 +299,7 @@ const AuthenticatedApp = () => {
               <Route 
                 path="/reportes" 
                 element={
-                  <RequirePermiso modulo="reportes">
+                  esOperadorII ? (
                     <Reportes 
                       currentUser={user}
                       userRole={userRole}
@@ -312,7 +314,24 @@ const AuthenticatedApp = () => {
                       certificados={globalData.certificados}
                       setFetchedCertificados={cargarDatos}
                     />
-                  </RequirePermiso>
+                  ) : (
+                    <RequirePermiso modulo="reportes">
+                      <Reportes 
+                        currentUser={user}
+                        userRole={userRole}
+                        obras={globalData.obras}
+                        presupuestos={globalData.presupuestos}
+                        movimientos={globalData.movimientos}
+                        insumos={globalData.insumos}
+                        rubros={globalData.rubros}
+                        facturas={globalData.facturas}
+                        maestroTareasRubros={globalData.maestroTareasRubros}
+                        contratosMantenimiento={globalData.contratosMantenimiento}
+                        certificados={globalData.certificados}
+                        setFetchedCertificados={cargarDatos}
+                      />
+                    </RequirePermiso>
+                  )
                 } 
               />
 
