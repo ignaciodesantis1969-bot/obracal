@@ -44,6 +44,7 @@ function ReportesContent({
   setFetchedReportesSice = () => {},
   listaEmpleadosActivos = [],
   esOperador = false,
+  esOperadorII = false, // <-- Recibimos la prop explícita enviada desde App.jsx
   currentUser = null,
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
@@ -58,10 +59,10 @@ function ReportesContent({
   certificadosList = [],
   obras = []
 }) {
-  // Lógica exacta de roles
+  // Lógica de roles robusta (combina la prop con una verificación interna por seguridad)
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
-  const esOperadorEstandar = esOperador || rolStr === 'operador';
-  const esOperadorII = rolStr === 'operador_ii' || rolStr === 'operadorii' || rolStr === 'operador2';
+  const esOperadorEstandar = esOperador || rolStr === 'operador' || rolStr === 'operator';
+  const isOp2 = esOperadorII || rolStr === 'operador_ii' || rolStr === 'operadorii' || rolStr === 'operador2' || rolStr === 'operador ii';
 
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
@@ -128,7 +129,8 @@ function ReportesContent({
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet, reportesLocalesExtra]);
 
-  const [activeTab, setActiveTab] = useState(esOperadorII ? 'Reportes Diarios' : 'Certificaciones');
+  // Si es Operador 2, su tab por defecto es Reportes Diarios. Si es Admin, Certificaciones.
+  const [activeTab, setActiveTab] = useState(isOp2 ? 'Reportes Diarios' : 'Certificaciones');
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
 
   const [certificadoNro, setCertificadoNro] = useState('1');
@@ -344,13 +346,13 @@ function ReportesContent({
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm print:hidden">
         <h1 className="text-2xl font-extrabold text-slate-900">Control y Reportes</h1>
         <p className="text-slate-500 text-sm mt-1">
-          {esOperadorEstandar ? "(Vista de Operador - Reportes Diarios)" : esOperadorII ? "(Vista de Operador II - Reportes y Contratos SICE)" : "(Certificaciones - Reportes - Listado de Insumos - Comparativas)"}
+          {esOperadorEstandar ? "(Vista de Operador - Reportes Diarios)" : isOp2 ? "(Vista de Operador II - Reportes y Insumos)" : "(Certificaciones - Reportes - Listado de Insumos - Comparativas)"}
         </p>
       </div>
 
       {!esOperadorEstandar && (
         <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
-          {esOperadorII ? (
+          {isOp2 ? (
             <>
               <button
                 onClick={() => setActiveTab('Reportes Diarios')}
@@ -379,7 +381,8 @@ function ReportesContent({
         </div>
       )}
 
-      {!esOperadorEstandar && !esOperadorII && activeTab === 'Certificaciones' && (
+      {/* ADMIN: Certificaciones */}
+      {!esOperadorEstandar && !isOp2 && activeTab === 'Certificaciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
             <div>
@@ -970,7 +973,10 @@ function ReportesContent({
         </div>
       )}
 
-      {(activeTab === 'Reportes Diarios' || esOperadorEstandar || esOperadorII) && (
+      {/* Renderizado Condicional Correcto de Solapas */}
+      
+      {/* 1. Reportes Diarios: Lo ve el Operador Estándar (siempre) o quien tenga activa esta solapa */}
+      {(esOperadorEstandar || activeTab === 'Reportes Diarios') && (
         <ReportesDiariosTab
           contratosList={contratosList}
           allReportesSice={allReportesSice}
@@ -981,11 +987,13 @@ function ReportesContent({
         />
       )}
 
-      {!esOperadorEstandar && (activeTab === 'Listado de Insumos' || esOperadorII) && (
+      {/* 2. Listado Insumos: Lo ven Admin u Operador 2 SÓLO si la pestaña está activa */}
+      {!esOperadorEstandar && activeTab === 'Listado de Insumos' && (
         <ListadoInsumosTab presupuestos={presupuestos} />
       )}
 
-      {!esOperadorEstandar && !esOperadorII && activeTab === 'Comparativo' && (
+      {/* 3. Comparativo: Lo ven SÓLO los Administradores si la pestaña está activa */}
+      {!esOperadorEstandar && !isOp2 && activeTab === 'Comparativo' && (
         <ComparativoTab
           presupuestos={presupuestos}
           facturas={facturas}
