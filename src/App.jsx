@@ -72,7 +72,8 @@ const AuthenticatedApp = () => {
             );
             
             const nombreFinal = userInfo?.nombre || userInfo?.Nombre || firebaseUser.email.split('@')[0];
-            const rolFinal = userInfo?.role || userInfo?.rol || userInfo?.Role || 'admin';
+            // Aquí quitamos el "|| 'admin'" por defecto para evitar escalar privilegios accidentalmente
+            const rolFinal = (userInfo?.role || userInfo?.rol || userInfo?.Role || 'usuario_sin_rol').toLowerCase().trim();
 
             setUser({
               ...firebaseUser,
@@ -84,8 +85,8 @@ const AuthenticatedApp = () => {
             setUser({
               ...firebaseUser,
               nombre: firebaseUser.email.split('@')[0],
-              role: 'admin',
-              rol: 'admin'
+              role: 'usuario_sin_rol',
+              rol: 'usuario_sin_rol'
             });
           }
         } catch (error) {
@@ -93,8 +94,8 @@ const AuthenticatedApp = () => {
           setUser({
             ...firebaseUser,
             nombre: firebaseUser.email.split('@')[0],
-            role: 'admin',
-            rol: 'admin'
+            role: 'usuario_sin_rol',
+            rol: 'usuario_sin_rol'
           });
         }
       } else {
@@ -161,10 +162,14 @@ const AuthenticatedApp = () => {
     );
   }
 
+  // Obtenemos el rol limpio para evaluar de forma estricta
   const userRole = String(user.role || user.rol || '').toLowerCase().trim();
   
-  // Únicamente el operador estándar estricto se aislará en la vista de partes
+  // Operador estándar (solo partes diarios, acceso restringido)
   const esOperadorEstandar = userRole === 'operador' || userRole === 'operator';
+  
+  // Operador II (acceso a menú completo, pero en Reportes ve solapas especiales)
+  const esOperadorII = userRole === 'operador_ii' || userRole === 'operadorii' || userRole === 'operador2' || userRole === 'operador ii';
 
   return (
     <Suspense fallback={
@@ -182,6 +187,7 @@ const AuthenticatedApp = () => {
                   currentUser={user}
                   userRole={userRole}
                   esOperador={true}
+                  esOperadorII={false}
                   obras={globalData.obras}
                   presupuestos={globalData.presupuestos}
                   movimientos={globalData.movimientos}
@@ -297,9 +303,14 @@ const AuthenticatedApp = () => {
               <Route 
                 path="/reportes" 
                 element={
+                  // Tanto admins como operador_ii pasan a reportes. 
+                  // El componente Reportes.jsx se encargará de mostrar u ocultar pestañas 
+                  // gracias a que ahora pasamos esOperadorII explícitamente.
                   <Reportes 
                     currentUser={user}
                     userRole={userRole}
+                    esOperador={false}
+                    esOperadorII={esOperadorII} 
                     obras={globalData.obras}
                     presupuestos={globalData.presupuestos}
                     movimientos={globalData.movimientos}
