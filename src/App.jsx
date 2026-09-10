@@ -65,39 +65,45 @@ const AuthenticatedApp = () => {
           });
           const data = await response.json();
           
+          const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
+          let rolFinal = 'operador';
+          let nombreFinal = firebaseUser.email.split('@')[0];
+
           if (Array.isArray(data)) {
-            const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
             const userInfo = data.find(u => 
               String(u.email || '').trim().toLowerCase() === emailFirebase
             );
             
-            const nombreFinal = userInfo?.nombre || userInfo?.Nombre || firebaseUser.email.split('@')[0];
-            
-            // Lectura robusta que contempla cualquier variante de mayúsculas/minúsculas en la hoja de Google Sheets
-            const rawRol = userInfo?.role || userInfo?.rol || userInfo?.Role || userInfo?.ROL || userInfo?.ROLE || '';
-            const rolFinal = rawRol ? String(rawRol).toLowerCase().trim() : 'operador';
-
-            setUser({
-              ...firebaseUser,
-              nombre: nombreFinal,
-              role: rolFinal,
-              rol: rolFinal
-            });
-          } else {
-            setUser({
-              ...firebaseUser,
-              nombre: firebaseUser.email.split('@')[0],
-              role: 'operador',
-              rol: 'operador'
-            });
+            if (userInfo) {
+              nombreFinal = userInfo?.nombre || userInfo?.Nombre || nombreFinal;
+              const rawRol = userInfo?.role || userInfo?.rol || userInfo?.Role || userInfo?.ROL || '';
+              if (rawRol) {
+                rolFinal = String(rawRol).toLowerCase().trim();
+              }
+            }
           }
+
+          // Resguardo de seguridad para el administrador principal ante fallas de red o de la hoja
+          if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
+            rolFinal = 'admin';
+          }
+
+          setUser({
+            ...firebaseUser,
+            nombre: nombreFinal,
+            role: rolFinal,
+            rol: rolFinal
+          });
         } catch (error) {
           console.error("Error al obtener perfil del usuario:", error);
+          const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
+          let rolFinal = emailFirebase === 'ignaciodesantis@sicesa.com.ar' ? 'admin' : 'operador';
+
           setUser({
             ...firebaseUser,
             nombre: firebaseUser.email.split('@')[0],
-            role: 'operador',
-            rol: 'operador'
+            role: rolFinal,
+            rol: rolFinal
           });
         }
       } else {
@@ -200,7 +206,7 @@ const AuthenticatedApp = () => {
               } 
             />
           ) : esOperadorII ? (
-            /* 2. Operador II: Menú completo sin dashboard, con solapas específicas de reportes e insumos */
+            /* 2. Operador II: Menú completo sin dashboard */
             <>
               <Route path="/" element={<Navigate to="/reportes" replace />} />
               <Route 
@@ -340,7 +346,7 @@ const AuthenticatedApp = () => {
                     currentUser={user}
                     userRole={userRole}
                     esOperador={false}
-                    esOperadorII={true} 
+                    esOperadorII={false} 
                     obras={globalData.obras}
                     presupuestos={globalData.presupuestos}
                     movimientos={globalData.movimientos}
