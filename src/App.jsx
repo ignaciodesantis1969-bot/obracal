@@ -73,8 +73,8 @@ const AuthenticatedApp = () => {
             
             const nombreFinal = userInfo?.nombre || userInfo?.Nombre || firebaseUser.email.split('@')[0];
             
-            // SEGURIDAD: Si el usuario existe en la tabla, tomamos su rol. Si no existe o hay error, cae en un rol seguro y restringido ('operador').
-            const rawRol = userInfo?.role || userInfo?.rol || userInfo?.Role || '';
+            // Lectura robusta que contempla cualquier variante de mayúsculas/minúsculas en la hoja de Google Sheets
+            const rawRol = userInfo?.role || userInfo?.rol || userInfo?.Role || userInfo?.ROL || userInfo?.ROLE || '';
             const rolFinal = rawRol ? String(rawRol).toLowerCase().trim() : 'operador';
 
             setUser({
@@ -164,7 +164,7 @@ const AuthenticatedApp = () => {
     );
   }
 
-  // Verificamos estrictamente los roles
+  // Normalización estricta de roles
   const userRole = String(user.role || user.rol || '').toLowerCase().trim();
   const esOperadorEstandar = userRole === 'operador' || userRole === 'operator';
   const esOperadorII = userRole === 'operador_ii' || userRole === 'operadorii' || userRole === 'operador2' || userRole === 'operador ii';
@@ -177,6 +177,7 @@ const AuthenticatedApp = () => {
     }>
       <Routes>
         <Route element={<Layout />}>
+          {/* 1. Operador Estándar: Solo partes diarios */}
           {esOperadorEstandar ? (
             <Route 
               path="*" 
@@ -198,27 +199,62 @@ const AuthenticatedApp = () => {
                 />
               } 
             />
-          ) : (
+          ) : esOperadorII ? (
+            /* 2. Operador II: Menú completo sin dashboard, con solapas específicas de reportes e insumos */
             <>
-              {/* RUTA RAÍZ (DASHBOARD): Si es Operador II se redirige a /reportes. Si es Admin, ve el Dashboard */}
+              <Route path="/" element={<Navigate to="/reportes" replace />} />
+              <Route 
+                path="/reportes" 
+                element={
+                  <Reportes 
+                    currentUser={user}
+                    userRole={userRole}
+                    esOperador={false}
+                    esOperadorII={true} 
+                    obras={globalData.obras}
+                    presupuestos={globalData.presupuestos}
+                    movimientos={globalData.movimientos}
+                    insumos={globalData.insumos}
+                    rubros={globalData.rubros}
+                    facturas={globalData.facturas}
+                    maestroTareasRubros={globalData.maestroTareasRubros}
+                    contratosMantenimiento={globalData.contratosMantenimiento}
+                    certificados={globalData.certificados}
+                    setFetchedCertificados={cargarDatos}
+                  />
+                } 
+              />
+              <Route path="/insumos" element={<RequirePermiso modulo="insumos"><Insumos /></RequirePermiso>} />
+              <Route path="/obras" element={<RequirePermiso modulo="obras"><Obras /></RequirePermiso>} />
+              <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
+              <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
+              <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
+              <Route path="/clientes" element={<RequirePermiso modulo="clientes"><Clientes clientesIniciales={globalData.clientes} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} /></RequirePermiso>} />
+              <Route path="/proveedores" element={<RequirePermiso modulo="proveedores"><Proveedores proveedoresIniciales={globalData.proveedores} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} /></RequirePermiso>} />
+              <Route path="/compras" element={<RequirePermiso modulo="compras"><Compras GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} facturas={globalData.facturas} ordenesCompra={globalData.ordenesCompra} proveedores={globalData.proveedores} obras={globalData.obras} presupuestos={globalData.presupuestos} contratosList={globalData.contratosMantenimiento} contratos={globalData.contratosMantenimiento} insumosList={globalData.insumos} rubros={globalData.rubros} cargarDatos={cargarDatos} /></RequirePermiso>} />
+              <Route path="/tesoreria" element={<RequirePermiso modulo="tesoreria"><Tesoreria GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} movimientos={globalData.movimientos} facturas={globalData.facturas} facturasVenta={globalData.facturasVenta} proveedores={globalData.proveedores} obras={globalData.obras} presupuestos={globalData.presupuestos} clientes={globalData.clientes} cargarDatos={cargarDatos} /></RequirePermiso>} />
+              <Route path="/rrhh" element={<RequirePermiso modulo="rrhh"><Rrhh GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} personalInicial={globalData.personal} insumos={globalData.insumos} obras={globalData.obras} rubros={globalData.rubros} presupuestos={globalData.presupuestos} contratosMantenimiento={globalData.contratosMantenimiento} legajosIniciales={globalData.legajos} cargasHorasIniciales={globalData.cargasSemanales} cargarDatos={cargarDatos} /></RequirePermiso>} />
+              <Route path="/contratos-mantenimiento" element={<RequirePermiso modulo="contratos_mantenimiento"><ContratosMantenimiento GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} contratos={globalData.contratosMantenimiento} proveedores={globalData.proveedores} obras={globalData.obras} cargarDatos={cargarDatos} /></RequirePermiso>} />
+              <Route path="/usuarios" element={<Usuarios />} />
+              <Route path="/tareas-template" element={<RequirePermiso modulo="presupuestos"><TareasTemplate /></RequirePermiso>} />
+              <Route path="*" element={<Navigate to="/reportes" replace />} />
+            </>
+          ) : (
+            /* 3. Administradores: Acceso total al sistema */
+            <>
               <Route 
                 path="/" 
                 element={
-                  esOperadorII ? (
-                    <Navigate to="/reportes" replace />
-                  ) : (
-                    <Dashboard 
-                      movimientos={globalData.movimientos}
-                      facturas={globalData.facturas}
-                      obras={globalData.obras}
-                      presupuestos={globalData.presupuestos}
-                      clientes={globalData.clientes}
-                      proveedores={globalData.proveedores}
-                    />
-                  )
+                  <Dashboard 
+                    movimientos={globalData.movimientos}
+                    facturas={globalData.facturas}
+                    obras={globalData.obras}
+                    presupuestos={globalData.presupuestos}
+                    clientes={globalData.clientes}
+                    proveedores={globalData.proveedores}
+                  />
                 } 
               />
-              
               <Route 
                 path="/clientes" 
                 element={
@@ -227,7 +263,6 @@ const AuthenticatedApp = () => {
                   </RequirePermiso>
                 } 
               />
-              
               <Route 
                 path="/proveedores" 
                 element={
@@ -236,13 +271,11 @@ const AuthenticatedApp = () => {
                   </RequirePermiso>
                 } 
               />
-
               <Route path="/obras" element={<RequirePermiso modulo="obras"><Obras /></RequirePermiso>} />
               <Route path="/insumos" element={<RequirePermiso modulo="insumos"><Insumos /></RequirePermiso>} />
               <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
               <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
               <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
-              
               <Route 
                 path="/rrhh" 
                 element={
@@ -262,7 +295,6 @@ const AuthenticatedApp = () => {
                   </RequirePermiso>
                 } 
               />
-
               <Route 
                 path="/compras" 
                 element={
@@ -283,7 +315,6 @@ const AuthenticatedApp = () => {
                   </RequirePermiso>
                 } 
               />
-
               <Route 
                 path="/tesoreria" 
                 element={
@@ -302,7 +333,6 @@ const AuthenticatedApp = () => {
                   </RequirePermiso>
                 } 
               />
-
               <Route 
                 path="/reportes" 
                 element={
@@ -310,7 +340,7 @@ const AuthenticatedApp = () => {
                     currentUser={user}
                     userRole={userRole}
                     esOperador={false}
-                    esOperadorII={esOperadorII} 
+                    esOperadorII={true} 
                     obras={globalData.obras}
                     presupuestos={globalData.presupuestos}
                     movimientos={globalData.movimientos}
@@ -324,7 +354,6 @@ const AuthenticatedApp = () => {
                   />
                 } 
               />
-
               <Route 
                 path="/contratos-mantenimiento" 
                 element={
@@ -339,7 +368,6 @@ const AuthenticatedApp = () => {
                   </RequirePermiso>
                 } 
               />
-
               <Route path="/usuarios" element={<Usuarios />} />
               <Route path="/tareas-template" element={<RequirePermiso modulo="presupuestos"><TareasTemplate /></RequirePermiso>} />
             </>
