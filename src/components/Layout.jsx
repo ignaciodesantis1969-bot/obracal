@@ -17,21 +17,20 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
-
 const allNavItems = [
-  { icon: LayoutDashboard, label: 'Dashboard',         path: '/',                     key: null },
-  { icon: Users,           label: 'Clientes',          path: '/clientes',     key: 'clientes' },
-  { icon: Truck,           label: 'Proveedores',     path: '/proveedores',    key: 'proveedores' },
-  { icon: Building2,       label: 'Obras',             path: '/obras',          key: 'obras' },
-  { icon: ClipboardList,   label: 'Insumos',           path: '/insumos',        key: 'insumos' },
-  { icon: BookOpen,        label: 'Maestro de Tareas',path: '/tareas-template', key: 'presupuestos' },
-  { icon: Calculator,      label: 'Presupuestos',    path: '/presupuestos',   key: 'presupuestos' },
-  { icon: ShieldCheck,     label: 'Contratos de Mantenimiento', path: '/contratos-mantenimiento', key: 'contratos_mantenimiento' },
-  { icon: Users,           label: 'Recursos Humanos', path: '/rrhh',           key: 'rrhh' },
-  { icon: ShoppingCart,    label: 'Compras',           path: '/compras',        key: 'compras' },
-  { icon: Wallet,          label: 'Tesorería',         path: '/tesoreria',      key: 'tesoreria' },
-  { icon: BarChart3,       label: 'Control y Reportes', path: '/reportes',   key: 'reportes' },
-  { icon: CalendarDays,    label: 'Planificación',    path: '/planificacion',  key: 'planificacion' },
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/', key: null },
+  { icon: Users, label: 'Clientes', path: '/clientes', key: 'clientes' },
+  { icon: Truck, label: 'Proveedores', path: '/proveedores', key: 'proveedores' },
+  { icon: Building2, label: 'Obras', path: '/obras', key: 'obras' },
+  { icon: ClipboardList, label: 'Insumos', path: '/insumos', key: 'insumos' },
+  { icon: BookOpen, label: 'Maestro de Tareas', path: '/tareas-template', key: 'presupuestos' },
+  { icon: Calculator, label: 'Presupuestos', path: '/presupuestos', key: 'presupuestos' },
+  { icon: ShieldCheck, label: 'Contratos de Mantenimiento', path: '/contratos-mantenimiento', key: 'contratos_mantenimiento' },
+  { icon: Users, label: 'Recursos Humanos', path: '/rrhh', key: 'rrhh' },
+  { icon: ShoppingCart, label: 'Compras', path: '/compras', key: 'compras' },
+  { icon: Wallet, label: 'Tesorería', path: '/tesoreria', key: 'tesoreria' },
+  { icon: BarChart3, label: 'Control y Reportes', path: '/reportes', key: 'reportes' },
+  { icon: CalendarDays, label: 'Planificación', path: '/planificacion', key: 'planificacion' },
 ];
 
 export default function Layout() {
@@ -46,10 +45,12 @@ export default function Layout() {
   const location = useLocation();
   const { user, logout, login } = useAuth();
 
+  // Detección robusta de roles
+  const rawRoleValue = user?.role || user?.rol || user?.reloadUserInfo?.rol || user?.reloadUserInfo?.role || '';
+  const rolUsuario = String(rawRoleValue).trim().toLowerCase().replace(/-/g, '_');
   
-  // Verificamos si el usuario actual tiene rol de operador
-  const userRole = String(user?.role || user?.rol || '').toLowerCase();
-  const esOperador = userRole.includes('operador') || userRole === 'operator';
+  const esOperadorEstandar = rolUsuario === 'operador' || rolUsuario === 'operator';
+  const esOperadorII = rolUsuario === 'operador_ii' || rolUsuario === 'operadorii' || rolUsuario === 'operador2' || rolUsuario === 'operador ii' || rolUsuario.includes('operador_ii');
 
   if (!user) {
     const handleLogin = async (e) => {
@@ -158,9 +159,11 @@ export default function Layout() {
     );
   }
 
-  // 🔐 Si es operador, filtramos estrictamente el menú para que solo tenga Control y Reportes (/reportes)
-  const navItems = esOperador 
+  // Filtrar menú adaptado para Operadores
+  const navItems = esOperadorEstandar 
     ? allNavItems.filter(item => item.path === '/reportes')
+    : esOperadorII
+    ? allNavItems.filter(item => item.path === '/reportes' || item.path === '/insumos')
     : allNavItems.filter(item => item.key === null || tienePermiso(user, item.key));
 
   const SidebarContent = () => (
@@ -199,8 +202,8 @@ export default function Layout() {
         })}
       </nav>
 
-      {/* 🔐 Ocultamos la opción de configuración de Usuarios en el menú lateral si el usuario es operador */}
-      {!esOperador && (
+      {/* Ocultamos Usuarios si es operador */}
+      {!esOperadorEstandar && !esOperadorII && (
         <div className="px-2 pb-1">
           <Link
             to="/usuarios"
@@ -223,7 +226,7 @@ export default function Layout() {
           <div className="px-2 py-2 bg-slate-900/50 rounded-lg">
             <p className="text-white text-sm font-bold truncate">{user?.nombre || user?.email}</p>
             <p className="text-amber-500 text-xs font-medium truncate uppercase tracking-wide">
-              {esOperador ? 'Operador' : ((user?.role === 'admin' || user?.rol === 'admin') ? 'Administrador' : (user?.role || user?.rol || 'Usuario'))}
+              {esOperadorII ? 'OPERADOR II' : (esOperadorEstandar ? 'OPERADOR' : ((rolUsuario === 'admin' || rolUsuario === 'administrador') ? 'ADMINISTRADOR' : (user?.role || user?.rol || 'USUARIO')))}
             </p>
           </div>
         )}
