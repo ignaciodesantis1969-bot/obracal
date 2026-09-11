@@ -44,7 +44,6 @@ export default function CertificacionesTab({
     return [];
   };
 
-  // PETICIÓN GET OBLIGATORIA PARA TRAER LOS CERTIFICADOS DESDE GOOGLE SHEETS
   useEffect(() => {
     const cargarCertificadosDesdeSheet = async () => {
       try {
@@ -78,7 +77,6 @@ export default function CertificacionesTab({
       const nro = c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro !== undefined ? c.certificadoNro : '');
       const keyId = String(c.id || c.ID || `${pId}_${nro}` || Math.random());
       
-      // Ignorar registros vacíos o corruptos sin presupuesto_id
       if (pId && pId !== '' && pId !== 'undefined' && keyId !== '_') {
         map.set(keyId, c);
       }
@@ -282,7 +280,7 @@ export default function CertificacionesTab({
         presupuestoId: String(certPresupuestoId), 
         certificadoNro: String(certificadoNro), 
         pdfUrl: pdfUrlFinal, 
-        id: resultado?.id || `cert-${Date.now()` 
+        id: resultado?.id || `cert-${Date.now()}` 
       };
 
       setFetchedCertificadosLocal(prev => [nuevoCertGuardado, ...prev]);
