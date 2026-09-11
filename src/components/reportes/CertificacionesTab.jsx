@@ -10,9 +10,11 @@ export default function CertificacionesTab({
   allReportesSice = [],
   facturas = [],
   contratosList = [],
-  ...props // Intercepta cualquier prop adicional que envíe Reportes.jsx (certificadosList, fetchedCertificados, etc.)
+  isOp2 = false, // <-- Recibimos la prop de rol de Operador II
+  ...props 
 }) {
-  const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
+  // Si es Operador II, por defecto arranca en horas_hombre; de lo contrario, en avance_obra
+  const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState(isOp2 ? 'horas_hombre' : 'avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
   const [certClienteNombre, setCertClienteNombre] = useState('');
   const [fetchedCertificadosLocal, setFetchedCertificadosLocal] = useState([]);
@@ -44,7 +46,6 @@ export default function CertificacionesTab({
     return [];
   };
 
-  // Petición GET segura para cargar la tabla Certificados directamente desde Sheets
   useEffect(() => {
     fetch(`${GOOGLE_SCRIPT_URL}?tabla=Certificados&action=get`)
       .then(res => res.json())
@@ -57,7 +58,6 @@ export default function CertificacionesTab({
       .catch(() => {});
   }, []);
 
-  // Consolidación robusta de todas las fuentes de certificados (props de Reportes.jsx y fetch local)
   const allCertificados = useMemo(() => {
     let localCache = [];
     try {
@@ -99,7 +99,6 @@ export default function CertificacionesTab({
     });
   }, [presupuestos, certPresupuestoId]);
 
-  // Filtrado 100% tolerante para matchear presupuestos (ID numérico, código, etc.)
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -120,7 +119,6 @@ export default function CertificacionesTab({
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
 
-  // Extracción automática de Responsables del presupuesto
   useEffect(() => {
     if (certificadoPresupuestoObj) {
       const razonSocialCliente = certificadoPresupuestoObj.cliente || 
@@ -141,7 +139,6 @@ export default function CertificacionesTab({
     }
   }, [certificadoPresupuestoObj]);
 
-  // Cálculo automático del siguiente número de certificado
   useEffect(() => {
     if (certPresupuestoId) {
       if (certificadosDelPresupuestoActual.length > 0) {
@@ -341,17 +338,20 @@ export default function CertificacionesTab({
 
   return (
     <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 print:hidden">
-        <button
-          type="button"
-          onClick={() => setTipoCertificadoSubTab('avance_obra')}
-          className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${tipoCertificadoSubTab === 'avance_obra' ? 'bg-amber-50 border-amber-500 shadow-xs' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
-        >
-          <div className="flex items-center gap-2 font-black text-xs text-slate-900 mb-1">
-            <Building2 className="w-4 h-4 text-amber-600" /> Certificación Avance de Obra (P)
-          </div>
-          <p className="text-[11px] text-slate-500 leading-tight">Certificado por avance y certificación presupuestaria</p>
-        </button>
+      {/* Botones de subpestañas: Si esOperadorII, ocultamos el botón de 'avance_obra' */}
+      <div className={`grid grid-cols-1 gap-3 print:hidden ${isOp2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
+        {!isOp2 && (
+          <button
+            type="button"
+            onClick={() => setTipoCertificadoSubTab('avance_obra')}
+            className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${tipoCertificadoSubTab === 'avance_obra' ? 'bg-amber-50 border-amber-500 shadow-xs' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+          >
+            <div className="flex items-center gap-2 font-black text-xs text-slate-900 mb-1">
+              <Building2 className="w-4 h-4 text-amber-600" /> Certificación Avance de Obra (P)
+            </div>
+            <p className="text-[11px] text-slate-500 leading-tight">Certificado por avance y certificación presupuestaria</p>
+          </button>
+        )}
 
         <button
           type="button"
@@ -376,7 +376,7 @@ export default function CertificacionesTab({
         </button>
       </div>
 
-      {tipoCertificadoSubTab === 'avance_obra' && (
+      {tipoCertificadoSubTab === 'avance_obra' && !isOp2 && (
         <div className="space-y-6 pt-2">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 print:hidden">
             <div className="flex items-center gap-3 flex-wrap">
