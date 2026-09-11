@@ -32,16 +32,26 @@ export default function CertificacionesTab({
   const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: '' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
+  // EXTRACTOR BLINDADO: Convierte Arrays 2D de Google Sheets a Objetos JSON mapeados
   const extraerArrayDatos = (fuente) => {
-    if (Array.isArray(fuente)) return fuente;
-    if (fuente && typeof fuente === 'object') {
-      if (Array.isArray(fuente.data)) return fuente.data;
-      if (Array.isArray(fuente.items)) return fuente.items;
-      if (Array.isArray(fuente.result)) return fuente.result;
-      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
-      if (posibleArray) return posibleArray;
+    if (!fuente) return [];
+    let arr = Array.isArray(fuente) ? fuente : (fuente.data || fuente.items || fuente.result || []);
+    if (!Array.isArray(arr) && typeof fuente === 'object') {
+      const posible = Object.values(fuente).find(val => Array.isArray(val));
+      arr = posible || [];
     }
-    return [];
+    if (arr.length === 0) return [];
+
+    // Si viene como Array de Arrays (Google Sheets crudo)
+    if (Array.isArray(arr[0])) {
+      const headers = arr[0].map(h => String(h).toLowerCase().trim());
+      return arr.slice(1).map(row => {
+        const obj = {};
+        headers.forEach((h, i) => { obj[h] = row[i]; });
+        return obj;
+      });
+    }
+    return arr;
   };
 
   useEffect(() => {
@@ -74,7 +84,7 @@ export default function CertificacionesTab({
     combinados.forEach(c => {
       if (!c) return;
       const pId = String(c.presupuesto_id || c.presupuestoId || c.id_presupuesto || c.presupuesto || '').trim();
-      const nro = c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro !== undefined ? c.certificadoNro : '');
+      const nro = String(c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro || '')).trim();
       const keyId = String(c.id || c.ID || `${pId}_${nro}` || Math.random());
       
       if (pId && pId !== '' && pId !== 'undefined' && keyId !== '_') {
@@ -94,6 +104,7 @@ export default function CertificacionesTab({
     });
   }, [presupuestos, certPresupuestoId]);
 
+  // FILTRO INTELIGENTE: Compara ID real y Código visual (Ej: "1")
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -106,7 +117,8 @@ export default function CertificacionesTab({
       
       return pId === idSel || 
              (codigoSel && pId.toLowerCase() === codigoSel.toLowerCase()) || 
-             pId === String(parseInt(idSel, 10));
+             pId === String(parseInt(idSel, 10)) ||
+             (codigoSel && pId === String(parseInt(codigoSel, 10)));
     }).sort((a, b) => {
       const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : (a?.certificadoNro || 0), 10);
       const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : (b?.certificadoNro || 0), 10);
@@ -231,8 +243,10 @@ export default function CertificacionesTab({
 
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
-    if (!certPresupuestoId || !certificadoPresupuestoObj) {
-      toast.error("Debe seleccionar un presupuesto válido antes de guardar.");
+    
+    // BLOQUEO ABSOLUTO: Si no hay presupuesto, se rechaza la petición instantáneamente.
+    if (!certPresupuestoId || String(certPresupuestoId).trim() === '') {
+      toast.error("Error Crítico: Debe seleccionar un presupuesto válido antes de guardar.");
       return;
     }
 
@@ -245,16 +259,19 @@ export default function CertificacionesTab({
       const netoACertificar = totalCertificadoPeriodo - descuentoAdelantoCert + Number(adicionalesMonto);
       const totalFinalLiquidacion = netoACertificar + redeterminacionMonto;
 
+      // Se envían variaciones del ID para asegurar que Sheets lo atrape
       const payloadCert = {
         action: 'guardarCertificado',
         tabla: 'Certificados',
         presupuesto_id: String(certPresupuestoId),
+        presupuestoId: String(certPresupuestoId),
         certificado_nro: String(certificadoNro),
+        certificadoNro: String(certificadoNro),
         fecha: String(certFecha),
         cliente: certClienteNombre,
         obra: String(certificadoPresupuestoObj?.nombre || 'Obra'),
         orden_compra: obtenerOrdenDeCompraLocal(certificadoPresupuestoObj),
-        filas: certificadoCalculos.filasRender,
+        filas: JSON.stringify(certificadoCalculos.filasRender), // STRINGIFY OBLIGATORIO para Sheets
         total_periodo: totalCertificadoPeriodo,
         adelanto_descuento: descuentoAdelantoCert,
         adicionales: Number(adicionalesMonto),
