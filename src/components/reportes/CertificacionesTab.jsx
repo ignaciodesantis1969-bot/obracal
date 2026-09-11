@@ -10,7 +10,7 @@ export default function CertificacionesTab({
   allReportesSice = [],
   facturas = [],
   contratosList = [],
-  ...props // Intercepta cualquier prop adicional que envíe App.jsx (certificados, data, historial, etc.)
+  ...props // Intercepta cualquier prop adicional que envíe Reportes.jsx (certificadosList, fetchedCertificados, etc.)
 }) {
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
@@ -44,7 +44,7 @@ export default function CertificacionesTab({
     return [];
   };
 
-  // Petición GET segura para evitar disparar el bug de guardado (doPost) en tu Google Apps Script
+  // Petición GET segura para cargar la tabla Certificados directamente desde Sheets
   useEffect(() => {
     fetch(`${GOOGLE_SCRIPT_URL}?tabla=Certificados&action=get`)
       .then(res => res.json())
@@ -57,7 +57,7 @@ export default function CertificacionesTab({
       .catch(() => {});
   }, []);
 
-  // Consolidación de todas las posibles fuentes de historial
+  // Consolidación robusta de todas las fuentes de certificados (props de Reportes.jsx y fetch local)
   const allCertificados = useMemo(() => {
     let localCache = [];
     try {
@@ -66,9 +66,10 @@ export default function CertificacionesTab({
     } catch (e) {}
 
     const combinados = [
-      ...extraerArrayDatos(props.certificados),
+      ...extraerArrayDatos(props.certificadosList),
       ...extraerArrayDatos(props.certificadosProps),
       ...extraerArrayDatos(props.fetchedCertificados),
+      ...extraerArrayDatos(props.certificados),
       ...extraerArrayDatos(props.historial),
       ...extraerArrayDatos(props.data),
       ...extraerArrayDatos(fetchedCertificadosLocal),
@@ -76,11 +77,12 @@ export default function CertificacionesTab({
     ];
     
     const map = new Map();
-    
     combinados.forEach(c => {
       if (!c) return;
-      const keyId = String(c.id || c.ID || `${c.presupuesto_id || c.presupuestoId}_${c.certificado_nro !== undefined ? c.certificado_nro : c.certificadoNro}` || Math.random());
-      if (keyId && keyId !== 'undefined_undefined') {
+      const pId = String(c.presupuesto_id || c.presupuestoId || c.id_presupuesto || c.presupuesto || '').trim();
+      const nro = c.certificado_nro !== undefined ? c.certificado_nro : c.certificadoNro;
+      const keyId = String(c.id || c.ID || `${pId}_${nro}` || Math.random());
+      if (keyId && keyId !== '_') {
         map.set(keyId, c);
       }
     });
@@ -97,7 +99,7 @@ export default function CertificacionesTab({
     });
   }, [presupuestos, certPresupuestoId]);
 
-  // Filtrado robusto del historial para el presupuesto actual
+  // Filtrado 100% tolerante para matchear presupuestos (ID numérico, código, etc.)
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -105,21 +107,20 @@ export default function CertificacionesTab({
     
     return allCertificados.filter(c => {
       if (!c) return false;
-      const pId = String(c?.presupuestoId || c?.presupuesto_id || c?.id_presupuesto || c?.presupuesto || '').trim();
+      const pId = String(c?.presupuesto_id || c?.presupuestoId || c?.id_presupuesto || c?.presupuesto || '').trim();
       if (!pId) return false;
+      
       return pId === idSel || 
-             (codigoSel && pId === codigoSel) || 
-             pId.includes(idSel) || 
-             idSel.includes(pId) ||
-             (certificadoPresupuestoObj?.id && String(certificadoPresupuestoObj.id) === pId);
+             (codigoSel && pId.toLowerCase() === codigoSel.toLowerCase()) || 
+             pId === String(parseInt(idSel, 10));
     }).sort((a, b) => {
-      const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : a?.certificadoNro || 0);
-      const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : b?.certificadoNro || 0);
+      const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : a?.certificadoNro || 0, 10);
+      const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : b?.certificadoNro || 0, 10);
       return nroB - nroA;
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
 
-  // Extracción exacta de Responsables desde las columnas de Presupuestos
+  // Extracción automática de Responsables del presupuesto
   useEffect(() => {
     if (certificadoPresupuestoObj) {
       const razonSocialCliente = certificadoPresupuestoObj.cliente || 
@@ -140,7 +141,7 @@ export default function CertificacionesTab({
     }
   }, [certificadoPresupuestoObj]);
 
-  // Cálculo automático del siguiente número de certificado basado en el historial real
+  // Cálculo automático del siguiente número de certificado
   useEffect(() => {
     if (certPresupuestoId) {
       if (certificadosDelPresupuestoActual.length > 0) {
@@ -167,13 +168,18 @@ export default function CertificacionesTab({
     certificadosDelPresupuestoActual.forEach(cert => {
       const certNro = parseInt(cert?.certificado_nro !== undefined ? cert.certificado_nro : cert?.certificadoNro, 10) || 0;
       if (certNro >= 0 && certNro < nroActual) {
-        const filasCert = cert?.filas || cert?.items || [];
-        filasCert.forEach(rubro => {
-          if (Number(rubro?.rIdx) === rIdx && Array.isArray(rubro?.tareasFilas)) {
-            const tareaFila = rubro.tareasFilas.find(tf => Number(tf?.tIdx) === tIdx);
-            if (tareaFila) sumaPct += Number(tareaFila?.pctActual || 0);
-          }
-        });
+        let filasCert = cert?.filas || cert?.items || [];
+        if (typeof filasCert === 'string') {
+          try { filasCert = JSON.parse(filasCert); } catch(e) { filasCert = []; }
+        }
+        if (Array.isArray(filasCert)) {
+          filasCert.forEach(rubro => {
+            if (Number(rubro?.rIdx) === rIdx && Array.isArray(rubro?.tareasFilas)) {
+              const tareaFila = rubro.tareasFilas.find(tf => Number(tf?.tIdx) === tIdx);
+              if (tareaFila) sumaPct += Number(tareaFila?.pctActual || 0);
+            }
+          });
+        }
       }
     });
     return Math.min(100, sumaPct);
@@ -231,7 +237,6 @@ export default function CertificacionesTab({
     return { filasRender, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
-  // GUARDADO ESTRICTAMENTE MANUAL VÍA POST
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
     if (!certificadoPresupuestoObj) {
