@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { useObraData } from '@/hooks/useObraData';
-import { OBRAS_CONFIG } from '../../config/constants';
+import { OBRAS_CONFIG } from '@/config/constants';
 import ReportesDiariosTab from './ReportesDiariosTab';
 import ListadoInsumosTab from './ListadoInsumosTab';
 import ComparativoTab from './ComparativoTab';
@@ -128,7 +128,6 @@ function ReportesContent({
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet, reportesLocalesExtra]);
 
-  // Estado inicial de pestañas según rol
   const [activeTab, setActiveTab] = useState(isOp2 ? 'Reportes Diarios' : 'Certificaciones');
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('horas_hombre');
 
@@ -349,7 +348,6 @@ function ReportesContent({
         </p>
       </div>
 
-      {/* Selector de pestañas superior adaptado para Operador II */}
       {!esOperadorEstandar && (
         <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
           {isOp2 ? (
@@ -381,7 +379,6 @@ function ReportesContent({
         </div>
       )}
 
-      {/* Panel de Certificaciones con restricción absoluta de Avance de Obra para Operador II */}
       {!esOperadorEstandar && activeTab === 'Certificaciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
@@ -975,7 +972,6 @@ function ReportesContent({
         </div>
       )}
 
-      {/* Renderizado condicional preciso para Reportes Diarios */}
       {(esOperadorEstandar || activeTab === 'Reportes Diarios') && (
         <ReportesDiariosTab
           contratosList={contratosList}
@@ -987,12 +983,10 @@ function ReportesContent({
         />
       )}
 
-      {/* Listado de Insumos exclusivo para Admin (bloqueado para Operador II) */}
       {!esOperadorEstandar && !isOp2 && activeTab === 'Listado de Insumos' && (
         <ListadoInsumosTab presupuestos={presupuestos} />
       )}
 
-      {/* Comparativo exclusivo para Admin */}
       {!esOperadorEstandar && !isOp2 && activeTab === 'Comparativo' && (
         <ComparativoTab
           presupuestos={presupuestos}
