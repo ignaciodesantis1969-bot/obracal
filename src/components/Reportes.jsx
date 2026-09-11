@@ -128,8 +128,8 @@ function ReportesContent({
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet, reportesLocalesExtra]);
 
-  const [activeTab, setActiveTab] = useState(isOp2 ? 'Reportes Diarios' : 'Certificaciones');
-  const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState(isOp2 ? 'horas_hombre' : 'avance_obra');
+  const [activeTab, setActiveTab] = useState('Reportes Diarios');
+  const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('horas_hombre');
 
   const [certificadoNro, setCertificadoNro] = useState('1');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
@@ -348,10 +348,10 @@ function ReportesContent({
         </p>
       </div>
 
-      {/* Selector de pestañas superior adaptado para Operador II sin Insumos */}
+      {/* Selector de pestañas superior adaptado para Operador II (Reportes y Certificaciones) */}
       {!esOperadorEstandar && (
         <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
-          {isOp2 ? (
+          {(isOp2 || !esOperadorEstandar) && (
             <>
               <button
                 onClick={() => setActiveTab('Reportes Diarios')}
@@ -366,17 +366,16 @@ function ReportesContent({
                 Certificaciones (CM)
               </button>
             </>
-          ) : (
-            ['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
-              <button
-                key={tab} 
-                onClick={() => setActiveTab(tab)} 
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === tab ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
-              >
-                {tab}
-              </button>
-            ))
           )}
+          {!isOp2 && !esOperadorEstandar && ['Listado de Insumos', 'Comparativo'].map((tab) => (
+            <button
+              key={tab} 
+              onClick={() => setActiveTab(tab)} 
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === tab ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
       )}
 
