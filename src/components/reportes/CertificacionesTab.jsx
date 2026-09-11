@@ -44,44 +44,42 @@ export default function CertificacionesTab({
     return [];
   };
 
+  // PETICIÓN GET OBLIGATORIA PARA TRAER LOS CERTIFICADOS DESDE GOOGLE SHEETS
   useEffect(() => {
-    fetch(`${GOOGLE_SCRIPT_URL}?tabla=Certificados&action=get`)
-      .then(res => res.json())
-      .then(data => { 
+    const cargarCertificadosDesdeSheet = async () => {
+      try {
+        const res = await fetch(`${GOOGLE_SCRIPT_URL}?tabla=Certificados&action=get`);
+        const data = await res.json();
         const arr = extraerArrayDatos(data);
         if (arr.length > 0) {
           setFetchedCertificadosLocal(arr);
         }
-      })
-      .catch(() => {});
+      } catch (e) {
+        console.error("Error al obtener certificados de Sheets:", e);
+      }
+    };
+    cargarCertificadosDesdeSheet();
   }, []);
 
-  // CONSOLIDACIÓN POTENTE DE TODAS LAS FUENTES (Globales, LocalStorage y API Fetch)
   const allCertificados = useMemo(() => {
-    let localCache = [];
-    try {
-      const cached = localStorage.getItem('sice_certificados_local_cache');
-      if (cached) localCache = JSON.parse(cached);
-    } catch (e) {}
-
     const combinados = [
+      ...extraerArrayDatos(fetchedCertificadosLocal),
       ...extraerArrayDatos(props.certificadosList),
       ...extraerArrayDatos(props.certificadosProps),
       ...extraerArrayDatos(props.fetchedCertificados),
       ...extraerArrayDatos(props.certificados),
-      ...extraerArrayDatos(props.historial),
-      ...extraerArrayDatos(props.data),
-      ...extraerArrayDatos(fetchedCertificadosLocal),
-      ...localCache
+      ...extraerArrayDatos(props.historial)
     ];
     
     const map = new Map();
     combinados.forEach(c => {
       if (!c) return;
       const pId = String(c.presupuesto_id || c.presupuestoId || c.id_presupuesto || c.presupuesto || '').trim();
-      const nro = c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro !== undefined ? c.certificadoNro : '0');
+      const nro = c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro !== undefined ? c.certificadoNro : '');
       const keyId = String(c.id || c.ID || `${pId}_${nro}` || Math.random());
-      if (keyId && keyId !== '_') {
+      
+      // Ignorar registros vacíos o corruptos sin presupuesto_id
+      if (pId && pId !== '' && pId !== 'undefined' && keyId !== '_') {
         map.set(keyId, c);
       }
     });
@@ -98,7 +96,6 @@ export default function CertificacionesTab({
     });
   }, [presupuestos, certPresupuestoId]);
 
-  // FILTRADO 100% BLINDADO PARA MATCHEAR EL PRESUPUESTO SELECCIONADO
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -111,9 +108,7 @@ export default function CertificacionesTab({
       
       return pId === idSel || 
              (codigoSel && pId.toLowerCase() === codigoSel.toLowerCase()) || 
-             pId === String(parseInt(idSel, 10)) ||
-             idSel.includes(pId) ||
-             pId.includes(idSel);
+             pId === String(parseInt(idSel, 10));
     }).sort((a, b) => {
       const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : (a?.certificadoNro || 0), 10);
       const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : (b?.certificadoNro || 0), 10);
@@ -141,7 +136,6 @@ export default function CertificacionesTab({
     }
   }, [certificadoPresupuestoObj]);
 
-  // CÁLCULO AUTOMÁTICO DEL SIGUIENTE NÚMERO DE CERTIFICADO BASADO EN EL HISTORIAL
   useEffect(() => {
     if (certPresupuestoId) {
       if (certificadosDelPresupuestoActual.length > 0) {
@@ -239,8 +233,8 @@ export default function CertificacionesTab({
 
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
-    if (!certificadoPresupuestoObj) {
-      toast.error("Seleccione un presupuesto aprobado.");
+    if (!certPresupuestoId || !certificadoPresupuestoObj) {
+      toast.error("Debe seleccionar un presupuesto válido antes de guardar.");
       return;
     }
 
@@ -288,15 +282,8 @@ export default function CertificacionesTab({
         presupuestoId: String(certPresupuestoId), 
         certificadoNro: String(certificadoNro), 
         pdfUrl: pdfUrlFinal, 
-        id: resultado?.id || `cert-${Date.now()}` 
+        id: resultado?.id || `cert-${Date.now()` 
       };
-
-      try {
-        const cached = localStorage.getItem('sice_certificados_local_cache');
-        const parsedCache = cached ? JSON.parse(cached) : [];
-        parsedCache.unshift(nuevoCertGuardado);
-        localStorage.setItem('sice_certificados_local_cache', JSON.stringify(parsedCache));
-      } catch (e) {}
 
       setFetchedCertificadosLocal(prev => [nuevoCertGuardado, ...prev]);
       if (typeof props.setFetchedCertificados === 'function') {
@@ -320,14 +307,6 @@ export default function CertificacionesTab({
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ tabla: 'Certificados', action: 'delete', id: certId })
       });
-      
-      try {
-        const cached = localStorage.getItem('sice_certificados_local_cache');
-        if (cached) {
-          const parsedCache = JSON.parse(cached).filter(c => String(c.id) !== String(certId));
-          localStorage.setItem('sice_certificados_local_cache', JSON.stringify(parsedCache));
-        }
-      } catch (e) {}
 
       setFetchedCertificadosLocal(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
       if (typeof props.setFetchedCertificados === 'function') {
