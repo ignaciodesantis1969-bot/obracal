@@ -2,10 +2,10 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { useObraData } from '@/hooks/useObraData';
 import { OBRAS_CONFIG } from '@/config/constants';
-import ReportesDiariosTab from './ReportesDiariosTab';
-import ListadoInsumosTab from './ListadoInsumosTab';
-import ComparativoTab from './ComparativoTab';
-import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
+import ReportesDiariosTab from './reportes/ReportesDiariosTab';
+import ListadoInsumosTab from './reportes/ListadoInsumosTab';
+import ComparativoTab from './reportes/ComparativoTab';
+import CertificadoHorasHombreTab from './reportes/CertificadoHorasHombreTab';
 import { FileText, Building2, Clock, Package, TrendingUp, Calendar, ShieldCheck, Printer, Trash2, Eye, X, ExternalLink } from 'lucide-react';
 
 class ErrorBoundary extends React.Component {
