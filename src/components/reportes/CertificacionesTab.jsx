@@ -10,10 +10,9 @@ export default function CertificacionesTab({
   allReportesSice = [],
   facturas = [],
   contratosList = [],
-  isOp2 = false, // <-- Recibimos la prop de rol de Operador II
+  isOp2 = false,
   ...props 
 }) {
-  // Si es Operador II, por defecto arranca en horas_hombre; de lo contrario, en avance_obra
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState(isOp2 ? 'horas_hombre' : 'avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
   const [certClienteNombre, setCertClienteNombre] = useState('');
@@ -111,7 +110,8 @@ export default function CertificacionesTab({
       
       return pId === idSel || 
              (codigoSel && pId.toLowerCase() === codigoSel.toLowerCase()) || 
-             pId === String(parseInt(idSel, 10));
+             pId === String(parseInt(idSel, 10)) ||
+             idSel.includes(pId);
     }).sort((a, b) => {
       const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : a?.certificadoNro || 0, 10);
       const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : b?.certificadoNro || 0, 10);
@@ -338,7 +338,6 @@ export default function CertificacionesTab({
 
   return (
     <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-      {/* Botones de subpestañas: Si esOperadorII, ocultamos el botón de 'avance_obra' */}
       <div className={`grid grid-cols-1 gap-3 print:hidden ${isOp2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'}`}>
         {!isOp2 && (
           <button
@@ -676,7 +675,7 @@ export default function CertificacionesTab({
             </div>
           )}
 
-          {certificadoPresupuestoObj && (
+          {certificadoPresupuestoObj && !isOp2 && (
             <form onSubmit={aprobarYGuardarCertificado} className="border border-slate-300 rounded-xl overflow-hidden mt-6 bg-white p-4 space-y-4 shadow-sm print:hidden">
               <h4 className="font-black text-xs text-slate-900 uppercase">Aprobación y Firma del Certificado</h4>
               <div className="flex justify-end pt-2">
