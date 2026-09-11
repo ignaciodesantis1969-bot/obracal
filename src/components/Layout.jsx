@@ -159,11 +159,9 @@ export default function Layout() {
     );
   }
 
-  // Filtrar menú adaptado para Operadores
-  const navItems = esOperadorEstandar 
+  // Filtrar menú adaptado para Operador II (excluyendo Insumos, mostrando solo Reportes)
+  const navItems = (esOperadorEstandar || esOperadorII)
     ? allNavItems.filter(item => item.path === '/reportes')
-    : esOperadorII
-    ? allNavItems.filter(item => item.path === '/reportes' || item.path === '/insumos')
     : allNavItems.filter(item => item.key === null || tienePermiso(user, item.key));
 
   const SidebarContent = () => (

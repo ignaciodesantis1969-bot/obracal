@@ -128,7 +128,6 @@ function ReportesContent({
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet, reportesLocalesExtra]);
 
-  // Si es Operador II, su pestaña inicial por defecto debe ser 'Reportes Diarios'
   const [activeTab, setActiveTab] = useState(isOp2 ? 'Reportes Diarios' : 'Certificaciones');
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState(isOp2 ? 'horas_hombre' : 'avance_obra');
 
@@ -349,7 +348,7 @@ function ReportesContent({
         </p>
       </div>
 
-      {/* Selector de pestañas superior adaptado para Operador II y Admin/Otros */}
+      {/* Selector de pestañas superior adaptado para Operador II sin Insumos */}
       {!esOperadorEstandar && (
         <div className="flex gap-2 bg-white p-3 rounded-2xl border border-slate-300 shadow-sm flex-wrap print:hidden">
           {isOp2 ? (
@@ -366,12 +365,6 @@ function ReportesContent({
               >
                 Certificaciones (CM)
               </button>
-              <button
-                onClick={() => setActiveTab('Listado de Insumos')}
-                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'Listado de Insumos' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
-              >
-                Listado de Insumos
-              </button>
             </>
           ) : (
             ['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
@@ -387,7 +380,7 @@ function ReportesContent({
         </div>
       )}
 
-      {/* Panel de Certificaciones con restricción de Avance de Obra (P) para Operador II */}
+      {/* Panel de Certificaciones con restricción de Avance de Obra para Operador II */}
       {!esOperadorEstandar && activeTab === 'Certificaciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
@@ -981,7 +974,7 @@ function ReportesContent({
         </div>
       )}
 
-      {/* Renderizado condicional preciso para Reportes Diarios y Listado de Insumos */}
+      {/* Renderizado condicional preciso para Reportes Diarios */}
       {(esOperadorEstandar || activeTab === 'Reportes Diarios') && (
         <ReportesDiariosTab
           contratosList={contratosList}
@@ -993,10 +986,12 @@ function ReportesContent({
         />
       )}
 
-      {!esOperadorEstandar && activeTab === 'Listado de Insumos' && (
+      {/* Listado de Insumos exclusivo para Admin (bloqueado para Operador II) */}
+      {!esOperadorEstandar && !isOp2 && activeTab === 'Listado de Insumos' && (
         <ListadoInsumosTab presupuestos={presupuestos} />
       )}
 
+      {/* Comparativo exclusivo para Admin */}
       {!esOperadorEstandar && !isOp2 && activeTab === 'Comparativo' && (
         <ComparativoTab
           presupuestos={presupuestos}
