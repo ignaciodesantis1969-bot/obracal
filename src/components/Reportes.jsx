@@ -129,7 +129,8 @@ function ReportesContent({
   }, [propReportes, reportesSheet, reportesLocalesExtra]);
 
   const [activeTab, setActiveTab] = useState('Reportes Diarios');
-  const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState('horas_hombre');
+  // CORRECCIÓN: Si es Op2, la sub-pestaña por defecto inicia en 'horas_hombre' evitando 'avance_obra'
+  const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState(isOp2 ? 'horas_hombre' : 'avance_obra');
 
   const [certificadoNro, setCertificadoNro] = useState('1');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
@@ -379,7 +380,7 @@ function ReportesContent({
         </div>
       )}
 
-      {/* Panel de Certificaciones con restricción de Avance de Obra para Operador II */}
+      {/* Panel de Certificaciones con restricción absoluta de Avance de Obra para Operador II */}
       {!esOperadorEstandar && activeTab === 'Certificaciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
@@ -419,7 +420,7 @@ function ReportesContent({
             <button
               type="button"
               onClick={() => setTipoCertificadoSubTab('compra_materiales')}
-              className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${tipoCertificadoSubTab === 'compra_materiales' ? 'bg-amber-50 border-amber-500 shadow-xs' : 'bg-white border-slate-200 hover:bg-slate-50'}`}
+              className={`p-4 rounded-xl border text-left transition-all cursor-pointer ${tipoCertificadoSubTab === 'compra_materiales' ? 'bg-amber-50 border-amber-500 shadow-xs' : 'bg-white border-slate-200 hover:bg-slate-100'}`}
             >
               <div className="flex items-center gap-2 font-black text-xs text-slate-900 mb-1">
                 <Package className="w-4 h-4 text-amber-600" /> Compra de Materiales
