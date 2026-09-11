@@ -65,7 +65,7 @@ function ReportesContent({
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: tesoreriaSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.TESORERIA || 'Tesoreria');
-  const { data: certificadosSheet } = useObraData('Certificaciones');
+  const { data: certificadosSheet } = useObraData('Certificados');
 
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
