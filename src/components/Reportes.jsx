@@ -189,7 +189,7 @@ function ReportesContent({
         </div>
       )}
 
-      {!esOperadorEstandar && activeTab === 'Certificaciones' && (
+      {!esOperadorEstandار && activeTab === 'Certificaciones' && (
         <CertificacionesTab
           presupuestos={presupuestos}
           obras={obras}

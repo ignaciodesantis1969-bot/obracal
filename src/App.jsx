@@ -200,6 +200,7 @@ const AuthenticatedApp = () => {
                   maestroTareasRubros={globalData.maestroTareasRubros}
                   contratosMantenimiento={globalData.contratosMantenimiento}
                   certificados={globalData.certificados}
+                  certificadosList={globalData.certificados}
                 />
               } 
             />
@@ -224,6 +225,7 @@ const AuthenticatedApp = () => {
                     maestroTareasRubros={globalData.maestroTareasRubros}
                     contratosMantenimiento={globalData.contratosMantenimiento}
                     certificados={globalData.certificados}
+                    certificadosList={globalData.certificados}
                     setFetchedCertificados={cargarDatos}
                   />
                 } 
@@ -342,6 +344,7 @@ const AuthenticatedApp = () => {
                     maestroTareasRubros={globalData.maestroTareasRubros}
                     contratosMantenimiento={globalData.contratosMantenimiento}
                     certificados={globalData.certificados}
+                    certificadosList={globalData.certificados}
                     setFetchedCertificados={cargarDatos}
                   />
                 } 
