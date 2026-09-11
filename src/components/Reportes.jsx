@@ -59,8 +59,8 @@ function ReportesContent({
   obras = []
 }) {
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
-  const esOperadorEstandar = esOperador || rolStr === 'operador' || rolStr === 'operator';
-  const isOp2 = esOperadorII || rolStr === 'operador_ii' || rolStr === 'operadorii' || rolStr === 'operador2' || rolStr === 'operador ii';
+  const esOperadorEstandar = Boolean(esOperador || rolStr === 'operador' || rolStr === 'operator');
+  const isOp2 = Boolean(esOperadorII || rolStr === 'operador_ii' || rolStr === 'operadorii' || rolStr === 'operador2' || rolStr === 'operador ii');
 
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
@@ -189,7 +189,8 @@ function ReportesContent({
         </div>
       )}
 
-      {!esOperadorEstandار && activeTab === 'Certificaciones' && (
+      {/* Se renderiza para Admin y Operador II, pasando la prop isOp2 para bloquear Avance de Obra */}
+      {!esOperadorEstandar && activeTab === 'Certificaciones' && (
         <CertificacionesTab
           presupuestos={presupuestos}
           obras={obras}
