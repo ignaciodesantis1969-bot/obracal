@@ -25,7 +25,6 @@ export default function CertificacionesTab({
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
   
   const [adelantoPct, setAdelantoPct] = useState(10);
-  const [adelantoMonto, setAdelantoMonto] = useState(0);
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
@@ -57,6 +56,7 @@ export default function CertificacionesTab({
       .catch(() => {});
   }, []);
 
+  // CONSOLIDACIÓN POTENTE DE TODAS LAS FUENTES (Globales, LocalStorage y API Fetch)
   const allCertificados = useMemo(() => {
     let localCache = [];
     try {
@@ -79,7 +79,7 @@ export default function CertificacionesTab({
     combinados.forEach(c => {
       if (!c) return;
       const pId = String(c.presupuesto_id || c.presupuestoId || c.id_presupuesto || c.presupuesto || '').trim();
-      const nro = c.certificado_nro !== undefined ? c.certificado_nro : c.certificadoNro;
+      const nro = c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro !== undefined ? c.certificadoNro : '0');
       const keyId = String(c.id || c.ID || `${pId}_${nro}` || Math.random());
       if (keyId && keyId !== '_') {
         map.set(keyId, c);
@@ -98,6 +98,7 @@ export default function CertificacionesTab({
     });
   }, [presupuestos, certPresupuestoId]);
 
+  // FILTRADO 100% BLINDADO PARA MATCHEAR EL PRESUPUESTO SELECCIONADO
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -111,10 +112,11 @@ export default function CertificacionesTab({
       return pId === idSel || 
              (codigoSel && pId.toLowerCase() === codigoSel.toLowerCase()) || 
              pId === String(parseInt(idSel, 10)) ||
-             idSel.includes(pId);
+             idSel.includes(pId) ||
+             pId.includes(idSel);
     }).sort((a, b) => {
-      const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : a?.certificadoNro || 0, 10);
-      const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : b?.certificadoNro || 0, 10);
+      const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : (a?.certificadoNro || 0), 10);
+      const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : (b?.certificadoNro || 0), 10);
       return nroB - nroA;
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
@@ -139,6 +141,7 @@ export default function CertificacionesTab({
     }
   }, [certificadoPresupuestoObj]);
 
+  // CÁLCULO AUTOMÁTICO DEL SIGUIENTE NÚMERO DE CERTIFICADO BASADO EN EL HISTORIAL
   useEffect(() => {
     if (certPresupuestoId) {
       if (certificadosDelPresupuestoActual.length > 0) {
