@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+Vimport React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { useObraData } from '@/hooks/useObraData';
 import { OBRAS_CONFIG } from '@/config/constants';
@@ -193,6 +193,7 @@ function ReportesContent({
         <CertificacionesTab
           presupuestos={presupuestos}
           obras={obras}
+          certificadosList={certificadosList}
           certificadosProps={allCertificadosList}
           fetchedCertificados={allCertificadosList}
           setFetchedCertificados={setFetchedCertificados}
