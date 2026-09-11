@@ -130,7 +130,7 @@ export default function Presupuestos() {
       if (data.success) {
         setIsModalOpen(false);
         setNuevoPresupuesto({ codigo: '', nombre: '', obra_id: '', coeficiente_pase: 1.30, estado_presupuesto: 'borrador', version: 'v1' });
-        fetchData();
+        await fetchData();
       } else {
         alert("Error al crear presupuesto: " + (data.error || ''));
       }
@@ -143,6 +143,7 @@ export default function Presupuestos() {
   };
 
   const ejecutarActualizacionEstado = async (id, datosActualizacion) => {
+    setIsLoading(true); // Bloquear temporalmente y mostrar carga sincronizada
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -156,13 +157,15 @@ export default function Presupuestos() {
       });
       const data = await res.json();
       if (data.success) {
-        fetchData();
+        await fetchData(); // Esperar la recarga completa del backend
       } else {
         alert("Error al actualizar estado: " + (data.error || ''));
       }
     } catch (err) {
       console.error("Error al cambiar estado:", err);
       alert("Error de conexión al cambiar el estado.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -170,19 +173,16 @@ export default function Presupuestos() {
     const p = presupuestos.find(presu => String(presu.id) === String(id));
     const estadoActual = String(p?.estado_presupuesto || p?.estado || 'borrador').toLowerCase();
 
-    // Bloquear si ya está aprobado o rechazado
     if (estadoActual === 'aprobado' || estadoActual === 'rechazado') {
       alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede cambiar su estado.`);
       return;
     }
 
-    // Si está entregado, no permitir volver a borrador
     if (estadoActual === 'entregado' && nuevoEstado === 'borrador') {
       alert(`⚠️ Un presupuesto entregado no puede volver a estado borrador. Solo puede pasar a Aprobado o Rechazado.`);
       return;
     }
 
-    // 🟢 SI EL NUEVO ESTADO ES APROBADO -> ABRIR MODAL DE DATOS ADICIONALES
     if (nuevoEstado === 'aprobado') {
       setPresupuestoAprobarId(id);
       setDatosAprobacion({
@@ -194,7 +194,6 @@ export default function Presupuestos() {
       return;
     }
 
-    // Para otros estados (entregado, rechazado) actualizar de forma directa
     await ejecutarActualizacionEstado(id, { estado_presupuesto: nuevoEstado });
   };
 
@@ -220,6 +219,7 @@ export default function Presupuestos() {
   const handleActualizarPresupuestoVersion = async (presupuestoActual) => {
     if (!window.confirm(`¿Desea actualizar los precios de este presupuesto y generar una nueva versión basada en los costos actuales de los insumos?`)) return;
 
+    setIsLoading(true);
     try {
       let versionActualStr = String(presupuestoActual.version || '').toLowerCase();
       if (!versionActualStr || versionActualStr === 'undefined') {
@@ -317,13 +317,15 @@ export default function Presupuestos() {
       const data = await res.json();
       if (data.success) {
         alert(`¡Se ha generado la versión ${nuevaVersionStr} exitosamente con los precios actualizados!`);
-        fetchData();
+        await fetchData();
       } else {
         alert("Error al generar la nueva versión: " + (data.error || ''));
       }
     } catch (err) {
       console.error("Error al actualizar versión del presupuesto:", err);
       alert("Ocurrió un error al procesar la actualización.");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -335,25 +337,26 @@ export default function Presupuestos() {
     }
 
     if (!window.confirm("¿Estás seguro de eliminar este presupuesto?")) return;
+    setIsLoading(true);
     try {
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ tabla: 'Presupuestos', action: 'delete', id })
       });
-      fetchData();
+      await fetchData();
     } catch (err) {
       console.error("Error al eliminar:", err);
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  // Conteo para los Cuadros Superiores (KPIs)
   const totalBorrador = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'borrador').length;
   const totalEntregado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'entregado').length;
   const totalAprobado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'aprobado').length;
   const totalRechazado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'rechazado').length;
 
-  // Filtrado de acuerdo a las 3 pestañas solicitadas
   const presupuestosFiltradosPorTab = presupuestos.filter(p => {
     const est = String(p.estado_presupuesto || p.estado || 'borrador').toLowerCase();
     
@@ -378,7 +381,6 @@ export default function Presupuestos() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Cabecera Principal */}
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Presupuestos de Obra</h1>
@@ -392,7 +394,6 @@ export default function Presupuestos() {
         </button>
       </div>
 
-      {/* Cuadros Superiores - Estilo Insumos */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
           <p className="text-xs font-bold text-slate-500 uppercase">Borrador</p>
@@ -412,9 +413,7 @@ export default function Presupuestos() {
         </div>
       </div>
 
-      {/* Barra de Búsqueda y Pestañas / Botones Inferiores */}
       <div className="flex flex-col md:flex-row justify-between items-stretch md:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
-        {/* Botones de Navegación solicitados */}
         <div className="flex gap-2 flex-wrap">
           <button
             onClick={() => setActiveTab('workspace')}
@@ -564,7 +563,6 @@ export default function Presupuestos() {
         )}
       </div>
 
-      {/* MODAL NUEVO PRESUPUESTO */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
@@ -638,7 +636,6 @@ export default function Presupuestos() {
         </div>
       )}
 
-      {/* MODAL DE APROBACIÓN (PIDE ORDEN DE COMPRA Y RESPONSABLES) */}
       {isAprobacionModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">

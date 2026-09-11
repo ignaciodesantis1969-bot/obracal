@@ -28,15 +28,12 @@ export default function PresupuestoDetalle() {
   const [isSavingGG, setIsSavingGG] = useState(false);
   const [nuevoGastoGeneral, setNuevoGastoGeneral] = useState({ concepto: '', unitario: '' });
 
-  // 🛡️ ESTADOS DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSavingRubro, setIsSavingRubro] = useState(false);
   const [isSavingTarea, setIsSavingTarea] = useState(false);
 
-  // 📥 ESTADOS PARA EL MODAL DE EXPORTACIÓN (COSTOS VS VENTA)
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportFormato, setExportFormato] = useState('excel'); // 'excel' o 'pdf'
+  const [exportFormato, setExportFormato] = useState('excel'); 
 
-  // 📝 ESTADOS DE NOTAS Y CONDICIONES FINALES (precargados por defecto)
   const [notasPresupuesto, setNotasPresupuesto] = useState({
     impuestos: "El precio indicado en la cotización no contempla el impuesto I.V.A.",
     plazo: "Se estima un tiempo de obra de 130 días hábiles (Aproximadamente 6 meses corridos).",
@@ -55,7 +52,6 @@ export default function PresupuestoDetalle() {
   });
 
   const [gastosGeneralesInsumos, setGastosGeneralesInsumos] = useState([]);
-
   const [porcentajeComisionVenta, setPorcentajeComisionVenta] = useState(0); 
   const [porcentajeImprevistos, setPorcentajeImprevistos] = useState(1.5); 
 
@@ -602,8 +598,6 @@ export default function PresupuestoDetalle() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      
-      {/* Botón de Regreso y Acciones de Exportación */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <Link 
           to="/presupuestos"
@@ -612,7 +606,6 @@ export default function PresupuestoDetalle() {
           <ArrowLeft className="w-4 h-4" /> Volver a Presupuestos
         </Link>
 
-        {/* 📥 BOTONES QUE ABREN EL MODAL DE ELECCIÓN */}
         <div className="flex items-center gap-2">
           <button 
             onClick={() => { setExportFormato('excel'); setIsExportModalOpen(true); }}
@@ -629,7 +622,6 @@ export default function PresupuestoDetalle() {
         </div>
       </div>
 
-      {/* Alerta si está Bloqueado */}
       {!esBorrador && (
         <div className={`border px-5 py-4 rounded-2xl flex items-center gap-3 shadow-sm ${
           esAprobado ? 'bg-emerald-50 border-emerald-200 text-emerald-900' :
@@ -646,7 +638,6 @@ export default function PresupuestoDetalle() {
         </div>
       )}
 
-      {/* CABECERA SUPERIOR */}
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -656,7 +647,6 @@ export default function PresupuestoDetalle() {
             <span className={`px-2.5 py-1 rounded-full font-bold text-xs uppercase ${esBorrador ? 'bg-slate-100 text-slate-700' : esAprobado ? 'bg-emerald-100 text-emerald-800' : esRechazado ? 'bg-red-100 text-red-800' : 'bg-purple-100 text-purple-800'}`}>
               {estadoActual}
             </span>
-
           </div>
           <p className="text-slate-500 text-sm mt-1.5 flex items-center gap-4 flex-wrap">
             <span><strong>Obra:</strong> {obra?.nombre || obra?.nombre_obra || 'Sin obra asignada'}</span>
@@ -664,7 +654,6 @@ export default function PresupuestoDetalle() {
             <span><strong>Cliente:</strong> {cliente?.razon_social || cliente?.nombre || 'Sin cliente asignado'}</span>
           </p>
 
-          {/* 🟢 MOSTRAR ORDEN DE COMPRA Y RESPONSABLES SI YA ESTÁ APROBADO */}
           {(presupuesto?.orden_compra || presupuesto?.responsable_cliente || presupuesto?.responsable_proveedor) && (
             <div className="mt-2.5 pt-2.5 border-t border-slate-100 flex items-center gap-4 text-xs text-slate-600 flex-wrap">
               {presupuesto?.orden_compra && <span><strong>Orden de Compra:</strong> {presupuesto.orden_compra}</span>}
@@ -697,7 +686,6 @@ export default function PresupuestoDetalle() {
         </div>
       </div>
 
-      {/* TARJETAS DE MÉTRICAS */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
           <span className="text-xs font-bold text-slate-400 uppercase">Costo Directo</span>
@@ -717,7 +705,6 @@ export default function PresupuestoDetalle() {
         </div>
       </div>
 
-      {/* PESTAÑAS */}
       <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-300 shadow-sm inline-flex gap-1">
         <button 
           onClick={() => setActiveTab('costos')}
@@ -733,7 +720,6 @@ export default function PresupuestoDetalle() {
         </button>
       </div>
 
-      {/* CONTENIDO DE PESTAÑAS */}
       {activeTab === 'costos' && (
         <div className="space-y-6">
           <div className="space-y-4">
@@ -753,7 +739,6 @@ export default function PresupuestoDetalle() {
 
                 return (
                   <div key={nombreRubro} className="bg-white border border-slate-300 rounded-2xl overflow-hidden shadow-sm">
-                    {/* ENCABEZADO DEL RUBRO */}
                     <div className="bg-slate-800 text-white px-6 py-3.5 flex justify-between items-center">
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg">
@@ -797,7 +782,6 @@ export default function PresupuestoDetalle() {
                       </div>
                     </div>
 
-                    {/* CONTENIDO DE TAREAS */}
                     {!estaColapsado && (
                       <div className="divide-y divide-slate-100">
                         {tareasDelRubro.length === 0 ? (
@@ -869,7 +853,6 @@ export default function PresupuestoDetalle() {
               })}
           </div>
 
-          {/* 📝 SECCIÓN DE CONDICIONES Y CONSIDERACIONES FINALES (EDITABLE) */}
           <div className="bg-white border border-slate-300 rounded-2xl p-6 shadow-sm space-y-6">
             <div className="flex items-center gap-2 border-b pb-4">
               <FileText className="w-5 h-5 text-amber-500" />
@@ -877,7 +860,6 @@ export default function PresupuestoDetalle() {
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              {/* Impuestos */}
               <div className="space-y-1.5 md:col-span-2">
                 <label className="block text-xs font-black text-slate-800 uppercase">IMPUESTOS:</label>
                 <textarea
@@ -889,7 +871,6 @@ export default function PresupuestoDetalle() {
                 />
               </div>
 
-              {/* Plazo de Ejecución */}
               <div className="space-y-1.5 md:col-span-2">
                 <label className="block text-xs font-black text-slate-800 uppercase">PLAZO DE EJECUCIÓN DE OBRA:</label>
                 <textarea
@@ -901,7 +882,6 @@ export default function PresupuestoDetalle() {
                 />
               </div>
 
-              {/* Condiciones Comerciales */}
               <div className="space-y-1.5 md:col-span-2">
                 <label className="block text-xs font-black text-slate-800 uppercase">CONDICIONES COMERCIALES:</label>
                 <textarea
@@ -913,7 +893,6 @@ export default function PresupuestoDetalle() {
                 />
               </div>
 
-              {/* Consideraciones Generales */}
               <div className="space-y-1.5 md:col-span-2">
                 <label className="block text-xs font-black text-slate-800 uppercase">CONSIDERACIONES GENERALES:</label>
                 <textarea
@@ -925,7 +904,6 @@ export default function PresupuestoDetalle() {
                 />
               </div>
 
-              {/* Exclusiones */}
               <div className="space-y-1.5 md:col-span-2">
                 <label className="block text-xs font-black text-slate-800 uppercase">EXCLUSIONES:</label>
                 <textarea
@@ -1316,7 +1294,6 @@ export default function PresupuestoDetalle() {
         </div>
       )}
 
-      {/* MODAL DE SELECCIÓN PARA EXPORTAR (COSTOS VS VENTA) */}
       {isExportModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden p-6 space-y-6">
@@ -1374,7 +1351,6 @@ export default function PresupuestoDetalle() {
         </div>
       )}
 
-      {/* MODAL NUEVO RUBRO CON BLOQUEO DE DOBLE CLIC */}
       {isRubroModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
@@ -1414,7 +1390,6 @@ export default function PresupuestoDetalle() {
         </div>
       )}
 
-      {/* MODAL NUEVA / EDITAR TAREA CON BLOQUEO DE DOBLE CLIC */}
       {isTareaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden">
@@ -1560,7 +1535,6 @@ export default function PresupuestoDetalle() {
         </div>
       )}
 
-      {/* MODAL CREAR GASTO GENERAL MANUAL */}
       {isNuevoGGModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-sm overflow-hidden">
