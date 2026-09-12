@@ -314,6 +314,11 @@ export default function CertificacionesTab({
       });
       const resultado = await res.json();
       
+      // SOLUCIÓN DE RAÍZ: Validación robusta para evitar falso positivo de "Error al guardar certificado"
+      if (!resultado || (resultado.success === false && !resultado.ok && resultado.status !== 'success')) {
+        throw new Error(resultado?.error || "Error desconocido devuelto por el servidor.");
+      }
+      
       const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
       
       const nuevoCertGuardado = { 
@@ -331,7 +336,7 @@ export default function CertificacionesTab({
       
       toast.success("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!", { id: toastId });
     } catch (err) {
-      toast.error("Error al guardar certificado.", { id: toastId });
+      toast.error(err.message || "Error al guardar certificado.", { id: toastId });
     } finally {
       setIsSavingCert(false);
     }
@@ -622,7 +627,15 @@ export default function CertificacionesTab({
                               </div>
                             </div>
                           </div>
-                        ) : (
+                        ) : null}
+
+                        {/* SOLUCIÓN DE RAÍZ: La línea Descuento / Adelanto Financiero se renderiza siempre (incluso en $ 0 para certificados > 0) */}
+                        <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
+                          <span className="font-bold text-slate-700">Descuento / Adelanto Financiero:</span>
+                          <span className="font-bold text-rose-700 font-mono">- $ {Math.round(montoAdelantoFinanciero).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                        </div>
+
+                        {nroCertInt !== 0 && (
                           <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                             <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
                             <span className="font-black text-slate-900 text-sm font-mono">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
