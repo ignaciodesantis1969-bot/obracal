@@ -1,5 +1,5 @@
 // Tu URL mágica de Google Sheets
-const API_URL = "https://script.google.com/macros/s/AKfycbxaKjBQt87_nccVeATP013-vT2_FxFPOUv1fZn7f0y7i_fUD7KWHEr3czcpdRRzG1JrHQ/exec";
+const API_URL = "https://script.googlehttps://script.google.com/macros/s/AKfycbxqqvLFvzJFvxslgkSYcVst7t9axM5THTvw-b7V0ltGa1vemmwvB-2aTidQRpCVhC_RVg/exec";
 
 // Función para LEER datos
 const pedirDatosAGoogle = async (nombreTabla) => {
