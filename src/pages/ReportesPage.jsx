@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '@/hooks/useAuth';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
-// ¡LA CLAVE! Importamos tu componente modificado donde tienes todo el trabajo
+// Importamos tu componente de reportes desde components
 import ReportesComponente from '../components/Reportes'; 
 
 const CONTRATO_DEFAULT = [{ id: "1", codigo: "CM001", nombre: "Mantenimiento Correctivo Edilicio", cliente: "LDC ARGENTINA S.A.", estado: "Activo" }];
@@ -31,6 +31,7 @@ class ErrorBoundary extends React.Component {
 const extraerArrayDatos = (fuente) => {
   if (Array.isArray(fuente)) return fuente;
   if (fuente && typeof fuente === 'object') {
+    if (Array.isArray(fuente.certificados)) return fuente.certificados; // <--- BLINDAJE CERTIFICADOS
     if (Array.isArray(fuente.data)) return fuente.data;
     if (Array.isArray(fuente.items)) return fuente.items;
     if (Array.isArray(fuente.result)) return fuente.result;
@@ -114,7 +115,7 @@ function ReportesContent(props) {
     return Array.from(unicosMap.values());
   }, [reportesProps, fetchedReportesSice]);
 
-  // Delegamos el renderizado de la UI y las pestañas al archivo que has estado editando
+  // Delegamos el renderizado de la UI y las pestañas al componente centralizado
   return (
     <ReportesComponente
       {...props}

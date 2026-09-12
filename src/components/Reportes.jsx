@@ -68,15 +68,13 @@ function ReportesContent({
   const { data: certificadosSheet } = useObraData('Certificados');
 
   const extraerArrayDatos = (fuente) => {
-    if (Array.isArray(fuente)) return fuente;
-    if (fuente && typeof fuente === 'object') {
-      if (Array.isArray(fuente.data)) return fuente.data;
-      if (Array.isArray(fuente.items)) return fuente.items;
-      if (Array.isArray(fuente.result)) return fuente.result;
-      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
-      if (posibleArray) return posibleArray;
+    if (!fuente) return [];
+    let arr = Array.isArray(fuente) ? fuente : (fuente.certificados || fuente.data || fuente.items || fuente.result || []);
+    if (!Array.isArray(arr) && typeof fuente === 'object') {
+      const posible = Object.values(fuente).find(val => Array.isArray(val));
+      arr = posible || [];
     }
-    return [];
+    return arr;
   };
 
   const contratosList = useMemo(() => {
@@ -92,7 +90,17 @@ function ReportesContent({
   const allCertificadosList = useMemo(() => {
     const p = extraerArrayDatos(certificadosList);
     const s = extraerArrayDatos(certificadosSheet);
-    return [...p, ...s];
+    const combinados = [...p, ...s];
+    
+    const unicosMap = new Map();
+    combinados.forEach(item => {
+      if (!item) return;
+      const key = String(item.id || item.ID || item.certificadonro || item.certificadoNro || Math.random());
+      if (!unicosMap.has(key)) {
+        unicosMap.set(key, item);
+      }
+    });
+    return Array.from(unicosMap.values());
   }, [certificadosList, certificadosSheet]);
 
   const [reportesLocalesExtra, setReportesLocalesExtra] = useState([]);
@@ -189,7 +197,6 @@ function ReportesContent({
         </div>
       )}
 
-      {/* Se renderiza para Admin y Operador II, pasando la prop isOp2 para bloquear Avance de Obra */}
       {!esOperadorEstandar && activeTab === 'Certificaciones' && (
         <CertificacionesTab
           presupuestos={presupuestos}
