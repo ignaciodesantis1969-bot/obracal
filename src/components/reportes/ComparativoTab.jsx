@@ -142,6 +142,10 @@ export default function ComparativoTab({
       combinado.includes('rrhh') || 
       combinado.includes('personal') || 
       combinado.includes('viatico') || 
+      combinado.includes('viaticos') || 
+      combinado.includes('nafta') || 
+      combinado.includes('combustible') || 
+      combinado.includes('peaje') || 
       combinado.includes('sueldo') || 
       combinado.includes('jornal') || 
       combinado.includes('carga social') || 
@@ -178,7 +182,7 @@ export default function ComparativoTab({
     );
   };
 
-  // FUENTE ÚNICA DE GASTOS: FACTURAS NETAS (Evita duplicación con Tesorería)
+  // FUENTE ÚNICA DE GASTOS: FACTURAS NETAS
   const egresosFacturasUnicos = useMemo(() => {
     return (Array.isArray(facturas) ? facturas : []).map(f => ({
       ...f,
@@ -354,7 +358,7 @@ export default function ComparativoTab({
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
-      // Cargas Semanales para Mano de Obra
+      // ASIGNAR MANO DE OBRA DESDE CARGAS SEMANALES
       cargasSemanalesProyecto.forEach(cs => {
         let distribucion = cs?.distribucion_rubros || cs?.distribucionRubros || [];
         if (typeof distribucion === 'string') {
@@ -375,7 +379,7 @@ export default function ComparativoTab({
         });
       });
 
-      // Facturas netas sin IVA con coincidencia exacta de rubro imputado
+      // ASIGNAR FACTURAS (INCLUYENDO VIÁTICOS, NAFTA, ETC. EN SU CATEGORÍA CORRESPONDIENTE)
       facturasProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         
