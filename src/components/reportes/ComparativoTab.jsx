@@ -13,7 +13,7 @@ export default function ComparativoTab({
 }) {
   const [tipoProyecto, setTipoProyecto] = useState('obra');
   const [proyectoId, setProyectoId] = useState('');
-  const [categoriaFiltro, setCategoriaFiltro] = useState('TODOS');
+  const [tipoInsumoFiltro, setTipoInsumoFiltro] = useState('TODOS');
 
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
@@ -114,7 +114,7 @@ export default function ComparativoTab({
     return parsearMonto(val);
   };
 
-  // Imputación estricta neta sin IVA para facturas
+  // Cálculo neto estricto sin IVA
   const obtenerMontoNetoFactura = (f) => {
     const subtotal = parsearMonto(f?.subtotal || f?.neto || f?.importe_neto || f?.Neto || f?.Subtotal);
     if (subtotal !== 0) return subtotal;
@@ -363,11 +363,11 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 2. ASIGNACIÓN ESTRICTA DE RUBROS DE OBRA (FACTURAS NETAS SIN IVA + CARGAS SEMANALES)
+    // 2. ASIGNACIÓN ESTRICTA DE RUBROS DE OBRA
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
-      // Procesar Mano de Obra estrictamente desde CargasSemanales (distribucion_rubros)
+      // Cargas Semanales para Mano de Obra
       cargasSemanalesProyecto.forEach(cs => {
         let distribucion = cs?.distribucion_rubros || cs?.distribucionRubros || [];
         if (typeof distribucion === 'string') {
@@ -388,19 +388,7 @@ export default function ComparativoTab({
         });
       });
 
-      // Reportes SICE opcionales si aplica
-      let totalHsSice = 0;
-      allReportesSice.forEach(rep => {
-        const repRubro = limpiarTexto(rep?.rubro || rep?.obra_rubro || '');
-        (rep?.items || []).forEach(it => {
-          if (repRubro === normRubro) {
-            totalHsSice += parsearMonto(rep?.totalHorasSuma || rep?.horas || 0);
-          }
-        });
-      });
-      ri.categoriasMap['Mano de Obra'].real += (totalHsSice * 15000);
-
-      // Procesar Facturas y otros egresos netos de IVA en Materiales, Subcontratos, Equipos y Gastos Generales
+      // Facturas netas sin IVA por categoría (Materiales, Subcontratos, Equipos, etc.)
       egresosProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         
@@ -435,14 +423,8 @@ export default function ComparativoTab({
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
   }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, cargasSemanales, ordenCategorias]);
 
-  // Filtrado de rubros en base al selector de categoría / rubro
-  const analisisRubrosFiltrado = useMemo(() => {
-    if (categoriaFiltro === 'TODOS') return analisisRubrosDetallado;
-    return analisisRubrosDetallado.filter(r => limpiarTexto(r.nombre) === limpiarTexto(categoriaFiltro));
-  }, [analisisRubrosDetallado, categoriaFiltro]);
-
-  const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosFiltrado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosFiltrado]);
-  const granTotalRealRubros = useMemo(() => analisisRubrosFiltrado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosFiltrado]);
+  const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
+  const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
   const totalGGPresupuestado = useMemo(() => gastosGeneralesDetalle.reduce((acc, g) => acc + g.presupuestado, 0), [gastosGeneralesDetalle]);
   const totalGGReal = useMemo(() => gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0), [gastosGeneralesDetalle]);
 
@@ -450,7 +432,8 @@ export default function ComparativoTab({
 
   return (
     <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200 print:hidden">
+      {/* Cabecera Organizada con el Selector de Tipo de Insumo Integrado */}
+      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
         <div>
           <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-amber-500" /> Análisis Comparativo Económico
@@ -458,22 +441,22 @@ export default function ComparativoTab({
           <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales (Mano de obra de Cargas Semanales y Facturas netas sin IVA).</p>
         </div>
         
-        <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
-          <div className="flex gap-4 px-2">
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
+          <div className="flex gap-3 px-2">
+            <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-slate-800">
               <input 
                 type="radio" 
                 checked={tipoProyecto === 'obra'} 
-                onChange={() => { setTipoProyecto('obra'); setProyectoId(''); setCategoriaFiltro('TODOS'); }} 
+                onChange={() => { setTipoProyecto('obra'); setProyectoId(''); setTipoInsumoFiltro('TODOS'); }} 
                 className="accent-amber-500" 
               />
               Presupuestos
             </label>
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
+            <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-slate-800">
               <input 
                 type="radio" 
                 checked={tipoProyecto === 'contrato'} 
-                onChange={() => { setProyectoId(''); setTipoProyecto('contrato'); setCategoriaFiltro('TODOS'); }} 
+                onChange={() => { setProyectoId(''); setTipoProyecto('contrato'); setTipoInsumoFiltro('TODOS'); }} 
                 className="accent-amber-500" 
               />
               Contratos
@@ -482,12 +465,12 @@ export default function ComparativoTab({
 
           <select
             value={proyectoId}
-            onChange={(e) => { setProyectoId(e.target.value); setCategoriaFiltro('TODOS'); }}
-            className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[260px]"
+            onChange={(e) => { setProyectoId(e.target.value); setTipoInsumoFiltro('TODOS'); }}
+            className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer max-w-[280px]"
           >
             {tipoProyecto === 'obra' ? (
               <>
-                <option value="">-- Seleccionar Presupuesto ({presupuestosAprobados.length}) --</option>
+                <option value="">-- Seleccionar Presupuesto --</option>
                 {presupuestosAprobados.map(p => {
                   const pId = p?.id || p?.ID || p?.codigo;
                   return <option key={pId} value={pId}>[{p?.codigo || pId}] {p?.nombre || p?.nombre_obra || 'Presupuesto'}</option>;
@@ -495,7 +478,7 @@ export default function ComparativoTab({
               </>
             ) : (
               <>
-                <option value="">-- Seleccionar Contrato ({contratosActivos.length}) --</option>
+                <option value="">-- Seleccionar Contrato --</option>
                 {contratosActivos.map(c => {
                   const cId = c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id || c?.nro_contrato;
                   const cCod = c?.codigo || c?.Codigo || c?.nro_contrato || 'S/C';
@@ -506,24 +489,22 @@ export default function ComparativoTab({
             )}
           </select>
 
-          {/* Selector de Filtro por Rubro / Tipo */}
-          {hasSeleccion && tipoProyecto === 'obra' && analisisRubrosDetallado.length > 0 && (
-            <select
-              value={categoriaFiltro}
-              onChange={(e) => setCategoriaFiltro(e.target.value)}
-              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[200px]"
-            >
-              <option value="TODOS">Todos los Rubros</option>
-              {analisisRubrosDetallado.map(r => (
-                <option key={r.id} value={r.nombre}>{r.nombre}</option>
-              ))}
-            </select>
-          )}
+          {/* Selector de Filtro por Tipo de Insumo */}
+          <select
+            value={tipoInsumoFiltro}
+            onChange={(e) => setTipoInsumoFiltro(e.target.value)}
+            className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+          >
+            <option value="TODOS">Todos los Tipos de Insumo</option>
+            {ordenCategorias.map(cat => (
+              <option key={cat} value={cat}>{cat}</option>
+            ))}
+          </select>
 
           <button
             onClick={() => window.print()}
             disabled={!hasSeleccion}
-            className={`px-4 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-colors ${!hasSeleccion ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-600 cursor-pointer'}`}
+            className={`px-3.5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-colors ${!hasSeleccion ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-600 cursor-pointer'}`}
           >
             <Printer className="w-4 h-4" /> Exportar PDF
           </button>
@@ -547,40 +528,49 @@ export default function ComparativoTab({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200 bg-white">
-                {analisisRubrosFiltrado.map((rubro) => (
-                  <React.Fragment key={rubro.id}>
-                    <tr className="bg-slate-800 text-white font-extrabold uppercase text-[11px] print:bg-slate-800 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                      <td className="px-4 py-2.5">{rubro.nombre}</td>
-                      <td className="px-4 py-2.5 text-right">$ {rubro.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                      <td className="px-4 py-2.5 text-right text-amber-400">$ {rubro.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                      <td className="px-4 py-2.5 text-right">
-                        {renderDesvioConFlecha(rubro.desvio)}
-                      </td>
-                    </tr>
-                    
-                    {ordenCategorias.map(cat => {
-                      const catData = rubro.categorias[cat];
-                      if (catData.presupuestado === 0 && catData.real === 0) return null;
+                {analisisRubrosDetallado.map((rubro) => {
+                  const categoriasFiltradas = ordenCategorias.filter(cat => {
+                    const catData = rubro.categorias[cat];
+                    if (catData.presupuestado === 0 && catData.real === 0) return false;
+                    if (tipoInsumoFiltro !== 'TODOS' && cat !== tipoInsumoFiltro) return false;
+                    return true;
+                  });
+
+                  if (tipoInsumoFiltro !== 'TODOS' && categoriasFiltradas.length === 0) return null;
+
+                  return (
+                    <React.Fragment key={rubro.id}>
+                      <tr className="bg-slate-800 text-white font-extrabold uppercase text-[11px] print:bg-slate-800 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                        <td className="px-4 py-2.5">{rubro.nombre}</td>
+                        <td className="px-4 py-2.5 text-right">$ {rubro.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                        <td className="px-4 py-2.5 text-right text-amber-400">$ {rubro.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                        <td className="px-4 py-2.5 text-right">
+                          {renderDesvioConFlecha(rubro.desvio)}
+                        </td>
+                      </tr>
                       
-                      return (
-                        <tr key={`${rubro.id}-${cat}`} className="hover:bg-slate-50 font-medium text-[11px]">
-                          <td className="px-8 py-2 text-slate-600 flex items-center gap-2">
-                            <span className="w-1 h-1 rounded-full bg-slate-400"></span> {cat}
-                          </td>
-                          <td className="px-4 py-2 text-right font-bold text-slate-800">
-                            $ {catData.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-                          </td>
-                          <td className="px-4 py-2 text-right text-amber-700 font-bold">
-                            $ {catData.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-                          </td>
-                          <td className="px-4 py-2 text-right font-bold">
-                            {renderDesvioConFlecha(catData.desvio)}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </React.Fragment>
-                ))}
+                      {categoriasFiltradas.map(cat => {
+                        const catData = rubro.categorias[cat];
+                        return (
+                          <tr key={`${rubro.id}-${cat}`} className="hover:bg-slate-50 font-medium text-[11px]">
+                            <td className="px-8 py-2 text-slate-600 flex items-center gap-2">
+                              <span className="w-1 h-1 rounded-full bg-slate-400"></span> {cat}
+                            </td>
+                            <td className="px-4 py-2 text-right font-bold text-slate-800">
+                              $ {catData.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                            </td>
+                            <td className="px-4 py-2 text-right text-amber-700 font-bold">
+                              $ {catData.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                            </td>
+                            <td className="px-4 py-2 text-right font-bold">
+                              {renderDesvioConFlecha(catData.desvio)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </React.Fragment>
+                  );
+                })}
 
                 <tr className="bg-amber-100 font-black text-slate-900 uppercase text-[11px] border-t-2 border-slate-300 print:bg-amber-100" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   <td className="px-4 py-3">SUBTOTAL {tipoProyecto === 'obra' ? 'RUBROS DE OBRA' : 'CONTRATO'}</td>
@@ -591,7 +581,7 @@ export default function ComparativoTab({
                   </td>
                 </tr>
 
-                {gastosGeneralesDetalle.length > 0 && categoriaFiltro === 'TODOS' && (
+                {gastosGeneralesDetalle.length > 0 && tipoInsumoFiltro === 'TODOS' && (
                   <>
                     <tr className="bg-slate-800 text-white font-extrabold uppercase text-[11px] border-t-4 border-white print:bg-slate-800 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                       <td colSpan="4" className="px-4 py-2.5">GASTOS GENERALES E IMPREVISTOS</td>
@@ -622,10 +612,10 @@ export default function ComparativoTab({
               <tfoot>
                 <tr className="bg-slate-900 text-white font-black uppercase text-xs print:bg-slate-900 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   <td className="px-4 py-4">TOTAL GENERAL</td>
-                  <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoRubros + (categoriaFiltro === 'TODOS' ? totalGGPresupuestado : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-4 text-right text-amber-400">$ {(granTotalRealRubros + (categoriaFiltro === 'TODOS' ? totalGGReal : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                  <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoRubros + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                  <td className="px-4 py-4 text-right text-amber-400">$ {(granTotalRealRubros + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                   <td className="px-4 py-4 text-right">
-                    {renderDesvioConFlecha(((granTotalPresupuestadoRubros + (categoriaFiltro === 'TODOS' ? totalGGPresupuestado : 0))) - ((granTotalRealRubros + (categoriaFiltro === 'TODOS' ? totalGGReal : 0))))}
+                    {renderDesvioConFlecha(((granTotalPresupuestadoRubros + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0))) - ((granTotalRealRubros + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0))))}
                   </td>
                 </tr>
               </tfoot>
