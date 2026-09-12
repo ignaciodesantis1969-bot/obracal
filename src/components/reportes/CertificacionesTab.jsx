@@ -21,7 +21,7 @@ export default function CertificacionesTab({
   const [avanceActualMap, setAvanceActualMap] = useState({});
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
   
-  const [certificadoNro, setCertificadoNro] = useState('1');
+  const [certificadoNro, setCertificadoNro] = useState('0');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
   
   const [adelantoPct, setAdelantoPct] = useState(10);
@@ -68,7 +68,7 @@ export default function CertificacionesTab({
           setFetchedCertificadosLocal(arr);
         }
       } catch (e) {
-        console.error("Error al obtener certificados de Sheets:", e);
+        // Silenciado para mantener limpio
       }
     };
     cargarCertificadosDesdeSheet();
@@ -170,10 +170,10 @@ export default function CertificacionesTab({
           const n = parseInt(c?.certificado_nro !== undefined ? c.certificado_nro : (c?.certificadoNro || c?.certificadonro), 10);
           return isNaN(n) ? 0 : n;
         });
-        const maxNro = Math.max(...numeros, 0);
+        const maxNro = Math.max(...numeros, -1);
         setCertificadoNro(String(maxNro + 1));
       } else {
-        setCertificadoNro('1');
+        setCertificadoNro('0');
       }
     }
   }, [certPresupuestoId, certificadosDelPresupuestoActual]);
@@ -185,7 +185,7 @@ export default function CertificacionesTab({
 
   const obtenerPctAnteriorAcumulado = (rIdx, tIdx) => {
     let sumaPct = 0;
-    const nroActual = parseInt(certificadoNro, 10) || 1;
+    const nroActual = parseInt(certificadoNro, 10) || 0;
     certificadosDelPresupuestoActual.forEach(cert => {
       const certNro = parseInt(cert?.certificado_nro !== undefined ? cert.certificado_nro : (cert?.certificadoNro || cert?.certificadonro || 0), 10) || 0;
       if (certNro >= 0 && certNro < nroActual) {
@@ -262,7 +262,7 @@ export default function CertificacionesTab({
     e.preventDefault();
     
     if (!certPresupuestoId || String(certPresupuestoId).trim() === '') {
-      toast.error("Error Crítico: Debe seleccionar un presupuesto válido antes de guardar.");
+      toast.error("Debe seleccionar un presupuesto válido antes de guardar.");
       return;
     }
 
@@ -275,7 +275,6 @@ export default function CertificacionesTab({
       const netoACertificar = totalCertificadoPeriodo - descuentoAdelantoCert + Number(adicionalesMonto);
       const totalFinalLiquidacion = netoACertificar + redeterminacionMonto;
 
-      // Garantizamos enviar siempre estrictamente el ID limpio (numérico o ID real)
       const idLimpio = String(certPresupuestoId).trim();
 
       const payloadCert = {
