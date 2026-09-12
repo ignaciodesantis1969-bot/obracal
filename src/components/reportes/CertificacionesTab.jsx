@@ -25,6 +25,7 @@ export default function CertificacionesTab({
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
   
   const [adelantoPct, setAdelantoPct] = useState(10);
+  const [adelantoMonto, setAdelantoMonto] = useState(0);
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
@@ -270,9 +271,15 @@ export default function CertificacionesTab({
     const toastId = toast.loading('Generando PDF en Google Drive y guardando certificado...');
 
     try {
-      const totalCertificadoPeriodo = certificadoCalculos?.totalActualCalc;
-      const descuentoAdelantoCert = totalCertificadoPeriodo * (adelantoPct / 100);
-      const netoACertificar = totalCertificadoPeriodo - descuentoAdelantoCert + Number(adicionalesMonto);
+      const nroCertInt = parseInt(certificadoNro, 10) || 0;
+      const totalPresupuestoGeneral = certificadoCalculos?.totalPresupuestoCalc || 1;
+      const totalCertificadoPeriodo = nroCertInt === 0 ? 0 : certificadoCalculos?.totalActualCalc;
+      
+      const descuentoAdelantoCert = nroCertInt === 0 
+        ? Number(adelantoMonto || (totalPresupuestoGeneral * (adelantoPct / 100)))
+        : 0;
+      
+      const netoACertificar = (nroCertInt === 0 ? descuentoAdelantoCert : totalCertificadoPeriodo) + Number(adicionalesMonto);
       const totalFinalLiquidacion = netoACertificar + redeterminacionMonto;
 
       const idLimpio = String(certPresupuestoId).trim();
@@ -564,22 +571,64 @@ export default function CertificacionesTab({
                 <h3 className="text-xs font-black text-slate-900 uppercase border-b border-slate-300 pb-2">RESUMEN Y LIQUIDACIÓN FINANCIERA</h3>
                 
                 {(() => {
-                  const totalCertificadoPeriodo = certificadoCalculos.totalActualCalc;
-                  const descuentoAdelantoCert = totalCertificadoPeriodo * (adelantoPct / 100);
-                  const netoACertificar = totalCertificadoPeriodo - descuentoAdelantoCert + Number(adicionalesMonto);
+                  const nroCertInt = parseInt(certificadoNro, 10) || 0;
+                  const totalPresupuestoGeneral = certificadoCalculos.totalPresupuestoCalc || 1;
+                  const totalCertificadoPeriodo = nroCertInt === 0 ? 0 : certificadoCalculos.totalActualCalc;
+                  
+                  const montoAdelantoFinanciero = nroCertInt === 0 
+                    ? Number(adelantoMonto || (totalPresupuestoGeneral * (adelantoPct / 100)))
+                    : 0;
+
+                  const netoACertificar = (nroCertInt === 0 ? montoAdelantoFinanciero : totalCertificadoPeriodo) + Number(adicionalesMonto);
                   const totalFinalLiquidacion = netoACertificar + redeterminacionMonto;
 
                   return (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
                       <div className="space-y-3">
-                        <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
-                          <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
-                          <span className="font-black text-slate-900 text-sm font-mono">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
-                        </div>
-                        <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
-                          <span className="font-bold text-slate-700">Descuento por Adelanto Financiero ({adelantoPct}%):</span>
-                          <span className="font-black text-rose-700 font-mono">- $ {descuentoAdelantoCert.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
-                        </div>
+                        {nroCertInt === 0 ? (
+                          <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
+                            <span className="font-bold text-slate-700 block uppercase">Anticipo Financiero (Certificado N° 0)</span>
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
+                                <input
+                                  type="number"
+                                  step="any"
+                                  value={adelantoPct}
+                                  onChange={(e) => {
+                                    const pct = parseFloat(e.target.value) || 0;
+                                    setAdelantoPct(pct);
+                                    setAdelantoMonto(totalPresupuestoGeneral * (pct / 100));
+                                  }}
+                                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono"
+                                />
+                              </div>
+                              <div>
+                                <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
+                                <div className="relative flex items-center">
+                                  <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
+                                  <input
+                                    type="text"
+                                    value={adelantoMonto ? Math.round(adelantoMonto).toLocaleString('es-AR') : Math.round(totalPresupuestoGeneral * (adelantoPct / 100)).toLocaleString('es-AR')}
+                                    onChange={(e) => {
+                                      const raw = e.target.value.replace(/\D/g, '');
+                                      const monto = parseFloat(raw) || 0;
+                                      setAdelantoMonto(monto);
+                                      setAdelantoPct(totalPresupuestoGeneral > 0 ? Number(((monto / totalPresupuestoGeneral) * 100).toFixed(2)) : 0);
+                                    }}
+                                    className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono text-xs"
+                                  />
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ) : (
+                          <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
+                            <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
+                            <span className="font-black text-slate-900 text-sm font-mono">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                          </div>
+                        )}
+
                         <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
                           <span className="font-bold text-slate-700">Adicionales Aprobados:</span>
                           <input
