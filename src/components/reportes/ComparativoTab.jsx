@@ -104,20 +104,28 @@ export default function ComparativoTab({
     return Number(s) || 0;
   };
 
-  // NUEVO: helper para leer una cantidad respetando el 0 explícito.
-  // parsearMonto(x || 1) trataba 0 como "sin dato" y lo reemplazaba por 1,
-  // inventando montos (cantidad 0 x costo unitario > 0 dejaba de dar $0
-  // y pasaba a dar el costo unitario completo). Solo usamos 1 como
-  // default cuando el valor realmente no vino (undefined/null/'').
   const parsearCantidad = (val, porDefecto = 1) => {
     if (val === undefined || val === null || val === '') return porDefecto;
     return parsearMonto(val);
   };
 
+  // 🛡️ GARANTIZAR EXTRACCIÓN SIN IVA (NETO)
   const obtenerMontoNetoFactura = (f) => {
-    const subtotal = parsearMonto(f?.subtotal || f?.neto || f?.importe_neto);
+    const subtotal = parsearMonto(f?.subtotal || f?.neto || f?.importe_neto || f?.Neto || f?.Subtotal);
     if (subtotal !== 0) return subtotal;
-    return parsearMonto(f?.total || f?.monto || f?.importe);
+    
+    // Si no hay subtotal explícito pero hay total e IVA, intentamos desglosar o tomar el neto registrado
+    const total = parsearMonto(f?.total || f?.monto || f?.importe || f?.Total || f?.Monto);
+    const iva21 = parsearMonto(f?.iva_21 || f?.Iva_21 || f?.iva21 || 0);
+    const iva105 = parsearMonto(f?.iva_105 || f?.Iva_105 || f?.iva105 || 0);
+    const otrosTributos = parsearMonto(f?.otros_tributos || f?.Otros_tributos || 0);
+
+    if (total > 0 && (iva21 > 0 || iva105 > 0)) {
+      const netoCalculado = total - iva21 - iva105 - otrosTributos;
+      if (netoCalculado > 0) return netoCalculado;
+    }
+
+    return total;
   };
 
   const resolverTipoInsumoOficial = (tipoExplicito = '', textoCompleto = '') => {
@@ -125,7 +133,6 @@ export default function ComparativoTab({
     const tc = limpiarTexto(textoCompleto);
     const combinado = `${tipoExp} ${tc}`;
 
-    // Validación ampliada para capturar sueldos, cargas sociales y afines dentro de Mano de Obra
     if (
       combinado.includes('mano de obra') || 
       combinado.includes('rrhh') || 
@@ -168,19 +175,26 @@ export default function ComparativoTab({
   };
 
   const todosLosEgresos = useMemo(() => {
-    // fix: Tesorería nunca tiene "subtotal" (guarda el importe en "monto"),
-    // así que había que calcular _montoReal para esos registros también,
-    // no solo para "facturas". Antes, todo lo cargado directo en Tesorería
-    // (sueldos, cargas sociales, pagos manuales) se contaba como $0 real
-    // porque el código buscaba f.subtotal donde no existe.
     const facturasProcesadas = (Array.isArray(facturas) ? facturas : []).map(f => ({
       ...f,
       _montoReal: obtenerMontoNetoFactura(f)
     }));
-    const tesoreriaProcesada = (Array.isArray(tesoreria) ? tesoreria : []).map(t => ({
-      ...t,
-      _montoReal: parsearMonto(t?.monto ?? t?.subtotal ?? t?.total ?? t?.importe)
-    }));
+    
+    const tesoreriaProcesada = (Array.isArray(tesoreria) ? tesoreria : []).map(t => {
+      // Si el movimiento de tesorería está vinculado a una factura o tiene monto neto declarado
+      const netoFacAsociada = parsearMonto(t?.subtotal || t?.neto || t?.importe_neto);
+      const montoBase = netoFacAsociada > 0 ? netoFacAsociada : parsearMonto(t?.monto ?? t?.total ?? t?.importe);
+      
+      // Descontar IVA implícito o retenciones si están cargadas en tesorería y no se descontaron
+      const ivaMovimiento = parsearMonto(t?.iva_21 || t?.retencion_iva || 0);
+      const montoNetoFinal = (montoBase > ivaMovimiento && t?.subtotal) ? (montoBase - ivaMovimiento) : montoBase;
+
+      return {
+        ...t,
+        _montoReal: montoNetoFinal
+      };
+    });
+
     return [...facturasProcesadas, ...tesoreriaProcesada];
   }, [facturas, tesoreria]);
 
@@ -266,7 +280,6 @@ export default function ComparativoTab({
           if (typeof insumosList === 'string') { try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; } }
 
           if (!Array.isArray(insumosList) || insumosList.length === 0) {
-            // fix: cantidad 0 explícita ya no se pisa con 1.
             const tareaTotal = parsearMonto(t?.total) || (parsearCantidad(t?.cantidad) * parsearMonto(t?.costo_unitario || 0));
             const cat = resolverTipoInsumoOficial(t?.tipo, t?.descripcion || t?.tarea);
             categoriasMap[cat].presupuestado += tareaTotal;
@@ -274,7 +287,6 @@ export default function ComparativoTab({
           } else {
             insumosList.forEach(ins => {
               const cat = resolverTipoInsumoOficial(ins?.tipo || ins?.categoria, ins?.nombre || ins?.descripcion);
-              // fix: mismo caso, cantidad 0 explícita ya no se pisa con 1.
               const insTotal = parsearMonto(ins?.total) || (parsearCantidad(ins?.cantidad) * parsearMonto(ins?.costo_unitario || ins?.precio || 0));
               categoriasMap[cat].presupuestado += insTotal;
               totalRubroPresupuestado += insTotal;
@@ -319,7 +331,7 @@ export default function ComparativoTab({
         const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
 
         if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          if (tipoIns === normGG) {
+          if (tipoIns === normGG || rubroImp.includes(normGG)) {
             realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.monto ?? f?.subtotal));
           }
         }
@@ -328,7 +340,7 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 2. ASIGNACIÓN DE RUBROS DE OBRA
+    // 2. ASIGNACIÓN ESTRICTA DE RUBROS DE OBRA SEGÚN IMPUTACIÓN
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
@@ -349,7 +361,10 @@ export default function ComparativoTab({
         const conceptoFull = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
 
         let coincideRubro = false;
+        // Respetar estrictamente cómo fue cargada la imputación
         if (rubroImp && (rubroImp === normRubro || rubroImp.includes(normRubro) || normRubro.includes(rubroImp))) {
+          coincideRubro = true;
+        } else if (tipoIns && normRubro.includes(tipoIns)) {
           coincideRubro = true;
         } else if (conceptoFull.includes(normRubro)) {
           coincideRubro = true;
@@ -395,7 +410,7 @@ export default function ComparativoTab({
           <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-amber-500" /> Análisis Comparativo Económico
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales (Valores netos sin IVA).</p>
         </div>
         
         <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
@@ -467,7 +482,7 @@ export default function ComparativoTab({
                 <tr className="bg-slate-100 text-slate-600 font-bold uppercase border-b border-slate-300 text-[10px]">
                   <th className="px-4 py-3">Concepto / Rubro / Subcategoría</th>
                   <th className="px-4 py-3 text-right">Monto Presupuestado</th>
-                  <th className="px-4 py-3 text-right">Monto Real Imputado (Neto)</th>
+                  <th className="px-4 py-3 text-right">Monto Real Imputado (Neto sin IVA)</th>
                   <th className="px-4 py-3 text-right">Desvío por Categoría</th>
                 </tr>
               </thead>
