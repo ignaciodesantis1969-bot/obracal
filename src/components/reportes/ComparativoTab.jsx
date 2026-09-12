@@ -8,7 +8,8 @@ export default function ComparativoTab({
   contratos = [],
   contratosList = [],
   contratos_mantenimiento = [],
-  allReportesSice = []
+  allReportesSice = [],
+  cargasSemanales = []
 }) {
   const [tipoProyecto, setTipoProyecto] = useState('obra');
   const [proyectoId, setProyectoId] = useState('');
@@ -24,6 +25,8 @@ export default function ComparativoTab({
       if (Array.isArray(fuente.contratos_mantenimiento)) return fuente.contratos_mantenimiento;
       if (Array.isArray(fuente.contratosMantenimiento)) return fuente.contratosMantenimiento;
       if (Array.isArray(fuente.contratos)) return fuente.contratos;
+      if (Array.isArray(fuente.cargas_semanales)) return fuente.cargas_semanales;
+      if (Array.isArray(fuente.cargasSemanales)) return fuente.cargasSemanales;
       const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
       if (posibleArray) return posibleArray;
     }
@@ -41,7 +44,8 @@ export default function ComparativoTab({
         extraGlobales = [
           ...extraerArrayDatos(window.globalData.contratos),
           ...extraerArrayDatos(window.globalData.contratosList),
-          ...extraerArrayDatos(window.globalData.contratos_mantenimiento)
+          ...extraerArrayDatos(window.globalData.contratos_mantenimiento),
+          ...extraerArrayDatos(window.globalData.cargasSemanales)
         ];
       }
       if (window.contratos) extraGlobales.push(...extraerArrayDatos(window.contratos));
@@ -196,6 +200,8 @@ export default function ComparativoTab({
   const { analisisRubrosDetallado, gastosGeneralesDetalle } = useMemo(() => {
     if (!proyectoId) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
 
+    const listaCargas = extraerArrayDatos(cargasSemanales);
+
     if (tipoProyecto === 'contrato') {
       if (!contratoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
       const cIdReal = String(contratoSeleccionado?.id || contratoSeleccionado?.contrato_id || '').trim();
@@ -205,6 +211,11 @@ export default function ComparativoTab({
         const fContrato = String(f?.contrato_id || f?.contratoId || '').trim();
         const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '');
         return (cIdReal && fContrato === cIdReal) || (cCodReal && fContrato === cCodReal) || (cCodReal && fDesc.includes(cCodReal));
+      });
+
+      const cargasDelPto = listaCargas.filter(cs => {
+        const csContrato = String(cs?.contrato_mantenimiento_id || cs?.contrato_id || '').trim();
+        return (cIdReal && csContrato === cIdReal) || (cCodReal && csContrato === cCodReal);
       });
 
       const totalContrato = parsearMonto(contratoSeleccionado?.monto || contratoSeleccionado?.total || 0);
@@ -218,6 +229,12 @@ export default function ComparativoTab({
         const cat = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''} ${f?.rubro_imputacion || ''}`);
         categoriasMap[cat].real += monto;
         totalRealRubro += monto;
+      });
+
+      cargasDelPto.forEach(cs => {
+        const totalCs = parsearMonto(cs?.total_general || cs?.total || 0);
+        categoriasMap['Mano de Obra'].real += totalCs;
+        totalRealRubro += totalCs;
       });
 
       ordenCategorias.forEach(cat => { categoriasMap[cat].desvio = categoriasMap[cat].presupuestado - categoriasMap[cat].real; });
@@ -307,7 +324,6 @@ export default function ComparativoTab({
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
 
-    // 🛡️ FILTRO ESTRICTO: Solo egresos vinculados de forma explícita al ID o código exacto del presupuesto
     const egresosProyecto = todosLosEgresos.filter(f => {
       const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
       const fConcepto = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '').trim();
@@ -316,6 +332,11 @@ export default function ComparativoTab({
       const matchCodExacto = pCodReal && (fPto === pCodReal || fConcepto.includes(`[${pCodReal}]`) || fConcepto === pCodReal);
       
       return matchId || matchCodExacto;
+    });
+
+    const cargasSemanalesProyecto = listaCargas.filter(cs => {
+      const csPto = String(cs?.presupuesto_id || cs?.presupuestoId || '').trim();
+      return pIdReal && csPto === pIdReal;
     });
 
     // 1. ASIGNACIÓN DE GASTOS GENERALES
@@ -340,10 +361,32 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 2. ASIGNACIÓN ESTRICTA DE RUBROS DE OBRA (SIN FUGAS)
+    // 2. ASIGNACIÓN ESTRICTA DE RUBROS DE OBRA (FACTURAS + CARGAS SEMANALES)
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
+      // Procesar Mano de Obra desde CargasSemanales (distribucion_rubros)
+      cargasSemanalesProyecto.forEach(cs => {
+        let distribucion = cs?.distribucion_rubros || cs?.distribucionRubros || [];
+        if (typeof distribucion === 'string') {
+          try { distribucion = JSON.parse(distribucion); } catch { distribucion = []; }
+        }
+        if (!Array.isArray(distribucion)) distribucion = [distribucion];
+
+        const totalCs = parsearMonto(cs?.total_general || cs?.total || 0);
+
+        distribucion.forEach(d => {
+          const rubroDist = limpiarTexto(d?.rubro || d?.nombre || '');
+          const porcentaje = parsearMonto(d?.porcentaje || d?.pct || 100);
+          
+          if (rubroDist === normRubro || rubroDist.includes(normRubro) || normRubro.includes(rubroDist)) {
+            const montoAsignado = totalCs * (porcentaje / 100);
+            ri.categoriasMap['Mano de Obra'].real += montoAsignado;
+          }
+        });
+      });
+
+      // Reportes SICE opcionales si aplica
       let totalHsSice = 0;
       allReportesSice.forEach(rep => {
         const repRubro = limpiarTexto(rep?.rubro || rep?.obra_rubro || '');
@@ -355,6 +398,7 @@ export default function ComparativoTab({
       });
       ri.categoriasMap['Mano de Obra'].real += (totalHsSice * 15000);
 
+      // Procesar Facturas y otros egresos
       egresosProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         
@@ -387,7 +431,7 @@ export default function ComparativoTab({
     });
 
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
-  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, ordenCategorias]);
+  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, cargasSemanales, ordenCategorias]);
 
   const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
   const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
@@ -403,7 +447,7 @@ export default function ComparativoTab({
           <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
             <TrendingUp className="w-4 h-4 text-amber-500" /> Análisis Comparativo Económico
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales (Valores netos sin IVA).</p>
+          <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales (Mano de obra de Cargas Semanales y Facturas netas sin IVA).</p>
         </div>
         
         <div className="flex flex-col md:flex-row items-end md:items-center gap-3">
