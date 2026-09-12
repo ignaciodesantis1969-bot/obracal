@@ -114,7 +114,7 @@ export default function ComparativoTab({
     return parsearMonto(val);
   };
 
-  // Cálculo neto estricto sin IVA
+  // Cálculo neto estricto sin IVA para facturas
   const obtenerMontoNetoFactura = (f) => {
     const subtotal = parsearMonto(f?.subtotal || f?.neto || f?.importe_neto || f?.Neto || f?.Subtotal);
     if (subtotal !== 0) return subtotal;
@@ -178,26 +178,13 @@ export default function ComparativoTab({
     );
   };
 
-  const todosLosEgresos = useMemo(() => {
-    const facturasProcesadas = (Array.isArray(facturas) ? facturas : []).map(f => ({
+  // FUENTE ÚNICA DE GASTOS: FACTURAS NETAS (Evita duplicación con Tesorería)
+  const egresosFacturasUnicos = useMemo(() => {
+    return (Array.isArray(facturas) ? facturas : []).map(f => ({
       ...f,
       _montoReal: obtenerMontoNetoFactura(f)
     }));
-    
-    const tesoreriaProcesada = (Array.isArray(tesoreria) ? tesoreria : []).map(t => {
-      const netoFacAsociada = parsearMonto(t?.subtotal || t?.neto || t?.importe_neto);
-      const montoBase = netoFacAsociada > 0 ? netoFacAsociada : parsearMonto(t?.monto ?? t?.total ?? t?.importe);
-      const ivaMovimiento = parsearMonto(t?.iva_21 || t?.retencion_iva || 0);
-      const montoNetoFinal = (montoBase > ivaMovimiento && t?.subtotal) ? (montoBase - ivaMovimiento) : montoBase;
-
-      return {
-        ...t,
-        _montoReal: montoNetoFinal
-      };
-    });
-
-    return [...facturasProcesadas, ...tesoreriaProcesada];
-  }, [facturas, tesoreria]);
+  }, [facturas]);
 
   const { analisisRubrosDetallado, gastosGeneralesDetalle } = useMemo(() => {
     if (!proyectoId) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
@@ -209,7 +196,7 @@ export default function ComparativoTab({
       const cIdReal = String(contratoSeleccionado?.id || contratoSeleccionado?.contrato_id || '').trim();
       const cCodReal = String(contratoSeleccionado?.codigo || contratoSeleccionado?.nro_contrato || '').trim();
 
-      const facturasDelPto = todosLosEgresos.filter(f => {
+      const facturasDelPto = egresosFacturasUnicos.filter(f => {
         const fContrato = String(f?.contrato_id || f?.contratoId || '').trim();
         const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '');
         return (cIdReal && fContrato === cIdReal) || (cCodReal && fContrato === cCodReal) || (cCodReal && fDesc.includes(cCodReal));
@@ -326,11 +313,11 @@ export default function ComparativoTab({
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
 
-    const egresosProyecto = todosLosEgresos.filter(f => {
-      const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
+    const facturasProyecto = egresosFacturasUnicos.filter(f => {
+      const fPto = String(f?.presupuesto_id || f?.presupuestoId || f?.obra_id || '').trim();
       const fConcepto = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '').trim();
       
-      const matchId = pIdReal && fPto === pIdReal;
+      const matchId = pIdReal && (fPto === pIdReal || String(f?.obra_id) === pIdReal || String(f?.presupuesto_id) === pIdReal);
       const matchCodExacto = pCodReal && (fPto === pCodReal || fConcepto.includes(`[${pCodReal}]`) || fConcepto === pCodReal);
       
       return matchId || matchCodExacto;
@@ -349,7 +336,7 @@ export default function ComparativoTab({
       const normGG = limpiarTexto(nombreGG);
 
       let realGG = 0;
-      egresosProyecto.forEach(f => {
+      facturasProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
 
@@ -389,7 +376,7 @@ export default function ComparativoTab({
       });
 
       // Facturas netas sin IVA con coincidencia exacta de rubro imputado
-      egresosProyecto.forEach(f => {
+      facturasProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         
         if (rubroImp === normRubro && !rubroImp.includes('gasto') && !rubroImp.includes('imprevisto')) {
@@ -407,7 +394,7 @@ export default function ComparativoTab({
     });
 
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
-  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, cargasSemanales, ordenCategorias]);
+  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, egresosFacturasUnicos, cargasSemanales, ordenCategorias]);
 
   // CÁLCULO DE TOTALES FILTRADOS DINÁMICAMENTE SEGÚN LO QUE SE VISUALIZA
   const { granTotalPresupuestadoFiltrado, granTotalRealFiltrado } = useMemo(() => {
@@ -543,7 +530,6 @@ export default function ComparativoTab({
 
                   if (tipoInsumoFiltro !== 'TODOS' && categoriasFiltradas.length === 0) return null;
 
-                  // Totales del rubro considerando solo las categorías visibles por el filtro
                   const rubroPresupuestadoFiltrado = categoriasFiltradas.reduce((acc, cat) => acc + rubro.categorias[cat].presupuestado, 0);
                   const rubroRealFiltrado = categoriasFiltradas.reduce((acc, cat) => acc + rubro.categorias[cat].real, 0);
                   const rubroDesvioFiltrado = rubroPresupuestadoFiltrado - rubroRealFiltrado;
