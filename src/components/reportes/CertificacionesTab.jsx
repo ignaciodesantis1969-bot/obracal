@@ -87,11 +87,15 @@ export default function CertificacionesTab({
     const map = new Map();
     combinados.forEach(c => {
       if (!c) return;
-      const pId = String(c.presupuesto_id || c.presupuestoId || c.presupuestoid || c.id_presupuesto || c.presupuesto || '').trim();
-      const nro = String(c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro || c.certificadonro || '')).trim();
+      const pId = String(
+        c.presupuesto_id || c.presupuestoId || c.presupuestoid || c.id_presupuesto || c.presupuesto || c.PresupuestoId || ''
+      ).trim();
+      const nro = String(
+        c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro || c.certificadonro || c.CertificadoNro || '')
+      ).trim();
       const keyId = String(c.id || c.ID || `${pId}_${nro}` || Math.random());
       
-      if (pId && pId !== '' && pId !== 'undefined' && keyId !== '_') {
+      if (pId && pId !== '' && pId !== 'undefined' && pId !== 'null' && keyId !== '_') {
         map.set(keyId, c);
       }
     });
@@ -101,32 +105,41 @@ export default function CertificacionesTab({
   const certificadoPresupuestoObj = useMemo(() => {
     if (!certPresupuestoId) return null;
     const sel = String(certPresupuestoId).trim();
+    const selInt = parseInt(sel, 10);
     return presupuestos.find(p => {
       const pId = String(p?.id || p?.ID || '').trim();
       const pCod = String(p?.codigo || '').trim();
-      return pId === sel || pCod === sel;
+      const pIdInt = parseInt(pId, 10);
+      return pId === sel || pCod === sel || (!isNaN(selInt) && !isNaN(pIdInt) && pIdInt === selInt);
     });
   }, [presupuestos, certPresupuestoId]);
 
-  // FILTRO INTELIGENTE UNIFICADO: Compara ID real y Código visual de manera estricta y limpia
+  // FILTRO INTELIGENTE UNIFICADO: Compara ID real, código visual y variantes numéricas de forma infalible
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
     const codigoSel = String(certificadoPresupuestoObj?.codigo || '').trim();
+    const idSelInt = parseInt(idSel, 10);
     
     return allCertificados.filter(c => {
       if (!c) return false;
-      const pId = String(c?.presupuesto_id || c?.presupuestoId || c?.presupuestoid || c?.id_presupuesto || c?.presupuesto || '').trim();
-      if (!pId) return false;
+      const pId = String(
+        c?.presupuesto_id || c?.presupuestoId || c?.presupuestoid || c?.id_presupuesto || c?.presupuesto || c?.PresupuestoId || ''
+      ).trim();
+      if (!pId || pId === 'undefined' || pId === 'null') return false;
+
+      const pIdInt = parseInt(pId, 10);
       
-      return pId === idSel || 
-             (codigoSel && pId.toLowerCase() === codigoSel.toLowerCase()) || 
-             pId === String(parseInt(idSel, 10)) ||
-             (codigoSel && pId === String(parseInt(codigoSel, 10)));
+      return (
+        pId === idSel || 
+        (codigoSel && pId.toLowerCase() === codigoSel.toLowerCase()) || 
+        (!isNaN(idSelInt) && !isNaN(pIdInt) && pIdInt === idSelInt) ||
+        (codigoSel && !isNaN(pIdInt) && pIdInt === parseInt(codigoSel, 10))
+      );
     }).sort((a, b) => {
       const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : (a?.certificadoNro || a?.certificadonro || 0), 10);
       const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : (b?.certificadoNro || b?.certificadonro || 0), 10);
-      return nroB - nroA;
+      return (isNaN(nroB) ? 0 : nroB) - (isNaN(nroA) ? 0 : nroA);
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
 
