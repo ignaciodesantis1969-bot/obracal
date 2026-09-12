@@ -329,7 +329,7 @@ export default function ComparativoTab({
 
     const cargasSemanalesProyecto = listaCargas.filter(cs => {
       const csPto = String(cs?.presupuesto_id || cs?.presupuestoId || '').trim();
-      return pIdReal && csPto === pIdReal;
+      return pIdReal && (csPto === pIdReal || Number(csPto) === Number(pIdReal));
     });
 
     // 1. ASIGNACIÓN DE GASTOS GENERALES
@@ -358,7 +358,7 @@ export default function ComparativoTab({
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
-      // ASIGNAR MANO DE OBRA DESDE CARGAS SEMANALES
+      // ASIGNAR MANO DE OBRA DESDE CARGAS SEMANALES (Búsqueda robusta por coincidencia parcial de texto)
       cargasSemanalesProyecto.forEach(cs => {
         let distribucion = cs?.distribucion_rubros || cs?.distribucionRubros || [];
         if (typeof distribucion === 'string') {
@@ -372,14 +372,14 @@ export default function ComparativoTab({
           const rubroDist = limpiarTexto(d?.rubro || d?.nombre || '');
           const porcentaje = parsearMonto(d?.porcentaje || d?.pct || 100);
           
-          if (rubroDist === normRubro || rubroDist.includes(normRubro) || normRubro.includes(rubroDist)) {
+          if (rubroDist && (rubroDist === normRubro || normRubro.includes(rubroDist) || rubroDist.includes(normRubro))) {
             const montoAsignado = totalCs * (porcentaje / 100);
             ri.categoriasMap['Mano de Obra'].real += montoAsignado;
           }
         });
       });
 
-      // ASIGNAR FACTURAS (INCLUYENDO VIÁTICOS, NAFTA, ETC. EN SU CATEGORÍA CORRESPONDIENTE)
+      // ASIGNAR FACTURAS Y VIÁTICOS/NAFTA EN SU CATEGORÍA CORRESPONDIENTE
       facturasProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         
