@@ -87,8 +87,10 @@ export default function CertificacionesTab({
     const map = new Map();
     combinados.forEach(c => {
       if (!c) return;
-      const pId = String(c.presupuesto_id || c.presupuestoId || c.id_presupuesto || c.presupuesto || '').trim();
-      const nro = String(c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro || '')).trim();
+      // CORRECCIÓN: Se agregó 'presupuestoid' para soportar columnas normalizadas de Sheets
+      const pId = String(c.presupuesto_id || c.presupuestoId || c.presupuestoid || c.id_presupuesto || c.presupuesto || '').trim();
+      // CORRECCIÓN: Se agregó 'certificadonro' para soportar columnas normalizadas
+      const nro = String(c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro || c.certificadonro || '')).trim();
       const keyId = String(c.id || c.ID || `${pId}_${nro}` || Math.random());
       
       if (pId && pId !== '' && pId !== 'undefined' && keyId !== '_') {
@@ -116,7 +118,8 @@ export default function CertificacionesTab({
     
     return allCertificados.filter(c => {
       if (!c) return false;
-      const pId = String(c?.presupuesto_id || c?.presupuestoId || c?.id_presupuesto || c?.presupuesto || '').trim();
+      // CORRECCIÓN: Se añadió 'presupuestoid'
+      const pId = String(c?.presupuesto_id || c?.presupuestoId || c?.presupuestoid || c?.id_presupuesto || c?.presupuesto || '').trim();
       if (!pId) return false;
       
       return pId === idSel || 
@@ -124,8 +127,9 @@ export default function CertificacionesTab({
              pId === String(parseInt(idSel, 10)) ||
              (codigoSel && pId === String(parseInt(codigoSel, 10)));
     }).sort((a, b) => {
-      const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : (a?.certificadoNro || 0), 10);
-      const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : (b?.certificadoNro || 0), 10);
+      // CORRECCIÓN: Se añadió 'certificadonro'
+      const nroA = parseInt(a?.certificado_nro !== undefined ? a.certificado_nro : (a?.certificadoNro || a?.certificadonro || 0), 10);
+      const nroB = parseInt(b?.certificado_nro !== undefined ? b.certificado_nro : (b?.certificadoNro || b?.certificadonro || 0), 10);
       return nroB - nroA;
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
@@ -154,7 +158,8 @@ export default function CertificacionesTab({
     if (certPresupuestoId) {
       if (certificadosDelPresupuestoActual.length > 0) {
         const numeros = certificadosDelPresupuestoActual.map(c => {
-          const n = parseInt(c?.certificado_nro !== undefined ? c.certificado_nro : c?.certificadoNro, 10);
+          // CORRECCIÓN: Se añadió 'certificadonro'[cite: 3]
+          const n = parseInt(c?.certificado_nro !== undefined ? c.certificado_nro : (c?.certificadoNro || c?.certificadonro), 10);
           return isNaN(n) ? 0 : n;
         });
         const maxNro = Math.max(...numeros, 0);
@@ -174,7 +179,8 @@ export default function CertificacionesTab({
     let sumaPct = 0;
     const nroActual = parseInt(certificadoNro, 10) || 1;
     certificadosDelPresupuestoActual.forEach(cert => {
-      const certNro = parseInt(cert?.certificado_nro !== undefined ? cert.certificado_nro : cert?.certificadoNro, 10) || 0;
+      // CORRECCIÓN: Se añadió 'certificadonro'[cite: 3]
+      const certNro = parseInt(cert?.certificado_nro !== undefined ? cert.certificado_nro : (cert?.certificadoNro || cert?.certificadonro || 0), 10) || 0;
       if (certNro >= 0 && certNro < nroActual) {
         let filasCert = cert?.filas || cert?.items || [];
         if (typeof filasCert === 'string') {
@@ -717,9 +723,11 @@ export default function CertificacionesTab({
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {certificadosDelPresupuestoActual.map((cert) => {
-                      const nroCert = cert?.certificado_nro !== undefined ? cert.certificado_nro : (cert?.certificadoNro || '0');
+                      // CORRECCIÓN: Se añadió 'certificadonro'[cite: 3]
+                      const nroCert = cert?.certificado_nro !== undefined ? cert.certificado_nro : (cert?.certificadoNro || cert?.certificadonro || '0');
                       const pdfLink = cert?.pdf_url || cert?.pdfUrl || cert?.url;
-                      const certKeyId = cert?.id || `${cert?.presupuesto_id}_${nroCert}`;
+                      // CORRECCIÓN: Se añadió 'presupuestoid'[cite: 3]
+                      const certKeyId = cert?.id || `${cert?.presupuesto_id || cert?.presupuestoid}_${nroCert}`;
 
                       return (
                         <tr key={certKeyId} className="hover:bg-slate-50">
@@ -728,7 +736,8 @@ export default function CertificacionesTab({
                           <td className="px-4 py-3 text-slate-800 font-semibold">{cert?.cliente}</td>
                           <td className="px-4 py-3 text-slate-600">{cert?.obra}</td>
                           <td className="px-4 py-3 text-right font-black text-slate-950 font-mono">
-                            $ {Number(cert?.total_general || cert?.totalGeneral || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                            {/* CORRECCIÓN: Se añadió 'totalgeneral'[cite: 3] */}
+                            $ {Number(cert?.total_general || cert?.totalGeneral || cert?.totalgeneral || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                           </td>
                           <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
                             {pdfLink && (
