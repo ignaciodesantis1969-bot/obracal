@@ -109,12 +109,10 @@ export default function ComparativoTab({
     return parsearMonto(val);
   };
 
-  // 🛡️ GARANTIZAR EXTRACCIÓN SIN IVA (NETO)
   const obtenerMontoNetoFactura = (f) => {
     const subtotal = parsearMonto(f?.subtotal || f?.neto || f?.importe_neto || f?.Neto || f?.Subtotal);
     if (subtotal !== 0) return subtotal;
     
-    // Si no hay subtotal explícito pero hay total e IVA, intentamos desglosar o tomar el neto registrado
     const total = parsearMonto(f?.total || f?.monto || f?.importe || f?.Total || f?.Monto);
     const iva21 = parsearMonto(f?.iva_21 || f?.Iva_21 || f?.iva21 || 0);
     const iva105 = parsearMonto(f?.iva_105 || f?.Iva_105 || f?.iva105 || 0);
@@ -181,11 +179,8 @@ export default function ComparativoTab({
     }));
     
     const tesoreriaProcesada = (Array.isArray(tesoreria) ? tesoreria : []).map(t => {
-      // Si el movimiento de tesorería está vinculado a una factura o tiene monto neto declarado
       const netoFacAsociada = parsearMonto(t?.subtotal || t?.neto || t?.importe_neto);
       const montoBase = netoFacAsociada > 0 ? netoFacAsociada : parsearMonto(t?.monto ?? t?.total ?? t?.importe);
-      
-      // Descontar IVA implícito o retenciones si están cargadas en tesorería y no se descontaron
       const ivaMovimiento = parsearMonto(t?.iva_21 || t?.retencion_iva || 0);
       const montoNetoFinal = (montoBase > ivaMovimiento && t?.subtotal) ? (montoBase - ivaMovimiento) : montoBase;
 
@@ -312,10 +307,15 @@ export default function ComparativoTab({
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
 
+    // 🛡️ FILTRO ESTRICTO: Solo egresos vinculados de forma explícita al ID o código exacto del presupuesto
     const egresosProyecto = todosLosEgresos.filter(f => {
       const fPto = String(f?.presupuesto_id || f?.presupuestoId || '').trim();
-      const fDesc = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '');
-      return (pIdReal && fPto === pIdReal) || (pCodReal && fPto === pCodReal) || (pCodReal && fDesc.includes(pCodReal));
+      const fConcepto = String(f?.concepto || f?.descripcion || f?.detalle_gasto || '').trim();
+      
+      const matchId = pIdReal && fPto === pIdReal;
+      const matchCodExacto = pCodReal && (fPto === pCodReal || fConcepto.includes(`[${pCodReal}]`) || fConcepto === pCodReal);
+      
+      return matchId || matchCodExacto;
     });
 
     // 1. ASIGNACIÓN DE GASTOS GENERALES
@@ -331,7 +331,7 @@ export default function ComparativoTab({
         const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
 
         if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          if (tipoIns === normGG || rubroImp.includes(normGG)) {
+          if (tipoIns === normGG || rubroImp === normGG) {
             realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.monto ?? f?.subtotal));
           }
         }
@@ -340,7 +340,7 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 2. ASIGNACIÓN ESTRICTA DE RUBROS DE OBRA SEGÚN IMPUTACIÓN
+    // 2. ASIGNACIÓN ESTRICTA DE RUBROS DE OBRA (SIN FUGAS)
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
@@ -348,7 +348,7 @@ export default function ComparativoTab({
       allReportesSice.forEach(rep => {
         const repRubro = limpiarTexto(rep?.rubro || rep?.obra_rubro || '');
         (rep?.items || []).forEach(it => {
-          if (repRubro === normRubro || limpiarTexto(it?.descripcion || '').includes(normRubro)) {
+          if (repRubro === normRubro) {
             totalHsSice += parsearMonto(rep?.totalHorasSuma || rep?.horas || 0);
           }
         });
@@ -357,16 +357,9 @@ export default function ComparativoTab({
 
       egresosProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
-        const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
-        const conceptoFull = limpiarTexto(`${f?.concepto || ''} ${f?.detalle_gasto || ''}`);
-
+        
         let coincideRubro = false;
-        // Respetar estrictamente cómo fue cargada la imputación
-        if (rubroImp && (rubroImp === normRubro || rubroImp.includes(normRubro) || normRubro.includes(rubroImp))) {
-          coincideRubro = true;
-        } else if (tipoIns && normRubro.includes(tipoIns)) {
-          coincideRubro = true;
-        } else if (conceptoFull.includes(normRubro)) {
+        if (rubroImp && (rubroImp === normRubro || rubroImp === limpiarTexto(ri.nombreRubro))) {
           coincideRubro = true;
         }
 
