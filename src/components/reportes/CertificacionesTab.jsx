@@ -33,9 +33,10 @@ export default function CertificacionesTab({
   const [isSavingCert, setIsSavingCert] = useState(false);
 
   // EXTRACTOR BLINDADO: Convierte Arrays 2D de Google Sheets a Objetos JSON mapeados
+ // EXTRACTOR BLINDADO: Convierte Arrays 2D de Google Sheets a Objetos JSON mapeados
   const extraerArrayDatos = (fuente) => {
     if (!fuente) return [];
-    let arr = Array.isArray(fuente) ? fuente : (fuente.data || fuente.items || fuente.result || []);
+    let arr = Array.isArray(fuente) ? fuente : (fuente.certificados || fuente.data || fuente.items || fuente.result || []);
     if (!Array.isArray(arr) && typeof fuente === 'object') {
       const posible = Object.values(fuente).find(val => Array.isArray(val));
       arr = posible || [];
