@@ -27,7 +27,7 @@ const Planificacion = lazy(() => import('@/pages/Planificacion'));
 const Rrhh = lazy(() => import('@/pages/Rrhh'));
 const Compras = lazy(() => import('@/pages/Compras'));
 const Tesoreria = lazy(() => import('@/pages/Tesoreria'));
-const Reportes = lazy(() => import('@/pages/Reportes'));
+const Reportes = lazy(() => import('@/pages/ReportesPage'));
 const Usuarios = lazy(() => import('@/pages/Usuarios'));
 const TareasTemplate = lazy(() => import('@/pages/TareasTemplate'));
 const ContratosMantenimiento = lazy(() => import('@/pages/ContratosMantenimiento'));
