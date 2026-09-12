@@ -65,7 +65,7 @@ function ReportesContent(props) {
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' }) })
       .then(res => res.json()).then(data => setFetchedContratos(extraerArrayDatos(data))).catch(() => {});
     
-    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificaciones', action: 'get' }) })
+    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificados', action: 'get' }) })
       .then(res => res.json()).then(data => setFetchedCertificados(extraerArrayDatos(data))).catch(() => {});
 
     fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' }) })

@@ -57,9 +57,13 @@ export default function CertificacionesTab({
   useEffect(() => {
     const cargarCertificadosDesdeSheet = async () => {
       try {
-        const res = await fetch(`${GOOGLE_SCRIPT_URL}?tabla=Certificados&action=get`);
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({ tabla: 'Certificados', action: 'cargarCertificadosOptimizados' })
+        });
         const data = await res.json();
-        const arr = extraerArrayDatos(data);
+        const arr = extraerArrayDatos(data.certificados || data);
         if (arr.length > 0) {
           setFetchedCertificadosLocal(arr);
         }
