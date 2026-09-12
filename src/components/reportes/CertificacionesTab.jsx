@@ -100,15 +100,15 @@ export default function CertificacionesTab({
 
   const certificadoPresupuestoObj = useMemo(() => {
     if (!certPresupuestoId) return null;
+    const sel = String(certPresupuestoId).trim();
     return presupuestos.find(p => {
       const pId = String(p?.id || p?.ID || '').trim();
       const pCod = String(p?.codigo || '').trim();
-      const sel = String(certPresupuestoId).trim();
       return pId === sel || pCod === sel;
     });
   }, [presupuestos, certPresupuestoId]);
 
-  // FILTRO INTELIGENTE: Compara ID real y Código visual (Ej: "1")
+  // FILTRO INTELIGENTE UNIFICADO: Compara ID real y Código visual de manera estricta y limpia
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -248,7 +248,6 @@ export default function CertificacionesTab({
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
     
-    // BLOQUEO ABSOLUTO: Si no hay presupuesto, se rechaza la petición instantáneamente.
     if (!certPresupuestoId || String(certPresupuestoId).trim() === '') {
       toast.error("Error Crítico: Debe seleccionar un presupuesto válido antes de guardar.");
       return;
@@ -263,21 +262,21 @@ export default function CertificacionesTab({
       const netoACertificar = totalCertificadoPeriodo - descuentoAdelantoCert + Number(adicionalesMonto);
       const totalFinalLiquidacion = netoACertificar + redeterminacionMonto;
 
-      // MODIFICACIÓN 2: Se extrae el ID numérico puro del presupuesto (quitando prefijos de texto si los hubiera) para garantizar consistencia con el backend.
-      const presupuestoIdPuro = String(certPresupuestoId).replace(/\D/g, '') || String(certPresupuestoId);
+      // Garantizamos enviar siempre estrictamente el ID limpio (numérico o ID real)
+      const idLimpio = String(certPresupuestoId).trim();
 
       const payloadCert = {
         action: 'guardarCertificado',
         tabla: 'Certificados',
-        presupuesto_id: presupuestoIdPuro,
-        presupuestoId: presupuestoIdPuro,
+        presupuesto_id: idLimpio,
+        presupuestoId: idLimpio,
         certificado_nro: String(certificadoNro),
         certificadoNro: String(certificadoNro),
         fecha: String(certFecha),
         cliente: certClienteNombre,
         obra: String(certificadoPresupuestoObj?.nombre || 'Obra'),
         orden_compra: obtenerOrdenDeCompraLocal(certificadoPresupuestoObj),
-        filas: JSON.stringify(certificadoCalculos.filasRender), // STRINGIFY OBLIGATORIO para Sheets
+        filas: JSON.stringify(certificadoCalculos.filasRender),
         total_periodo: totalCertificadoPeriodo,
         adelanto_descuento: descuentoAdelantoCert,
         adicionales: Number(adicionalesMonto),
@@ -300,7 +299,7 @@ export default function CertificacionesTab({
       
       const nuevoCertGuardado = { 
         ...payloadCert, 
-        presupuestoId: presupuestoIdPuro, 
+        presupuestoId: idLimpio, 
         certificadoNro: String(certificadoNro), 
         pdfUrl: pdfUrlFinal, 
         id: resultado?.id || `cert-${Date.now()}` 
@@ -411,7 +410,7 @@ export default function CertificacionesTab({
                   const est = String(p?.estado_presupuesto || p?.Estado_presupuesto || p?.estado || '').toLowerCase().trim();
                   return est === 'aprobado' || est === 'aprobada';
                 }).map(p => {
-                  const pIdVal = p?.id || p?.ID;
+                  const pIdVal = String(p?.id || p?.ID || '').trim();
                   return (
                     <option key={pIdVal} value={pIdVal}>
                       [{p?.codigo || pIdVal}] {p?.nombre || 'Presupuesto'}
@@ -631,7 +630,7 @@ export default function CertificacionesTab({
                 })()}
               </div>
 
-              {/* MODIFICACIÓN 1: Inputs editables en el bloque de firmas para proveedor y cliente */}
+              {/* BLOQUE DE FIRMAS */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 print:mt-10">
                 <div className="border border-slate-400 rounded-lg overflow-hidden bg-white">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
@@ -640,23 +639,11 @@ export default function CertificacionesTab({
                   <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
-                      <input 
-                        type="text" 
-                        value={certRespProveedor.cargo} 
-                        onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} 
-                        className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" 
-                        placeholder="Ingrese cargo..." 
-                      />
+                      <input type="text" value={certRespProveedor.cargo} onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" placeholder="Ingrese cargo..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
-                      <input 
-                        type="text" 
-                        value={certRespProveedor.nombre} 
-                        onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} 
-                        className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" 
-                        placeholder="Ingrese nombre..." 
-                      />
+                      <input type="text" value={certRespProveedor.nombre} onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" placeholder="Ingrese nombre..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
@@ -673,23 +660,11 @@ export default function CertificacionesTab({
                   <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
-                      <input 
-                        type="text" 
-                        value={certRespCliente.cargo} 
-                        onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} 
-                        className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" 
-                        placeholder="Ingrese cargo..." 
-                      />
+                      <input type="text" value={certRespCliente.cargo} onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" placeholder="Ingrese cargo..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
-                      <input 
-                        type="text" 
-                        value={certRespCliente.nombre} 
-                        onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} 
-                        className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" 
-                        placeholder="Ingrese nombre..." 
-                      />
+                      <input type="text" value={certRespCliente.nombre} onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" placeholder="Ingrese nombre..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
