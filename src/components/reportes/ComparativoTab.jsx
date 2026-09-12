@@ -388,34 +388,20 @@ export default function ComparativoTab({
         });
       });
 
-      // Facturas netas sin IVA por categoría (Materiales, Subcontratos, Equipos, etc.)
+      // Facturas netas sin IVA con coincidencia exacta de rubro imputado
       egresosProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         
-        let coincideRubro = false;
-        if (rubroImp && (rubroImp === normRubro || rubroImp === limpiarTexto(ri.nombreRubro))) {
-          coincideRubro = true;
-        }
-
-        if (coincideRubro && !rubroImp.includes('gasto') && !rubroImp.includes('imprevisto')) {
+        if (rubroImp === normRubro && !rubroImp.includes('gasto') && !rubroImp.includes('imprevisto')) {
           const montoNeto = f._montoReal !== undefined ? f._montoReal : obtenerMontoNetoFactura(f);
           const categoriaDestino = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''} ${f?.rubro_imputacion || ''}`);
           ri.categoriasMap[categoriaDestino].real += montoNeto;
         }
       });
 
-      let totalRealRubro = 0;
-      ordenCategorias.forEach(cat => {
-        ri.categoriasMap[cat].desvio = ri.categoriasMap[cat].presupuestado - ri.categoriasMap[cat].real;
-        totalRealRubro += ri.categoriasMap[cat].real;
-      });
-
       return {
         id: ri.id,
         nombre: ri.nombreRubro,
-        presupuestado: ri.montoRubroBase,
-        real: totalRealRubro,
-        desvio: ri.montoRubroBase - totalRealRubro,
         categorias: ri.categoriasMap
       };
     });
@@ -423,8 +409,27 @@ export default function ComparativoTab({
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
   }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, todosLosEgresos, cargasSemanales, ordenCategorias]);
 
-  const granTotalPresupuestadoRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.presupuestado, 0), [analisisRubrosDetallado]);
-  const granTotalRealRubros = useMemo(() => analisisRubrosDetallado.reduce((acc, r) => acc + r.real, 0), [analisisRubrosDetallado]);
+  // CÁLCULO DE TOTALES FILTRADOS DINÁMICAMENTE SEGÚN LO QUE SE VISUALIZA
+  const { granTotalPresupuestadoFiltrado, granTotalRealFiltrado } = useMemo(() => {
+    let sumPresupuestado = 0;
+    let sumReal = 0;
+
+    analisisRubrosDetallado.forEach(rubro => {
+      ordenCategorias.forEach(cat => {
+        if (tipoInsumoFiltro === 'TODOS' || cat === tipoInsumoFiltro) {
+          const catData = rubro.categorias[cat];
+          sumPresupuestado += catData.presupuestado;
+          sumReal += catData.real;
+        }
+      });
+    });
+
+    return {
+      granTotalPresupuestadoFiltrado: sumPresupuestado,
+      granTotalRealFiltrado: sumReal
+    };
+  }, [analisisRubrosDetallado, tipoInsumoFiltro, ordenCategorias]);
+
   const totalGGPresupuestado = useMemo(() => gastosGeneralesDetalle.reduce((acc, g) => acc + g.presupuestado, 0), [gastosGeneralesDetalle]);
   const totalGGReal = useMemo(() => gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0), [gastosGeneralesDetalle]);
 
@@ -538,14 +543,19 @@ export default function ComparativoTab({
 
                   if (tipoInsumoFiltro !== 'TODOS' && categoriasFiltradas.length === 0) return null;
 
+                  // Totales del rubro considerando solo las categorías visibles por el filtro
+                  const rubroPresupuestadoFiltrado = categoriasFiltradas.reduce((acc, cat) => acc + rubro.categorias[cat].presupuestado, 0);
+                  const rubroRealFiltrado = categoriasFiltradas.reduce((acc, cat) => acc + rubro.categorias[cat].real, 0);
+                  const rubroDesvioFiltrado = rubroPresupuestadoFiltrado - rubroRealFiltrado;
+
                   return (
                     <React.Fragment key={rubro.id}>
                       <tr className="bg-slate-800 text-white font-extrabold uppercase text-[11px] print:bg-slate-800 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                         <td className="px-4 py-2.5">{rubro.nombre}</td>
-                        <td className="px-4 py-2.5 text-right">$ {rubro.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-4 py-2.5 text-right text-amber-400">$ {rubro.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                        <td className="px-4 py-2.5 text-right">$ {rubroPresupuestadoFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                        <td className="px-4 py-2.5 text-right text-amber-400">$ {rubroRealFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                         <td className="px-4 py-2.5 text-right">
-                          {renderDesvioConFlecha(rubro.desvio)}
+                          {renderDesvioConFlecha(rubroDesvioFiltrado)}
                         </td>
                       </tr>
                       
@@ -574,10 +584,10 @@ export default function ComparativoTab({
 
                 <tr className="bg-amber-100 font-black text-slate-900 uppercase text-[11px] border-t-2 border-slate-300 print:bg-amber-100" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   <td className="px-4 py-3">SUBTOTAL {tipoProyecto === 'obra' ? 'RUBROS DE OBRA' : 'CONTRATO'}</td>
-                  <td className="px-4 py-3 text-right">$ {granTotalPresupuestadoRubros.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-3 text-right text-amber-800">$ {granTotalRealRubros.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                  <td className="px-4 py-3 text-right">$ {granTotalPresupuestadoFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                  <td className="px-4 py-3 text-right text-amber-800">$ {granTotalRealFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                   <td className="px-4 py-3 text-right">
-                    {renderDesvioConFlecha(granTotalPresupuestadoRubros - granTotalRealRubros)}
+                    {renderDesvioConFlecha(granTotalPresupuestadoFiltrado - granTotalRealFiltrado)}
                   </td>
                 </tr>
 
@@ -612,10 +622,10 @@ export default function ComparativoTab({
               <tfoot>
                 <tr className="bg-slate-900 text-white font-black uppercase text-xs print:bg-slate-900 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                   <td className="px-4 py-4">TOTAL GENERAL</td>
-                  <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoRubros + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-4 text-right text-amber-400">$ {(granTotalRealRubros + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                  <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                  <td className="px-4 py-4 text-right text-amber-400">$ {(granTotalRealFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
                   <td className="px-4 py-4 text-right">
-                    {renderDesvioConFlecha(((granTotalPresupuestadoRubros + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0))) - ((granTotalRealRubros + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0))))}
+                    {renderDesvioConFlecha(((granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0))) - ((granTotalRealFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0))))}
                   </td>
                 </tr>
               </tfoot>
