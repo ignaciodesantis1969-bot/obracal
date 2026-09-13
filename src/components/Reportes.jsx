@@ -54,6 +54,7 @@ function ReportesContent({
   },
   presupuestos = [],
   facturas = [],
+  cargasSemanales = [], // <-- Añadimos cargasSemanales a los props recibidos
   setFetchedCertificados = () => {},
   certificadosList = [],
   obras = []
@@ -230,6 +231,7 @@ function ReportesContent({
         <ListadoInsumosTab presupuestos={presupuestos} />
       )}
 
+      {/* Aquí estaba el error: faltaba enviarle los contratos y las cargas semanales */}
       {!esOperadorEstandar && !isOp2 && activeTab === 'Comparativo' && (
         <ComparativoTab
           presupuestos={presupuestos}
@@ -237,6 +239,9 @@ function ReportesContent({
           tesoreria={tesoreriaList}
           allReportesSice={allReportesSice}
           obras={obras}
+          contratos={contratosList}          // INYECTADO AHORA
+          contratosList={contratosList}      // INYECTADO AHORA
+          cargasSemanales={cargasSemanales}  // INYECTADO AHORA PARA LA MANO DE OBRA
         />
       )}
     </div>
