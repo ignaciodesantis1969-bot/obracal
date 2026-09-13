@@ -17,7 +17,6 @@ export default function ComparativoTab({
   const [proyectoId, setProyectoId] = useState('');
   const [tipoInsumoFiltro, setTipoInsumoFiltro] = useState('TODOS');
 
-  // Consulta directa de Cargas Semanales desde la base de datos para garantizar que nunca esté vacío
   const { data: cargasSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CARGAS_SEMANALES || 'CargasSemanales');
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
 
@@ -40,7 +39,6 @@ export default function ComparativoTab({
     return [];
   };
 
-  // UNIFICACIÓN ROBUSTA DE CONTRATOS
   const listaContratosUnificada = useMemo(() => {
     const c1 = extraerArrayDatos(contratos);
     const c2 = extraerArrayDatos(contratosList);
@@ -73,7 +71,6 @@ export default function ComparativoTab({
     return Array.from(unicosMap.values());
   }, [contratos, contratosList, contratos_mantenimiento, contratosSheet]);
 
-  // UNIFICACIÓN Y CAPTURA TOTAL DE CARGAS SEMANALES (PROPS + HOOK DB + WINDOW GLOBAL)
   const listaCargasSemanalesUnificada = useMemo(() => {
     const cs1 = extraerArrayDatos(cargasSemanales);
     const cs2 = extraerArrayDatos(cargasSheet);
@@ -331,11 +328,46 @@ export default function ComparativoTab({
           let insumosList = t?.insumos || t?.materiales || [];
           if (typeof insumosList === 'string') { try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; } }
 
-          if (!Array.isArray(insumosList) || insumosList.length === 0) {
-            const tareaTotal = parsearMonto(t?.total) || (parsearCantidad(t?.cantidad) * parsearMonto(t?.costo_unitario || 0));
+          // CÁLCULO ROBUSTO: SI LA TAREA TIENE UN TOTAL O COSTO UNITARIO GLOBAL, SE TOMA ESE VALOR ESCALADO POR SU CANTIDAD
+          const tareaCantidad = parsearCantidad(t?.cantidad, 1);
+          const tareaCostoUnitario = parsearMonto(t?.costo_unitario || 0);
+          const tareaTotalDirecto = parsearMonto(t?.total);
+
+          let montoAsignadoTarea = 0;
+          if (tareaTotalDirecto > 0) {
+            montoAsignadoTarea = tareaTotalDirecto;
+          } else if (tareaCostoUnitario > 0) {
+            montoAsignadoTarea = tareaCantidad * tareaCostoUnitario;
+          }
+
+          if (montoAsignadoTarea > 0 && Array.isArray(insumosList) && insumosList.length > 0) {
+            // Distribuimos proporcionalmente el total de la tarea entre sus insumos clasificados
+            const sumaInsumosBase = insumosList.reduce((acc, ins) => {
+              return acc + (parsearMonto(ins?.total) || (parsearCantidad(ins?.cantidad) * parsearMonto(ins?.costo_unitario || ins?.precio || 0)));
+            }, 0);
+
+            if (sumaInsumosBase > 0) {
+              insumosList.forEach(ins => {
+                const insBase = parsearMonto(ins?.total) || (parsearCantidad(ins?.cantidad) * parsearMonto(ins?.costo_unitario || ins?.precio || 0));
+                const proporcion = insBase / sumaInsumosBase;
+                const insTotalFinal = montoAsignadoTarea * proporcion;
+                const cat = resolverTipoInsumoOficial(ins?.tipo || ins?.categoria, ins?.nombre || ins?.descripcion);
+                categoriasMap[cat].presupuestado += insTotalFinal;
+                totalRubroPresupuestado += insTotalFinal;
+              });
+            } else {
+              // Si los insumos no tienen precios base, los clasificamos por defecto
+              insumosList.forEach(ins => {
+                const cat = resolverTipoInsumoOficial(ins?.tipo || ins?.categoria, ins?.nombre || ins?.descripcion);
+                const insTotal = montoAsignadoTarea / insumosList.length;
+                categoriasMap[cat].presupuestado += insTotal;
+                totalRubroPresupuestado += insTotal;
+              });
+            }
+          } else if (montoAsignadoTarea > 0) {
             const cat = resolverTipoInsumoOficial(t?.tipo, t?.descripcion || t?.tarea);
-            categoriasMap[cat].presupuestado += tareaTotal;
-            totalRubroPresupuestado += tareaTotal;
+            categoriasMap[cat].presupuestado += montoAsignadoTarea;
+            totalRubroPresupuestado += montoAsignadoTarea;
           } else {
             insumosList.forEach(ins => {
               const cat = resolverTipoInsumoOficial(ins?.tipo || ins?.categoria, ins?.nombre || ins?.descripcion);
@@ -374,7 +406,6 @@ export default function ComparativoTab({
       return matchId || matchCodExacto;
     });
 
-    // FILTRO ROBUSTO DE CARGAS SEMANALES
     const cargasSemanalesProyecto = listaCargasSemanalesUnificada.filter(cs => {
       const csPto = String(cs?.presupuesto_id || cs?.presupuestoId || cs?.obra_id || '').trim();
       return pIdReal && (csPto === pIdReal || Number(csPto) === Number(pIdReal));
@@ -406,7 +437,6 @@ export default function ComparativoTab({
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
-      // ASIGNAR MANO DE OBRA DESDE CARGAS SEMANALES
       cargasSemanalesProyecto.forEach(cs => {
         let distribucion = cs?.distribucion_rubros || cs?.distribucionRubros || [];
         if (typeof distribucion === 'string') {
@@ -427,7 +457,6 @@ export default function ComparativoTab({
         });
       });
 
-      // ASIGNAR FACTURAS (MATERIALES, EQUIPOS, SUBCONTRATOS)
       facturasProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         const esGastoGeneral = rubroImp.includes('gastos generales') || rubroImp.includes('gasto general') || rubroImp.includes('imprevisto');
