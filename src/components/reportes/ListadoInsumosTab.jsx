@@ -15,7 +15,6 @@ export default function ListadoInsumosTab({
   const [proveedorFiltro, setProveedorFiltro] = useState('');
   const [ordenPrecio, setOrdenPrecio] = useState('nombre');
 
-  // CARGA DE RESPALDO DESDE GOOGLE SHEETS
   const { data: insumosSheet } = useObraData('Insumos');
   const { data: proveedoresSheet } = useObraData('Proveedores');
 
@@ -109,11 +108,15 @@ export default function ListadoInsumosTab({
       const provId = String(ins.proveedor_id || ins.proveedorId || ins.proveedor || '').trim();
       const proveedorNombre = proveedoresList[provId] || proveedoresList[provId.toLowerCase()] || (isNaN(provId) && provId ? provId : 'Sin Proveedor');
 
+      const costoUnitarioMaestro = Number(
+        ins.costo_unitario || ins.costoUnitario || ins.precio_unitario || ins.precioUnitario || ins.precio || ins.costo || 0
+      );
+
       const infoInsumo = {
         tipo: tipoOficial,
         proveedor: proveedorNombre,
         unidad: ins.unidad || ins.unid || 'un',
-        costo_unitario: Number(ins.costo_unitario || ins.precio || 0)
+        costo_unitario: costoUnitarioMaestro
       };
 
       if (codigo) map[codigo] = infoInsumo;
@@ -175,6 +178,15 @@ export default function ListadoInsumosTab({
               try { insumosList = JSON.parse(insumosList); } catch { insumosList = []; }
             }
 
+            const cantidadTarea = Number(t?.cantidad || t?.cant || t?.cantidad_total || 1);
+            
+            // Extracción robusta de costo unitario para la tarea/ítem principal
+            const costoUnitarioTarea = Number(
+              t?.costo_unitario || t?.costoUnitario || t?.precio_unitario || t?.precioUnitario || t?.precio || t?.unitario || t?.costo || 0
+            );
+
+            const totalTareaDirecto = Number(t?.total || t?.subtotal || t?.monto || 0);
+
             if (!Array.isArray(insumosList) || insumosList.length === 0) {
               const codigoT = String(t?.codigo || t?.Cod || '').trim().toLowerCase();
               const nombreT = String(t?.descripcion || t?.tarea || '').trim();
@@ -187,14 +199,17 @@ export default function ListadoInsumosTab({
               const provItemRaw = String(t?.proveedor_id || t?.proveedor || '').trim();
               const provFinal = proveedoresList[provItemRaw] || proveedoresList[provItemRaw.toLowerCase()] || maestroInfo.proveedor || 'Sin Proveedor';
 
+              const finalCostoU = costoUnitarioTarea || maestroInfo.costo_unitario || 0;
+              const finalTotal = totalTareaDirecto > 0 ? totalTareaDirecto : (cantidadTarea * finalCostoU);
+
               catsMap[catFinal].push({
                 tarea: t?.descripcion || t?.tarea || 'Labor general',
                 nombre: nombreT || 'Ítem general',
                 proveedor: provFinal,
                 unidad: maestroInfo.unidad || t?.unidad || 'un',
-                cantidad: Number(t?.cantidad || t?.cant || 1),
-                costo_unitario: Number(maestroInfo.costo_unitario || t?.costo_unitario || t?.precio_unitario || 0),
-                total: Number(t?.total || (Number(t?.cantidad || t?.cant || 1) * Number(maestroInfo.costo_unitario || t?.costo_unitario || 0)))
+                cantidad: cantidadTarea,
+                costo_unitario: finalCostoU,
+                total: finalTotal
               });
             } else {
               insumosList.forEach(ins => {
@@ -209,17 +224,24 @@ export default function ListadoInsumosTab({
                 const provInsRaw = String(ins?.proveedor_id || ins?.proveedor || '').trim();
                 const provFinal = proveedoresList[provInsRaw] || proveedoresList[provInsRaw.toLowerCase()] || maestroInfo.proveedor || 'Sin Proveedor';
 
-                const costoU = Number(maestroInfo.costo_unitario || ins?.costo_unitario || ins?.precio || 0);
-                const cant = Number(ins?.cantidad || ins?.cant || 1);
+                const cantIns = Number(ins?.cantidad || ins?.cant || 1);
+                
+                // Extracción ultrarrobusta del costo unitario del insumo
+                const costoUIns = Number(
+                  ins?.costo_unitario || ins?.costoUnitario || ins?.precio_unitario || ins?.precioUnitario || ins?.precio || ins?.unitario || ins?.costo || maestroInfo.costo_unitario || 0
+                );
+
+                const totalInsDirecto = Number(ins?.total || ins?.subtotal || ins?.monto || 0);
+                const finalTotalIns = totalInsDirecto > 0 ? totalInsDirecto : (cantIns * costoUIns);
 
                 catsMap[catFinal].push({
                   tarea: t?.descripcion || t?.tarea || 'Labor',
                   nombre: nombreIns || 'Insumo',
                   proveedor: provFinal,
                   unidad: maestroInfo.unidad || ins?.unidad || 'un',
-                  cantidad: cant,
-                  costo_unitario: costoU,
-                  total: Number(ins?.total || (cant * costoU))
+                  cantidad: cantIns,
+                  costo_unitario: costoUIns,
+                  total: finalTotalIns
                 });
               });
             }
@@ -256,8 +278,8 @@ export default function ListadoInsumosTab({
         gastosGeneralesArray.forEach(gg => {
           const concepto = String(gg?.concepto || gg?.nombre || gg?.descripcion || 'Gasto General').trim();
           const cantidad = Number(gg?.cantidad || gg?.cant || 1);
-          const unitario = Number(gg?.unitario || gg?.costo_unitario || gg?.precio || 0);
-          const totalGG = Number(gg?.total || (cantidad * unitario));
+          const unitario = Number(gg?.unitario || gg?.costo_unitario || gg?.costoUnitario || gg?.precio || 0);
+          const totalGG = Number(gg?.total || gg?.subtotal || (cantidad * unitario));
 
           const maestroGG = maestroInsumosMap[concepto.toLowerCase()] || {};
 
