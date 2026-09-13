@@ -34,6 +34,7 @@ export default function ComparativoTab({
     return [];
   };
 
+  // UNIFICACIÓN ROBUSTA DE CONTRATOS DESDE PROPS Y WINDOW GLOBAL
   const listaContratosUnificada = useMemo(() => {
     const c1 = extraerArrayDatos(contratos);
     const c2 = extraerArrayDatos(contratosList);
@@ -64,6 +65,33 @@ export default function ComparativoTab({
 
     return Array.from(unicosMap.values());
   }, [contratos, contratosList, contratos_mantenimiento]);
+
+  // UNIFICACIÓN Y CAPTURA TOTAL DE CARGAS SEMANALES (PROPS + WINDOW GLOBAL)
+  const listaCargasSemanalesUnificada = useMemo(() => {
+    const cs1 = extraerArrayDatos(cargasSemanales);
+    let csGlobales = [];
+    if (typeof window !== 'undefined') {
+      if (window.globalData) {
+        csGlobales = [
+          ...extraerArrayDatos(window.globalData.cargasSemanales),
+          ...extraerArrayDatos(window.globalData.cargas_semanales)
+        ];
+      }
+      if (window.cargasSemanales) csGlobales.push(...extraerArrayDatos(window.cargasSemanales));
+    }
+
+    const combinadas = [...cs1, ...csGlobales];
+    const unicosMap = new Map();
+    combinadas.forEach((item, index) => {
+      if (!item) return;
+      const key = String(item?.id || item?.ID || index);
+      if (!unicosMap.has(key)) {
+        unicosMap.set(key, item);
+      }
+    });
+
+    return Array.from(unicosMap.values());
+  }, [cargasSemanales]);
 
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
@@ -136,7 +164,6 @@ export default function ComparativoTab({
     const tc = limpiarTexto(textoCompleto);
     const combinado = `${tipoExp} ${tc}`;
 
-    // 1. Detección prioritaria de Mano de Obra y Viáticos asociados
     if (
       combinado.includes('mano de obra') || 
       combinado.includes('rrhh') || 
@@ -157,18 +184,14 @@ export default function ComparativoTab({
       return 'Mano de Obra';
     }
 
-    // 2. Detección de Subcontratos
     if (combinado.includes('subcontrato') || combinado.includes('servicio')) {
-      // Excepción: Si es servicio de limpieza o seguridad, lo tratamos para verificar si no es un gasto general
       if (!combinado.includes('seguridad e higiene')) return 'Subcontratos';
     }
 
-    // 3. Detección de Equipos
     if (combinado.includes('equipo') || combinado.includes('maquinaria') || combinado.includes('alquiler') || combinado.includes('volquete')) {
       return 'Equipos';
     }
 
-    // 4. Detección estricta de Gastos Generales (evita atrapar "materiales generales")
     if (
       combinado.includes('gastos generales') || 
       combinado.includes('gasto general') || 
@@ -182,7 +205,6 @@ export default function ComparativoTab({
       return 'Gastos Generales';
     }
 
-    // 5. Por defecto o si contiene "material" / "insumo"
     return 'Materiales';
   };
 
@@ -211,8 +233,6 @@ export default function ComparativoTab({
   const { analisisRubrosDetallado, gastosGeneralesDetalle } = useMemo(() => {
     if (!proyectoId) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
 
-    const listaCargas = extraerArrayDatos(cargasSemanales);
-
     if (tipoProyecto === 'contrato') {
       if (!contratoSeleccionado) return { analisisRubrosDetallado: [], gastosGeneralesDetalle: [] };
       const cIdReal = String(contratoSeleccionado?.id || contratoSeleccionado?.contrato_id || '').trim();
@@ -224,7 +244,7 @@ export default function ComparativoTab({
         return (cIdReal && fContrato === cIdReal) || (cCodReal && fContrato === cCodReal) || (cCodReal && fDesc.includes(cCodReal));
       });
 
-      const cargasDelPto = listaCargas.filter(cs => {
+      const cargasDelPto = listaCargasSemanalesUnificada.filter(cs => {
         const csContrato = String(cs?.contrato_mantenimiento_id || cs?.contrato_id || '').trim();
         return (cIdReal && csContrato === cIdReal) || (cCodReal && csContrato === cCodReal);
       });
@@ -345,8 +365,8 @@ export default function ComparativoTab({
       return matchId || matchCodExacto;
     });
 
-    // Filtro robusto para Cargas Semanales: forzando comparación como cadena y número
-    const cargasSemanalesProyecto = listaCargas.filter(cs => {
+    // FILTRO ROBUSTO DE CARGAS SEMANALES
+    const cargasSemanalesProyecto = listaCargasSemanalesUnificada.filter(cs => {
       const csPto = String(cs?.presupuesto_id || cs?.presupuestoId || cs?.obra_id || '').trim();
       return pIdReal && (csPto === pIdReal || Number(csPto) === Number(pIdReal));
     });
@@ -373,7 +393,7 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 2. ASIGNACIÓN ESTRICTA DE RUBROS DE OBRA
+    // 2. ASIGNACIÓN ESTRICTA DE RUBROS DE OBRA Y CARGAS SEMANALES
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
@@ -401,8 +421,6 @@ export default function ComparativoTab({
       // ASIGNAR FACTURAS (MATERIALES, EQUIPOS, SUBCONTRATOS)
       facturasProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
-        
-        // Evitamos que entren Gastos Generales en los rubros operativos
         const esGastoGeneral = rubroImp.includes('gastos generales') || rubroImp.includes('gasto general') || rubroImp.includes('imprevisto');
 
         if (rubroImp === normRubro && !esGastoGeneral) {
@@ -420,7 +438,7 @@ export default function ComparativoTab({
     });
 
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
-  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, egresosFacturasUnicos, cargasSemanales, ordenCategorias]);
+  }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, egresosFacturasUnicos, listaCargasSemanalesUnificada, ordenCategorias]);
 
   const { granTotalPresupuestadoFiltrado, granTotalRealFiltrado } = useMemo(() => {
     let sumPresupuestado = 0;
