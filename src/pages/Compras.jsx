@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart } from 'lucide-react';
 
 export default function Compras({  
@@ -19,10 +19,8 @@ export default function Compras({
     const normalizar = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
     const objKeys = Object.keys(obj);
     
-    // 1. Búsqueda exacta priorizando 'n_factura'
     for (const key of keys) {
       if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
-      
       const keyNorm = normalizar(key);
       const realKey = objKeys.find(k => normalizar(k) === keyNorm);
       if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
@@ -30,7 +28,6 @@ export default function Compras({
       }
     }
 
-    // 2. Búsqueda por subcadena
     for (const key of keys) {
       const keyNorm = normalizar(key);
       const realKey = objKeys.find(k => normalizar(k).includes(keyNorm) || keyNorm.includes(normalizar(k)));
@@ -98,7 +95,7 @@ export default function Compras({
     ]
   });
 
-  const extraerArrayDatos = (fuente) => {
+  const extraerArrayDatos = useCallback((fuente) => {
     if (Array.isArray(fuente)) return fuente;
     if (fuente && typeof fuente === 'object') {
       if (Array.isArray(fuente.data)) return fuente.data;
@@ -110,12 +107,15 @@ export default function Compras({
       if (posibleArray) return posibleArray;
     }
     return [];
-  };
+  }, []);
 
-  const presupuestosAprobados = presupuestos.filter(pr => {
-    const est = String(buscarValorEnObjeto(pr, ['estado', 'Estado', 'ESTADO']) || '').toLowerCase();
-    return !est || est.includes('aprobad') || est.includes('aprobado');
-  });
+  const presupuestosAprobados = useMemo(() => {
+    return presupuestos.filter(pr => {
+      const est = String(buscarValorEnObjeto(pr, ['estado', 'Estado', 'ESTADO']) || '').toLowerCase();
+      return !est || est.includes('aprobad') || est.includes('aprobado');
+    });
+  }, [presupuestos]);
+
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
   const contratosList = useMemo(() => {
@@ -140,7 +140,7 @@ export default function Compras({
     });
 
     return Array.from(unicosMap.values());
-  }, [propContratos, propContratosAlt]);
+  }, [propContratos, propContratosAlt, extraerArrayDatos]);
 
   const listaContratosFinal = useMemo(() => {
     if (!contratosList || contratosList.length === 0) return [];
@@ -151,50 +151,55 @@ export default function Compras({
     return filtrados.length > 0 ? filtrados : contratosList;
   }, [contratosList]);
 
-  const presupuestoSeleccionadoObj = presupuestos.find(pr => {
-    const pId = buscarValorEnObjeto(pr, ['id', 'ID', 'Id']);
-    return String(pId).trim() === String(formData.presupuesto_id).trim();
-  });
+  const presupuestoSeleccionadoObj = useMemo(() => {
+    if (!formData.presupuesto_id) return null;
+    return presupuestos.find(pr => {
+      const pId = buscarValorEnObjeto(pr, ['id', 'ID', 'Id']);
+      return String(pId).trim() === String(formData.presupuesto_id).trim();
+    });
+  }, [presupuestos, formData.presupuesto_id]);
 
-  let rubrosDelPresupuesto = [];
-  let gastosGeneralesDelPresupuesto = [];
+  const { rubrosDelPresupuesto, gastosGeneralesDelPresupuesto } = useMemo(() => {
+    let rubros = [];
+    let gastosGenerales = [];
+    if (presupuestoSeleccionadoObj) {
+      const rawItemsDetalle = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['items_detalle', 'Items_detalle', 'items', 'detalle']);
+      try {
+        let parsedData = rawItemsDetalle;
+        if (typeof rawItemsDetalle === 'string') {
+          parsedData = JSON.parse(rawItemsDetalle);
+        }
+        if (parsedData && Array.isArray(parsedData.rubros)) {
+          rubros = parsedData.rubros.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
+        } else if (Array.isArray(parsedData)) {
+          rubros = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
+        }
 
-  if (presupuestoSeleccionadoObj) {
-    const rawItemsDetalle = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['items_detalle', 'Items_detalle', 'items', 'detalle']);
-    try {
-      let parsedData = rawItemsDetalle;
-      if (typeof rawItemsDetalle === 'string') {
-        parsedData = JSON.parse(rawItemsDetalle);
-      }
-      if (parsedData && Array.isArray(parsedData.rubros)) {
-        rubrosDelPresupuesto = parsedData.rubros.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
-      } else if (Array.isArray(parsedData)) {
-        rubrosDelPresupuesto = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
-      }
+        let rawGG = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['gastos_generales_insumos', 'Gastos_generales_insumos', 'gastos_generales', 'Gastos_generales']);
+        if (!rawGG && parsedData && typeof parsedData === 'object') {
+          rawGG = parsedData.gastos_generales_insumos || parsedData.gastos_generales || (parsedData.comercial && (parsedData.comercial.gastos_generales_insumos || parsedData.comercial.gastos_generales));
+        }
+        
+        let comercialObj = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['comercial', 'Comercial']);
+        if (typeof comercialObj === 'string') {
+          try { comercialObj = JSON.parse(comercialObj); } catch(e) {}
+        }
+        if (!rawGG && comercialObj && typeof comercialObj === 'object') {
+          rawGG = comercialObj.gastos_generales_insumos || comercialObj.gastos_generales;
+        }
 
-      let rawGG = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['gastos_generales_insumos', 'Gastos_generales_insumos', 'gastos_generales', 'Gastos_generales']);
-      if (!rawGG && parsedData && typeof parsedData === 'object') {
-        rawGG = parsedData.gastos_generales_insumos || parsedData.gastos_generales || (parsedData.comercial && (parsedData.comercial.gastos_generales_insumos || parsedData.comercial.gastos_generales));
+        if (typeof rawGG === 'string') {
+          try { rawGG = JSON.parse(rawGG); } catch(e) {}
+        }
+        if (Array.isArray(rawGG)) {
+          gastosGenerales = rawGG.map(item => item.concepto || item.nombre || item.descripcion).filter(Boolean);
+        }
+      } catch (e) {
+        console.error("Error al parsear presupuesto:", e);
       }
-      
-      let comercialObj = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['comercial', 'Comercial']);
-      if (typeof comercialObj === 'string') {
-        try { comercialObj = JSON.parse(comercialObj); } catch(e) {}
-      }
-      if (!rawGG && comercialObj && typeof comercialObj === 'object') {
-        rawGG = comercialObj.gastos_generales_insumos || comercialObj.gastos_generales;
-      }
-
-      if (typeof rawGG === 'string') {
-        try { rawGG = JSON.parse(rawGG); } catch(e) {}
-      }
-      if (Array.isArray(rawGG)) {
-        gastosGeneralesDelPresupuesto = rawGG.map(item => item.concepto || item.nombre || item.descripcion).filter(Boolean);
-      }
-    } catch (e) {
-      console.error("Error al parsear presupuesto:", e);
     }
-  }
+    return { rubrosDelPresupuesto: rubros, gastosGeneralesDelPresupuesto: gastosGenerales };
+  }, [presupuestoSeleccionadoObj]);
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
@@ -349,14 +354,18 @@ export default function Compras({
     const esNC = String(tipoComp).toLowerCase().includes('nota de crédito') || String(tipoComp).toLowerCase().includes('nota de credito');
     const tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
 
+    // Limpiamos los IDs que no correspondan según el tipo de gasto para evitar datos residuales (ej. número 74)
+    const presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
+    const contratoIdVal = tipoGastoObtenido === 'Contrato de Mantenimiento' ? buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) : '';
+
     setFormData({ 
       ...f, 
       comprobante_tipo: tipoComp,
       n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '',
       proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']) || '',
       obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '',
-      presupuesto_id: buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) || '',
-      contrato_id: buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) || '',
+      presupuesto_id: presupuestoIdVal,
+      contrato_id: contratoIdVal,
       tipo_gasto: tipoGastoObtenido,
       rubro_imputacion: rubroImputacionVal,
       tipo_insumo: tipoInsumoVal,
@@ -387,6 +396,10 @@ export default function Compras({
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
 
+      // Limpieza estricta de IDs para que no queden datos residuales (ej. número 74 en contrato_id si no es contrato)
+      const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
+      const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
+
       const payloadData = {
         ...formData,
         subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
@@ -401,12 +414,12 @@ export default function Compras({
         n_factura: formData.n_factura,
         numero_comp: formData.n_factura,
         proveedor_id: formData.proveedor_id,
-        obra_id: formData.obra_id,
-        presupuesto_id: formData.presupuesto_id,
-        contrato_id: formData.contrato_id,
-        rubro_imputacion: formData.rubro_imputacion,
-        rubro_presupuesto: formData.rubro_imputacion,
-        rubro: formData.rubro_imputacion,
+        obra_id: esPresupuestario || formData.obra_id ? formData.obra_id : '',
+        presupuesto_id: esPresupuestario ? formData.presupuesto_id : '',
+        contrato_id: esContrato ? formData.contrato_id : '',
+        rubro_imputacion: esPresupuestario || esContrato ? formData.rubro_imputacion : '',
+        rubro_presupuesto: esPresupuestario || esContrato ? formData.rubro_imputacion : '',
+        rubro: esPresupuestario || esContrato ? formData.rubro_imputacion : '',
         tipo_insumo: formData.tipo_insumo,
         insumo: formData.tipo_insumo
       };
@@ -553,31 +566,34 @@ export default function Compras({
     } catch (err) { console.error(err); }
   };
 
-  const facturasFiltradas = facturas.filter(f => {
-    const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
-    const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
-    const fFecha = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
-    let matchFecha = true;
-    if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
-    if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
+  const facturasFiltradas = useMemo(() => {
+    return facturas.filter(f => {
+      const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
+      const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
+      const fFecha = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
+      let matchFecha = true;
+      if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
+      if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
 
-    // Filtro por Documento (Presupuesto o Contrato)
-    const presId = buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']);
-    const contId = buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']);
-    const matchDocumento = !filtroDocumento || String(presId) === String(filtroDocumento) || String(contId) === String(filtroDocumento);
+      const presId = buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']);
+      const contId = buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']);
+      const matchDocumento = !filtroDocumento || String(presId) === String(filtroDocumento) || String(contId) === String(filtroDocumento);
 
-    return matchProveedor && matchFecha && matchDocumento;
-  });
+      return matchProveedor && matchFecha && matchDocumento;
+    });
+  }, [facturas, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento]);
 
-  const ordenesFiltradas = ordenesCompra.filter(oc => {
-    const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
-    const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
-    const ocFecha = buscarValorEnObjeto(oc, ['fecha', 'Fecha', 'FECHA']);
-    let matchFecha = true;
-    if (filtroFechaDesde && ocFecha && ocFecha < filtroFechaDesde) matchFecha = false;
-    if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
-    return matchProveedor && matchFecha;
-  });
+  const ordenesFiltradas = useMemo(() => {
+    return ordenesCompra.filter(oc => {
+      const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
+      const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
+      const ocFecha = buscarValorEnObjeto(oc, ['fecha', 'Fecha', 'FECHA']);
+      let matchFecha = true;
+      if (filtroFechaDesde && ocFecha && ocFecha < filtroFechaDesde) matchFecha = false;
+      if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
+      return matchProveedor && matchFecha;
+    });
+  }, [ordenesCompra, filtroProveedor, filtroFechaDesde, filtroFechaHasta]);
 
   const requiereObra = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
   const requierePresupuesto = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
