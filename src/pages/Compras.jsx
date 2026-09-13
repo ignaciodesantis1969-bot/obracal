@@ -354,7 +354,6 @@ export default function Compras({
     const esNC = String(tipoComp).toLowerCase().includes('nota de crédito') || String(tipoComp).toLowerCase().includes('nota de credito');
     const tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
 
-    // Limpiamos los IDs que no correspondan según el tipo de gasto para evitar datos residuales (ej. número 74)
     const presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
     const contratoIdVal = tipoGastoObtenido === 'Contrato de Mantenimiento' ? buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) : '';
 
@@ -396,7 +395,6 @@ export default function Compras({
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
 
-      // Limpieza estricta de IDs para que no queden datos residuales (ej. número 74 en contrato_id si no es contrato)
       const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
       const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
 
@@ -575,9 +573,20 @@ export default function Compras({
       if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
       if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
 
-      const presId = buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']);
-      const contId = buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']);
-      const matchDocumento = !filtroDocumento || String(presId) === String(filtroDocumento) || String(contId) === String(filtroDocumento);
+      // Filtrado robusto con prefijos PRES- y CONT-
+      let matchDocumento = true;
+      if (filtroDocumento) {
+        const presId = buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id', 'presupuestoid', 'presupuesto']);
+        const contId = buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id', 'contratoid', 'contrato']);
+        
+        if (filtroDocumento.startsWith('PRES-')) {
+          const idLimpio = filtroDocumento.replace('PRES-', '');
+          matchDocumento = String(presId).trim() === String(idLimpio).trim();
+        } else if (filtroDocumento.startsWith('CONT-')) {
+          const idLimpio = filtroDocumento.replace('CONT-', '');
+          matchDocumento = String(contId).trim() === String(idLimpio).trim();
+        }
+      }
 
       return matchProveedor && matchFecha && matchDocumento;
     });
@@ -670,10 +679,18 @@ export default function Compras({
           <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
             <option value="">Todos los Documentos</option>
             <optgroup label="Presupuestos">
-              {listaPresupuestosFinal.map(pr => <option key={`pr-${buscarValorEnObjeto(pr, ['id', 'ID'])}`} value={buscarValorEnObjeto(pr, ['id', 'ID'])}>{pr.codigo} - {pr.nombre}</option>)}
+              {listaPresupuestosFinal.map(pr => {
+                const prId = buscarValorEnObjeto(pr, ['id', 'ID']);
+                return <option key={`pr-${prId}`} value={`PRES-${prId}`}>{pr.codigo} - {pr.nombre}</option>;
+              })}
             </optgroup>
             <optgroup label="Contratos">
-              {listaContratosFinal.map(c => <option key={`c-${buscarValorEnObjeto(c, ['id', 'ID'])}`} value={buscarValorEnObjeto(c, ['id', 'ID'])}>{buscarValorEnObjeto(c, ['codigo', 'nro_contrato'])} - {buscarValorEnObjeto(c, ['nombre', 'cliente'])}</option>)}
+              {listaContratosFinal.map((c, idx) => {
+                const cId = buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id']) || idx;
+                const cCod = buscarValorEnObjeto(c, ['codigo', 'nro_contrato', 'numero']) || 'S/C';
+                const cNom = buscarValorEnObjeto(c, ['nombre', 'cliente', 'razon_social']) || 'Contrato';
+                return <option key={`c-${cId}`} value={`CONT-${cId}`}>[{cCod}] {cNom}</option>;
+              })}
             </optgroup>
           </select>
         </div>
