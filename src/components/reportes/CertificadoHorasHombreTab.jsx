@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Trash2, ShieldCheck, Loader2, FileText, ExternalLink, Calendar } from 'lucide-react';
+import { Clock, Trash2, ShieldCheck, Loader2, FileText, ExternalLink } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { useObraData } from '@/hooks/useObraData';
 import { OBRAS_CONFIG } from '@/config/constants';
@@ -81,8 +81,16 @@ export default function CertificadoHorasHombreTab({
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet]);
 
+  // FILTRAR HISTORIAL VÁLIDO (EVITA CERTIFICADOS FANTASMAS O VACÍOS)
   const historialCertificados = useMemo(() => {
-    return extraerArrayDatos(certificacionesRealizadas);
+    const raw = extraerArrayDatos(certificacionesRealizadas);
+    return raw.filter(c => {
+      if (!c) return false;
+      const hasId = c.id !== undefined && c.id !== null && String(c.id).trim() !== '';
+      const hasNro = c.certificado_nro !== undefined && c.certificadonro !== undefined;
+      const hasContrato = c.contrato_id || c.contratoid || c.contrato_codigo || c.contratocodigo;
+      return hasId || hasNro || hasContrato;
+    });
   }, [certificacionesRealizadas]);
 
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
@@ -119,13 +127,18 @@ export default function CertificadoHorasHombreTab({
            '---';
   }, [contratoActual]);
 
-  // CALCULAR EL NÚMERO DE CERTIFICADO CORRELATIVO
+  // CALCULAR EL NÚMERO DE CERTIFICADO CORRELATIVO ESTRICTAMENTE PARA ESTE CONTRATO
   useEffect(() => {
     if (contratoActual) {
-      const certificadosDelContrato = historialCertificados.filter(c => 
-        String(c.contrato_id || c.contratoid) === String(contratoActual.id) || 
-        String(c.contrato_codigo || c.contratocodigo) === String(contratoActual.codigo)
-      );
+      const idContratoStr = String(contratoActual.id || '').trim();
+      const codContratoStr = String(contratoActual.codigo || contratoActual.Codigo || '').trim();
+
+      const certificadosDelContrato = historialCertificados.filter(c => {
+        const cIdRef = String(c.contrato_id || c.contratoid || '').trim();
+        const cCodRef = String(c.contrato_codigo || c.contratocodigo || '').trim();
+        
+        return (idContratoStr && cIdRef === idContratoStr) || (codContratoStr && cCodRef === codContratoStr);
+      });
       
       const nuevoNumero = certificadosDelContrato.length + 1;
       const numeroFormateado = nuevoNumero.toString().padStart(4, '0');
@@ -147,7 +160,6 @@ export default function CertificadoHorasHombreTab({
     }
   }, [contratoActual, historialCertificados]);
 
-  // FORMATEADOR DE FECHAS A DD/MM/AAAA
   const formatearFecha = (fechaISO) => {
     if (!fechaISO) return '';
     const str = String(fechaISO).trim();
@@ -232,7 +244,7 @@ export default function CertificadoHorasHombreTab({
         tabla: 'CertificacionesHoras',
         action: 'guardar_certificado_horas',
         contrato_id: String(contratoIdSeleccionado),
-        contrato_codigo: contratoActual.codigo,
+        contrato_codigo: contratoActual.codigo || contratoActual.Codigo || '',
         nro_contrato_cliente: nroContratoClienteReal,
         certificado_nro: certificadoNro,
         fecha_emision: formatearFecha(fechaEmision),
@@ -506,6 +518,7 @@ export default function CertificadoHorasHombreTab({
           </table>
         </div>
 
+        {/* SECCIÓN DE RESPONSABLES EDITABLES */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
           <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
             <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
@@ -553,18 +566,18 @@ export default function CertificadoHorasHombreTab({
                 <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
                 <input 
                   type="text" 
-                  readOnly
                   value={respCliente.cargo} 
-                  className="w-full bg-slate-100 border border-slate-300 rounded px-2 py-1 uppercase text-slate-500 cursor-not-allowed" 
+                  onChange={(e) => setRespCliente({...respCliente, cargo: e.target.value})} 
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800" 
                 />
               </div>
               <div>
                 <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
                 <input 
                   type="text" 
-                  readOnly
                   value={respCliente.nombre} 
-                  className="w-full bg-slate-100 border border-slate-300 rounded px-2 py-1 uppercase text-slate-500 font-black cursor-not-allowed" 
+                  onChange={(e) => setRespCliente({...respCliente, nombre: e.target.value})} 
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black" 
                 />
               </div>
               <div>
