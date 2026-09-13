@@ -114,7 +114,6 @@ export default function ComparativoTab({
     return parsearMonto(val);
   };
 
-  // Cálculo neto estricto sin IVA para facturas
   const obtenerMontoNetoFactura = (f) => {
     const subtotal = parsearMonto(f?.subtotal || f?.neto || f?.importe_neto || f?.Neto || f?.Subtotal);
     if (subtotal !== 0) return subtotal;
@@ -137,19 +136,18 @@ export default function ComparativoTab({
     const tc = limpiarTexto(textoCompleto);
     const combinado = `${tipoExp} ${tc}`;
 
+    // 1. Detección prioritaria de Mano de Obra y Viáticos asociados
     if (
       combinado.includes('mano de obra') || 
       combinado.includes('rrhh') || 
       combinado.includes('personal') || 
       combinado.includes('viatico') || 
-      combinado.includes('viaticos') || 
       combinado.includes('nafta') || 
       combinado.includes('combustible') || 
       combinado.includes('peaje') || 
       combinado.includes('sueldo') || 
       combinado.includes('jornal') || 
       combinado.includes('carga social') || 
-      combinado.includes('cargas sociales') || 
       combinado.includes('f931') || 
       combinado.includes('931') || 
       combinado.includes('remuneracion') || 
@@ -159,11 +157,32 @@ export default function ComparativoTab({
       return 'Mano de Obra';
     }
 
-    if (combinado.includes('subcontrato') || combinado.includes('servicio')) return 'Subcontratos';
-    if (combinado.includes('equipo') || combinado.includes('maquinaria') || combinado.includes('alquiler')) return 'Equipos';
-    if (combinado.includes('gasto') || combinado.includes('general') || combinado.includes('imprevisto') || combinado.includes('seguridad') || combinado.includes('epp')) return 'Gastos Generales';
-    if (combinado.includes('material') || combinado.includes('insumo')) return 'Materiales';
-    
+    // 2. Detección de Subcontratos
+    if (combinado.includes('subcontrato') || combinado.includes('servicio')) {
+      // Excepción: Si es servicio de limpieza o seguridad, lo tratamos para verificar si no es un gasto general
+      if (!combinado.includes('seguridad e higiene')) return 'Subcontratos';
+    }
+
+    // 3. Detección de Equipos
+    if (combinado.includes('equipo') || combinado.includes('maquinaria') || combinado.includes('alquiler') || combinado.includes('volquete')) {
+      return 'Equipos';
+    }
+
+    // 4. Detección estricta de Gastos Generales (evita atrapar "materiales generales")
+    if (
+      combinado.includes('gastos generales') || 
+      combinado.includes('gasto general') || 
+      combinado.includes('imprevisto') || 
+      combinado.includes('seguridad e higiene') || 
+      combinado.includes('epp') ||
+      combinado.includes('ropa de trabajo') ||
+      combinado.includes('examen medico') ||
+      combinado.includes('examen médico')
+    ) {
+      return 'Gastos Generales';
+    }
+
+    // 5. Por defecto o si contiene "material" / "insumo"
     return 'Materiales';
   };
 
@@ -182,7 +201,6 @@ export default function ComparativoTab({
     );
   };
 
-  // FUENTE ÚNICA DE GASTOS: FACTURAS NETAS
   const egresosFacturasUnicos = useMemo(() => {
     return (Array.isArray(facturas) ? facturas : []).map(f => ({
       ...f,
@@ -327,8 +345,9 @@ export default function ComparativoTab({
       return matchId || matchCodExacto;
     });
 
+    // Filtro robusto para Cargas Semanales: forzando comparación como cadena y número
     const cargasSemanalesProyecto = listaCargas.filter(cs => {
-      const csPto = String(cs?.presupuesto_id || cs?.presupuestoId || '').trim();
+      const csPto = String(cs?.presupuesto_id || cs?.presupuestoId || cs?.obra_id || '').trim();
       return pIdReal && (csPto === pIdReal || Number(csPto) === Number(pIdReal));
     });
 
@@ -344,8 +363,8 @@ export default function ComparativoTab({
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
 
-        if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto')) {
-          if (tipoIns === normGG || rubroImp === normGG) {
+        if (rubroImp.includes('gasto') || rubroImp.includes('imprevisto') || rubroImp.includes('epp') || rubroImp.includes('seguridad')) {
+          if (tipoIns === normGG || rubroImp === normGG || rubroImp.includes(normGG)) {
             realGG += (f._montoReal !== undefined ? f._montoReal : parsearMonto(f?.monto ?? f?.subtotal));
           }
         }
@@ -358,7 +377,7 @@ export default function ComparativoTab({
     const resultadosRubros = rubrosIntermedios.map(ri => {
       const normRubro = limpiarTexto(ri.nombreRubro);
 
-      // ASIGNAR MANO DE OBRA DESDE CARGAS SEMANALES (Búsqueda robusta por coincidencia parcial de texto)
+      // ASIGNAR MANO DE OBRA DESDE CARGAS SEMANALES
       cargasSemanalesProyecto.forEach(cs => {
         let distribucion = cs?.distribucion_rubros || cs?.distribucionRubros || [];
         if (typeof distribucion === 'string') {
@@ -379,11 +398,14 @@ export default function ComparativoTab({
         });
       });
 
-      // ASIGNAR FACTURAS Y VIÁTICOS/NAFTA EN SU CATEGORÍA CORRESPONDIENTE
+      // ASIGNAR FACTURAS (MATERIALES, EQUIPOS, SUBCONTRATOS)
       facturasProyecto.forEach(f => {
         const rubroImp = limpiarTexto(f?.rubro_imputacion || f?.rubro || '');
         
-        if (rubroImp === normRubro && !rubroImp.includes('gasto') && !rubroImp.includes('imprevisto')) {
+        // Evitamos que entren Gastos Generales en los rubros operativos
+        const esGastoGeneral = rubroImp.includes('gastos generales') || rubroImp.includes('gasto general') || rubroImp.includes('imprevisto');
+
+        if (rubroImp === normRubro && !esGastoGeneral) {
           const montoNeto = f._montoReal !== undefined ? f._montoReal : obtenerMontoNetoFactura(f);
           const categoriaDestino = resolverTipoInsumoOficial(f?.tipo_insumo, `${f?.concepto || ''} ${f?.detalle_gasto || ''} ${f?.rubro_imputacion || ''}`);
           ri.categoriasMap[categoriaDestino].real += montoNeto;
@@ -400,7 +422,6 @@ export default function ComparativoTab({
     return { analisisRubrosDetallado: resultadosRubros, gastosGeneralesDetalle: resultadosGG };
   }, [proyectoId, tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, allReportesSice, egresosFacturasUnicos, cargasSemanales, ordenCategorias]);
 
-  // CÁLCULO DE TOTALES FILTRADOS DINÁMICAMENTE SEGÚN LO QUE SE VISUALIZA
   const { granTotalPresupuestadoFiltrado, granTotalRealFiltrado } = useMemo(() => {
     let sumPresupuestado = 0;
     let sumReal = 0;
@@ -428,7 +449,6 @@ export default function ComparativoTab({
 
   return (
     <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-      {/* Cabecera Organizada con el Selector de Tipo de Insumo Integrado */}
       <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
         <div>
           <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
@@ -485,7 +505,6 @@ export default function ComparativoTab({
             )}
           </select>
 
-          {/* Selector de Filtro por Tipo de Insumo */}
           <select
             value={tipoInsumoFiltro}
             onChange={(e) => setTipoInsumoFiltro(e.target.value)}
