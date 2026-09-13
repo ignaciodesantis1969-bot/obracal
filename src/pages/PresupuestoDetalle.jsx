@@ -67,7 +67,7 @@ export default function PresupuestoDetalle() {
   const [rubrosColapsados, setRubrosColapsados] = useState({});
   const [rubrosConOrden, setRubrosConOrden] = useState([]);
 
-  const cargarDatosDetalle = async () => {
+  const cargarDatosDetalle = async (reintentos = 3) => {
     setIsLoading(true);
     try {
       const response = await fetch(GOOGLE_SCRIPT_URL, { 
@@ -86,7 +86,14 @@ export default function PresupuestoDetalle() {
       const insList = data.insumos || [];
       const rubList = data.rubros || [];
 
-      const presActual = presupuestosList.find(p => String(p.id) === String(presupuestoId));
+      const presActual = presupuestosList.find(p => String(p.id).trim() === String(presupuestoId).trim());
+
+      if (!presActual && reintentos > 0) {
+        console.warn(`Presupuesto ${presupuestoId} no encontrado todavía. Reintentando en 1.5s... (${reintentos} intentos restantes)`);
+        setTimeout(() => cargarDatosDetalle(reintentos - 1), 1500);
+        return;
+      }
+
       setPresupuesto(presActual || {});
 
       let itemsParseados = [];
@@ -151,11 +158,11 @@ export default function PresupuestoDetalle() {
         }
 
         if (presActual.obra_id) {
-          const obraEncontrada = obrasList.find(o => String(o.id) === String(presActual.obra_id));
+          const obraEncontrada = obrasList.find(o => String(o.id).trim() === String(presActual.obra_id).trim());
           setObra(obraEncontrada || {});
           if (obraEncontrada) {
             const clienteId = obraEncontrada.cliente_id || obraEncontrada.clienteId;
-            const clienteEncontrado = clientesList.find(c => String(c.id) === String(clienteId));
+            const clienteEncontrado = clientesList.find(c => String(c.id).trim() === String(clienteId).trim());
             setCliente(clienteEncontrado || {});
           }
         }
@@ -177,10 +184,14 @@ export default function PresupuestoDetalle() {
       setCertificados(Array.isArray(certList) ? certList : []);
       setInsumosList(Array.isArray(insList) ? insList : []);
       setRubrosList(Array.isArray(rubList) ? rubList : []);
+      setIsLoading(false);
     } catch (err) {
       console.error("Error al cargar detalle:", err);
-    } finally {
-      setIsLoading(false);
+      if (reintentos > 0) {
+        setTimeout(() => cargarDatosDetalle(reintentos - 1), 1500);
+      } else {
+        setIsLoading(false);
+      }
     }
   };
 

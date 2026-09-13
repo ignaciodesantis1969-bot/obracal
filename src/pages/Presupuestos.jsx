@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Trash2, Search, Loader2, Eye, X, RefreshCw, FileText, CheckCircle2, Archive, Clock } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api'; 
@@ -36,7 +36,7 @@ export default function Presupuestos() {
     version: 'v1'
   });
 
-  const fetchData = async () => {
+  const fetchData = async (reintentos = 3) => {
     setIsLoading(true);
     try {
       const response = await fetch(GOOGLE_SCRIPT_URL, { 
@@ -47,12 +47,22 @@ export default function Presupuestos() {
 
       const data = await response.json();
 
-      setPresupuestos(Array.isArray(data.presupuestos) ? data.presupuestos : []);
+      const presList = data.presupuestos || [];
+      if (presList.length === 0 && reintentos > 0) {
+        console.warn(`Presupuestos vacíos temporalmente. Reintentando en 1.5s... (${reintentos} intentos restantes)`);
+        setTimeout(() => fetchData(reintentos - 1), 1500);
+        return;
+      }
+
+      setPresupuestos(Array.isArray(presList) ? presList : []);
       setObras(Array.isArray(data.obras) ? data.obras : []);
       setClientes(Array.isArray(data.clientes) ? data.clientes : []);
       setInsumosActuales(Array.isArray(data.insumos) ? data.insumos : []);
     } catch (err) {
       console.error("Error al cargar presupuestos:", err);
+      if (reintentos > 0) {
+        setTimeout(() => fetchData(reintentos - 1), 1500);
+      }
     } finally {
       setIsLoading(false);
     }
@@ -65,10 +75,10 @@ export default function Presupuestos() {
   const generarCodigoPresupuestoAutomatico = (obraIdSeleccionada) => {
     if (!obraIdSeleccionada) return '';
 
-    const obraEncontrada = obras.find(o => String(o.id) === String(obraIdSeleccionada));
+    const obraEncontrada = obras.find(o => String(o.id).trim() === String(obraIdSeleccionada).trim());
     if (!obraEncontrada) return 'PR001';
 
-    const clienteEncontrado = clientes.find(c => String(c.id) === String(obraEncontrada.cliente_id));
+    const clienteEncontrado = clientes.find(c => String(c.id).trim() === String(obraEncontrada.cliente_id).trim());
     const codigoCliente = clienteEncontrado && clienteEncontrado.codigo ? clienteEncontrado.codigo : 'CL00X';
     
     let codigoObra = obraEncontrada.codigo || 'OB001';
@@ -127,7 +137,7 @@ export default function Presupuestos() {
         })
       });
       const data = await res.json();
-      if (data.success) {
+      if (data.success || data.id) {
         setIsModalOpen(false);
         setNuevoPresupuesto({ codigo: '', nombre: '', obra_id: '', coeficiente_pase: 1.30, estado_presupuesto: 'borrador', version: 'v1' });
         await fetchData();
@@ -156,7 +166,7 @@ export default function Presupuestos() {
         })
       });
       const data = await res.json();
-      if (data.success) {
+      if (data.success || data.id) {
         await fetchData(); // Esperar la recarga completa del backend
       } else {
         alert("Error al actualizar estado: " + (data.error || ''));
@@ -170,7 +180,7 @@ export default function Presupuestos() {
   };
 
   const handleCambiarEstado = async (id, nuevoEstado) => {
-    const p = presupuestos.find(presu => String(presu.id) === String(id));
+    const p = presupuestos.find(presu => String(presu.id).trim() === String(id).trim());
     const estadoActual = String(p?.estado_presupuesto || p?.estado || 'borrador').toLowerCase();
 
     if (estadoActual === 'aprobado' || estadoActual === 'rechazado') {
@@ -233,9 +243,13 @@ export default function Presupuestos() {
 
       let itemsDetalleParseado = [];
       try {
-        itemsDetalleParseado = typeof presupuestoActual.items_detalle === 'string' 
-          ? JSON.parse(presupuestoActual.items_detalle) 
-          : (presupuestoActual.items_detalle || []);
+        const rawItems = presupuestoActual.items_detalle;
+        const parsed = typeof rawItems === 'string' ? JSON.parse(rawItems) : rawItems;
+        if (parsed && !Array.isArray(parsed) && parsed.rubros) {
+          itemsDetalleParseado = parsed.rubros;
+        } else if (Array.isArray(parsed)) {
+          itemsDetalleParseado = parsed;
+        }
       } catch (err) {
         itemsDetalleParseado = [];
       }
@@ -246,13 +260,13 @@ export default function Presupuestos() {
         const tareasActualizadas = (rubro.tareas || []).map(tarea => {
           let costoUnitarioTarea = 0;
           
-          let insumosAsociadosActualizados = (tarea.insumos_asociados || []).map(ins => {
+          let insumosAsociadosActualizados = (tarea.insumos || []).map(ins => {
             const insumoReal = insumosActuales.find(i => 
-              String(i.id) === String(ins.id) || 
+              String(i.id).trim() === String(ins.id).trim() || 
               String(i.nombre || '').trim().toLowerCase() === String(ins.nombre || '').trim().toLowerCase()
             );
 
-            const precioVigente = insumoReal ? Number(insumoReal.costo_unitario || insumoReal.precio || 0) : Number(ins.costo_unitario || ins.precio || 0);
+            const precioVigente = insumoReal ? Number(insumoReal.costo_unitario || insumoReal.precio || insumoReal.costo || 0) : Number(ins.costo_unitario || ins.precio || 0);
             const cantidadInsumo = Number(ins.cantidad) || 0;
             
             costoUnitarioTarea += (cantidadInsumo * precioVigente);
@@ -276,7 +290,7 @@ export default function Presupuestos() {
             ...tarea,
             costo_unitario: costoUnitarioTarea,
             costo_total: costoTotalTarea,
-            insumos_asociados: insumosAsociadosActualizados
+            insumos: insumosAsociadosActualizados
           };
         });
 
@@ -288,6 +302,20 @@ export default function Presupuestos() {
 
       const coeficientePase = Number(presupuestoActual.coeficiente_pase || 1.30);
       const nuevoPrecioVenta = nuevoCostoDirecto * coeficientePase;
+
+      let comercialObj = {};
+      try {
+        const rawItems = presupuestoActual.items_detalle;
+        const parsed = typeof rawItems === 'string' ? JSON.parse(rawItems) : rawItems;
+        if (parsed && parsed.comercial) {
+          comercialObj = parsed.comercial;
+        }
+      } catch (e) {}
+
+      const estructuraCompletaNueva = {
+        rubros: itemsActualizados,
+        comercial: comercialObj
+      };
 
       const nombreBaseLimPIO = (presupuestoActual.nombre || '').replace(/\s*\(v\d+\)\s*$/i, '').trim();
       const nombreNuevaVersion = `${nombreBaseLimPIO} (${nuevaVersionStr})`;
@@ -301,7 +329,7 @@ export default function Presupuestos() {
         version: nuevaVersionStr,
         costo_directo: nuevoCostoDirecto,
         precio_venta: nuevoPrecioVenta,
-        items_detalle: JSON.stringify(itemsActualizados)
+        items_detalle: JSON.stringify(estructuraCompletaNueva)
       };
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -315,7 +343,7 @@ export default function Presupuestos() {
       });
 
       const data = await res.json();
-      if (data.success) {
+      if (data.success || data.id) {
         alert(`¡Se ha generado la versión ${nuevaVersionStr} exitosamente con los precios actualizados!`);
         await fetchData();
       } else {
@@ -478,7 +506,7 @@ export default function Presupuestos() {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {presupuestosFinales.map(p => {
-                const obraAsociada = obras.find(o => String(o.id) === String(p.obra_id));
+                const obraAsociada = obras.find(o => String(o.id).trim() === String(p.obra_id).trim());
                 const costoDir = Math.round(Number(p.costo_directo) || 0);
                 const precioVta = Math.round(Number(p.precio_venta) || 0);
                 
