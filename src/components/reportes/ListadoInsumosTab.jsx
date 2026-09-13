@@ -180,12 +180,12 @@ export default function ListadoInsumosTab({
 
             const cantidadTarea = Number(t?.cantidad || t?.cant || t?.cantidad_total || 1);
             
-            // Extracción robusta de costo unitario para la tarea/ítem principal
             const costoUnitarioTarea = Number(
               t?.costo_unitario || t?.costoUnitario || t?.precio_unitario || t?.precioUnitario || t?.precio || t?.unitario || t?.costo || 0
             );
 
-            const totalTareaDirecto = Number(t?.total || t?.subtotal || t?.monto || 0);
+            // Capturamos el total asignado a la tarea o rubro completo
+            const totalTareaDirecto = Number(t?.total || t?.subtotal || t?.monto || (cantidadTarea * costoUnitarioTarea) || 0);
 
             if (!Array.isArray(insumosList) || insumosList.length === 0) {
               const codigoT = String(t?.codigo || t?.Cod || '').trim().toLowerCase();
@@ -199,7 +199,7 @@ export default function ListadoInsumosTab({
               const provItemRaw = String(t?.proveedor_id || t?.proveedor || '').trim();
               const provFinal = proveedoresList[provItemRaw] || proveedoresList[provItemRaw.toLowerCase()] || maestroInfo.proveedor || 'Sin Proveedor';
 
-              const finalCostoU = costoUnitarioTarea || maestroInfo.costo_unitario || 0;
+              const finalCostoU = costoUnitarioTarea || maestroInfo.costo_unitario || (cantidadTarea > 0 ? totalTareaDirecto / cantidadTarea : 0);
               const finalTotal = totalTareaDirecto > 0 ? totalTareaDirecto : (cantidadTarea * finalCostoU);
 
               catsMap[catFinal].push({
@@ -212,7 +212,10 @@ export default function ListadoInsumosTab({
                 total: finalTotal
               });
             } else {
-              insumosList.forEach(ins => {
+              // Si la tarea tiene insumos detallados pero su suma no alcanza el total de la tarea, 
+              // ajustamos el costo proporcionalmente o incorporamos el remanente para que cuadre con el presupuesto real.
+              let sumaTotalInsumosTarea = 0;
+              const insumosProcesadosTemp = insumosList.map(ins => {
                 const codigoIns = String(ins?.codigo || ins?.Cod || '').trim().toLowerCase();
                 const nombreIns = String(ins?.nombre || ins?.descripcion || '').trim();
                 const maestroInfo = maestroInsumosMap[codigoIns.toLowerCase()] || maestroInsumosMap[nombreIns.toLowerCase()] || {};
@@ -225,24 +228,39 @@ export default function ListadoInsumosTab({
                 const provFinal = proveedoresList[provInsRaw] || proveedoresList[provInsRaw.toLowerCase()] || maestroInfo.proveedor || 'Sin Proveedor';
 
                 const cantIns = Number(ins?.cantidad || ins?.cant || 1);
-                
-                // Extracción ultrarrobusta del costo unitario del insumo
                 const costoUIns = Number(
                   ins?.costo_unitario || ins?.costoUnitario || ins?.precio_unitario || ins?.precioUnitario || ins?.precio || ins?.unitario || ins?.costo || maestroInfo.costo_unitario || 0
                 );
+                const totalInsDirecto = Number(ins?.total || ins?.subtotal || ins?.monto || (cantIns * costoUIns) || 0);
 
-                const totalInsDirecto = Number(ins?.total || ins?.subtotal || ins?.monto || 0);
-                const finalTotalIns = totalInsDirecto > 0 ? totalInsDirecto : (cantIns * costoUIns);
+                sumaTotalInsumosTarea += totalInsDirecto;
 
-                catsMap[catFinal].push({
-                  tarea: t?.descripcion || t?.tarea || 'Labor',
-                  nombre: nombreIns || 'Insumo',
-                  proveedor: provFinal,
-                  unidad: maestroInfo.unidad || ins?.unidad || 'un',
-                  cantidad: cantIns,
-                  costo_unitario: costoUIns,
-                  total: finalTotalIns
-                });
+                return {
+                  catFinal,
+                  item: {
+                    tarea: t?.descripcion || t?.tarea || 'Labor',
+                    nombre: nombreIns || 'Insumo',
+                    proveedor: provFinal,
+                    unidad: maestroInfo.unidad || ins?.unidad || 'un',
+                    cantidad: cantIns,
+                    costo_unitario: costoUIns,
+                    total: totalInsDirecto
+                  }
+                };
+              });
+
+              // Factor de conciliación si el total de la tarea es mayor a la suma de sus partes (ej. costos globales o indirectos)
+              const factorAjuste = (totalTareaDirecto > 0 && sumaTotalInsumosTarea > 0 && totalTareaDirecto > sumaTotalInsumosTarea)
+                ? totalTareaDirecto / sumaTotalInsumosTarea 
+                : 1;
+
+              insumosProcesadosTemp.forEach(({ catFinal, item }) => {
+                const itemAjustado = {
+                  ...item,
+                  costo_unitario: item.costo_unitario * factorAjuste,
+                  total: item.total * factorAjuste
+                };
+                catsMap[catFinal].push(itemAjustado);
               });
             }
           });
@@ -316,6 +334,34 @@ export default function ListadoInsumosTab({
           total: totalImprevistos
         });
       }
+    }
+
+    // Validación de control final: Si el total calculado en los rubros difiere significativamente del total general del presupuesto, 
+    // verificamos si hay un monto global en el presupuesto para integrarlo proporcionalmente.
+    const presupuestoTotalGlobal = Number(
+      presupuestoInsumosSeleccionado?.total_general || 
+      presupuestoInsumosSeleccionado?.totalGeneral || 
+      presupuestoInsumosSeleccionado?.monto_total || 
+      presupuestoInsumosSeleccionado?.total || 0
+    );
+
+    let sumaActualCalculada = 0;
+    Object.values(mapRubros).forEach(cats => {
+      Object.values(cats).forEach(lista => {
+        lista.forEach(it => { sumaActualCalculada += Number(it?.total || 0); });
+      });
+    });
+
+    if (presupuestoTotalGlobal > 0 && sumaActualCalculada > 0 && presupuestoTotalGlobal > sumaActualCalculada) {
+      const proporcionGlobal = presupuestoTotalGlobal / sumaActualCalculada;
+      Object.values(mapRubros).forEach(cats => {
+        Object.values(cats).forEach(lista => {
+          lista.forEach(it => {
+            it.costo_unitario *= proporcionGlobal;
+            it.total *= proporcionGlobal;
+          });
+        });
+      });
     }
 
     return mapRubros;
