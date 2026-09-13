@@ -6,13 +6,17 @@ import { OBRAS_CONFIG } from '@/config/constants';
 
 export default function CertificadoHorasHombreTab({ 
   contratosList: propContratos = [], 
-  allReportesSice: propReportes = [] 
+  allReportesSice: propReportes = [],
+  currentUser // <-- Necesario para validar si es Administrador
 }) {
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   
   // HISTORIAL DE CERTIFICACIONES
   const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData('CertificacionesHoras');
+
+  const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
+  const esAdmin = rolStr === 'administrador' || rolStr === 'admin';
 
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
@@ -81,7 +85,6 @@ export default function CertificadoHorasHombreTab({
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet]);
 
-  // FILTRAR HISTORIAL VÁLIDO (EVITA CERTIFICADOS FANTASMAS O VACÍOS)
   const historialCertificados = useMemo(() => {
     const raw = extraerArrayDatos(certificacionesRealizadas);
     return raw.filter(c => {
@@ -127,7 +130,6 @@ export default function CertificadoHorasHombreTab({
            '---';
   }, [contratoActual]);
 
-  // CALCULAR EL NÚMERO DE CERTIFICADO CORRELATIVO ESTRICTAMENTE PARA ESTE CONTRATO
   useEffect(() => {
     if (contratoActual) {
       const idContratoStr = String(contratoActual.id || '').trim();
@@ -136,7 +138,6 @@ export default function CertificadoHorasHombreTab({
       const certificadosDelContrato = historialCertificados.filter(c => {
         const cIdRef = String(c.contrato_id || c.contratoid || '').trim();
         const cCodRef = String(c.contrato_codigo || c.contratocodigo || '').trim();
-        
         return (idContratoStr && cIdRef === idContratoStr) || (codContratoStr && cCodRef === codContratoStr);
       });
       
@@ -160,6 +161,42 @@ export default function CertificadoHorasHombreTab({
     }
   }, [contratoActual, historialCertificados]);
 
+  // ---> NUEVA LÓGICA: Identificar Partes Diarios ya certificados para quitarlos del desplegable <---
+  const partesUsadosEnHistorial = useMemo(() => {
+    const usados = new Set();
+    historialCertificados.forEach(cert => {
+      let filas = [];
+      if (typeof cert.filas === 'string') {
+        try { filas = JSON.parse(cert.filas); } catch (e) {}
+      } else if (Array.isArray(cert.filas)) {
+        filas = cert.filas;
+      }
+      filas.forEach(f => {
+        if (f.nroParte) usados.add(String(f.nroParte));
+      });
+    });
+    return usados;
+  }, [historialCertificados]);
+
+  const partesDisponiblesParaAgregar = useMemo(() => {
+    const seleccionadosActuales = partesSeleccionados.map(p => String(p.nroParte));
+    
+    return allReportesSice.filter(p => {
+      const idNro = String(p?.nro || p?.id || '').trim();
+      
+      // Eliminar fantasmas o sin número
+      if (!idNro || idNro === 'undefined' || idNro === 'null') return false; 
+      
+      // Eliminar los ya guardados en el historial
+      if (partesUsadosEnHistorial.has(idNro)) return false; 
+      
+      // Eliminar los que acabo de agregar a la tabla del borrador actual
+      if (seleccionadosActuales.includes(idNro)) return false;
+      
+      return true;
+    });
+  }, [allReportesSice, partesUsadosEnHistorial, partesSeleccionados]);
+
   const formatearFecha = (fechaISO) => {
     if (!fechaISO) return '';
     const str = String(fechaISO).trim();
@@ -171,7 +208,7 @@ export default function CertificadoHorasHombreTab({
     const parts = cleanStr.split('-');
     if (parts.length === 3) {
       if (parts[0].length === 4) {
-        return `${parts[2]}/${parts[1]}/${parts[0]}`; // YYYY-MM-DD -> DD/MM/YYYY
+        return `${parts[2]}/${parts[1]}/${parts[0]}`; 
       }
       return `${parts[0]}/${parts[1]}/${parts[2]}`;
     }
@@ -179,32 +216,86 @@ export default function CertificadoHorasHombreTab({
   };
 
   const obtenerValoresPolinomica = (contrato) => {
+    // Si tienes los valores guardados en "contrato", puedes extraerlos aquí.
     return {
-      "S": 36714.21,
-      "T-EHS": 20819.69,
-      "OE": 27195.44,
-      "MO": 23950.67,
-      "TOT": 42235.51,
+      "S": contrato?.valor_s || 36714.21,
+      "T-EHS": contrato?.valor_tehs || 20819.69,
+      "OE": contrato?.valor_oe || 27195.44,
+      "MO": contrato?.valor_mo || 23950.67,
+      "TOT": contrato?.valor_tot || 42235.51,
       "DEFAULT": 15000
     };
   };
 
+  // ---> NUEVA LÓGICA: Desglose por categoría del Parte Diario <---
   const agregarParteFila = (parteObj) => {
     const tablaValores = obtenerValoresPolinomica(contratoActual);
-    const categoriaPrueba = 'OE'; 
-    const valorHora = tablaValores[categoriaPrueba] || tablaValores['DEFAULT'];
+    const fechaParte = parteObj?.fecha || fechaEmision;
+    const nroParte = parteObj?.nro || parteObj?.id || '001';
 
-    const totalHoras = Number(parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
-    const nuevoItem = {
-      id: `parte-item-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
-      nroParte: parteObj?.nro || parteObj?.id || '001',
-      fecha: parteObj?.fecha || fechaEmision,
-      totalHoras,
-      valorHora,
-      valorTotal: totalHoras * valorHora,
-      clasificacion: categoriaPrueba
-    };
-    setPartesSeleccionados(prev => [...prev, nuevoItem]);
+    // Mapeo de categorías y sus posibles llaves viniendo del Parte Diario
+    const categoriasBase = [
+      { id: 'S', keys: ['horas_S', 'horasS', 'S'] },
+      { id: 'T-EHS', keys: ['horas_TEHS', 'horasTEHS', 'T_EHS', 'T-EHS'] },
+      { id: 'OE', keys: ['horas_OE', 'horasOE', 'OE'] },
+      { id: 'MO', keys: ['horas_MO', 'horasMO', 'MO'] },
+      { id: 'TOT', keys: ['horas_TOT', 'horasTOT', 'TOT'] }
+    ];
+
+    let seAgregoAlgunaCategoria = false;
+    const nuevasFilas = [];
+
+    // Intenta extraer las horas discriminadas
+    let detalleCategorias = typeof parteObj?.categorias_hh === 'string' 
+      ? JSON.parse(parteObj.categorias_hh || '{}') 
+      : (parteObj?.categorias_hh || {});
+
+    categoriasBase.forEach(cat => {
+      let horas = Number(detalleCategorias[cat.id]) || 0;
+      if (horas === 0) {
+        // Busca en las propiedades directas del objeto si no existe 'categorias_hh'
+        for (const k of cat.keys) {
+          if (Number(parteObj[k]) > 0) {
+            horas = Number(parteObj[k]);
+            break;
+          }
+        }
+      }
+
+      if (horas > 0) {
+        const valorHora = tablaValores[cat.id] || tablaValores['DEFAULT'];
+        nuevasFilas.push({
+          id: `parte-${nroParte}-${cat.id}-${Date.now()}`,
+          nroParte,
+          fecha: fechaParte,
+          totalHoras: horas,
+          valorHora,
+          valorTotal: horas * valorHora,
+          clasificacion: cat.id
+        });
+        seAgregoAlgunaCategoria = true;
+      }
+    });
+
+    // Fallback: Si el parte viejo no tiene categorías discriminadas, asume todo al total de horas y lo manda a 'OE'
+    if (!seAgregoAlgunaCategoria) {
+      const horasTotales = Number(parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
+      if (horasTotales > 0) {
+        const catDefault = 'OE';
+        const valorHora = tablaValores[catDefault] || tablaValores['DEFAULT'];
+        nuevasFilas.push({
+          id: `parte-${nroParte}-DEFAULT-${Date.now()}`,
+          nroParte,
+          fecha: fechaParte,
+          totalHoras: horasTotales,
+          valorHora,
+          valorTotal: horasTotales * valorHora,
+          clasificacion: catDefault
+        });
+      }
+    }
+
+    setPartesSeleccionados(prev => [...prev, ...nuevasFilas]);
   };
 
   const eliminarFila = (id) => {
@@ -280,6 +371,27 @@ export default function CertificadoHorasHombreTab({
       alert("Error al conectar con el servidor.");
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // ---> NUEVA LÓGICA: Eliminar Certificado (Solo Admin) <---
+  const handleEliminarCertificado = async (idCertificado) => {
+    if (!window.confirm("¿Estás seguro de que deseas eliminar este certificado del historial?")) return;
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({ tabla: 'CertificacionesHoras', action: 'delete', id: idCertificado })
+      });
+      const data = await res.json();
+      if (data.success !== false) {
+        if (mutateCertificaciones) mutateCertificaciones();
+      } else {
+        alert("Error al intentar eliminar el certificado.");
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Fallo de conexión al eliminar.");
     }
   };
 
@@ -394,24 +506,24 @@ export default function CertificadoHorasHombreTab({
 
         <div className="flex justify-between items-center bg-slate-100 p-3 rounded-xl border border-slate-300">
           <span className="text-xs font-bold text-slate-700">
-            Partes Diarios Disponibles ({allReportesSice.length} disp.):
+            Partes Diarios Disponibles ({partesDisponiblesParaAgregar.length} disp.):
           </span>
           <select
             onChange={(e) => {
               const parteId = e.target.value;
               if (!parteId) return;
-              const parteEncontrado = allReportesSice.find(p => String(p?.id || p?.nro) === String(parteId));
+              const parteEncontrado = partesDisponiblesParaAgregar.find(p => String(p?.id || p?.nro) === String(parteId));
               if (parteEncontrado) {
                 agregarParteFila(parteEncontrado);
               }
               e.target.value = '';
             }}
-            className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none cursor-pointer"
+            className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none cursor-pointer w-72"
           >
             <option value="">+ Seleccionar parte diario aprobado...</option>
-            {allReportesSice.map((p, idx) => (
+            {partesDisponiblesParaAgregar.map((p, idx) => (
               <option key={idx} value={p?.id || p?.nro}>
-                Parte #{p?.nro || idx + 1} ({formatearFecha(p?.fecha)}) - {p?.totalhorassuma || p?.total_horas_suma || 0} hs
+                Parte #{p?.nro || idx + 1} ({formatearFecha(p?.fecha)})
               </option>
             ))}
           </select>
@@ -544,14 +656,14 @@ export default function CertificadoHorasHombreTab({
                 />
               </div>
               <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres, Ej: AB1234):</span>
+                <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
                 <input 
-                  type="text" 
+                  type="password"  // ---> Modificado para mostrar círculos <---
                   maxLength={6}
                   value={respProveedor.firma} 
                   onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value})} 
-                  placeholder="EJ: AB1234"
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold" 
+                  placeholder="••••••"
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]" 
                 />
               </div>
             </div>
@@ -581,14 +693,14 @@ export default function CertificadoHorasHombreTab({
                 />
               </div>
               <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres, Ej: CD5678):</span>
+                <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
                 <input 
-                  type="text" 
+                  type="password" // ---> Modificado para mostrar círculos <---
                   maxLength={6}
                   value={respCliente.firma} 
                   onChange={(e) => setRespCliente({...respCliente, firma: e.target.value})} 
-                  placeholder="EJ: CD5678"
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold" 
+                  placeholder="••••••"
+                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]" 
                 />
               </div>
             </div>
@@ -632,17 +744,19 @@ export default function CertificadoHorasHombreTab({
                 <th className="py-2.5 px-3 text-center">PERÍODO</th>
                 <th className="py-2.5 px-3 text-right">TOTAL GENERAL ($)</th>
                 <th className="py-2.5 px-3 text-center w-28">DOCUMENTO PDF</th>
+                {esAdmin && <th className="py-2.5 px-3 text-center w-12">ELIMINAR</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
               {historialCertificados.length === 0 ? (
                 <tr>
-                  <td colSpan="6" className="py-8 text-center text-slate-400 italic">
+                  <td colSpan={esAdmin ? "7" : "6"} className="py-8 text-center text-slate-400 italic">
                     No hay certificados de horas hombre registrados en el sistema todavía.
                   </td>
                 </tr>
               ) : (
                 historialCertificados.map((cert, idx) => {
+                  const certId = cert.id || idx;
                   const certNro = cert.certificado_nro || cert.certificadonro || `000${idx + 1}`;
                   const clienteText = cert.cliente || '---';
                   const contratoRef = cert.nro_contrato_cliente || cert.nrocontratocliente || cert.contrato_codigo || cert.contrato_id || '---';
@@ -653,7 +767,7 @@ export default function CertificadoHorasHombreTab({
                   const pdfLink = cert.pdf_url || cert.pdfurl || cert.url;
 
                   return (
-                    <tr key={cert.id || idx} className="hover:bg-slate-50">
+                    <tr key={certId} className="hover:bg-slate-50">
                       <td className="py-2.5 px-3 text-center font-mono font-bold text-amber-600">
                         #{certNro}
                       </td>
@@ -684,6 +798,19 @@ export default function CertificadoHorasHombreTab({
                           <span className="text-slate-400 italic">No disponible</span>
                         )}
                       </td>
+                      {/* Lógica de borrado solo para Admin */}
+                      {esAdmin && (
+                        <td className="py-2.5 px-3 text-center">
+                          <button
+                            type="button"
+                            onClick={() => handleEliminarCertificado(certId)}
+                            className="p-1.5 bg-rose-100 text-rose-600 rounded-lg hover:bg-rose-600 hover:text-white cursor-pointer transition-colors shadow-sm"
+                            title="Eliminar Certificado"
+                          >
+                            <Trash2 className="w-4 h-4 mx-auto" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })

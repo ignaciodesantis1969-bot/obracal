@@ -202,6 +202,7 @@ function ReportesContent({
 
       {!esOperadorEstandar && activeTab === 'Certificaciones' && (
         <CertificacionesTab
+          currentUser={currentUser} /* <-- PROP AÑADIDA PARA PERMISOS DE ADMIN */
           presupuestos={presupuestos}
           obras={obras}
           certificadosList={certificadosList}
@@ -229,7 +230,6 @@ function ReportesContent({
         />
       )}
 
-      {/* MODIFICADO: Inyectando insumos y proveedores correctamente */}
       {!esOperadorEstandar && !isOp2 && activeTab === 'Listado de Insumos' && (
         <ListadoInsumosTab 
           presupuestos={presupuestos} 
