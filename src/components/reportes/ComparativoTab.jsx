@@ -1,5 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { TrendingUp, Printer, TrendingUp as ArrowUpRight, TrendingDown as ArrowDownRight } from 'lucide-react';
+import { useObraData } from '@/hooks/useObraData';
+import { OBRAS_CONFIG } from '@/config/constants';
 
 export default function ComparativoTab({
   presupuestos = [],
@@ -14,6 +16,10 @@ export default function ComparativoTab({
   const [tipoProyecto, setTipoProyecto] = useState('obra');
   const [proyectoId, setProyectoId] = useState('');
   const [tipoInsumoFiltro, setTipoInsumoFiltro] = useState('TODOS');
+
+  // Consulta directa de Cargas Semanales desde la base de datos para garantizar que nunca esté vacío
+  const { data: cargasSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CARGAS_SEMANALES || 'CargasSemanales');
+  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
 
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
@@ -34,11 +40,12 @@ export default function ComparativoTab({
     return [];
   };
 
-  // UNIFICACIÓN ROBUSTA DE CONTRATOS DESDE PROPS Y WINDOW GLOBAL
+  // UNIFICACIÓN ROBUSTA DE CONTRATOS
   const listaContratosUnificada = useMemo(() => {
     const c1 = extraerArrayDatos(contratos);
     const c2 = extraerArrayDatos(contratosList);
     const c3 = extraerArrayDatos(contratos_mantenimiento);
+    const c4 = extraerArrayDatos(contratosSheet);
     
     let extraGlobales = [];
     if (typeof window !== 'undefined') {
@@ -53,7 +60,7 @@ export default function ComparativoTab({
       if (window.contratos) extraGlobales.push(...extraerArrayDatos(window.contratos));
     }
 
-    const combinados = [...c1, ...c2, ...c3, ...extraGlobales];
+    const combinados = [...c1, ...c2, ...c3, ...c4, ...extraGlobales];
     const unicosMap = new Map();
     combinados.forEach((item, index) => {
       if (!item) return;
@@ -64,11 +71,13 @@ export default function ComparativoTab({
     });
 
     return Array.from(unicosMap.values());
-  }, [contratos, contratosList, contratos_mantenimiento]);
+  }, [contratos, contratosList, contratos_mantenimiento, contratosSheet]);
 
-  // UNIFICACIÓN Y CAPTURA TOTAL DE CARGAS SEMANALES (PROPS + WINDOW GLOBAL)
+  // UNIFICACIÓN Y CAPTURA TOTAL DE CARGAS SEMANALES (PROPS + HOOK DB + WINDOW GLOBAL)
   const listaCargasSemanalesUnificada = useMemo(() => {
     const cs1 = extraerArrayDatos(cargasSemanales);
+    const cs2 = extraerArrayDatos(cargasSheet);
+    
     let csGlobales = [];
     if (typeof window !== 'undefined') {
       if (window.globalData) {
@@ -80,7 +89,7 @@ export default function ComparativoTab({
       if (window.cargasSemanales) csGlobales.push(...extraerArrayDatos(window.cargasSemanales));
     }
 
-    const combinadas = [...cs1, ...csGlobales];
+    const combinadas = [...cs1, ...cs2, ...csGlobales];
     const unicosMap = new Map();
     combinadas.forEach((item, index) => {
       if (!item) return;
@@ -91,7 +100,7 @@ export default function ComparativoTab({
     });
 
     return Array.from(unicosMap.values());
-  }, [cargasSemanales]);
+  }, [cargasSemanales, cargasSheet]);
 
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => {
