@@ -2,12 +2,13 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Clock, Trash2, ShieldCheck, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { useObraData } from '@/hooks/useObraData';
-import { OBRAS_CONFIG } from '@/config/obrasConfig';
+import { OBRAS_CONFIG } from '@/config/constants';
 
 export default function CertificadoHorasHombreTab({ 
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [] 
 }) {
+  // Autogestión de datos mediante hooks para evitar dependencia estricta del padre
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
 
@@ -17,31 +18,65 @@ export default function CertificadoHorasHombreTab({
       if (Array.isArray(fuente.data)) return fuente.data;
       if (Array.isArray(fuente.items)) return fuente.items;
       if (Array.isArray(fuente.result)) return fuente.result;
-      
-      // Corrección: Aseguramos capturar los nombres exactos que envía el backend
       if (Array.isArray(fuente.contratos_mantenimiento)) return fuente.contratos_mantenimiento;
-      if (Array.isArray(fuente.contratosmantenimiento)) return fuente.contratosmantenimiento;
+      if (Array.isArray(fuente.contratosMantenimiento)) return fuente.contratosMantenimiento;
       if (Array.isArray(fuente.ContratosMantenimiento)) return fuente.ContratosMantenimiento;
-      
       if (Array.isArray(fuente.reportes_sice)) return fuente.reportes_sice;
       if (Array.isArray(fuente.reportessice)) return fuente.reportessice;
-
       const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
       if (posibleArray) return posibleArray;
     }
     return [];
   };
 
+  // Unificación robusta de contratos (Props + Hook DB + Window Global)
   const contratosList = useMemo(() => {
-    const p = extraerArrayDatos(propContratos);
-    if (p.length > 0) return p;
-    return extraerArrayDatos(contratosSheet);
+    const c1 = extraerArrayDatos(propContratos);
+    const c2 = extraerArrayDatos(contratosSheet);
+    
+    let extraGlobales = [];
+    if (typeof window !== 'undefined' && window.globalData) {
+      extraGlobales = [
+        ...extraerArrayDatos(window.globalData.contratos),
+        ...extraerArrayDatos(window.globalData.contratosList),
+        ...extraerArrayDatos(window.globalData.contratos_mantenimiento)
+      ];
+    }
+
+    const combinados = [...c1, ...c2, ...extraGlobales];
+    const unicosMap = new Map();
+    combinados.forEach((item, index) => {
+      if (!item) return;
+      const key = String(item?.id || item?.ID || item?.codigo || index);
+      if (!unicosMap.has(key)) unicosMap.set(key, item);
+    });
+    return Array.from(unicosMap.values());
   }, [propContratos, contratosSheet]);
 
+  // Unificación robusta de Reportes SICE (Props + Hook DB + LocalStorage + Window Global)
   const allReportesSice = useMemo(() => {
-    const p = extraerArrayDatos(propReportes);
-    if (p.length > 0) return p;
-    return extraerArrayDatos(reportesSheet);
+    const p1 = extraerArrayDatos(propReportes);
+    const p2 = extraerArrayDatos(reportesSheet);
+    
+    let localesExtra = [];
+    try {
+      const cached = localStorage.getItem('sice_partes_local_cache_v3');
+      if (cached) localesExtra = JSON.parse(cached);
+    } catch (e) {}
+
+    let extraGlobales = [];
+    if (typeof window !== 'undefined' && window.globalData) {
+      extraGlobales = extraerArrayDatos(window.globalData.allReportesSice);
+    }
+
+    const combinados = [...p1, ...p2, ...localesExtra, ...extraGlobales];
+    const unicosMap = new Map();
+    combinados.forEach((item, index) => {
+      if (!item) return;
+      const key = String(item?.id || item?.ID || item?.nro || index);
+      if (!unicosMap.has(key)) unicosMap.set(key, item);
+    });
+    return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet]);
 
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
@@ -69,11 +104,10 @@ export default function CertificadoHorasHombreTab({
     });
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
-  // Corrección: useEffect aplanado correctamente, sin anidamiento
   useEffect(() => {
     if (contratoActual) {
-      const clienteNombre = contratoActual.cliente || contratoActual.Cliente || '';
-      const clienteCargo = contratoActual.cliente_cargo || contratoActual.clienteCargo || 'Gerente de Plant';
+      const clienteNombre = contratoActual.cliente || contratoActual.Cliente || contratoActual.cliente_nombre || '';
+      const clienteCargo = contratoActual.cliente_cargo || contratoActual.clienteCargo || 'Gerente de Planta';
       
       const provNombre = contratoActual.proveedor_nombre || contratoActual.proveedorNombre || 'Alexander Torres Lopez';
       const provCargo = contratoActual.proveedor_cargo || contratoActual.proveedorCargo || 'Oficial a cargo del Site';
@@ -90,11 +124,11 @@ export default function CertificadoHorasHombreTab({
         nombre: provNombre || prev.nombre
       }));
     }
-  }, [contratoActual, contratosSheet, propContratos, contratosList]);
+  }, [contratoActual]);
 
   const agregarParteFila = (parteObj) => {
     const clasificacionOperario = parteObj?.clasificacion || parteObj?.categoria || 'General';
-    const valorHora = Number(contratoActual?.valor_hora || contratoActual?.precio_hora || 15000);
+    const valorHora = Number(contratoActual?.valor_hora || contratoActual?.precio_hora || contratoActual?.monto_mensual || 15000);
 
     const totalHoras = Number(parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
     const nuevoItem = {
