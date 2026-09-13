@@ -219,6 +219,20 @@ export default function ReportesDiariosTab({
     return sumaIndividual.toFixed(2);
   }, [totalHorasDefaultCalculado, operariosSeleccionados]);
 
+  // Desglose y suma de horas por categoría de operario (ej. S, OE, etc.)
+  const horasPorCategoria = useMemo(() => {
+    const resumen = {};
+    operariosSeleccionados.forEach(op => {
+      const cat = String(op?.abreviacion || 'OE').trim().toUpperCase();
+      const hVal = op?.horas !== '' && !isNaN(op?.horas) ? parseFloat(op.horas) : parseFloat(totalHorasDefaultCalculado);
+      resumen[cat] = (resumen[cat] || 0) + hVal;
+    });
+    return Object.entries(resumen).map(([cat, total]) => ({
+      categoria: cat,
+      totalHoras: total.toFixed(2)
+    }));
+  }, [operariosSeleccionados, totalHorasDefaultCalculado]);
+
   useEffect(() => {
     if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
       const iniciales = empleadosActivosFiltrados.slice(0, 1).map(emp => {
@@ -297,6 +311,10 @@ export default function ReportesDiariosTab({
       if (typeof operariosParsed === 'string' && operariosParsed.trim()) {
         try { operariosParsed = JSON.parse(operariosParsed); } catch { operariosParsed = []; }
       }
+      let desgloseParsed = buscarValorEnObjeto(r, ['desgloseCategorias', 'desglose_categorias']);
+      if (typeof desgloseParsed === 'string' && desgloseParsed.trim()) {
+        try { desgloseParsed = JSON.parse(desgloseParsed); } catch { desgloseParsed = []; }
+      }
       let provParsed = buscarValorEnObjeto(r, ['proveedor', 'Proveedor']);
       if (typeof provParsed === 'string' && provParsed.trim()) {
         try { provParsed = JSON.parse(provParsed); } catch { provParsed = { nombre: String(provParsed), cargo: '' }; }
@@ -331,6 +349,7 @@ export default function ReportesDiariosTab({
           ...op,
           horas: op?.horas !== undefined && op?.horas !== '' ? Number(op.horas).toFixed(2) : '0.00'
         })) : [],
+        desgloseCategorias: Array.isArray(desgloseParsed) ? desgloseParsed : [],
         proveedor: provParsed || { nombre: '', cargo: '' },
         cliente: cliParsed || { nombre: '', cargo: '' },
         totalHorasSuma: rawSuma.toFixed(2),
@@ -485,6 +504,7 @@ export default function ReportesDiariosTab({
         nro: String(siceParteNro),
         items: siceItems,
         operarios: operariosFinales,
+        desgloseCategorias: horasPorCategoria,
         proveedor: { cargo: String(siceRespProveedor.cargo || ''), nombre: String(siceRespProveedor.nombre || '') },
         cliente: { cargo: String(siceRespCliente.cargo || ''), nombre: String(siceRespCliente.nombre || '') },
         totalHorasSuma: Number(granTotalHorasHombre),
@@ -513,6 +533,7 @@ export default function ReportesDiariosTab({
         nroContratoCliente: String(nroContratoClienteDinamico),
         items: [...siceItems],
         operarios: operariosFinales,
+        desgloseCategorias: [...horasPorCategoria],
         proveedor: { cargo: String(siceRespProveedor.cargo), nombre: String(siceRespProveedor.nombre) },
         cliente: { cargo: String(siceRespCliente.cargo), nombre: String(siceRespCliente.nombre) },
         totalHorasSuma: Number(granTotalHorasHombre).toFixed(2),
@@ -684,6 +705,18 @@ export default function ReportesDiariosTab({
                 ))
               )}
             </div>
+
+            {/* Panel de desglose de horas por categoría */}
+            {horasPorCategoria.length > 0 && (
+              <div className="flex flex-wrap gap-2 pt-1">
+                {horasPorCategoria.map((item, idx) => (
+                  <div key={`cat-sum-${idx}`} className="bg-amber-100 border border-amber-300 rounded-lg px-3 py-1.5 text-xs font-bold text-amber-950 flex items-center gap-2">
+                    <span>Categoría <strong className="font-black">{item.categoria}</strong>:</span>
+                    <span className="bg-amber-500 text-slate-950 px-2 py-0.5 rounded font-black">{item.totalHoras} hs</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="overflow-x-auto border border-slate-400 rounded-lg">
@@ -922,6 +955,15 @@ export default function ReportesDiariosTab({
                       <span className="text-xs font-semibold px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded">Total Horas: {parte?.totalHorasSuma} hs</span>
                       <span className="text-[11px] font-medium text-slate-500">Generado por: <strong className="text-slate-700">{parte?.generadoPor}</strong></span>
                     </div>
+                    {Array.isArray(parte?.desgloseCategorias) && parte.desgloseCategorias.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {parte.desgloseCategorias.map((dItem, dIdx) => (
+                          <span key={`hist-cat-${dIdx}`} className="text-[10px] font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded border border-amber-200">
+                            Cat. {dItem.categoria}: {dItem.totalHoras} hs
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <p className="text-slate-700 text-xs mt-2">
                       Proveedor: <strong>{pNombre}</strong> ({pCargo}) | Cliente: <strong>{cNombre}</strong> ({cCargo})
                     </p>
@@ -1008,6 +1050,17 @@ export default function ReportesDiariosTab({
                   <p className="text-xs text-slate-400 text-center py-1">Registrado con operario principal.</p>
                 )}
               </div>
+
+              {Array.isArray(parteVisualizando?.desgloseCategorias) && parteVisualizando.desgloseCategorias.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-2">
+                  {parteVisualizando.desgloseCategorias.map((dItem, dIdx) => (
+                    <div key={`modal-cat-${dIdx}`} className="bg-amber-100 border border-amber-300 rounded-lg px-3 py-1 text-xs font-bold text-amber-950 flex items-center gap-2">
+                      <span>Cat. <strong className="font-black">{dItem.categoria}</strong>:</span>
+                      <span className="bg-amber-500 text-slate-950 px-2 py-0.5 rounded font-black">{dItem.totalHoras} hs</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="overflow-x-auto border border-slate-300 rounded-xl">
