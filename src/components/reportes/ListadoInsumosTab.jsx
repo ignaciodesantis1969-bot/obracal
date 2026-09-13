@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { Package, FileText, Filter, ArrowUpDown } from 'lucide-react';
@@ -15,37 +15,23 @@ export default function ListadoInsumosTab({
   const [proveedorFiltro, setProveedorFiltro] = useState('');
   const [ordenPrecio, setOrdenPrecio] = useState('nombre');
 
+  // CARGA DE RESPALDO DESDE GOOGLE SHEETS
   const { data: insumosSheet } = useObraData('Insumos');
   const { data: proveedoresSheet } = useObraData('Proveedores');
 
-  const [fetchedInsumosLocal, setFetchedInsumosLocal] = useState([]);
-  const [fetchedProveedoresLocal, setFetchedProveedoresLocal] = useState([]);
-
-  useEffect(() => {
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: 'Insumos', action: 'get' })
-    })
-      .then(res => res.json())
-      .then(data => {
-        const arr = Array.isArray(data) ? data : (data?.data || data?.items || Object.values(data).find(v => Array.isArray(v)) || []);
-        if (arr.length > 0) setFetchedInsumosLocal(arr);
-      })
-      .catch(() => {});
-
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: 'Proveedores', action: 'get' })
-    })
-      .then(res => res.json())
-      .then(data => {
-        const arr = Array.isArray(data) ? data : (data?.data || data?.items || Object.values(data).find(v => Array.isArray(v)) || []);
-        if (arr.length > 0) setFetchedProveedoresLocal(arr);
-      })
-      .catch(() => {});
-  }, []);
+  const extraerArrayDatos = (fuente) => {
+    if (Array.isArray(fuente)) return fuente;
+    if (fuente && typeof fuente === 'object') {
+      if (Array.isArray(fuente.data)) return fuente.data;
+      if (Array.isArray(fuente.items)) return fuente.items;
+      if (Array.isArray(fuente.result)) return fuente.result;
+      if (Array.isArray(fuente.insumos)) return fuente.insumos;
+      if (Array.isArray(fuente.proveedores)) return fuente.proveedores;
+      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+      if (posibleArray) return posibleArray;
+    }
+    return [];
+  };
 
   const limpiarTexto = (str) => {
     if (!str) return '';
@@ -62,37 +48,15 @@ export default function ListadoInsumosTab({
 
     const tc = limpiarTexto(textoCompleto);
     
-    if (
-      tc.includes('mano de obra') || 
-      tc.includes('sueldo') || 
-      tc.includes('viatico') || 
-      tc.includes('cargas sociales') || 
-      tc.includes('jornal') ||
-      tc.includes('oficial') ||
-      tc.includes('ayudante')
-    ) {
+    if (tc.includes('mano de obra') || tc.includes('sueldo') || tc.includes('viatico') || tc.includes('cargas sociales') || tc.includes('jornal') || tc.includes('oficial') || tc.includes('ayudante')) {
       return 'Mano de Obra';
     }
 
-    if (
-      tc.includes('subcontrato') || 
-      tc.includes('contratista') || 
-      tc.includes('servicio de terceros') || 
-      tc.includes('sub-contrato') ||
-      tc.includes('mano de obra subcontratada')
-    ) {
+    if (tc.includes('subcontrato') || tc.includes('contratista') || tc.includes('servicio de terceros') || tc.includes('sub-contrato') || tc.includes('mano de obra subcontratada')) {
       return 'Subcontratos';
     }
     
-    if (
-      tc.includes('alquiler de equipo') || 
-      tc.includes('maquinaria pesada') || 
-      tc.includes('retroexcavadora') || 
-      tc.includes('hormigonera') || 
-      tc.includes('andamio') ||
-      tc.includes('guinche') ||
-      tc.includes('compactadora')
-    ) {
+    if (tc.includes('alquiler de equipo') || tc.includes('maquinaria pesada') || tc.includes('retroexcavadora') || tc.includes('hormigonera') || tc.includes('andamio') || tc.includes('guinche') || tc.includes('compactadora')) {
       return 'Equipos';
     }
 
@@ -102,7 +66,15 @@ export default function ListadoInsumosTab({
   };
 
   const proveedoresList = useMemo(() => {
-    const combinados = [...propProveedores, ...(Array.isArray(proveedoresSheet) ? proveedoresSheet : []), ...fetchedProveedoresLocal];
+    const p1 = extraerArrayDatos(propProveedores);
+    const p2 = extraerArrayDatos(proveedoresSheet);
+    
+    let extraGlobales = [];
+    if (typeof window !== 'undefined' && window.globalData) {
+      extraGlobales = extraerArrayDatos(window.globalData.proveedores);
+    }
+
+    const combinados = [...p1, ...p2, ...extraGlobales];
     const map = {};
     combinados.forEach(p => {
       if (!p) return;
@@ -114,10 +86,18 @@ export default function ListadoInsumosTab({
       }
     });
     return map;
-  }, [propProveedores, proveedoresSheet, fetchedProveedoresLocal]);
+  }, [propProveedores, proveedoresSheet]);
 
   const maestroInsumosMap = useMemo(() => {
-    const combinados = [...propInsumos, ...(Array.isArray(insumosSheet) ? insumosSheet : []), ...fetchedInsumosLocal];
+    const i1 = extraerArrayDatos(propInsumos);
+    const i2 = extraerArrayDatos(insumosSheet);
+    
+    let extraGlobales = [];
+    if (typeof window !== 'undefined' && window.globalData) {
+      extraGlobales = extraerArrayDatos(window.globalData.insumos);
+    }
+
+    const combinados = [...i1, ...i2, ...extraGlobales];
     const map = {};
     combinados.forEach(ins => {
       if (!ins) return;
@@ -140,12 +120,13 @@ export default function ListadoInsumosTab({
       if (nombre) map[nombre] = infoInsumo;
     });
     return map;
-  }, [propInsumos, insumosSheet, fetchedInsumosLocal, proveedoresList]);
+  }, [propInsumos, insumosSheet, proveedoresList]);
 
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
   const presupuestosAprobados = useMemo(() => {
-    return presupuestos.filter(p => {
+    const list = Array.isArray(presupuestos) ? presupuestos : [];
+    return list.filter(p => {
       const est = String(p?.estado_presupuesto || p?.estado || p?.Estado_presupuesto || '').toLowerCase().trim();
       return est === 'aprobado' || est === 'aprobada';
     });
@@ -153,8 +134,8 @@ export default function ListadoInsumosTab({
 
   const presupuestoInsumosSeleccionado = useMemo(() => {
     if (!insumoPresupuestoId) return null;
-    return presupuestos.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(insumoPresupuestoId));
-  }, [insumoPresupuestoId, presupuestos]);
+    return presupuestosAprobados.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(insumoPresupuestoId));
+  }, [insumoPresupuestoId, presupuestosAprobados]);
 
   const insumosPorRubro = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return {};

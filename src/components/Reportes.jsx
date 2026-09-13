@@ -54,7 +54,9 @@ function ReportesContent({
   },
   presupuestos = [],
   facturas = [],
-  cargasSemanales = [], // <-- Añadimos cargasSemanales a los props recibidos
+  insumos = [],           // <-- Prop global de insumos
+  proveedores = [],       // <-- Prop global de proveedores
+  cargasSemanales = [], 
   setFetchedCertificados = () => {},
   certificadosList = [],
   obras = []
@@ -227,11 +229,15 @@ function ReportesContent({
         />
       )}
 
+      {/* MODIFICADO: Inyectando insumos y proveedores correctamente */}
       {!esOperadorEstandar && !isOp2 && activeTab === 'Listado de Insumos' && (
-        <ListadoInsumosTab presupuestos={presupuestos} />
+        <ListadoInsumosTab 
+          presupuestos={presupuestos} 
+          insumos={insumos}
+          proveedores={proveedores}
+        />
       )}
 
-      {/* Aquí estaba el error: faltaba enviarle los contratos y las cargas semanales */}
       {!esOperadorEstandar && !isOp2 && activeTab === 'Comparativo' && (
         <ComparativoTab
           presupuestos={presupuestos}
@@ -239,9 +245,9 @@ function ReportesContent({
           tesoreria={tesoreriaList}
           allReportesSice={allReportesSice}
           obras={obras}
-          contratos={contratosList}          // INYECTADO AHORA
-          contratosList={contratosList}      // INYECTADO AHORA
-          cargasSemanales={cargasSemanales}  // INYECTADO AHORA PARA LA MANO DE OBRA
+          contratos={contratosList}
+          contratosList={contratosList}
+          cargasSemanales={cargasSemanales}
         />
       )}
     </div>

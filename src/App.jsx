@@ -137,7 +137,7 @@ const AuthenticatedApp = () => {
           maestroTareasRubros: data.maestro_tareas_rubros || data.maestroTareasRubros || [],
           legajos: data.legajos || [],
           contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || [],
-          certificados: data.certificados || data.certificados_emitidos || [],
+          certificados: data.certificados || data.certificados_emitidos || data.certificaciones_horas || data.certificacionesHoras || [],
           cargasSemanales: data.cargas_semanales || data.cargasSemanales || data.CargasSemanales || [] 
         });
       }
@@ -230,7 +230,20 @@ const AuthenticatedApp = () => {
                   />
                 } 
               />
-              <Route path="/insumos" element={<RequirePermiso modulo="insumos"><Insumos /></RequirePermiso>} />
+              <Route 
+                path="/insumos" 
+                element={
+                  <RequirePermiso modulo="insumos">
+                    <Insumos 
+                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
+                      insumos={globalData.insumos}
+                      proveedores={globalData.proveedores}
+                      presupuestos={globalData.presupuestos}
+                      cargarDatos={cargarDatos}
+                    />
+                  </RequirePermiso>
+                } 
+              />
               <Route path="*" element={<Navigate to="/reportes" replace />} />
             </>
           ) : (
@@ -266,7 +279,20 @@ const AuthenticatedApp = () => {
                 } 
               />
               <Route path="/obras" element={<RequirePermiso modulo="obras"><Obras /></RequirePermiso>} />
-              <Route path="/insumos" element={<RequirePermiso modulo="insumos"><Insumos /></RequirePermiso>} />
+              <Route 
+                path="/insumos" 
+                element={
+                  <RequirePermiso modulo="insumos">
+                    <Insumos 
+                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
+                      insumos={globalData.insumos}
+                      proveedores={globalData.proveedores}
+                      presupuestos={globalData.presupuestos}
+                      cargarDatos={cargarDatos}
+                    />
+                  </RequirePermiso>
+                } 
+              />
               <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
               <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
               <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />

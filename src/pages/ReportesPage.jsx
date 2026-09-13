@@ -57,6 +57,8 @@ function ReportesContent(props) {
   const facturas = Array.isArray(props?.facturas) ? props.facturas : [];
   const empleadosListProps = Array.isArray(props?.empleados) ? props.empleados : [];
   const reportesProps = Array.isArray(props?.allReportesSice) ? props.allReportesSice : [];
+  const insumosProps = Array.isArray(props?.insumos) ? props.insumos : [];
+  const proveedoresProps = Array.isArray(props?.proveedores) ? props.proveedores : [];
 
   const [fetchedContratos, setFetchedContratos] = useState([]);
   const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
@@ -130,6 +132,8 @@ function ReportesContent(props) {
       obras={obras}
       presupuestos={presupuestos}
       facturas={facturas}
+      insumos={insumosProps}
+      proveedores={proveedoresProps}
       listaEmpleadosActivos={empleadosListProps}
     />
   );
