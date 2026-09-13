@@ -44,6 +44,7 @@ export default function Compras({
 }) {
   const [activeTab, setActiveTab] = useState('facturas');
   const [filtroProveedor, setFiltroProveedor] = useState('');
+  const [filtroDocumento, setFiltroDocumento] = useState('');
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
 
@@ -59,7 +60,6 @@ export default function Compras({
 
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
-    tipo: 'Compra',
     comprobante_tipo: 'Factura A',
     n_factura: '',
     proveedor_id: '',
@@ -172,7 +172,6 @@ export default function Compras({
         rubrosDelPresupuesto = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
       }
 
-      // EXTRACCIÓN FLEXIBLE DE GASTOS GENERALES (Cubre todas las variantes de nombres y objetos comerciales)
       let rawGG = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['gastos_generales_insumos', 'Gastos_generales_insumos', 'gastos_generales', 'Gastos_generales']);
       if (!rawGG && parsedData && typeof parsedData === 'object') {
         rawGG = parsedData.gastos_generales_insumos || parsedData.gastos_generales || (parsedData.comercial && (parsedData.comercial.gastos_generales_insumos || parsedData.comercial.gastos_generales));
@@ -348,6 +347,7 @@ export default function Compras({
     const tipoInsumoVal = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']) || 'Material';
     const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
     const esNC = String(tipoComp).toLowerCase().includes('nota de crédito') || String(tipoComp).toLowerCase().includes('nota de credito');
+    const tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
 
     setFormData({ 
       ...f, 
@@ -357,7 +357,7 @@ export default function Compras({
       obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '',
       presupuesto_id: buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) || '',
       contrato_id: buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) || '',
-      tipo_gasto: buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto',
+      tipo_gasto: tipoGastoObtenido,
       rubro_imputacion: rubroImputacionVal,
       tipo_insumo: tipoInsumoVal,
       detalle_gasto: buscarValorEnObjeto(f, ['detalle_gasto', 'Detalle_gasto']) || '',
@@ -560,7 +560,13 @@ export default function Compras({
     let matchFecha = true;
     if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
     if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
-    return matchProveedor && matchFecha;
+
+    // Filtro por Documento (Presupuesto o Contrato)
+    const presId = buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']);
+    const contId = buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']);
+    const matchDocumento = !filtroDocumento || String(presId) === String(filtroDocumento) || String(contId) === String(filtroDocumento);
+
+    return matchProveedor && matchFecha && matchDocumento;
   });
 
   const ordenesFiltradas = ordenesCompra.filter(oc => {
@@ -572,6 +578,9 @@ export default function Compras({
     if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
     return matchProveedor && matchFecha;
   });
+
+  const requiereObra = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
+  const requierePresupuesto = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -603,7 +612,6 @@ export default function Compras({
             setEditingId(null);
             setFormData({
               codigo: generarSiguienteCodigoFactura(),
-              tipo: 'Compra',
               comprobante_tipo: 'Factura A',
               n_factura: '',
               proveedor_id: '',
@@ -633,12 +641,24 @@ export default function Compras({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
           <select value={filtroProveedor} onChange={(e) => setFiltroProveedor(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
             <option value="">Todos los Proveedores</option>
             {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre', 'Razon_social'])}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Doc. Aprobado (Presup. / Contrato)</label>
+          <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
+            <option value="">Todos los Documentos</option>
+            <optgroup label="Presupuestos">
+              {listaPresupuestosFinal.map(pr => <option key={`pr-${buscarValorEnObjeto(pr, ['id', 'ID'])}`} value={buscarValorEnObjeto(pr, ['id', 'ID'])}>{pr.codigo} - {pr.nombre}</option>)}
+            </optgroup>
+            <optgroup label="Contratos">
+              {listaContratosFinal.map(c => <option key={`c-${buscarValorEnObjeto(c, ['id', 'ID'])}`} value={buscarValorEnObjeto(c, ['id', 'ID'])}>{buscarValorEnObjeto(c, ['codigo', 'nro_contrato'])} - {buscarValorEnObjeto(c, ['nombre', 'cliente'])}</option>)}
+            </optgroup>
           </select>
         </div>
         <div>
@@ -763,7 +783,7 @@ export default function Compras({
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {ordenesFiltradas.map((oc, index) => {
-                  const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'proveedorid']);
+                  const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
                   const obraId = buscarValorEnObjeto(oc, ['obra_id', 'Obra_id', 'obraid']);
                   const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
                   const obra = obras.find(o => String(buscarValorEnObjeto(o, ['id', 'ID'])) === String(obraId));
@@ -955,8 +975,8 @@ export default function Compras({
                 </div>
 
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra *</label>
-                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra {requiereObra ? '*' : ''}</label>
+                  <select required={requiereObra} disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
                     <option value="">Seleccione obra...</option>
                     {obras.map(o => <option key={buscarValorEnObjeto(o, ['id', 'ID'])} value={buscarValorEnObjeto(o, ['id', 'ID'])}>[{o.codigo}] {o.nombre || o.nombre_obra}</option>)}
                   </select>
@@ -974,21 +994,22 @@ export default function Compras({
                         presupuesto_id: '',
                         contrato_id: '',
                         rubro_imputacion: val === 'Contrato de Mantenimiento' ? 'Materiales del Contrato' : '',
-                        tipo_insumo: 'Material'
+                        tipo_insumo: val === 'Viaticos-Nafta' ? 'Mano de Obra' : 'Material'
                       });
                     }}>
                     <option value="Presupuesto">Presupuesto Aprobado</option>
                     <option value="Contrato de Mantenimiento">Contrato de Mantenimiento Aprobado</option>
+                    <option value="Viaticos-Nafta">Viáticos - Nafta</option>
                     <option value="Gasto Corriente">Gasto Corriente</option>
                     <option value="Gasto Extra">Gasto Extra</option>
                   </select>
                 </div>
 
-                {(formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
+                {(requierePresupuesto || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Documento Aprobado *</label>
-                    {formData.tipo_gasto === 'Presupuesto' ? (
-                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
+                    {requierePresupuesto ? (
+                      <select required={requierePresupuesto} disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
                         <option value="">Seleccione presupuesto...</option>
                         {listaPresupuestosFinal.map(pr => <option key={buscarValorEnObjeto(pr, ['id', 'ID'])} value={buscarValorEnObjeto(pr, ['id', 'ID'])}>{pr.codigo} - {pr.nombre}</option>)}
                       </select>
@@ -1008,7 +1029,7 @@ export default function Compras({
                   </div>
                 )}
 
-                {(formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
+                {(requierePresupuesto || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro Imputación *</label>
                     {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (
@@ -1026,7 +1047,7 @@ export default function Compras({
                           setFormData({
                             ...formData, 
                             rubro_imputacion: nuevoRubro,
-                            tipo_insumo: '' 
+                            tipo_insumo: formData.tipo_gasto === 'Viaticos-Nafta' ? 'Mano de Obra' : 'Material' 
                           });
                         }}
                       >
@@ -1057,6 +1078,8 @@ export default function Compras({
                   >
                     {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (
                       <option value="Material">Material</option>
+                    ) : formData.tipo_gasto === 'Viaticos-Nafta' ? (
+                      <option value="Mano de Obra">Mano de Obra</option>
                     ) : formData.rubro_imputacion === 'Gastos Generales' ? (
                       <>
                         <option value="">Seleccionar gasto general...</option>
