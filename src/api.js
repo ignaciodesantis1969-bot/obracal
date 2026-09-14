@@ -1,5 +1,5 @@
 // src/config/api.js
-export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxqqvLFvzJFvxslgkSYcVst7t9axM5THTvw-b7V0ltGa1vemmwvB-2aTidQRpCVhC_RVg/exec";
+export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbz6EJNhHr7n4xd5t25XHrIZ6QKOyknmPPiKnmchZ--ZbGaE4CLOAIzw0dCOc4CC0D8MWg/exec";
 
 export const OBRAS_CONFIG = {
   // Categorización de empleados extraída de la lógica de negocio
