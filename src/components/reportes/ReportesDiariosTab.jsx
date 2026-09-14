@@ -49,7 +49,6 @@ export default function ReportesDiariosTab({
         if (Array.isArray(data)) {
           setFetchedReportesLocal(data);
           setStatusFetchLocal('success');
-          // Sincronizar también con el caché local para otras pestañas como Certificados
           try {
             localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(data));
           } catch (e) {}
@@ -88,20 +87,17 @@ export default function ReportesDiariosTab({
   const allReportesSice = useMemo(() => {
     let combinados = [];
 
-    // Incluir también caché local en localStorage para persistencia instantánea entre pestañas
     let localesCache = [];
     try {
       const cached = localStorage.getItem('sice_partes_local_cache_v3');
       if (cached) localesCache = JSON.parse(cached);
     } catch (e) {}
 
-    if (statusFetchLocal === 'success') {
-      combinados = [...extraerArrayDatos(fetchedReportesLocal), ...localesCache];
-    } else {
-      const s = extraerArrayDatos(reportesSheet);
-      const p = extraerArrayDatos(propReportes);
-      combinados = [...localesCache, ...(s.length > 0 ? s : p)];
-    }
+    const s = extraerArrayDatos(reportesSheet);
+    const p = extraerArrayDatos(propReportes);
+    const serverData = statusFetchLocal === 'success' ? extraerArrayDatos(fetchedReportesLocal) : [];
+
+    combinados = [...localesCache, ...serverData, ...s, ...p];
 
     const unicosMap = new Map();
     
@@ -137,8 +133,8 @@ export default function ReportesDiariosTab({
     });
 
     return Array.from(unicosMap.values()).sort((a, b) => {
-      const nA = parseInt(String(a.nro).replace(/\D/g, '') || '0', 10);
-      const nB = parseInt(String(b.nro).replace(/\D/g, '') || '0', 10);
+      const nA = parseInt(String(a.nro || '').replace(/\D/g, '') || '0', 10);
+      const nB = parseInt(String(b.nro || '').replace(/\D/g, '') || '0', 10);
       return nB - nA;
     });
   }, [fetchedReportesLocal, statusFetchLocal, reportesSheet, propReportes, idsEliminadosLocales]);
@@ -169,6 +165,7 @@ export default function ReportesDiariosTab({
     return buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'nro_contrato', 'contratoCliente']) || '---';
   }, [contratoActivoObj, buscarValorEnObjeto]);
   
+  // Correlativo robusto basado en todos los partes cargados en memoria y caché
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
@@ -229,7 +226,6 @@ export default function ReportesDiariosTab({
     }
   }, [empleadosActivosFiltrados, operariosSeleccionados.length, buscarValorEnObjeto]);
 
-  // ---> CÁLCULO ROBUSTO: Discriminación exacta de horas por categoría (ej. "S", "OE", etc.) <---
   const { horasPorCategoria, granTotalHorasHombre } = useMemo(() => {
     const resumen = {};
     let sumaTotalGeneral = 0;
@@ -302,18 +298,9 @@ export default function ReportesDiariosTab({
     }
   }, [contratoActivoObj, extraerDatosContrato]);
 
+  // Historial global sin filtros restrictivos para asegurar que siempre se muestren todos los partes aprobados
   const sicePartesAprobados = useMemo(() => {
-    let lista = allReportesSice;
-    if (contratoSeleccionadoId) {
-      const selectedIdStr = String(contratoSeleccionadoId).trim();
-      lista = allReportesSice.filter(r => {
-        if (!r) return false;
-        const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId'])).trim();
-        return !rContratoId || rContratoId === selectedIdStr || rContratoId.includes(selectedIdStr) || selectedIdStr.includes(rContratoId);
-      });
-    }
-
-    return lista.map(r => {
+    return allReportesSice.map(r => {
       let itemsParsed = buscarValorEnObjeto(r, ['items', 'Item', 'Items']);
       if (typeof itemsParsed === 'string' && itemsParsed.trim()) {
         try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
@@ -365,7 +352,7 @@ export default function ReportesDiariosTab({
         pdfUrl: buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'urlPdf', 'pdfURL']) || ''
       };
     });
-  }, [contratoSeleccionadoId, allReportesSice, buscarValorEnObjeto, currentUser]);
+  }, [allReportesSice, buscarValorEnObjeto, currentUser]);
 
   const agregarOperarioFila = () => {
     const nuevoOpId = `op-${Math.random()}`;
