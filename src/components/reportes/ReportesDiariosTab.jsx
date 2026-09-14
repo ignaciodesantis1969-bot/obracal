@@ -169,10 +169,12 @@ export default function ReportesDiariosTab({
     return String(maxNro + 1).padStart(5, '0');
   }, [allReportesSice, buscarValorEnObjeto]);
 
-  const [siceItems, setSiceItems] = useState([
-    { id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
-  ]);
   const [operariosSeleccionados, setOperariosSeleccionados] = useState([]);
+  
+  const [siceItems, setSiceItems] = useState([
+    { id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', operariosIds: [], terminoTarea: 'SI' }
+  ]);
+
   const [siceRespProveedor, setSiceRespProveedor] = useState({ cargo: '', nombre: '', clave: '' });
   const [siceRespCliente, setSiceRespCliente] = useState({ cargo: '', nombre: '', clave: '' });
   const [isSavingSice, setIsSavingSice] = useState(false);
@@ -201,52 +203,58 @@ export default function ReportesDiariosTab({
     return horasConProporcional.toFixed(2);
   }, []);
 
-  const totalHorasDefaultCalculado = useMemo(() => {
-    const suma = siceItems.reduce((acc, it) => acc + parseFloat(calcularTotalHorasSice(it?.horaComienzo, it?.horaFin) || 0), 0);
-    return suma.toFixed(2);
-  }, [siceItems, calcularTotalHorasSice]);
-
-  const granTotalHorasHombre = useMemo(() => {
-    let sumaIndividual = 0;
-    if (operariosSeleccionados.length > 0) {
-      operariosSeleccionados.forEach(op => {
-        const hVal = op?.horas !== '' && !isNaN(op?.horas) ? parseFloat(op.horas) : parseFloat(totalHorasDefaultCalculado);
-        sumaIndividual += hVal;
-      });
-    } else {
-      sumaIndividual = parseFloat(totalHorasDefaultCalculado);
-    }
-    return sumaIndividual.toFixed(2);
-  }, [totalHorasDefaultCalculado, operariosSeleccionados]);
-
-  // Desglose y suma de horas por categoría de operario (ej. S, OE, etc.)
-  const horasPorCategoria = useMemo(() => {
-    const resumen = {};
-    operariosSeleccionados.forEach(op => {
-      const cat = String(op?.abreviacion || 'OE').trim().toUpperCase();
-      const hVal = op?.horas !== '' && !isNaN(op?.horas) ? parseFloat(op.horas) : parseFloat(totalHorasDefaultCalculado);
-      resumen[cat] = (resumen[cat] || 0) + hVal;
-    });
-    return Object.entries(resumen).map(([cat, total]) => ({
-      categoria: cat,
-      totalHoras: total.toFixed(2)
-    }));
-  }, [operariosSeleccionados, totalHorasDefaultCalculado]);
-
+  // Inicializar operarios por defecto si hay personal activo
   useEffect(() => {
     if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
-      const iniciales = empleadosActivosFiltrados.slice(0, 1).map(emp => {
+      const iniciales = empleadosActivosFiltrados.slice(0, 1).map((emp, idx) => {
         const nombreEmp = String(buscarValorEnObjeto(emp, ['nombre', 'Nombre', 'empleado', 'apellido', 'razon_social']) || 'Operario').trim();
         return {
-          id: buscarValorEnObjeto(emp, ['id', 'ID']) || `op-${Math.random()}`,
+          id: String(buscarValorEnObjeto(emp, ['id', 'ID']) || `op-${idx}`),
           nombre: nombreEmp,
           abreviacion: OBRAS_CONFIG?.determinarCategoriaEmpleado ? OBRAS_CONFIG.determinarCategoriaEmpleado(nombreEmp) : 'OE',
           horas: ''
         };
       });
       setOperariosSeleccionados(iniciales);
+      // Asignar por defecto a la primera fila de ítems
+      setSiceItems(prev => prev.map((it, iIdx) => iIdx === 0 ? { ...it, operariosIds: [String(buscarValorEnObjeto(empleadosActivosFiltrados[0], ['id', 'ID']) || 'op-0')] } : it));
     }
   }, [empleadosActivosFiltrados, operariosSeleccionados.length, buscarValorEnObjeto]);
+
+  // Cálculo de horas por categoría basado en la asignación por ítem o total
+  const horasPorCategoria = useMemo(() => {
+    const resumen = {};
+    
+    siceItems.forEach(item => {
+      const horasItem = parseFloat(calcularTotalHorasSice(item?.horaComienzo, item?.horaFin) || 0);
+      const opsAsignados = item?.operariosIds || [];
+      
+      if (opsAsignados.length > 0) {
+        // Distribuir las horas del ítem equitativamente entre los operarios tildados en esa tarea (o sumar según criterio)
+        const horasPorOp = horasItem / opsAsignados.length;
+        opsAsignados.forEach(opId => {
+          const opObj = operariosSeleccionados.find(o => String(o.id) === String(opId));
+          if (opObj) {
+            const cat = String(opObj.abreviacion || 'OE').trim().toUpperCase();
+            resumen[cat] = (resumen[cat] || 0) + horasPorOp;
+          }
+        });
+      } else {
+        // Si no hay operarios tildados en la fila, se asigna al primer operario o a 'OE'
+        const catDefault = operariosSeleccionados[0]?.abreviacion || 'OE';
+        resumen[catDefault] = (resumen[catDefault] || 0) + horasItem;
+      }
+    });
+
+    return Object.entries(resumen).map(([cat, total]) => ({
+      categoria: cat,
+      totalHoras: total.toFixed(2)
+    }));
+  }, [siceItems, operariosSeleccionados, calcularTotalHorasSice]);
+
+  const granTotalHorasHombre = useMemo(() => {
+    return siceItems.reduce((acc, it) => acc + parseFloat(calcularTotalHorasSice(it?.horaComienzo, it?.horaFin) || 0), 0).toFixed(2);
+  }, [siceItems, calcularTotalHorasSice]);
 
   const extraerDatosContrato = useCallback((contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
@@ -345,10 +353,7 @@ export default function ReportesDiariosTab({
         contratoid: buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id']) || '',
         nroContratoCliente: nroCli,
         items: Array.isArray(itemsParsed) ? itemsParsed : [],
-        operarios: Array.isArray(operariosParsed) ? operariosParsed.map(op => ({
-          ...op,
-          horas: op?.horas !== undefined && op?.horas !== '' ? Number(op.horas).toFixed(2) : '0.00'
-        })) : [],
+        operarios: Array.isArray(operariosParsed) ? operariosParsed : [],
         desgloseCategorias: Array.isArray(desgloseParsed) ? desgloseParsed : [],
         proveedor: provParsed || { nombre: '', cargo: '' },
         cliente: cliParsed || { nombre: '', cargo: '' },
@@ -360,9 +365,10 @@ export default function ReportesDiariosTab({
   }, [contratoSeleccionadoId, allReportesSice, buscarValorEnObjeto, currentUser]);
 
   const agregarOperarioFila = () => {
+    const nuevoOpId = `op-${Math.random()}`;
     setOperariosSeleccionados([
       ...operariosSeleccionados,
-      { id: `op-${Math.random()}`, nombre: '', abreviacion: 'OE', horas: '' }
+      { id: nuevoOpId, nombre: '', abreviacion: 'OE', horas: '' }
     ]);
   };
 
@@ -380,7 +386,15 @@ export default function ReportesDiariosTab({
   };
 
   const eliminarOperarioFila = (index) => {
+    const opEliminar = operariosSeleccionados[index];
     setOperariosSeleccionados(operariosSeleccionados.filter((_, i) => i !== index));
+    // Limpiar referencia en los ítems
+    if (opEliminar) {
+      setSiceItems(prev => prev.map(it => ({
+        ...it,
+        operariosIds: (it.operariosIds || []).filter(id => String(id) !== String(opEliminar.id))
+      })));
+    }
   };
 
   const eliminarParteServidor = async (idParte, nroParte) => {
@@ -445,7 +459,7 @@ export default function ReportesDiariosTab({
     }
     setSiceItems([
       ...siceItems,
-      { id: siceItems.length + 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }
+      { id: siceItems.length + 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', operariosIds: [], terminoTarea: 'SI' }
     ]);
   };
 
@@ -453,6 +467,19 @@ export default function ReportesDiariosTab({
     const actualizados = [...siceItems];
     if (actualizados[index]) {
       actualizados[index][campo] = valor;
+      setSiceItems(actualizados);
+    }
+  };
+
+  const toggleOperarioEnItem = (itemIndex, opId) => {
+    const actualizados = [...siceItems];
+    if (actualizados[itemIndex]) {
+      const currentOps = actualizados[itemIndex].operariosIds || [];
+      if (currentOps.includes(opId)) {
+        actualizados[itemIndex].operariosIds = currentOps.filter(id => String(id) !== String(opId));
+      } else {
+        actualizados[itemIndex].operariosIds = [...currentOps, opId];
+      }
       setSiceItems(actualizados);
     }
   };
@@ -483,12 +510,6 @@ export default function ReportesDiariosTab({
       return;
     }
 
-    const operariosFinales = operariosSeleccionados.map(op => ({
-      nombre: String(op?.nombre || ''),
-      abreviacion: String(op?.abreviacion || 'OE'),
-      horas: op?.horas !== '' && !isNaN(op?.horas) ? Number(op.horas).toFixed(2) : Number(totalHorasDefaultCalculado).toFixed(2)
-    }));
-
     setIsSavingSice(true);
     const toastId = toast.loading('Generando PDF en Google Drive y guardando...');
     const rolActualUsuario = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
@@ -503,7 +524,7 @@ export default function ReportesDiariosTab({
         fecha: String(siceFecha),
         nro: String(siceParteNro),
         items: siceItems,
-        operarios: operariosFinales,
+        operarios: operariosSeleccionados,
         desgloseCategorias: horasPorCategoria,
         proveedor: { cargo: String(siceRespProveedor.cargo || ''), nombre: String(siceRespProveedor.nombre || '') },
         cliente: { cargo: String(siceRespCliente.cargo || ''), nombre: String(siceRespCliente.nombre || '') },
@@ -532,7 +553,7 @@ export default function ReportesDiariosTab({
         contratoid: String(contratoSeleccionadoId),
         nroContratoCliente: String(nroContratoClienteDinamico),
         items: [...siceItems],
-        operarios: operariosFinales,
+        operarios: [...operariosSeleccionados],
         desgloseCategorias: [...horasPorCategoria],
         proveedor: { cargo: String(siceRespProveedor.cargo), nombre: String(siceRespProveedor.nombre) },
         cliente: { cargo: String(siceRespCliente.cargo), nombre: String(siceRespCliente.nombre) },
@@ -545,7 +566,7 @@ export default function ReportesDiariosTab({
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
       if (typeof refetchReportes === 'function') refetchReportes();
 
-      setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', terminoTarea: 'SI' }]);
+      setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', operariosIds: [], terminoTarea: 'SI' }]);
       setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
       setSiceRespCliente(prev => ({ ...prev, clave: '' }));
 
@@ -565,7 +586,7 @@ export default function ReportesDiariosTab({
             <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
               <Calendar className="w-4 h-4 text-amber-500" /> Parte Diario de Actividades (SICE S.A.)
             </h3>
-            <p className="text-xs text-slate-500 mt-0.5">Asocie un contrato, complete los operarios activos, los ítems y corrobore las claves.</p>
+            <p className="text-xs text-slate-500 mt-0.5">Asocie un contrato, complete los operarios activos, tilde su intervención por ítem y corrobore claves.</p>
           </div>
           <div className="flex items-center gap-2 w-full sm:w-auto">
             <select
@@ -673,7 +694,8 @@ export default function ReportesDiariosTab({
                       </select>
                     </div>
 
-                    <div className="w-24 text-center">
+                    <div className="w-28 text-center flex items-center gap-1">
+                      <span className="text-[10px] text-slate-500 font-semibold">Cat/Abrev:</span>
                       <input
                         type="text"
                         value={op?.abreviacion}
@@ -683,21 +705,11 @@ export default function ReportesDiariosTab({
                       />
                     </div>
 
-                    <div className="w-32">
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={op?.horas}
-                        onChange={(e) => actualizarOperarioFila(idx, 'horas', e.target.value)}
-                        placeholder={`${totalHorasDefaultCalculado} hs`}
-                        className="w-full bg-slate-50 border border-slate-300 rounded px-2.5 py-1.5 text-xs font-black text-slate-900 text-center outline-none focus:border-amber-500"
-                      />
-                    </div>
-
                     <button
                       type="button"
                       onClick={() => eliminarOperarioFila(idx)}
                       className="p-1.5 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-lg transition-colors cursor-pointer print:hidden"
+                      title="Eliminar operario"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -705,18 +717,6 @@ export default function ReportesDiariosTab({
                 ))
               )}
             </div>
-
-            {/* Panel de desglose de horas por categoría */}
-            {horasPorCategoria.length > 0 && (
-              <div className="flex flex-wrap gap-2 pt-1">
-                {horasPorCategoria.map((item, idx) => (
-                  <div key={`cat-sum-${idx}`} className="bg-amber-100 border border-amber-300 rounded-lg px-3 py-1.5 text-xs font-bold text-amber-950 flex items-center gap-2">
-                    <span>Categoría <strong className="font-black">{item.categoria}</strong>:</span>
-                    <span className="bg-amber-500 text-slate-950 px-2 py-0.5 rounded font-black">{item.totalHoras} hs</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           <div className="overflow-x-auto border border-slate-400 rounded-lg">
@@ -725,11 +725,15 @@ export default function ReportesDiariosTab({
                 <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
                   <th className="py-2.5 px-2 border-r border-slate-700 w-12 text-center">Item</th>
                   <th className="py-2.5 px-3 border-r border-slate-700">Descripción del Servicio</th>
-                  <th className="py-2.5 px-2 border-r border-slate-700 text-center w-28">Hora Comienzo</th>
-                  <th className="py-2.5 px-2 border-r border-slate-700 text-center w-28">Hora Fin</th>
-                  <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Total Horas</th>
+                  <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Comienzo</th>
+                  <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Fin</th>
+                  <th className="py-2.5 px-2 border-r border-slate-700 text-center w-20">Total</th>
                   <th className="py-2.5 px-3 border-r border-slate-700">Observaciones</th>
-                  <th className="py-2.5 px-2 text-center w-28">Terminó Tarea</th>
+                  {/* Columna dinámica de operarios intervinientes */}
+                  <th className="py-2.5 px-3 border-r border-slate-700 text-center bg-slate-900 min-w-[150px]">
+                    Operarios Intervinientes
+                  </th>
+                  <th className="py-2.5 px-2 text-center w-24">Terminó Tarea</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-300">
@@ -775,6 +779,30 @@ export default function ReportesDiariosTab({
                           className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
                         />
                       </td>
+                      {/* Celdas de tilde para cada operario disponible */}
+                      <td className="py-1.5 px-3 border-r border-slate-300 bg-white/60">
+                        <div className="flex flex-col gap-1">
+                          {operariosSeleccionados.length === 0 ? (
+                            <span className="text-[10px] text-slate-400 italic">Sin operarios cargados</span>
+                          ) : (
+                            operariosSeleccionados.map(op => {
+                              const isChecked = (row?.operariosIds || []).includes(String(op.id));
+                              return (
+                                <label key={`chk-op-${row.id}-${op.id}`} className="flex items-center gap-1.5 text-[11px] font-bold text-slate-800 cursor-pointer hover:text-amber-700">
+                                  <input 
+                                    type="checkbox"
+                                    checked={isChecked}
+                                    onChange={() => toggleOperarioEnItem(index, String(op.id))}
+                                    className="rounded border-slate-300 text-amber-600 focus:ring-amber-500 w-3.5 h-3.5 cursor-pointer"
+                                  />
+                                  <span className="truncate max-w-[120px]" title={op.nombre}>{op.nombre || 'Sin nombre'}</span>
+                                  <span className="text-[9px] bg-amber-200 text-amber-900 px-1 rounded ml-auto">[{op.abreviacion}]</span>
+                                </label>
+                              );
+                            })
+                          )}
+                        </div>
+                      </td>
                       <td className="py-1.5 px-2 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
@@ -811,16 +839,27 @@ export default function ReportesDiariosTab({
             <span className="text-xs text-slate-500 font-semibold">Total filas: {siceItems.length} / 10</span>
           </div>
 
-          <div className="bg-amber-100/60 border-2 border-amber-300 rounded-xl p-4 flex justify-between items-center mt-2 shadow-sm">
-            <div className="space-y-1">
+          {/* Resumen dinámico y desglose por especialidad / categoría */}
+          <div className="bg-amber-100/60 border-2 border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mt-2 shadow-sm">
+            <div className="space-y-2">
               <p className="text-amber-900 font-bold text-xs flex items-center gap-2">
-                <Calculator className="w-4 h-4" /> Resumen de Imputación:
+                <Calculator className="w-4 h-4" /> Horas Totales por Especialidad (Categoría):
               </p>
-              <p className="text-amber-800 text-[11px] font-medium">Total Horas Demandadas (Tareas): <strong>{totalHorasDefaultCalculado} hs</strong></p>
-              <p className="text-amber-800 text-[11px] font-medium">Operarios Activos Seleccionados: <strong>{operariosSeleccionados.length}</strong></p>
+              <div className="flex flex-wrap gap-2">
+                {horasPorCategoria.length === 0 ? (
+                  <span className="text-xs text-amber-800 italic">Asigne operarios en las tareas para calcular.</span>
+                ) : (
+                  horasPorCategoria.map((catItem, cIdx) => (
+                    <div key={`cat-tot-${cIdx}`} className="bg-white border border-amber-300 rounded-lg px-3 py-1 text-xs font-bold text-slate-900 shadow-xs flex items-center gap-2">
+                      <span>Cat. <strong className="text-amber-900 font-black">{catItem.categoria}</strong>:</span>
+                      <span className="bg-amber-500 text-slate-950 px-2 py-0.5 rounded font-black">{catItem.totalHoras} hs</span>
+                    </div>
+                  ))
+                )}
+              </div>
             </div>
-            <div className="text-right bg-amber-500 text-slate-950 px-6 py-2 rounded-lg shadow-sm">
-              <p className="font-extrabold text-[10px] uppercase tracking-wide opacity-80">Total Horas Hombre</p>
+            <div className="text-right bg-amber-500 text-slate-950 px-6 py-2 rounded-lg shadow-sm whitespace-nowrap">
+              <p className="font-extrabold text-[10px] uppercase tracking-wide opacity-80">Gran Total Horas Hombre</p>
               <p className="font-black text-2xl">{granTotalHorasHombre} <span className="text-sm">hs</span></p>
             </div>
           </div>
@@ -1031,70 +1070,59 @@ export default function ReportesDiariosTab({
               </div>
             </div>
 
-            <div className="space-y-2">
-              <h4 className="text-xs font-black text-slate-900 uppercase flex items-center gap-1.5">
-                <Users className="w-4 h-4 text-amber-600" /> Operarios Presentes
-              </h4>
-              <div className="border border-slate-300 rounded-xl overflow-hidden bg-slate-50 p-3 space-y-1">
-                {Array.isArray(parteVisualizando?.operarios) && parteVisualizando.operarios.length > 0 ? (
-                  parteVisualizando.operarios.map((op, oIdx) => (
-                    <div key={`modal-op-${oIdx}`} className="flex justify-between items-center text-xs bg-white p-2 rounded border border-slate-200">
-                      <span className="font-bold text-slate-800">{op?.nombre}</span>
-                      <div className="flex gap-4">
-                        <span className="text-slate-600">Cat./Abrev: <strong>{op?.abreviacion}</strong></span>
-                        <span className="text-amber-800 font-black">{op?.horas} hs</span>
-                      </div>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-xs text-slate-400 text-center py-1">Registrado con operario principal.</p>
-                )}
-              </div>
-
-              {Array.isArray(parteVisualizando?.desgloseCategorias) && parteVisualizando.desgloseCategorias.length > 0 && (
-                <div className="flex flex-wrap gap-2 pt-2">
-                  {parteVisualizando.desgloseCategorias.map((dItem, dIdx) => (
-                    <div key={`modal-cat-${dIdx}`} className="bg-amber-100 border border-amber-300 rounded-lg px-3 py-1 text-xs font-bold text-amber-950 flex items-center gap-2">
-                      <span>Cat. <strong className="font-black">{dItem.categoria}</strong>:</span>
-                      <span className="bg-amber-500 text-slate-950 px-2 py-0.5 rounded font-black">{dItem.totalHoras} hs</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
             <div className="overflow-x-auto border border-slate-300 rounded-xl">
               <table className="w-full text-left text-xs border-collapse">
                 <thead>
                   <tr className="bg-slate-800 text-white font-extrabold uppercase text-[10px]">
                     <th className="py-2.5 px-3 border-r border-slate-700 w-12 text-center">Item</th>
                     <th className="py-2.5 px-3 border-r border-slate-700">Descripción del Servicio</th>
-                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-28">Comienzo</th>
-                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-28">Fin</th>
-                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-24">Total</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-24">Comienzo</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-24">Fin</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center w-20">Total</th>
                     <th className="py-2.5 px-3 border-r border-slate-700">Observaciones</th>
-                    <th className="py-2.5 px-3 text-center w-24">Terminó</th>
+                    <th className="py-2.5 px-3 border-r border-slate-700 text-center">Operarios Tildados</th>
+                    <th className="py-2.5 px-3 text-center w-20">Terminó</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-200">
-                  {Array.isArray(parteVisualizando?.items) && parteVisualizando.items.map((it, iIdx) => (
-                    <tr key={`modal-item-${iIdx}`} className="bg-white">
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-700">{it?.id || iIdx + 1}</td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-800">{it?.descripcion || '---'}</td>
-                      <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaComienzo || '08:00'}</td>
-                      <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaFin || '17:00'}</td>
-                      <td className="py-2.5 px-3 text-center font-extrabold text-amber-900 bg-amber-50">{calcularTotalHorasSice(it?.horaComienzo, it?.horaFin)} hs</td>
-                      <td className="py-2.5 px-3 text-slate-600">{it?.observaciones || '---'}</td>
-                      <td className="py-2.5 px-3 text-center font-bold text-slate-800">{it?.terminoTarea || 'SI'}</td>
-                    </tr>
-                  ))}
+                  {Array.isArray(parteVisualizando?.items) && parteVisualizando.items.map((it, iIdx) => {
+                    const opsIds = it?.operariosIds || [];
+                    const opsNombres = opsIds.map(id => {
+                      const found = (parteVisualizando?.operarios || []).find(o => String(o.id) === String(id));
+                      return found ? `${found.nombre} [${found.abreviacion}]` : null;
+                    }).filter(Boolean).join(', ');
+
+                    return (
+                      <tr key={`modal-item-${iIdx}`} className="bg-white">
+                        <td className="py-2.5 px-3 text-center font-bold text-slate-700">{it?.id || iIdx + 1}</td>
+                        <td className="py-2.5 px-3 font-semibold text-slate-800">{it?.descripcion || '---'}</td>
+                        <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaComienzo || '08:00'}</td>
+                        <td className="py-2.5 px-3 text-center text-slate-600">{it?.horaFin || '17:00'}</td>
+                        <td className="py-2.5 px-3 text-center font-extrabold text-amber-900 bg-amber-50">{calcularTotalHorasSice(it?.horaComienzo, it?.horaFin)} hs</td>
+                        <td className="py-2.5 px-3 text-slate-600">{it?.observaciones || '---'}</td>
+                        <td className="py-2.5 px-3 text-slate-700 font-medium text-[11px]">{opsNombres || '---'}</td>
+                        <td className="py-2.5 px-3 text-center font-bold text-slate-800">{it?.terminoTarea || 'SI'}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
-            <div className="bg-amber-100/60 border-2 border-amber-300 rounded-xl p-4 flex justify-between items-center shadow-sm">
-              <p className="text-amber-900 font-bold text-xs">Total Horas Hombre Registradas en el Reporte:</p>
+            {/* Resumen en Modal */}
+            <div className="bg-amber-100/60 border-2 border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm">
+              <div className="space-y-1">
+                <p className="text-amber-900 font-bold text-xs">Desglose de Horas por Especialidad:</p>
+                <div className="flex flex-wrap gap-2">
+                  {Array.isArray(parteVisualizando?.desgloseCategorias) && parteVisualizando.desgloseCategorias.map((dItem, dIdx) => (
+                    <span key={`mod-d-${dIdx}`} className="bg-white px-2 py-1 rounded text-xs font-bold border border-amber-300">
+                      Cat. {dItem.categoria}: <strong>{dItem.totalHoras} hs</strong>
+                    </span>
+                  ))}
+                </div>
+              </div>
               <div className="text-right bg-amber-500 text-slate-950 px-6 py-2 rounded-lg shadow-sm">
+                <p className="font-extrabold text-[10px] uppercase tracking-wide opacity-80">Gran Total</p>
                 <p className="font-black text-2xl">{parteVisualizando?.totalHorasSuma || '0.00'} <span className="text-sm">hs</span></p>
               </div>
             </div>
