@@ -7,12 +7,11 @@ import { OBRAS_CONFIG } from '@/config/constants';
 export default function CertificadoHorasHombreTab({ 
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [],
-  currentUser // <-- Necesario para validar si es Administrador
+  currentUser 
 }) {
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   
-  // HISTORIAL DE CERTIFICACIONES
   const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData('CertificacionesHoras');
 
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
@@ -90,7 +89,7 @@ export default function CertificadoHorasHombreTab({
     return raw.filter(c => {
       if (!c) return false;
       const hasId = c.id !== undefined && c.id !== null && String(c.id).trim() !== '';
-      const hasNro = c.certificado_nro !== undefined && c.certificadonro !== undefined;
+      const hasNro = (c.certificado_nro !== undefined && c.certificado_nro !== '') || (c.certificadonro !== undefined && c.certificadonro !== '');
       const hasContrato = c.contrato_id || c.contratoid || c.contrato_codigo || c.contratocodigo;
       return hasId || hasNro || hasContrato;
     });
@@ -161,15 +160,15 @@ export default function CertificadoHorasHombreTab({
     }
   }, [contratoActual, historialCertificados]);
 
-  // ---> NUEVA LÓGICA: Identificar Partes Diarios ya certificados para quitarlos del desplegable <---
   const partesUsadosEnHistorial = useMemo(() => {
     const usados = new Set();
     historialCertificados.forEach(cert => {
       let filas = [];
-      if (typeof cert.filas === 'string') {
-        try { filas = JSON.parse(cert.filas); } catch (e) {}
-      } else if (Array.isArray(cert.filas)) {
-        filas = cert.filas;
+      let detalleFilasRaw = cert.filas || cert.detalle_filas || cert.detallefilas;
+      if (typeof detalleFilasRaw === 'string') {
+        try { filas = JSON.parse(detalleFilasRaw); } catch (e) {}
+      } else if (Array.isArray(detalleFilasRaw)) {
+        filas = detalleFilasRaw;
       }
       filas.forEach(f => {
         if (f.nroParte) usados.add(String(f.nroParte));
@@ -183,16 +182,9 @@ export default function CertificadoHorasHombreTab({
     
     return allReportesSice.filter(p => {
       const idNro = String(p?.nro || p?.id || '').trim();
-      
-      // Eliminar fantasmas o sin número
       if (!idNro || idNro === 'undefined' || idNro === 'null') return false; 
-      
-      // Eliminar los ya guardados en el historial
       if (partesUsadosEnHistorial.has(idNro)) return false; 
-      
-      // Eliminar los que acabo de agregar a la tabla del borrador actual
       if (seleccionadosActuales.includes(idNro)) return false;
-      
       return true;
     });
   }, [allReportesSice, partesUsadosEnHistorial, partesSeleccionados]);
@@ -216,83 +208,62 @@ export default function CertificadoHorasHombreTab({
   };
 
   const obtenerValoresPolinomica = (contrato) => {
-    // Si tienes los valores guardados en "contrato", puedes extraerlos aquí.
     return {
       "S": contrato?.valor_s || 36714.21,
       "T-EHS": contrato?.valor_tehs || 20819.69,
       "OE": contrato?.valor_oe || 27195.44,
       "MO": contrato?.valor_mo || 23950.67,
       "TOT": contrato?.valor_tot || 42235.51,
-      "DEFAULT": 15000
+      "DEFAULT": 27195.44
     };
   };
 
-  // ---> NUEVA LÓGICA: Desglose por categoría del Parte Diario <---
+  // ---> LÓGICA CORREGIDA: Desglose por categoría del Parte Diario <---
   const agregarParteFila = (parteObj) => {
     const tablaValores = obtenerValoresPolinomica(contratoActual);
     const fechaParte = parteObj?.fecha || fechaEmision;
     const nroParte = parteObj?.nro || parteObj?.id || '001';
 
-    // Mapeo de categorías y sus posibles llaves viniendo del Parte Diario
-    const categoriasBase = [
-      { id: 'S', keys: ['horas_S', 'horasS', 'S'] },
-      { id: 'T-EHS', keys: ['horas_TEHS', 'horasTEHS', 'T_EHS', 'T-EHS'] },
-      { id: 'OE', keys: ['horas_OE', 'horasOE', 'OE'] },
-      { id: 'MO', keys: ['horas_MO', 'horasMO', 'MO'] },
-      { id: 'TOT', keys: ['horas_TOT', 'horasTOT', 'TOT'] }
-    ];
+    let desglose = parteObj?.desgloseCategorias || parteObj?.desglose_categorias;
+    if (typeof desglose === 'string') {
+      try { desglose = JSON.parse(desglose); } catch (e) { desglose = []; }
+    }
 
-    let seAgregoAlgunaCategoria = false;
     const nuevasFilas = [];
 
-    // Intenta extraer las horas discriminadas
-    let detalleCategorias = typeof parteObj?.categorias_hh === 'string' 
-      ? JSON.parse(parteObj.categorias_hh || '{}') 
-      : (parteObj?.categorias_hh || {});
-
-    categoriasBase.forEach(cat => {
-      let horas = Number(detalleCategorias[cat.id]) || 0;
-      if (horas === 0) {
-        // Busca en las propiedades directas del objeto si no existe 'categorias_hh'
-        for (const k of cat.keys) {
-          if (Number(parteObj[k]) > 0) {
-            horas = Number(parteObj[k]);
-            break;
-          }
+    if (Array.isArray(desglose) && desglose.length > 0) {
+      desglose.forEach(d => {
+        const cat = String(d.categoria || 'OE').trim().toUpperCase();
+        const horas = Number(d.totalHoras) || 0;
+        if (horas > 0) {
+          const valorHora = tablaValores[cat] || tablaValores['DEFAULT'];
+          nuevasFilas.push({
+            id: `parte-${nroParte}-${cat}-${Date.now()}-${Math.random()}`,
+            nroParte,
+            fecha: fechaParte,
+            totalHoras: horas,
+            valorHora,
+            valorTotal: horas * valorHora,
+            clasificacion: cat
+          });
         }
-      }
+      });
+    }
 
-      if (horas > 0) {
-        const valorHora = tablaValores[cat.id] || tablaValores['DEFAULT'];
-        nuevasFilas.push({
-          id: `parte-${nroParte}-${cat.id}-${Date.now()}`,
-          nroParte,
-          fecha: fechaParte,
-          totalHoras: horas,
-          valorHora,
-          valorTotal: horas * valorHora,
-          clasificacion: cat.id
-        });
-        seAgregoAlgunaCategoria = true;
-      }
-    });
-
-    // Fallback: Si el parte viejo no tiene categorías discriminadas, asume todo al total de horas y lo manda a 'OE'
-    if (!seAgregoAlgunaCategoria) {
-      const horasTotales = Number(parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
-      if (horasTotales > 0) {
-        const catDefault = 'OE';
-        const valorHora = tablaValores[catDefault] || tablaValores['DEFAULT'];
-        nuevasFilas.push({
-          id: `parte-${nroParte}-DEFAULT-${Date.now()}`,
-          nroParte,
-          fecha: fechaParte,
-          totalHoras: horasTotales,
-          valorHora,
-          valorTotal: horasTotales * valorHora,
-          clasificacion: catDefault
-        });
-      }
+    // Si no hay desglose estructurado, respaldar buscando en las horas totales del parte
+    if (nuevasFilas.length === 0) {
+      const horasTotales = Number(parteObj?.totalHorasSuma || parteObj?.totalhorassuma || parteObj?.total_horas_suma || 8);
+      const catDefault = 'OE';
+      const valorHora = tablaValores[catDefault] || tablaValores['DEFAULT'];
+      nuevasFilas.push({
+        id: `parte-${nroParte}-DEFAULT-${Date.now()}`,
+        nroParte,
+        fecha: fechaParte,
+        totalHoras: horasTotales,
+        valorHora,
+        valorTotal: horasTotales * valorHora,
+        clasificacion: catDefault
+      });
     }
 
     setPartesSeleccionados(prev => [...prev, ...nuevasFilas]);
@@ -374,7 +345,6 @@ export default function CertificadoHorasHombreTab({
     }
   };
 
-  // ---> NUEVA LÓGICA: Eliminar Certificado (Solo Admin) <---
   const handleEliminarCertificado = async (idCertificado) => {
     if (!window.confirm("¿Estás seguro de que deseas eliminar este certificado del historial?")) return;
     try {
@@ -397,7 +367,6 @@ export default function CertificadoHorasHombreTab({
 
   return (
     <div className="space-y-8">
-      {/* FORMULARIO PRINCIPAL */}
       <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
           <div>
@@ -630,7 +599,6 @@ export default function CertificadoHorasHombreTab({
           </table>
         </div>
 
-        {/* SECCIÓN DE RESPONSABLES EDITABLES */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
           <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
             <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
@@ -658,7 +626,7 @@ export default function CertificadoHorasHombreTab({
               <div>
                 <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
                 <input 
-                  type="password"  // ---> Modificado para mostrar círculos <---
+                  type="password"
                   maxLength={6}
                   value={respProveedor.firma} 
                   onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value})} 
@@ -695,7 +663,7 @@ export default function CertificadoHorasHombreTab({
               <div>
                 <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
                 <input 
-                  type="password" // ---> Modificado para mostrar círculos <---
+                  type="password"
                   maxLength={6}
                   value={respCliente.firma} 
                   onChange={(e) => setRespCliente({...respCliente, firma: e.target.value})} 
@@ -723,7 +691,6 @@ export default function CertificadoHorasHombreTab({
         </div>
       </div>
 
-      {/* SECCIÓN DE HISTORIAL DE CERTIFICADOS */}
       <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-4 shadow-sm">
         <div className="flex items-center justify-between border-b-2 border-slate-800 pb-3">
           <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
@@ -798,7 +765,6 @@ export default function CertificadoHorasHombreTab({
                           <span className="text-slate-400 italic">No disponible</span>
                         )}
                       </td>
-                      {/* Lógica de borrado solo para Admin */}
                       {esAdmin && (
                         <td className="py-2.5 px-3 text-center">
                           <button

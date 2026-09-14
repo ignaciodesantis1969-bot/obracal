@@ -28,7 +28,6 @@ export default function ReportesDiariosTab({
   const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
   const [statusFetchLocal, setStatusFetchLocal] = useState('idle');
 
-  // Lista negra global compartida sincronizada en el navegador
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
     try {
       const eliminados = localStorage.getItem('sice_partes_eliminados_global_v5');
@@ -203,7 +202,6 @@ export default function ReportesDiariosTab({
     return horasConProporcional.toFixed(2);
   }, []);
 
-  // Inicializar operarios por defecto si hay personal activo
   useEffect(() => {
     if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
       const iniciales = empleadosActivosFiltrados.slice(0, 1).map((emp, idx) => {
@@ -220,7 +218,6 @@ export default function ReportesDiariosTab({
     }
   }, [empleadosActivosFiltrados, operariosSeleccionados.length, buscarValorEnObjeto]);
 
-  // Cálculo correcto acumulando el 100% de las horas de la fila por cada operario tildado
   const { horasPorCategoria, granTotalHorasHombre } = useMemo(() => {
     const resumen = {};
     let sumaTotalGeneral = 0;
