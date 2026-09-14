@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit2, Search, Download, Loader2, Calculator } from 'lucide-react';
+import { Plus, Trash2, Edit2, Search, Loader2, Calculator } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function Obras() {
@@ -24,7 +24,7 @@ export default function Obras() {
     notas: ''
   });
 
- 
+  
   const cargarDatos = async () => {
     setIsLoading(true);
     setError('');
@@ -223,12 +223,9 @@ export default function Obras() {
           <p className="text-slate-500 text-sm mt-1">{obras.length} obras registradas</p>
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <button className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 font-medium text-sm transition-colors flex-1 sm:flex-none shadow-sm">
-            <Download className="w-4 h-4" /> Exportar
-          </button>
           <button 
             onClick={isFormOpen ? () => setIsFormOpen(false) : handleAbrirFormularioNuevo}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors flex-1 sm:flex-none shadow-sm"
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors w-full sm:w-auto shadow-sm"
           >
             <Plus className="w-4 h-4" /> Nueva Obra
           </button>
