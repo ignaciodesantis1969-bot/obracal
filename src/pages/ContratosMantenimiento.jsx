@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload, Key } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { GOOGLE_SCRIPT_URL } from '@/api';
@@ -28,16 +28,13 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const formatearMesBase = (val) => {
     if (!val) return '---';
     try {
-      // Si viene en formato mm/aaaa o yyyy-mm
       if (val.includes('/')) return val;
       if (val.includes('-')) {
         const partes = val.split('-');
         if (partes.length >= 2) {
-          // Podría ser yyyy-mm
           if (partes[0].length === 4) {
             return `${partes[1]}/${partes[0]}`;
           }
-          // O mm-yyyy
           return `${partes[0]}/${partes[1]}`;
         }
       }
@@ -1006,8 +1003,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                       const esBase = idx === 0;
 
                       return (
-                        <>
-                          <tr key={idx} className={cn("hover:bg-slate-50", reg.reajusteAplicado && "bg-red-50/40")}>
+                        <Fragment key={idx}>
+                          <tr className={cn("hover:bg-slate-50", reg.reajusteAplicado && "bg-red-50/40")}>
                             <td className="p-4 font-bold text-slate-700">
                               <div className="flex items-center gap-2">
                                 <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
@@ -1088,7 +1085,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                               </td>
                             </tr>
                           )}
-                        </>
+                        </Fragment>
                       );
                     })}
                   </tbody>
