@@ -66,6 +66,19 @@ export default function ReportesDiariosTab({
     cargarReportesServidor();
   }, [cargarReportesServidor]);
 
+  // Sincronización en tiempo real mediante eventos globales y de almacenamiento
+  useEffect(() => {
+    const handleStorageSync = () => {
+      cargarReportesServidor();
+    };
+    window.addEventListener('sice_partes_actualizados', handleStorageSync);
+    window.addEventListener('storage', handleStorageSync);
+    return () => {
+      window.removeEventListener('sice_partes_actualizados', handleStorageSync);
+      window.removeEventListener('storage', handleStorageSync);
+    };
+  }, [cargarReportesServidor]);
+
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
     if (fuente && typeof fuente === 'object') {
@@ -434,6 +447,7 @@ export default function ReportesDiariosTab({
         });
         try {
           localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(filtrado));
+          window.dispatchEvent(new Event('sice_partes_actualizados'));
         } catch (e) {}
         return filtrado;
       });
@@ -561,6 +575,7 @@ export default function ReportesDiariosTab({
         const actualizado = [nuevoParte, ...prev];
         try {
           localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(actualizado));
+          window.dispatchEvent(new Event('sice_partes_actualizados'));
         } catch (e) {}
         return actualizado;
       });
