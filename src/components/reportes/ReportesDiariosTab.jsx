@@ -216,45 +216,39 @@ export default function ReportesDiariosTab({
         };
       });
       setOperariosSeleccionados(iniciales);
-      // Asignar por defecto a la primera fila de ítems
       setSiceItems(prev => prev.map((it, iIdx) => iIdx === 0 ? { ...it, operariosIds: [String(buscarValorEnObjeto(empleadosActivosFiltrados[0], ['id', 'ID']) || 'op-0')] } : it));
     }
   }, [empleadosActivosFiltrados, operariosSeleccionados.length, buscarValorEnObjeto]);
 
-  // Cálculo de horas por categoría basado en la asignación por ítem o total
-  const horasPorCategoria = useMemo(() => {
+  // Cálculo correcto acumulando el 100% de las horas de la fila por cada operario tildado
+  const { horasPorCategoria, granTotalHorasHombre } = useMemo(() => {
     const resumen = {};
-    
+    let sumaTotalGeneral = 0;
+
     siceItems.forEach(item => {
       const horasItem = parseFloat(calcularTotalHorasSice(item?.horaComienzo, item?.horaFin) || 0);
       const opsAsignados = item?.operariosIds || [];
-      
-      if (opsAsignados.length > 0) {
-        // Distribuir las horas del ítem equitativamente entre los operarios tildados en esa tarea (o sumar según criterio)
-        const horasPorOp = horasItem / opsAsignados.length;
-        opsAsignados.forEach(opId => {
-          const opObj = operariosSeleccionados.find(o => String(o.id) === String(opId));
-          if (opObj) {
-            const cat = String(opObj.abreviacion || 'OE').trim().toUpperCase();
-            resumen[cat] = (resumen[cat] || 0) + horasPorOp;
-          }
-        });
-      } else {
-        // Si no hay operarios tildados en la fila, se asigna al primer operario o a 'OE'
-        const catDefault = operariosSeleccionados[0]?.abreviacion || 'OE';
-        resumen[catDefault] = (resumen[catDefault] || 0) + horasItem;
-      }
+
+      opsAsignados.forEach(opId => {
+        const opObj = operariosSeleccionados.find(o => String(o.id) === String(opId));
+        if (opObj) {
+          const cat = String(opObj.abreviacion || 'OE').trim().toUpperCase();
+          resumen[cat] = (resumen[cat] || 0) + horasItem;
+          sumaTotalGeneral += horasItem;
+        }
+      });
     });
 
-    return Object.entries(resumen).map(([cat, total]) => ({
+    const desglose = Object.entries(resumen).map(([cat, total]) => ({
       categoria: cat,
       totalHoras: total.toFixed(2)
     }));
-  }, [siceItems, operariosSeleccionados, calcularTotalHorasSice]);
 
-  const granTotalHorasHombre = useMemo(() => {
-    return siceItems.reduce((acc, it) => acc + parseFloat(calcularTotalHorasSice(it?.horaComienzo, it?.horaFin) || 0), 0).toFixed(2);
-  }, [siceItems, calcularTotalHorasSice]);
+    return {
+      horasPorCategoria: desglose,
+      granTotalHorasHombre: sumaTotalGeneral.toFixed(2)
+    };
+  }, [siceItems, operariosSeleccionados, calcularTotalHorasSice]);
 
   const extraerDatosContrato = useCallback((contrato) => {
     if (!contrato) return { pCargo: '', pNombre: '', pKey: 'AT1020', cCargo: '', cNombre: '', cKey: 'CM7030' };
@@ -388,7 +382,6 @@ export default function ReportesDiariosTab({
   const eliminarOperarioFila = (index) => {
     const opEliminar = operariosSeleccionados[index];
     setOperariosSeleccionados(operariosSeleccionados.filter((_, i) => i !== index));
-    // Limpiar referencia en los ítems
     if (opEliminar) {
       setSiceItems(prev => prev.map(it => ({
         ...it,
@@ -729,7 +722,6 @@ export default function ReportesDiariosTab({
                   <th className="py-2.5 px-2 border-r border-slate-700 text-center w-24">Fin</th>
                   <th className="py-2.5 px-2 border-r border-slate-700 text-center w-20">Total</th>
                   <th className="py-2.5 px-3 border-r border-slate-700">Observaciones</th>
-                  {/* Columna dinámica de operarios intervinientes */}
                   <th className="py-2.5 px-3 border-r border-slate-700 text-center bg-slate-900 min-w-[150px]">
                     Operarios Intervinientes
                   </th>
@@ -779,7 +771,6 @@ export default function ReportesDiariosTab({
                           className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
                         />
                       </td>
-                      {/* Celdas de tilde para cada operario disponible */}
                       <td className="py-1.5 px-3 border-r border-slate-300 bg-white/60">
                         <div className="flex flex-col gap-1">
                           {operariosSeleccionados.length === 0 ? (
@@ -839,7 +830,6 @@ export default function ReportesDiariosTab({
             <span className="text-xs text-slate-500 font-semibold">Total filas: {siceItems.length} / 10</span>
           </div>
 
-          {/* Resumen dinámico y desglose por especialidad / categoría */}
           <div className="bg-amber-100/60 border-2 border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mt-2 shadow-sm">
             <div className="space-y-2">
               <p className="text-amber-900 font-bold text-xs flex items-center gap-2">
@@ -1109,7 +1099,6 @@ export default function ReportesDiariosTab({
               </table>
             </div>
 
-            {/* Resumen en Modal */}
             <div className="bg-amber-100/60 border-2 border-amber-300 rounded-xl p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 shadow-sm">
               <div className="space-y-1">
                 <p className="text-amber-900 font-bold text-xs">Desglose de Horas por Especialidad:</p>
