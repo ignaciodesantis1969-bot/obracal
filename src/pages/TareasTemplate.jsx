@@ -8,13 +8,12 @@ export default function TareasTemplate() {
   const [rubrosList, setRubrosList] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedRubro, setSelectedRubro] = useState(''); // Estado para el filtro por rubro
-  const [activeForm, setActiveForm] = useState(null); // 'tarea' o 'rubro'
+  const [selectedRubro, setSelectedRubro] = useState(''); 
+  const [activeForm, setActiveForm] = useState(null); 
   const [editingId, setEditingId] = useState(null);
   const [rubrosAbiertos, setRubrosAbiertos] = useState({});
   const [tareasAbiertas, setTareasAbiertas] = useState({});
 
-  // 🛡️ ESTADOS DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSaving, setIsSaving] = useState(false);
 
   const [formData, setFormData] = useState({ 
@@ -31,8 +30,7 @@ export default function TareasTemplate() {
 
   const [busquedaInsumo, setBusquedaInsumo] = useState('');
 
-  
-  const cargarDatos = async () => {
+  const cargarDatos = async (reintentos = 3) => {
     setIsLoading(true);
     try {
       const [resTareas, resInsumos, resRubros] = await Promise.all([
@@ -46,6 +44,13 @@ export default function TareasTemplate() {
       const dataRubros = await resRubros.json();
 
       const itemsList = Array.isArray(dataTareas) ? dataTareas : [];
+      
+      if (itemsList.length === 0 && reintentos > 0) {
+        console.warn(`Maestro de tareas vacío temporalmente. Reintentando en 1.5s... (${reintentos} intentos restantes)`);
+        setTimeout(() => cargarDatos(reintentos - 1), 1500);
+        return;
+      }
+
       setItems(itemsList);
       setInsumosDisponibles(Array.isArray(dataInsumos) ? dataInsumos : []);
       setRubrosList(Array.isArray(dataRubros) ? dataRubros : []);
@@ -59,7 +64,10 @@ export default function TareasTemplate() {
       rubrosUnicos.forEach(r => inicialAbiertos[r] = true);
       setRubrosAbiertos(inicialAbiertos);
     } catch (err) { 
-      console.error(err); 
+      console.error("Error al cargar maestro de tareas:", err); 
+      if (reintentos > 0) {
+        setTimeout(() => cargarDatos(reintentos - 1), 1500);
+      }
     } finally { 
       setIsLoading(false); 
     }
@@ -213,10 +221,9 @@ export default function TareasTemplate() {
     return `R${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  // 🛡️ FUNCIÓN DE GUARDADO CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
   const handleGuardar = async (e) => {
     e.preventDefault();
-    if (isSaving) return; // Detiene clics adicionales si ya está enviando
+    if (isSaving) return; 
 
     setIsSaving(true);
     try {
@@ -284,7 +291,7 @@ export default function TareasTemplate() {
       console.error(err);
       alert("Error de conexión al intentar guardar.");
     } finally {
-      setIsSaving(false); // 🔓 Libera el bloqueo al finalizar la petición
+      setIsSaving(false); 
     }
   };
 
@@ -329,7 +336,6 @@ export default function TareasTemplate() {
     setTareasAbiertas(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
-  // Filtrado de rubros basado en el buscador y el selector de rubro
   const rubrosFiltrados = listaRubrosUnicos.filter(rubroName => {
     const matchesRubroFilter = !selectedRubro || rubroName === selectedRubro.toUpperCase();
     if (!matchesRubroFilter) return false;
@@ -369,7 +375,6 @@ export default function TareasTemplate() {
         </div>
       </div>
 
-      {/* Barra de Búsqueda y Filtro por Rubro */}
       <div className="flex flex-col md:flex-row items-center gap-3">
         <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border border-slate-300 shadow-sm w-full flex-1">
           <Search className="w-5 h-5 text-slate-400 shrink-0" />
