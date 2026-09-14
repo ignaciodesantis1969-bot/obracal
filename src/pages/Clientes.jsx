@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit2, Search, Download, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Edit2, Search, Loader2 } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function Clientes() {
@@ -139,16 +139,13 @@ export default function Clientes() {
           <p className="text-slate-500 text-sm mt-1">{clientes.length} clientes registrados</p>
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <button className="flex items-center justify-center gap-2 px-4 py-2 bg-white border border-slate-300 rounded-lg text-slate-700 hover:bg-slate-50 font-medium text-sm transition-colors flex-1 sm:flex-none shadow-sm">
-            <Download className="w-4 h-4" /> Exportar
-          </button>
           <button 
             onClick={() => { 
               setEditingId(null); 
               setNuevoCliente({ codigo: '', razon_social: '', cuit: '', telefono: '', email: '', direccion: '', ciudad: '', provincia: '', estado: 'activo' });
               setIsFormOpen(!isFormOpen); 
             }}
-            className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors flex-1 sm:flex-none shadow-sm"
+            className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors w-full sm:w-auto shadow-sm"
           >
             <Plus className="w-4 h-4" /> Nuevo Cliente
           </button>
@@ -292,7 +289,6 @@ export default function Clientes() {
                 </tr>
               ) : (
                 clientesFiltrados.map((c, i) => {
-                  // Combinar Dirección, Ciudad y Provincia limpiamente
                   const direccionCompleta = [c.direccion, c.ciudad, c.provincia].filter(Boolean).join(', ');
 
                   return (
