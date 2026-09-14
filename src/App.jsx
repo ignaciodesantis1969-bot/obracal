@@ -55,7 +55,7 @@ const AuthenticatedApp = () => {
     usuarios: []
   });
 
-  // CARGA ÚNICA GLOBAL: Trae absolutamente todo de una sola vez (incluyendo usuarios)
+  // CARGA ÚNICA GLOBAL BLINDADA CON TODAS LAS VARIANTES DE CLAVES
   const cargarDatos = async () => {
     try {
       const response = await fetch(GOOGLE_SCRIPT_URL, {
@@ -66,25 +66,25 @@ const AuthenticatedApp = () => {
       const data = await response.json();
       if (data.success) {
          setGlobalData({
-          facturas: data.facturas || [],
-          facturasVenta: data.facturas_venta || data.facturasVenta || [],
-          ordenesCompra: data.ordenes_compra || [],
-          proveedores: data.proveedores || [],
-          obras: data.obras || [],
-          presupuestos: data.presupuestos || [],
-          insumos: data.insumos || [],
-          clientes: data.clientes || [],
-          movimientos: data.movimientos || [],
-          personal: data.personal || [],
-          rubros: data.rubros || [],
-          maestroTareasRubros: data.maestro_tareas_rubros || data.maestroTareasRubros || [],
-          legajos: data.legajos || [],
-          contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || [],
+          facturas: data.facturas || data.Facturas || [],
+          facturasVenta: data.facturas_venta || data.facturasVenta || data.FacturasVenta || [],
+          ordenesCompra: data.ordenes_compra || data.ordenesCompra || data.OrdenesCompra || [],
+          proveedores: data.proveedores || data.Proveedores || [],
+          obras: data.obras || data.Obras || [],
+          presupuestos: data.presupuestos || data.Presupuestos || [],
+          insumos: data.insumos || data.Insumos || [],
+          clientes: data.clientes || data.Clientes || [],
+          movimientos: data.movimientos || data.tesoreria || data.Tesoreria || [],
+          personal: data.personal || data.Personal || [],
+          rubros: data.rubros || data.Rubros || [],
+          maestroTareasRubros: data.maestro || data.maestro_tareas_rubros || data.maestroTareasRubros || data.MaestroTareasRubros || [],
+          legajos: data.legajos || data.Legajos || [],
+          contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || data.contratos || [],
           certificados: data.certificados || data.certificados_emitidos || data.certificaciones_horas || data.certificacionesHoras || [],
           cargasSemanales: data.cargas_semanales || data.cargasSemanales || data.CargasSemanales || [],
-          usuarios: data.usuarios || []
+          usuarios: data.usuarios || data.usuario || data.Usuarios || []
         });
-        return data.usuarios || [];
+        return data.usuarios || data.usuario || data.Usuarios || [];
       }
     } catch (error) {
       console.error("Error al sincronizar datos globales:", error);
