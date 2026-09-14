@@ -59,6 +59,15 @@ export default function CertificadoHorasHombreTab({
     return Array.from(unicosMap.values());
   }, [propContratos, contratosSheet]);
 
+  // Función auxiliar para normalizar identificadores y números de parte (ignora ceros a la izquierda y espacios)
+  const normalizarNro = (nro) => {
+    if (!nro && nro !== 0) return '';
+    const str = String(nro).trim();
+    // Si contiene caracteres alfanuméricos puros (ej: parte-001) limpiamos o extraemos número
+    const numMatch = str.replace(/\D/g, '');
+    return numMatch ? parseInt(numMatch, 10).toString() : str.toLowerCase();
+  };
+
   const allReportesSice = useMemo(() => {
     const p1 = extraerArrayDatos(propReportes);
     const p2 = extraerArrayDatos(reportesSheet);
@@ -74,13 +83,37 @@ export default function CertificadoHorasHombreTab({
       extraGlobales = extraerArrayDatos(window.globalData.allReportesSice);
     }
 
-    const combinados = [...p1, ...p2, ...localesExtra, ...extraGlobales];
+    const combinados = [...localesExtra, ...p1, ...p2, ...extraGlobales];
     const unicosMap = new Map();
+    
     combinados.forEach((item, index) => {
       if (!item) return;
-      const key = String(item?.id || item?.ID || item?.nro || index);
-      if (!unicosMap.has(key)) unicosMap.set(key, item);
+      
+      // Parsear campos complejos por si vienen como string en Sheets
+      let desgloseParsed = item.desgloseCategorias || item.desglose_categorias;
+      if (typeof desgloseParsed === 'string' && desgloseParsed.trim()) {
+        try { desgloseParsed = JSON.parse(desgloseParsed); } catch { desgloseParsed = []; }
+      }
+
+      let itemProcesado = {
+        ...item,
+        desgloseCategorias: Array.isArray(desgloseParsed) ? desgloseParsed : []
+      };
+
+      const rawNro = item?.nro || item?.ID || item?.id || index;
+      const key = normalizarNro(rawNro) || String(index);
+
+      if (!unicosMap.has(key)) {
+        unicosMap.set(key, itemProcesado);
+      } else {
+        // Priorizar el que tenga URL de PDF o datos más completos
+        const existente = unicosMap.get(key);
+        if ((itemProcesado.pdfUrl || itemProcesado.pdf_url) && !(existente.pdfUrl || existente.pdf_url)) {
+          unicosMap.set(key, itemProcesado);
+        }
+      }
     });
+
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet]);
 
@@ -160,6 +193,7 @@ export default function CertificadoHorasHombreTab({
     }
   }, [contratoActual, historialCertificados]);
 
+  // Set con los números de parte normalizados ya utilizados en cualquier certificado del historial
   const partesUsadosEnHistorial = useMemo(() => {
     const usados = new Set();
     historialCertificados.forEach(cert => {
@@ -171,20 +205,25 @@ export default function CertificadoHorasHombreTab({
         filas = detalleFilasRaw;
       }
       filas.forEach(f => {
-        if (f.nroParte) usados.add(String(f.nroParte));
+        if (f.nroParte) {
+          usados.add(normalizarNro(f.nroParte));
+        }
       });
     });
     return usados;
   }, [historialCertificados]);
 
+  // Filtrado estricto: Oculta los partes que ya fueron usados o están seleccionados actualmente
   const partesDisponiblesParaAgregar = useMemo(() => {
-    const seleccionadosActuales = partesSeleccionados.map(p => String(p.nroParte));
+    const seleccionadosActuales = partesSeleccionados.map(p => normalizarNro(p.nroParte));
     
     return allReportesSice.filter(p => {
-      const idNro = String(p?.nro || p?.id || '').trim();
-      if (!idNro || idNro === 'undefined' || idNro === 'null') return false; 
-      if (partesUsadosEnHistorial.has(idNro)) return false; 
-      if (seleccionadosActuales.includes(idNro)) return false;
+      const rawNro = p?.nro || p?.id;
+      const idNroNorm = normalizarNro(rawNro);
+      
+      if (!idNroNorm || idNroNorm === 'undefined' || idNroNorm === 'null') return false; 
+      if (partesUsadosEnHistorial.has(idNroNorm)) return false; 
+      if (seleccionadosActuales.includes(idNroNorm)) return false;
       return true;
     });
   }, [allReportesSice, partesUsadosEnHistorial, partesSeleccionados]);
@@ -218,14 +257,14 @@ export default function CertificadoHorasHombreTab({
     };
   };
 
-  // ---> LÓGICA CORREGIDA: Desglose por categoría del Parte Diario <---
+  // ---> LÓGICA CORREGIDA: Desglose discriminado por categoría ("S", "OE", etc.) del Parte Diario <---
   const agregarParteFila = (parteObj) => {
     const tablaValores = obtenerValoresPolinomica(contratoActual);
     const fechaParte = parteObj?.fecha || fechaEmision;
     const nroParte = parteObj?.nro || parteObj?.id || '001';
 
     let desglose = parteObj?.desgloseCategorias || parteObj?.desglose_categorias;
-    if (typeof desglose === 'string') {
+    if (typeof desglose === 'string' && desglose.trim()) {
       try { desglose = JSON.parse(desglose); } catch (e) { desglose = []; }
     }
 
@@ -234,7 +273,7 @@ export default function CertificadoHorasHombreTab({
     if (Array.isArray(desglose) && desglose.length > 0) {
       desglose.forEach(d => {
         const cat = String(d.categoria || 'OE').trim().toUpperCase();
-        const horas = Number(d.totalHoras) || 0;
+        const horas = Number(d.totalHoras || d.horas) || 0;
         if (horas > 0) {
           const valorHora = tablaValores[cat] || tablaValores['DEFAULT'];
           nuevasFilas.push({

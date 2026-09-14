@@ -49,6 +49,10 @@ export default function ReportesDiariosTab({
         if (Array.isArray(data)) {
           setFetchedReportesLocal(data);
           setStatusFetchLocal('success');
+          // Sincronizar también con el caché local para otras pestañas como Certificados
+          try {
+            localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(data));
+          } catch (e) {}
         } else {
           setStatusFetchLocal('error');
         }
@@ -84,12 +88,19 @@ export default function ReportesDiariosTab({
   const allReportesSice = useMemo(() => {
     let combinados = [];
 
+    // Incluir también caché local en localStorage para persistencia instantánea entre pestañas
+    let localesCache = [];
+    try {
+      const cached = localStorage.getItem('sice_partes_local_cache_v3');
+      if (cached) localesCache = JSON.parse(cached);
+    } catch (e) {}
+
     if (statusFetchLocal === 'success') {
-      combinados = extraerArrayDatos(fetchedReportesLocal);
+      combinados = [...extraerArrayDatos(fetchedReportesLocal), ...localesCache];
     } else {
       const s = extraerArrayDatos(reportesSheet);
       const p = extraerArrayDatos(propReportes);
-      combinados = s.length > 0 ? s : p;
+      combinados = [...localesCache, ...(s.length > 0 ? s : p)];
     }
 
     const unicosMap = new Map();
@@ -218,6 +229,7 @@ export default function ReportesDiariosTab({
     }
   }, [empleadosActivosFiltrados, operariosSeleccionados.length, buscarValorEnObjeto]);
 
+  // ---> CÁLCULO ROBUSTO: Discriminación exacta de horas por categoría (ej. "S", "OE", etc.) <---
   const { horasPorCategoria, granTotalHorasHombre } = useMemo(() => {
     const resumen = {};
     let sumaTotalGeneral = 0;
@@ -426,12 +438,18 @@ export default function ReportesDiariosTab({
       setIdsEliminadosLocales(nuevosEliminados);
       localStorage.setItem('sice_partes_eliminados_global_v5', JSON.stringify(nuevosEliminados));
 
-      setFetchedReportesLocal(prev => prev.filter(item => {
-        const iId = String(item?.id || item?.ID || '').trim();
-        const iNro = String(item?.nro || item?.Nro || '').trim();
-        const iNroNum = iNro ? parseInt(iNro.replace(/\D/g, ''), 10).toString() : '';
-        return iId !== idLimpio && iNro !== nroOriginal && iNroNum !== nroNum;
-      }));
+      setFetchedReportesLocal(prev => {
+        const filtrado = prev.filter(item => {
+          const iId = String(item?.id || item?.ID || '').trim();
+          const iNro = String(item?.nro || item?.Nro || '').trim();
+          const iNroNum = iNro ? parseInt(iNro.replace(/\D/g, ''), 10).toString() : '';
+          return iId !== idLimpio && iNro !== nroOriginal && iNroNum !== nroNum;
+        });
+        try {
+          localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(filtrado));
+        } catch (e) {}
+        return filtrado;
+      });
 
       if (typeof refetchReportes === 'function') refetchReportes();
       cargarReportesServidor();
@@ -552,7 +570,13 @@ export default function ReportesDiariosTab({
         pdfUrl: pdfUrlFinal
       };
 
-      setFetchedReportesLocal(prev => [nuevoParte, ...prev]);
+      setFetchedReportesLocal(prev => {
+        const actualizado = [nuevoParte, ...prev];
+        try {
+          localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(actualizado));
+        } catch (e) {}
+        return actualizado;
+      });
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
       if (typeof refetchReportes === 'function') refetchReportes();
 
