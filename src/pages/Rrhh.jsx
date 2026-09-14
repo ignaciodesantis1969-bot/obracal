@@ -2145,7 +2145,7 @@ export default function Rrhh({
                     const cPresu = c.presupuesto_id || c.Presupuesto_id || '---';
                     const cContrato = c.contrato_mantenimiento_id || c.Contrato_mantenimiento_id || '---';
                     const cTotal = Number(c.total_general || c.Total_general || 0);
-                    const cFecha = c.fecha || c.Fecha || '---';
+                    const cFecha = c.fecha || c.Fecha ? new Date(c.fecha || c.Fecha).toLocaleDateString('es-AR') : '---';
                     const cObraId = c.obra_id || c.Obra_id || '---';
 
                     return (
