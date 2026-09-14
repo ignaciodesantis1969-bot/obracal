@@ -67,26 +67,29 @@ export default function PresupuestoDetalle() {
   const [rubrosColapsados, setRubrosColapsados] = useState({});
   const [rubrosConOrden, setRubrosConOrden] = useState([]);
 
+  // 🚀 CARGA EN PARALELO AISLADA (Promise.all) por cada tabla correspondiente
   const cargarDatosDetalle = async (reintentos = 3) => {
     setIsLoading(true);
     try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'cargarDetalleCompleto' }) 
-      });
+      const [resPres, resObras, resClientes, resMt, resCert, resInsumos, resRubros] = await Promise.all([
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Presupuestos', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Obras', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Clientes', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'MaestroTareasRubros', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Certificados', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Insumos', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Rubros', action: 'list' }) })
+      ]);
 
-      const data = await response.json();
+      const presupuestosList = await resPres.json();
+      const obrasList = await resObras.json();
+      const clientesList = await resClientes.json();
+      const mtList = await resMt.json();
+      const certList = await resCert.json();
+      const insList = await resInsumos.json();
+      const rubList = await resRubros.json();
 
-      const presupuestosList = data.presupuestos || [];
-      const obrasList = data.obras || [];
-      const clientesList = data.clientes || [];
-      const mtList = data.maestro || [];
-      const certList = data.certificados || [];
-      const insList = data.insumos || [];
-      const rubList = data.rubros || [];
-
-      const presActual = presupuestosList.find(p => String(p.id).trim() === String(presupuestoId).trim());
+      const presActual = Array.isArray(presupuestosList) ? presupuestosList.find(p => String(p.id).trim() === String(presupuestoId).trim()) : null;
 
       if (!presActual && reintentos > 0) {
         console.warn(`Presupuesto ${presupuestoId} no encontrado todavía. Reintentando en 1.5s... (${reintentos} intentos restantes)`);
@@ -158,11 +161,11 @@ export default function PresupuestoDetalle() {
         }
 
         if (presActual.obra_id) {
-          const obraEncontrada = obrasList.find(o => String(o.id).trim() === String(presActual.obra_id).trim());
+          const obraEncontrada = Array.isArray(obrasList) ? obrasList.find(o => String(o.id).trim() === String(presActual.obra_id).trim()) : null;
           setObra(obraEncontrada || {});
           if (obraEncontrada) {
             const clienteId = obraEncontrada.cliente_id || obraEncontrada.clienteId;
-            const clienteEncontrado = clientesList.find(c => String(c.id).trim() === String(clienteId).trim());
+            const clienteEncontrado = Array.isArray(clientesList) ? clientesList.find(c => String(c.id).trim() === String(clienteId).trim()) : null;
             setCliente(clienteEncontrado || {});
           }
         }
@@ -181,7 +184,6 @@ export default function PresupuestoDetalle() {
 
       setItemsDetalle(itemsParseados);
       
-      // Aplanar correctamente el maestro de tareas si viene agrupado por rubros
       let tareasPlanas = [];
       if (Array.isArray(mtList)) {
         mtList.forEach(item => {
@@ -202,14 +204,13 @@ export default function PresupuestoDetalle() {
       setCertificados(Array.isArray(certList) ? certList : []);
       setInsumosList(Array.isArray(insList) ? insList : []);
       setRubrosList(Array.isArray(rubList) ? rubList : []);
-      setIsLoading(false);
     } catch (err) {
       console.error("Error al cargar detalle:", err);
       if (reintentos > 0) {
         setTimeout(() => cargarDatosDetalle(reintentos - 1), 1500);
-      } else {
-        setIsLoading(false);
       }
+    } finally {
+      setIsLoading(false);
     }
   };
 

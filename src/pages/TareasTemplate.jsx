@@ -30,13 +30,14 @@ export default function TareasTemplate() {
 
   const [busquedaInsumo, setBusquedaInsumo] = useState('');
 
+  // 🚀 CARGA LIGERA Y RÁPIDA EN PARALELO (Optimizado por tabla)
   const cargarDatos = async (reintentos = 3) => {
     setIsLoading(true);
     try {
       const [resTareas, resInsumos, resRubros] = await Promise.all([
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'MaestroTareasRubros', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Insumos', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Rubros', action: 'list' }) })
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'MaestroTareasRubros', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Insumos', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Rubros', action: 'list' }) })
       ]);
       
       const dataTareas = await resTareas.json();
@@ -46,8 +47,8 @@ export default function TareasTemplate() {
       const itemsList = Array.isArray(dataTareas) ? dataTareas : [];
       
       if (itemsList.length === 0 && reintentos > 0) {
-        console.warn(`Maestro de tareas vacío temporalmente. Reintentando en 1.5s... (${reintentos} intentos restantes)`);
-        setTimeout(() => cargarDatos(reintentos - 1), 1500);
+        console.warn(`Maestro de tareas vacío temporalmente. Reintentando en 1s... (${reintentos} intentos restantes)`);
+        setTimeout(() => cargarDatos(reintentos - 1), 1000);
         return;
       }
 
@@ -66,7 +67,7 @@ export default function TareasTemplate() {
     } catch (err) { 
       console.error("Error al cargar maestro de tareas:", err); 
       if (reintentos > 0) {
-        setTimeout(() => cargarDatos(reintentos - 1), 1500);
+        setTimeout(() => cargarDatos(reintentos - 1), 1000);
       }
     } finally { 
       setIsLoading(false); 
@@ -195,7 +196,7 @@ export default function TareasTemplate() {
       });
       const res = await response.json();
 
-      if (res.success) {
+      if (res.success || res.id) {
         cargarDatos();
       } else {
         alert("Error al duplicar la tarea: " + (res.error || "Desconocido"));
@@ -251,7 +252,7 @@ export default function TareasTemplate() {
         });
         const resData = await resRubro.json();
 
-        if (resData.success) {
+        if (resData.success || resData.id) {
           setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
           setEditingId(null);
           setActiveForm(null);
@@ -279,7 +280,7 @@ export default function TareasTemplate() {
       });
       const res = await response.json();
       
-      if (res.success) {
+      if (res.success || res.id) {
         setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
         setEditingId(null);
         setActiveForm(null);

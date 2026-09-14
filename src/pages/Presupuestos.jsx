@@ -36,32 +36,36 @@ export default function Presupuestos() {
     version: 'v1'
   });
 
+  // 🚀 CARGA RÁPIDA OPTIMIZADA CON PETICIONES EN PARALELO
   const fetchData = async (reintentos = 3) => {
     setIsLoading(true);
     try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'cargarDetalleCompleto' }) 
-      });
+      const [resPres, resObras, resClientes, resInsumos] = await Promise.all([
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Presupuestos', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Obras', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Clientes', action: 'list' }) }),
+        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Insumos', action: 'list' }) })
+      ]);
 
-      const data = await response.json();
+      const presList = await resPres.json();
+      const obrasList = await resObras.json();
+      const clientesList = await resClientes.json();
+      const insumosList = await resInsumos.json();
 
-      const presList = data.presupuestos || [];
-      if (presList.length === 0 && reintentos > 0) {
-        console.warn(`Presupuestos vacíos temporalmente. Reintentando en 1.5s... (${reintentos} intentos restantes)`);
-        setTimeout(() => fetchData(reintentos - 1), 1500);
+      if ((!presList || presList.length === 0) && reintentos > 0) {
+        console.warn(`Presupuestos vacíos temporalmente. Reintentando en 1s... (${reintentos} intentos restantes)`);
+        setTimeout(() => fetchData(reintentos - 1), 1000);
         return;
       }
 
       setPresupuestos(Array.isArray(presList) ? presList : []);
-      setObras(Array.isArray(data.obras) ? data.obras : []);
-      setClientes(Array.isArray(data.clientes) ? data.clientes : []);
-      setInsumosActuales(Array.isArray(data.insumos) ? data.insumos : []);
+      setObras(Array.isArray(obrasList) ? obrasList : []);
+      setClientes(Array.isArray(clientesList) ? clientesList : []);
+      setInsumosActuales(Array.isArray(insumosList) ? insumosList : []);
     } catch (err) {
       console.error("Error al cargar presupuestos:", err);
       if (reintentos > 0) {
-        setTimeout(() => fetchData(reintentos - 1), 1500);
+        setTimeout(() => fetchData(reintentos - 1), 1000);
       }
     } finally {
       setIsLoading(false);
@@ -115,7 +119,6 @@ export default function Presupuestos() {
     });
   };
 
-  // 🛡️ FUNCIÓN DE CREACIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
   const handleCrear = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -153,7 +156,7 @@ export default function Presupuestos() {
   };
 
   const ejecutarActualizacionEstado = async (id, datosActualizacion) => {
-    setIsLoading(true); // Bloquear temporalmente y mostrar carga sincronizada
+    setIsLoading(true);
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -167,7 +170,7 @@ export default function Presupuestos() {
       });
       const data = await res.json();
       if (data.success || data.id) {
-        await fetchData(); // Esperar la recarga completa del backend
+        await fetchData();
       } else {
         alert("Error al actualizar estado: " + (data.error || ''));
       }
