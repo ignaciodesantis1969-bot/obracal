@@ -37,6 +37,18 @@ export default function ReportesDiariosTab({
     }
   });
 
+  const extraerArrayDatos = (fuente) => {
+    if (Array.isArray(fuente)) return fuente;
+    if (fuente && typeof fuente === 'object') {
+      if (Array.isArray(fuente.data)) return fuente.data;
+      if (Array.isArray(fuente.items)) return fuente.items;
+      if (Array.isArray(fuente.result)) return fuente.result;
+      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
+      if (posibleArray) return posibleArray;
+    }
+    return [];
+  };
+
   const cargarReportesServidor = useCallback(() => {
     setStatusFetchLocal('loading');
     fetch(GOOGLE_SCRIPT_URL, {
@@ -46,11 +58,12 @@ export default function ReportesDiariosTab({
     })
       .then(res => res.json())
       .then(data => {
-        if (Array.isArray(data)) {
-          setFetchedReportesLocal(data);
+        const arrayExtraido = extraerArrayDatos(data);
+        if (arrayExtraido.length > 0 || Array.isArray(data)) {
+          setFetchedReportesLocal(arrayExtraido);
           setStatusFetchLocal('success');
           try {
-            localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(data));
+            localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(arrayExtraido));
           } catch (e) {}
         } else {
           setStatusFetchLocal('error');
@@ -79,18 +92,6 @@ export default function ReportesDiariosTab({
     };
   }, [cargarReportesServidor]);
 
-  const extraerArrayDatos = (fuente) => {
-    if (Array.isArray(fuente)) return fuente;
-    if (fuente && typeof fuente === 'object') {
-      if (Array.isArray(fuente.data)) return fuente.data;
-      if (Array.isArray(fuente.items)) return fuente.items;
-      if (Array.isArray(fuente.result)) return fuente.result;
-      const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
-      if (posibleArray) return posibleArray;
-    }
-    return [];
-  };
-
   const contratosList = useMemo(() => {
     const p = extraerArrayDatos(propContratos);
     if (p.length > 0) return p;
@@ -108,7 +109,7 @@ export default function ReportesDiariosTab({
 
     const s = extraerArrayDatos(reportesSheet);
     const p = extraerArrayDatos(propReportes);
-    const serverData = statusFetchLocal === 'success' ? extraerArrayDatos(fetchedReportesLocal) : [];
+    const serverData = extraerArrayDatos(fetchedReportesLocal);
 
     combinados = [...localesCache, ...serverData, ...s, ...p];
 
@@ -150,7 +151,7 @@ export default function ReportesDiariosTab({
       const nB = parseInt(String(b.nro || '').replace(/\D/g, '') || '0', 10);
       return nB - nA;
     });
-  }, [fetchedReportesLocal, statusFetchLocal, reportesSheet, propReportes, idsEliminadosLocales]);
+  }, [fetchedReportesLocal, reportesSheet, propReportes, idsEliminadosLocales]);
 
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
