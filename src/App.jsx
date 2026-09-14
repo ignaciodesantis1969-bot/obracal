@@ -51,68 +51,11 @@ const AuthenticatedApp = () => {
     maestroTareasRubros: [],
     legajos: [],
     contratosMantenimiento: [],
-    certificados: []
+    certificados: [],
+    usuarios: []
   });
 
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        let rolFinal = 'operador';
-        let nombreFinal = firebaseUser.email.split('@')[0];
-        const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
-
-        try {
-          const response = await fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ tabla: 'Usuarios', action: 'list' })
-          });
-          const data = await response.json();
-          
-          const listaUsuarios = Array.isArray(data) 
-            ? data 
-            : (data.usuarios || data.data || data.result || Object.values(data).find(v => Array.isArray(v)) || []);
-
-          if (Array.isArray(listaUsuarios) && listaUsuarios.length > 0) {
-            const userInfo = listaUsuarios.find(u => {
-              const uEmail = String(u.email || u.Email || u.correo || '').trim().toLowerCase();
-              return uEmail === emailFirebase;
-            });
-            
-            if (userInfo) {
-              nombreFinal = userInfo?.nombre || userInfo?.Nombre || nombreFinal;
-              const rawRol = userInfo?.role || userInfo?.rol || userInfo?.Role || userInfo?.ROL || '';
-              if (rawRol) {
-                rolFinal = String(rawRol).toLowerCase().trim();
-              }
-            }
-          }
-        } catch (error) {
-          console.error("Error al consultar roles en Google Sheets:", error);
-        }
-
-        // Resguardo directo para correos específicos si la hoja demora
-        if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
-          rolFinal = 'admin';
-        } else if (emailFirebase === 'roldangerman033@gmail.com') {
-          rolFinal = 'operador_ii';
-        }
-
-        setUser({
-          ...firebaseUser,
-          nombre: nombreFinal,
-          role: rolFinal,
-          rol: rolFinal
-        });
-      } else {
-        setUser(null);
-      }
-      setLoadingSession(false);
-    });
-
-    return () => unsubscribe();
-  }, [setUser]);
-
+  // CARGA ÚNICA GLOBAL: Trae absolutamente todo de una sola vez (incluyendo usuarios)
   const cargarDatos = async () => {
     try {
       const response = await fetch(GOOGLE_SCRIPT_URL, {
@@ -138,19 +81,63 @@ const AuthenticatedApp = () => {
           legajos: data.legajos || [],
           contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || [],
           certificados: data.certificados || data.certificados_emitidos || data.certificaciones_horas || data.certificacionesHoras || [],
-          cargasSemanales: data.cargas_semanales || data.cargasSemanales || data.CargasSemanales || [] 
+          cargasSemanales: data.cargas_semanales || data.cargasSemanales || data.CargasSemanales || [],
+          usuarios: data.usuarios || []
         });
+        return data.usuarios || [];
       }
     } catch (error) {
       console.error("Error al sincronizar datos globales:", error);
     }
+    return [];
   };
 
   useEffect(() => {
-    if (GOOGLE_SCRIPT_URL && user) {
-      cargarDatos();
-    }
-  }, [user]);
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        let rolFinal = 'operador';
+        let nombreFinal = firebaseUser.email.split('@')[0];
+        const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
+
+        // Resguardo directo para correos principales (evita demoras)
+        if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
+          rolFinal = 'admin';
+        } else if (emailFirebase === 'roldangerman033@gmail.com') {
+          rolFinal = 'operador_ii';
+        }
+
+        // Ejecutamos la carga global que trae tanto los datos como la lista de usuarios
+        const listaUsuarios = await cargarDatos();
+
+        if (Array.isArray(listaUsuarios) && listaUsuarios.length > 0) {
+          const userInfo = listaUsuarios.find(u => {
+            const uEmail = String(u.email || u.Email || u.correo || '').trim().toLowerCase();
+            return uEmail === emailFirebase;
+          });
+          
+          if (userInfo) {
+            nombreFinal = userInfo?.nombre || userInfo?.Nombre || nombreFinal;
+            const rawRol = userInfo?.role || userInfo?.rol || userInfo?.Role || userInfo?.ROL || '';
+            if (rawRol && emailFirebase !== 'ignaciodesantis@sicesa.com.ar') {
+              rolFinal = String(rawRol).toLowerCase().trim();
+            }
+          }
+        }
+
+        setUser({
+          ...firebaseUser,
+          nombre: nombreFinal,
+          role: rolFinal,
+          rol: rolFinal
+        });
+      } else {
+        setUser(null);
+      }
+      setLoadingSession(false);
+    });
+
+    return () => unsubscribe();
+  }, [setUser]);
 
   if (loadingSession) {
     return (
