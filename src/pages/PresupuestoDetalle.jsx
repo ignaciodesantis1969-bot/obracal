@@ -180,7 +180,25 @@ export default function PresupuestoDetalle() {
       }
 
       setItemsDetalle(itemsParseados);
-      setMaestroTareas(Array.isArray(mtList) ? mtList : []);
+      
+      // Aplanar correctamente el maestro de tareas si viene agrupado por rubros
+      let tareasPlanas = [];
+      if (Array.isArray(mtList)) {
+        mtList.forEach(item => {
+          if (item.tareasFilas && Array.isArray(item.tareasFilas)) {
+            item.tareasFilas.forEach(t => {
+              tareasPlanas.push({
+                ...t,
+                rubro: t.rubro || item.rubro || item.nombre
+              });
+            });
+          } else if (item.tarea || item.descripcion) {
+            tareasPlanas.push(item);
+          }
+        });
+      }
+      setMaestroTareas(tareasPlanas);
+
       setCertificados(Array.isArray(certList) ? certList : []);
       setInsumosList(Array.isArray(insList) ? insList : []);
       setRubrosList(Array.isArray(rubList) ? rubList : []);
