@@ -73,9 +73,6 @@ export default function ReportesDiariosTab({
     const pr = extraerArrayDatos(partesRecienModificados);
     const base = [...s, ...p, ...pr];
 
-    // 🔑 FIX: dedupe robusto. Normalizamos el `nro` siempre a 5 dígitos
-    // como string. Si hay conflicto, preferimos el objeto MÁS RECIENTE
-    // (por `id` numérico más alto, o por fecha más reciente como fallback).
     const unicosMap = new Map();
 
     const calcularScore = (item) => {
@@ -106,8 +103,6 @@ export default function ReportesDiariosTab({
 
       if (estaEliminadoPorId || estaEliminadoPorNro) return;
 
-      // 🔑 Key robusta: siempre en formato `nro-00011` para que matchee
-      // sin importar si el nro viene como "11", "00011", 11 o " 11 ".
       const key = nroNormalizado ? `nro-${nroPadded}` : (idItem || `rand-${Math.random()}`);
 
       const scoreNuevo = calcularScore(item);
@@ -116,7 +111,6 @@ export default function ReportesDiariosTab({
         unicosMap.set(key, { item, score: scoreNuevo });
       } else {
         const existente = unicosMap.get(key);
-        // 🔑 Preferir el más reciente
         if (scoreNuevo > existente.score) {
           unicosMap.set(key, { item, score: scoreNuevo });
         }
@@ -1082,6 +1076,13 @@ export default function ReportesDiariosTab({
           <div className="space-y-3">
             {sicePartesAprobados.map((parte, idx) => {
               const parteId = parte?.id || parte?.nro || `parte-${idx}`;
+
+              // 🔑 FIX: key 100% única usando nro + id + idx + un hash corto del pdfUrl
+              // El bug era que React descartaba el 00011 porque tenía el mismo `key`
+              // que otro item (por id o nro repetido entre fuentes). Con esta key
+              // combinada, es imposible que dos items colisionen.
+              const uniqueKey = `parte-${parte?.nro || 'sin-nro'}-${parteId}-${idx}-${String(parte?.pdfUrl || '').slice(-8)}`;
+
               const pObj = parte?.proveedor;
               const pNombre = (pObj && typeof pObj === 'object') ? (pObj.nombre || '---') : (pObj || '---');
               const pCargo = (pObj && typeof pObj === 'object') ? (pObj.cargo || '---') : '';
@@ -1094,7 +1095,7 @@ export default function ReportesDiariosTab({
               const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
 
               return (
-                <div key={parteId} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                <div key={uniqueKey} className="p-4 bg-slate-50 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-xs font-extrabold px-2.5 py-0.5 bg-amber-500/10 text-amber-700 rounded-full">Parte Nro: {parte?.nro}</span>
