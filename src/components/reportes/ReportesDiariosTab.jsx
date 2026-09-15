@@ -271,22 +271,54 @@ export default function ReportesDiariosTab({
     }
   }, [contratoActivoObj, extraerDatosContrato]);
 
+  // 🔑 FIX: filtro de contrato ampliado para aceptar MÚLTIPLES formas de
+  // identificar el mismo contrato (id, codigo, nro_contrato, nro_contrato_cliente).
+  // Esto resuelve el bug donde el parte 00011 no aparecía porque el Sheet
+  // guardaba `contratoid = "1"` pero el dropdown tenía `"CM001"` como valor.
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
+
     if (contratoSeleccionadoId) {
       const selectedIdStr = String(contratoSeleccionadoId).trim();
+
+      // 🔑 Recolectar todos los posibles identificadores del contrato activo
+      const idContratoActivo = String(
+        buscarValorEnObjeto(contratoActivoObj, ['id', 'ID', 'contrato_id']) || ''
+      ).trim();
       const codigoContratoActivo = String(
         buscarValorEnObjeto(contratoActivoObj, ['codigo', 'Codigo', 'nro_contrato', 'contrato_codigo']) || ''
       ).trim();
+      const nroClienteActivo = String(
+        buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'contrato_cliente']) || ''
+      ).trim();
+
+      const idsValidos = [selectedIdStr, idContratoActivo, codigoContratoActivo, nroClienteActivo]
+        .filter(Boolean)
+        .map(v => String(v).trim());
+
+      console.info('[ReportesDiarios] Filtrando partes. IDs válidos:', idsValidos);
 
       lista = allReportesSice.filter(r => {
         if (!r) return false;
-        const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId'])).trim();
+
+        const rContratoId = String(
+          buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId']) || ''
+        ).trim();
+
+        // 🔑 Si el parte no tiene contratoid, lo mostramos igual (huérfano)
         if (!rContratoId) return true;
-        if (rContratoId === selectedIdStr) return true;
-        if (codigoContratoActivo && rContratoId === codigoContratoActivo) return true;
-        if (rContratoId.includes(selectedIdStr) || selectedIdStr.includes(rContratoId)) return true;
-        if (codigoContratoActivo && (rContratoId.includes(codigoContratoActivo) || codigoContratoActivo.includes(rContratoId))) return true;
+
+        // 🔑 Match exacto contra cualquiera de los IDs válidos
+        if (idsValidos.includes(rContratoId)) return true;
+
+        // 🔑 Match parcial por si hay espacios, prefijos, etc.
+        for (const idVal of idsValidos) {
+          if (rContratoId.includes(idVal) || idVal.includes(rContratoId)) {
+            return true;
+          }
+        }
+
+        // No matchea → excluir
         return false;
       });
     }
@@ -547,7 +579,6 @@ export default function ReportesDiariosTab({
           }
         });
 
-        // Pequeña espera para que la respuesta llegue
         await new Promise(r => setTimeout(r, 1500));
 
         const parteConfirmado = allReportesSice.find(p => 
@@ -561,7 +592,6 @@ export default function ReportesDiariosTab({
           toast('El parte puede haberse guardado, pero no lo pudimos confirmar todavía. Recargá la página en unos segundos.', { icon: '⚠️', duration: 6000, id: toastId });
         }
 
-        // Limpiar el formulario igual
         setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', operariosIds: [], terminoTarea: 'SI' }]);
         setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
         setSiceRespCliente(prev => ({ ...prev, clave: '' }));
