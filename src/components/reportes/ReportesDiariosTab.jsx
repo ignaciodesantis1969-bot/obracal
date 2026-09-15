@@ -5,8 +5,6 @@ import { GOOGLE_SCRIPT_URL } from '../../api';
 import { useObraData } from '../../hooks/useObraData';
 import { OBRAS_CONFIG } from '../../config/constants';
 
-// Límite de entradas a conservar en los caches de localStorage para evitar
-// que crezcan indefinidamente (punto 8: localStorage sin poda).
 const MAX_ENTRADAS_LOCALSTORAGE = 300;
 
 function guardarEnLocalStorageConLimite(key, arr) {
@@ -27,7 +25,7 @@ export default function ReportesDiariosTab({
   personal: propPersonal = [],
   esOperador = false,
   currentUser = null,
-  onEliminadosChange = () => {}, // <-- Notifica al padre (Reportes.jsx) para que otras pestañas respeten la baja
+  onEliminadosChange = () => {},
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
     for (const key of keys) {
@@ -40,13 +38,8 @@ export default function ReportesDiariosTab({
   const { data: reportesSheet, refetch: refetchReportes } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: personalSheet } = useObraData('Personal');
 
-  // Punto 6: se eliminó el fetch manual duplicado (cargarReportesServidor).
-  // Única fuente remota ahora es el hook useObraData (reportesSheet / refetchReportes).
-  // Este buffer solo guarda partes recién creados/eliminados en esta sesión para
-  // reflejarlos de inmediato en la UI mientras el hook sincroniza con la hoja.
   const [partesRecienModificados, setPartesRecienModificados] = useState([]);
 
-  // Lista negra global compartida sincronizada en el navegador
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
     try {
       const eliminados = localStorage.getItem('sice_partes_eliminados_global_v5');
@@ -77,7 +70,10 @@ export default function ReportesDiariosTab({
   const allReportesSice = useMemo(() => {
     const s = extraerArrayDatos(reportesSheet);
     const p = extraerArrayDatos(propReportes);
-    const base = s.length > 0 ? s : p;
+    // 🔑 FIX: combinar SIEMPRE las dos fuentes (sheet + props), no elegir una u otra.
+    // Antes se hacía `base = s.length > 0 ? s : p`, lo cual causaba que el parte
+    // recién creado no apareciera hasta que React Query terminara el refetch.
+    const base = [...s, ...p];
     const combinados = [...base, ...extraerArrayDatos(partesRecienModificados)];
 
     const unicosMap = new Map();
@@ -146,11 +142,6 @@ export default function ReportesDiariosTab({
     return buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'nro_contrato', 'contratoCliente']) || '---';
   }, [contratoActivoObj, buscarValorEnObjeto]);
   
-  // NOTA (punto 7 del análisis, RESUELTO en el backend): este valor calculado
-  // en el cliente es solo una referencia visual mientras se completa el
-  // formulario. El número definitivo se recalcula de forma atómica en el
-  // servidor con LockService al momento de guardar (ver 'resultado?.nro' más
-  // abajo), por lo que ya no puede haber colisión entre usuarios concurrentes.
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
@@ -195,7 +186,6 @@ export default function ReportesDiariosTab({
     return horasConProporcional.toFixed(2);
   }, []);
 
-  // Inicializar operarios por defecto si hay personal activo
   useEffect(() => {
     if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
       const iniciales = empleadosActivosFiltrados.slice(0, 1).map((emp, idx) => {
@@ -212,7 +202,6 @@ export default function ReportesDiariosTab({
     }
   }, [empleadosActivosFiltrados, operariosSeleccionados.length, buscarValorEnObjeto]);
 
-  // Cálculo correcto acumulando el 100% de las horas de la fila por cada operario tildado
   const { horasPorCategoria, granTotalHorasHombre } = useMemo(() => {
     const resumen = {};
     let sumaTotalGeneral = 0;
@@ -289,10 +278,22 @@ export default function ReportesDiariosTab({
     let lista = allReportesSice;
     if (contratoSeleccionadoId) {
       const selectedIdStr = String(contratoSeleccionadoId).trim();
+      // 🔑 FIX: incluir también el código del contrato activo en el filtro,
+      // porque los partes nuevos se guardan con el código (ej: "5000002190")
+      // y no con el ID interno.
+      const codigoContratoActivo = String(
+        buscarValorEnObjeto(contratoActivoObj, ['codigo', 'Codigo', 'nro_contrato', 'contrato_codigo']) || ''
+      ).trim();
+
       lista = allReportesSice.filter(r => {
         if (!r) return false;
         const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId'])).trim();
-        return !rContratoId || rContratoId === selectedIdStr || rContratoId.includes(selectedIdStr) || selectedIdStr.includes(rContratoId);
+        if (!rContratoId) return true; // sin contrato → mostrar (huérfanos)
+        if (rContratoId === selectedIdStr) return true;
+        if (codigoContratoActivo && rContratoId === codigoContratoActivo) return true;
+        if (rContratoId.includes(selectedIdStr) || selectedIdStr.includes(rContratoId)) return true;
+        if (codigoContratoActivo && (rContratoId.includes(codigoContratoActivo) || codigoContratoActivo.includes(rContratoId))) return true;
+        return false;
       });
     }
 
@@ -348,7 +349,7 @@ export default function ReportesDiariosTab({
         pdfUrl: buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'urlPdf', 'pdfURL']) || ''
       };
     });
-  }, [contratoSeleccionadoId, allReportesSice, buscarValorEnObjeto, currentUser]);
+  }, [contratoSeleccionadoId, contratoActivoObj, allReportesSice, buscarValorEnObjeto, currentUser]);
 
   const agregarOperarioFila = () => {
     const nuevoOpId = `op-${Math.random()}`;
@@ -420,7 +421,7 @@ export default function ReportesDiariosTab({
 
       const nuevosEliminadosLimitados = guardarEnLocalStorageConLimite('sice_partes_eliminados_global_v5', nuevosEliminados);
       setIdsEliminadosLocales(nuevosEliminadosLimitados);
-      onEliminadosChange(nuevosEliminadosLimitados); // <-- Notifica al padre para que otras pestañas (Certificaciones, Comparativo) respeten la baja
+      onEliminadosChange(nuevosEliminadosLimitados);
 
       setPartesRecienModificados(prev => prev.filter(item => {
         const iId = String(item?.id || item?.ID || '').trim();
@@ -531,11 +532,6 @@ export default function ReportesDiariosTab({
         return;
       }
 
-      // El backend ahora recalcula "nro" de forma atómica bajo LockService
-      // (punto 7 del análisis) para eliminar la condición de carrera entre
-      // usuarios concurrentes. Se usa ese valor como definitivo; si por algún
-      // motivo el backend no lo devuelve (versión vieja del script), se cae al
-      // valor calculado localmente como antes.
       const nroFinalAsignado = resultado?.nro ? String(resultado.nro) : String(siceParteNro);
       if (resultado?.nro && String(resultado.nro) !== String(siceParteNro)) {
         toast('El número de parte asignado fue el ' + resultado.nro + ' (otro usuario generó un parte mientras completabas este formulario).', { icon: 'ℹ️' });
@@ -561,9 +557,20 @@ export default function ReportesDiariosTab({
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
       if (typeof refetchReportes === 'function') refetchReportes();
 
-      setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', operariosIds: [], terminoTarea: 'SI' }]);
+      // 🔑 FIX: limpieza completa del formulario
+      setSiceItems([{ 
+        id: 1, 
+        descripcion: '', 
+        horaComienzo: '08:00', 
+        horaFin: '17:00', 
+        observaciones: '', 
+        operariosIds: [], 
+        terminoTarea: 'SI' 
+      }]);
       setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
       setSiceRespCliente(prev => ({ ...prev, clave: '' }));
+      setOperariosSeleccionados([]);   // <-- forzar reinicialización con el primer operario
+      setSiceFecha(new Date().toISOString().slice(0, 10));
 
       toast.success('¡Parte Diario aprobado, PDF en Drive y guardado con éxito!', { id: toastId });
     } catch (err) {
