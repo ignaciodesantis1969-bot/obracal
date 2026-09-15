@@ -5,6 +5,20 @@ import { GOOGLE_SCRIPT_URL } from '../../api';
 import { useObraData } from '../../hooks/useObraData';
 import { OBRAS_CONFIG } from '../../config/constants';
 
+// Límite de entradas a conservar en los caches de localStorage para evitar
+// que crezcan indefinidamente (punto 8: localStorage sin poda).
+const MAX_ENTRADAS_LOCALSTORAGE = 300;
+
+function guardarEnLocalStorageConLimite(key, arr) {
+  try {
+    const limitado = Array.isArray(arr) ? arr.slice(-MAX_ENTRADAS_LOCALSTORAGE) : arr;
+    localStorage.setItem(key, JSON.stringify(limitado));
+    return limitado;
+  } catch (e) {
+    return arr;
+  }
+}
+
 export default function ReportesDiariosTab({
   contratosList: propContratos = [],
   allReportesSice: propReportes = [],
@@ -13,6 +27,7 @@ export default function ReportesDiariosTab({
   personal: propPersonal = [],
   esOperador = false,
   currentUser = null,
+  onEliminadosChange = () => {}, // <-- Notifica al padre (Reportes.jsx) para que otras pestañas respeten la baja
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
     for (const key of keys) {
@@ -25,9 +40,13 @@ export default function ReportesDiariosTab({
   const { data: reportesSheet, refetch: refetchReportes } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: personalSheet } = useObraData('Personal');
 
-  const [fetchedReportesLocal, setFetchedReportesLocal] = useState([]);
-  const [statusFetchLocal, setStatusFetchLocal] = useState('idle');
+  // Punto 6: se eliminó el fetch manual duplicado (cargarReportesServidor).
+  // Única fuente remota ahora es el hook useObraData (reportesSheet / refetchReportes).
+  // Este buffer solo guarda partes recién creados/eliminados en esta sesión para
+  // reflejarlos de inmediato en la UI mientras el hook sincroniza con la hoja.
+  const [partesRecienModificados, setPartesRecienModificados] = useState([]);
 
+  // Lista negra global compartida sincronizada en el navegador
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
     try {
       const eliminados = localStorage.getItem('sice_partes_eliminados_global_v5');
@@ -49,49 +68,6 @@ export default function ReportesDiariosTab({
     return [];
   };
 
-  const cargarReportesServidor = useCallback(() => {
-    setStatusFetchLocal('loading');
-    fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', action: 'get' })
-    })
-      .then(res => res.json())
-      .then(data => {
-        const arrayExtraido = extraerArrayDatos(data);
-        if (arrayExtraido.length > 0 || Array.isArray(data)) {
-          setFetchedReportesLocal(arrayExtraido);
-          setStatusFetchLocal('success');
-          try {
-            localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(arrayExtraido));
-          } catch (e) {}
-        } else {
-          setStatusFetchLocal('error');
-        }
-      })
-      .catch(err => {
-        console.error("Error al cargar ReportesDiariosSice:", err);
-        setStatusFetchLocal('error');
-      });
-  }, []);
-
-  useEffect(() => {
-    cargarReportesServidor();
-  }, [cargarReportesServidor]);
-
-  // Sincronización en tiempo real mediante eventos globales y de almacenamiento
-  useEffect(() => {
-    const handleStorageSync = () => {
-      cargarReportesServidor();
-    };
-    window.addEventListener('sice_partes_actualizados', handleStorageSync);
-    window.addEventListener('storage', handleStorageSync);
-    return () => {
-      window.removeEventListener('sice_partes_actualizados', handleStorageSync);
-      window.removeEventListener('storage', handleStorageSync);
-    };
-  }, [cargarReportesServidor]);
-
   const contratosList = useMemo(() => {
     const p = extraerArrayDatos(propContratos);
     if (p.length > 0) return p;
@@ -99,19 +75,10 @@ export default function ReportesDiariosTab({
   }, [propContratos, contratosSheet]);
 
   const allReportesSice = useMemo(() => {
-    let combinados = [];
-
-    let localesCache = [];
-    try {
-      const cached = localStorage.getItem('sice_partes_local_cache_v3');
-      if (cached) localesCache = JSON.parse(cached);
-    } catch (e) {}
-
     const s = extraerArrayDatos(reportesSheet);
     const p = extraerArrayDatos(propReportes);
-    const serverData = extraerArrayDatos(fetchedReportesLocal);
-
-    combinados = [...localesCache, ...serverData, ...s, ...p];
+    const base = s.length > 0 ? s : p;
+    const combinados = [...base, ...extraerArrayDatos(partesRecienModificados)];
 
     const unicosMap = new Map();
     
@@ -147,11 +114,11 @@ export default function ReportesDiariosTab({
     });
 
     return Array.from(unicosMap.values()).sort((a, b) => {
-      const nA = parseInt(String(a.nro || '').replace(/\D/g, '') || '0', 10);
-      const nB = parseInt(String(b.nro || '').replace(/\D/g, '') || '0', 10);
+      const nA = parseInt(String(a.nro).replace(/\D/g, '') || '0', 10);
+      const nB = parseInt(String(b.nro).replace(/\D/g, '') || '0', 10);
       return nB - nA;
     });
-  }, [fetchedReportesLocal, reportesSheet, propReportes, idsEliminadosLocales]);
+  }, [partesRecienModificados, reportesSheet, propReportes, idsEliminadosLocales]);
 
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
@@ -179,7 +146,14 @@ export default function ReportesDiariosTab({
     return buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'nro_contrato', 'contratoCliente']) || '---';
   }, [contratoActivoObj, buscarValorEnObjeto]);
   
-  // Correlativo robusto basado en todos los partes cargados en memoria y caché
+  // NOTA (punto 7 del análisis): este número se calcula en el cliente como
+  // max(existentes) + 1. Si dos usuarios generan un parte casi simultáneamente
+  // con datos aún no sincronizados entre sí, podrían obtener el mismo número.
+  // Mitigamos deshabilitando el botón de guardado mientras isSavingSice=true
+  // (evita duplicados del mismo usuario), pero una solución 100% libre de
+  // condición de carrera entre USUARIOS DISTINTOS requiere un contador atómico
+  // en el backend (p. ej. LockService en el Apps Script), fuera del alcance de
+  // un cambio puramente de frontend.
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
@@ -224,6 +198,7 @@ export default function ReportesDiariosTab({
     return horasConProporcional.toFixed(2);
   }, []);
 
+  // Inicializar operarios por defecto si hay personal activo
   useEffect(() => {
     if (empleadosActivosFiltrados.length > 0 && operariosSeleccionados.length === 0) {
       const iniciales = empleadosActivosFiltrados.slice(0, 1).map((emp, idx) => {
@@ -240,6 +215,7 @@ export default function ReportesDiariosTab({
     }
   }, [empleadosActivosFiltrados, operariosSeleccionados.length, buscarValorEnObjeto]);
 
+  // Cálculo correcto acumulando el 100% de las horas de la fila por cada operario tildado
   const { horasPorCategoria, granTotalHorasHombre } = useMemo(() => {
     const resumen = {};
     let sumaTotalGeneral = 0;
@@ -312,9 +288,18 @@ export default function ReportesDiariosTab({
     }
   }, [contratoActivoObj, extraerDatosContrato]);
 
-  // Historial global sin filtros restrictivos para asegurar que siempre se muestren todos los partes aprobados
   const sicePartesAprobados = useMemo(() => {
-    return allReportesSice.map(r => {
+    let lista = allReportesSice;
+    if (contratoSeleccionadoId) {
+      const selectedIdStr = String(contratoSeleccionadoId).trim();
+      lista = allReportesSice.filter(r => {
+        if (!r) return false;
+        const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId'])).trim();
+        return !rContratoId || rContratoId === selectedIdStr || rContratoId.includes(selectedIdStr) || selectedIdStr.includes(rContratoId);
+      });
+    }
+
+    return lista.map(r => {
       let itemsParsed = buscarValorEnObjeto(r, ['items', 'Item', 'Items']);
       if (typeof itemsParsed === 'string' && itemsParsed.trim()) {
         try { itemsParsed = JSON.parse(itemsParsed); } catch { itemsParsed = []; }
@@ -323,7 +308,7 @@ export default function ReportesDiariosTab({
       if (typeof operariosParsed === 'string' && operariosParsed.trim()) {
         try { operariosParsed = JSON.parse(operariosParsed); } catch { operariosParsed = []; }
       }
-      let desgloseParsed = buscarValorEnObjeto(r, ['desgloseCategorias', 'desglose_categorias']);
+      let desgloseParsed = buscarValorEnObjeto(r, ['desgloseCategorias', 'desglose_categorias', 'desglosecategorias', 'desglosecategoria']);
       if (typeof desgloseParsed === 'string' && desgloseParsed.trim()) {
         try { desgloseParsed = JSON.parse(desgloseParsed); } catch { desgloseParsed = []; }
       }
@@ -366,7 +351,7 @@ export default function ReportesDiariosTab({
         pdfUrl: buscarValorEnObjeto(r, ['pdf_url', 'pdfUrl', 'urlPdf', 'pdfURL']) || ''
       };
     });
-  }, [allReportesSice, buscarValorEnObjeto, currentUser]);
+  }, [contratoSeleccionadoId, allReportesSice, buscarValorEnObjeto, currentUser]);
 
   const agregarOperarioFila = () => {
     const nuevoOpId = `op-${Math.random()}`;
@@ -436,25 +421,18 @@ export default function ReportesDiariosTab({
         nroPadded
       ].filter(Boolean)));
 
-      setIdsEliminadosLocales(nuevosEliminados);
-      localStorage.setItem('sice_partes_eliminados_global_v5', JSON.stringify(nuevosEliminados));
+      const nuevosEliminadosLimitados = guardarEnLocalStorageConLimite('sice_partes_eliminados_global_v5', nuevosEliminados);
+      setIdsEliminadosLocales(nuevosEliminadosLimitados);
+      onEliminadosChange(nuevosEliminadosLimitados); // <-- Notifica al padre para que otras pestañas (Certificaciones, Comparativo) respeten la baja
 
-      setFetchedReportesLocal(prev => {
-        const filtrado = prev.filter(item => {
-          const iId = String(item?.id || item?.ID || '').trim();
-          const iNro = String(item?.nro || item?.Nro || '').trim();
-          const iNroNum = iNro ? parseInt(iNro.replace(/\D/g, ''), 10).toString() : '';
-          return iId !== idLimpio && iNro !== nroOriginal && iNroNum !== nroNum;
-        });
-        try {
-          localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(filtrado));
-          window.dispatchEvent(new Event('sice_partes_actualizados'));
-        } catch (e) {}
-        return filtrado;
-      });
+      setPartesRecienModificados(prev => prev.filter(item => {
+        const iId = String(item?.id || item?.ID || '').trim();
+        const iNro = String(item?.nro || item?.Nro || '').trim();
+        const iNroNum = iNro ? parseInt(iNro.replace(/\D/g, ''), 10).toString() : '';
+        return iId !== idLimpio && iNro !== nroOriginal && iNroNum !== nroNum;
+      }));
 
       if (typeof refetchReportes === 'function') refetchReportes();
-      cargarReportesServidor();
 
       toast.success('Parte diario eliminado correctamente', { id: toastId });
     } catch (err) {
@@ -572,14 +550,7 @@ export default function ReportesDiariosTab({
         pdfUrl: pdfUrlFinal
       };
 
-      setFetchedReportesLocal(prev => {
-        const actualizado = [nuevoParte, ...prev];
-        try {
-          localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(actualizado));
-          window.dispatchEvent(new Event('sice_partes_actualizados'));
-        } catch (e) {}
-        return actualizado;
-      });
+      setPartesRecienModificados(prev => [nuevoParte, ...prev]);
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
       if (typeof refetchReportes === 'function') refetchReportes();
 
