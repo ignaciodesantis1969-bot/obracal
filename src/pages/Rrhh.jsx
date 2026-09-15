@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2 } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2, Send } from 'lucide-react';
 
 export default function Rrhh({ 
   GOOGLE_SCRIPT_URL = '', 
@@ -17,6 +17,8 @@ export default function Rrhh({
   const [searchTerm, setSearchTerm] = useState('');
   const [guardandoCarga, setGuardandoCarga] = useState(false);
   const [guardandoCargasSociales, setGuardandoCargasSociales] = useState(false);
+  // 🔑 NUEVO: estado para bloquear el botón mientras se vuelca una carga
+  const [volcandoCargaId, setVolcandoCargaId] = useState(null);
 
   // Respaldos seguros locales por si el componente padre no envía alguna prop
   const safePersonal = Array.isArray(personalInicial) ? personalInicial : [];
@@ -695,7 +697,9 @@ export default function Rrhh({
     return true;
   };
 
-  // Guardar Carga Salarial (Registra en CargasSemanales con tipo_registro: 'Sueldos' y Egreso PAGADO en Tesorería)
+  // 🔑 MODIFICADO: Guardar Carga Salarial. Ya NO genera egresos en Tesorería.
+  // Solo guarda en CargasSemanales con estado_volcado: 'pendiente'. Los egresos
+  // se generan desde el botón "Volcar a Tesorería" en el historial.
   const handleGuardarCargaSalarial = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -706,10 +710,6 @@ export default function Rrhh({
 
     setGuardandoCarga(true);
     try {
-      const destinoNombre = tipoProyectoCarga === 'obra' 
-        ? `Presupuesto: ${presupuestoSeleccionadoCarga}` 
-        : `Contrato Mantenimiento: ${contratoSeleccionadoCarga}`;
-
       // BUSCAR EL ID DE LA OBRA RELACIONADA AL PRESUPUESTO SELECCIONADO
       let obraIdAsociada = '';
       if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
@@ -719,7 +719,12 @@ export default function Rrhh({
         }
       }
 
-      // 1. Guardar o actualizar registro de Carga en la tabla "CargasSemanales" con tipo_registro: 'Sueldos'
+      // 🔑 NUEVO: detectar si la carga que estamos editando ya estaba volcada
+      const cargaOriginal = editingCargaId
+        ? cargasHorasLista.find(c => String(c.id || c.ID) === String(editingCargaId))
+        : null;
+      const yaEstabaVolcada = String(cargaOriginal?.estado_volcado || '').toLowerCase() === 'volcado';
+
       const payloadCargaHistorial = {
         tipo_proyecto: tipoProyectoCarga,
         presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
@@ -729,7 +734,11 @@ export default function Rrhh({
         tipo_registro: 'Sueldos',
         detalle_personal: JSON.stringify(detalleCargaCalculado),
         distribucion_rubros: JSON.stringify(distribucionRubros),
-        total_general: totalGeneralCarga
+        total_general: totalGeneralCarga,
+        // 🔑 CAMPOS NUEVOS
+        estado_volcado: yaEstabaVolcada ? 'pendiente' : (cargaOriginal?.estado_volcado || 'pendiente'),
+        version: Number(cargaOriginal?.version || 0),
+        fecha_volcado: cargaOriginal?.fecha_volcado || ''
       };
 
       const actionCarga = editingCargaId ? 'update' : 'create';
@@ -748,43 +757,15 @@ export default function Rrhh({
 
       if (dataCargaRes.success === false) {
         alert("Error al guardar en el historial de cargas.");
-        setGuardandoCarga(false);
         return;
       }
 
-      // 2. Registrar directamente en Tesorería como Egreso Pagado por cada rubro
-      for (let r of distribucionRubros) {
-        const pct = Number(r.porcentaje) || 0;
-        if (pct <= 0) continue;
-        const montoRubro = Math.round((totalGeneralCarga * (pct / 100)) * 100) / 100;
+      alert(yaEstabaVolcada
+        ? "Carga actualizada. Como ya estaba volcada, quedó PENDIENTE de re-volcar. Los egresos anteriores siguen vigentes hasta que la re-volqués."
+        : (editingCargaId
+            ? "Carga actualizada. Queda pendiente de volcar a Tesorería."
+            : "Carga registrada. Queda pendiente de volcar a Tesorería."));
 
-        const payloadTesoreriaPagado = {
-          tipo: 'Egreso',
-          estado: 'Pagado',
-          fecha: fechaCarga,
-          concepto: `Sueldos y Viáticos - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
-          monto: montoRubro,
-          proveedor: 'Personal / Sueldos',
-          referencia: 'RRHH - Pago Directo',
-          rubro: r.rubro,
-          rubro_imputacion: r.rubro,
-          tipo_insumo: 'Mano de Obra',
-          presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
-          obra_id: obraIdAsociada
-        };
-
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            tabla: 'Tesoreria',
-            action: 'create',
-            data: payloadTesoreriaPagado
-          })
-        });
-      }
-
-      alert(editingCargaId ? "¡Carga actualizada y registrada en Tesorería correctamente!" : "¡Carga de sueldos registrada en Cargas Semanales y pagada en Tesorería con éxito!");
       setEditingCargaId(null);
       cargarDatos();
       setActiveTab('historial_carga');
@@ -793,6 +774,190 @@ export default function Rrhh({
       alert("Error de conexión al guardar la carga salarial.");
     } finally {
       setGuardandoCarga(false);
+    }
+  };
+
+  // 🔑 MODIFICADO: Registrar Cargas Sociales. Ya NO genera egresos en Tesorería.
+  // Solo registra el parte en CargasSemanales con estado_volcado: 'pendiente'.
+  const handleRegistrarCargasSociales = async () => {
+    if (!validarDistribucionRubros()) return;
+
+    if (totalCargasSociales <= 0) {
+      alert("El total de cargas sociales es $0. Tilda al menos un operario.");
+      return;
+    }
+
+    setGuardandoCargasSociales(true);
+    try {
+      // BUSCAR EL ID DE LA OBRA RELACIONADA AL PRESUPUESTO SELECCIONADO
+      let obraIdAsociada = '';
+      if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
+        const presupuestoEncontrado = safePresupuestos.find(p => String(p.id || p.ID || p.codigo) === String(presupuestoSeleccionadoCarga));
+        if (presupuestoEncontrado) {
+          obraIdAsociada = presupuestoEncontrado.obra_id || presupuestoEncontrado.Obra_id || presupuestoEncontrado.obra || '';
+        }
+      }
+
+      const payloadCargaHistorialCS = {
+        tipo_proyecto: tipoProyectoCarga,
+        presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
+        obra_id: obraIdAsociada,
+        contrato_mantenimiento_id: tipoProyectoCarga === 'contrato' ? contratoSeleccionadoCarga : '',
+        fecha: fechaCarga,
+        tipo_registro: 'Cargas Sociales',
+        detalle_personal: JSON.stringify(detalleCargaCalculado),
+        distribucion_rubros: JSON.stringify(distribucionRubros),
+        total_general: totalCargasSociales,
+        // 🔑 CAMPOS NUEVOS — siempre nace pendiente
+        estado_volcado: 'pendiente',
+        version: 0,
+        fecha_volcado: ''
+      };
+
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'CargasSemanales',
+          action: 'create',
+          data: payloadCargaHistorialCS
+        })
+      });
+
+      alert("¡Cargas sociales registradas! Quedan pendientes de volcar a Tesorería desde el historial.");
+      cargarDatos();
+      setActiveTab('historial_carga');
+    } catch (err) {
+      console.error(err);
+      alert("Error de conexión al guardar las cargas sociales.");
+    } finally {
+      setGuardandoCargasSociales(false);
+    }
+  };
+
+  // 🔑 NUEVO: Volcar (o re-volcar) una carga a Tesorería.
+  // Si la carga ya estaba volcada, primero borra los egresos anteriores
+  // (por carga_id) y luego crea los nuevos con la versión incrementada.
+  const handleVolcarCargaATesoreria = async (carga) => {
+    const cargaId = carga.id || carga.ID;
+    if (!cargaId) {
+      alert("No se pudo identificar la carga.");
+      return;
+    }
+
+    const esReVolcado = String(carga.estado_volcado || '').toLowerCase() === 'volcado';
+
+    if (esReVolcado) {
+      const ok = window.confirm(
+        "⚠️ Esta carga YA tiene egresos generados en Tesorería.\n\n" +
+        "Al volver a volcar, se BORRARÁN los egresos anteriores y se generarán nuevos con los valores actuales.\n\n" +
+        "¿Continuar?"
+      );
+      if (!ok) return;
+    }
+
+    const versionActual = Number(carga.version || 0);
+    const nuevaVersion = versionActual + 1;
+
+    setVolcandoCargaId(cargaId);
+    try {
+      // PASO 1: borrar egresos previos si estamos re-volcando
+      if (esReVolcado) {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            tabla: 'Tesoreria',
+            action: 'deleteByField',
+            field: 'carga_id',
+            value: String(cargaId)
+          })
+        });
+      }
+
+      // PASO 2: regenerar egresos
+      const rubros = typeof carga.distribucion_rubros === 'string'
+        ? JSON.parse(carga.distribucion_rubros)
+        : carga.distribucion_rubros;
+      const total = Number(carga.total_general || 0);
+
+      if (!Array.isArray(rubros) || rubros.length === 0) {
+        alert("La carga no tiene rubros definidos.");
+        return;
+      }
+
+      const tipoRegistro = String(carga.tipo_registro || 'Sueldos').toLowerCase();
+      const esCargasSociales = tipoRegistro.includes('social');
+      const estadoTesoreria = esCargasSociales ? 'Pendiente' : 'Pagado';
+      const proveedorTesoreria = esCargasSociales ? 'AFIP / Cargas Sociales' : 'Personal / Sueldos';
+      const referenciaTesoreria = esCargasSociales ? 'RRHH - Cargas Sociales' : 'RRHH - Pago Directo';
+
+      const tipoProyecto = String(carga.tipo_proyecto || 'obra');
+      const destinoNombre = tipoProyecto === 'obra'
+        ? `Presupuesto: ${carga.presupuesto_id}`
+        : `Contrato Mantenimiento: ${carga.contrato_mantenimiento_id}`;
+
+      for (const r of rubros) {
+        const pct = Number(r.porcentaje) || 0;
+        if (pct <= 0) continue;
+        const montoRubro = Math.round((total * (pct / 100)) * 100) / 100;
+
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            tabla: 'Tesoreria',
+            action: 'create',
+            data: {
+              tipo: 'Egreso',
+              estado: estadoTesoreria,
+              fecha: carga.fecha,
+              concepto: esCargasSociales
+                ? `Cargas Sociales - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`
+                : `Sueldos y Viáticos - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
+              monto: montoRubro,
+              proveedor: proveedorTesoreria,
+              referencia: referenciaTesoreria,
+              rubro: r.rubro,
+              rubro_imputacion: r.rubro,
+              tipo_insumo: 'Mano de Obra',
+              presupuesto_id: carga.presupuesto_id || '',
+              obra_id: carga.obra_id || '',
+              contrato_id: carga.contrato_mantenimiento_id || '',
+              // 🔑 CLAVES DEL VÍNCULO
+              carga_id: String(cargaId),
+              carga_version: nuevaVersion
+            }
+          })
+        });
+      }
+
+      // PASO 3: marcar la carga como volcada en su versión actual
+      await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          tabla: 'CargasSemanales',
+          action: 'update',
+          id: cargaId,
+          data: {
+            ...carga,
+            estado_volcado: 'volcado',
+            version: nuevaVersion,
+            fecha_volcado: new Date().toISOString().split('T')[0]
+          }
+        })
+      });
+
+      alert(esReVolcado
+        ? "¡Carga re-volcada! Se reemplazaron los egresos anteriores."
+        : "¡Carga volcada a Tesorería con éxito!");
+      cargarDatos();
+    } catch (err) {
+      console.error(err);
+      alert("Error al volcar la carga a Tesorería.");
+    } finally {
+      setVolcandoCargaId(null);
     }
   };
 
@@ -820,9 +985,31 @@ export default function Rrhh({
     setActiveTab('carga');
   };
 
+  // 🔑 MODIFICADO: al eliminar una carga volcada, también borra sus egresos en Tesorería.
   const handleEliminarCargaHistorial = async (cId) => {
-    if (!cId || !window.confirm("¿Estás seguro de eliminar este registro del historial?")) return;
+    const carga = cargasHorasLista.find(c => String(c.id || c.ID) === String(cId));
+    const estaVolcada = String(carga?.estado_volcado || '').toLowerCase() === 'volcado';
+
+    const msg = estaVolcada
+      ? "⚠️ Esta carga YA fue volcada a Tesorería.\n\nAl eliminarla, también se borrarán sus egresos asociados.\n\n¿Continuar?"
+      : "¿Estás seguro de eliminar esta carga del historial?";
+    if (!window.confirm(msg)) return;
+
     try {
+      // 🔑 NUEVO: si estaba volcada, borrar sus egresos primero
+      if (estaVolcada) {
+        await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+            tabla: 'Tesoreria',
+            action: 'deleteByField',
+            field: 'carga_id',
+            value: String(cId)
+          })
+        });
+      }
+
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -832,95 +1019,6 @@ export default function Rrhh({
     } catch (err) {
       console.error(err);
       alert("Error al eliminar la carga.");
-    }
-  };
-
-  // Botón Azul: Registrar Cargas Sociales (Registra en Tesorería como Egreso Pendiente y en CargasSemanales con tipo_registro: 'Cargas Sociales')
-  const handleRegistrarCargasSociales = async () => {
-    if (!validarDistribucionRubros()) return;
-
-    if (totalCargasSociales <= 0) {
-      alert("El total de cargas sociales es $0. Tilda al menos un operario.");
-      return;
-    }
-
-    setGuardandoCargasSociales(true);
-    try {
-      const destinoNombre = tipoProyectoCarga === 'obra' 
-        ? `Presupuesto: ${presupuestoSeleccionadoCarga}` 
-        : `Contrato Mantenimiento: ${contratoSeleccionadoCarga}`;
-
-      // BUSCAR EL ID DE LA OBRA RELACIONADA AL PRESUPUESTO SELECCIONADO
-      let obraIdAsociada = '';
-      if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
-        const presupuestoEncontrado = safePresupuestos.find(p => String(p.id || p.ID || p.codigo) === String(presupuestoSeleccionadoCarga));
-        if (presupuestoEncontrado) {
-          obraIdAsociada = presupuestoEncontrado.obra_id || presupuestoEncontrado.Obra_id || presupuestoEncontrado.obra || '';
-        }
-      }
-
-      // 1. Registrar también en CargasSemanales el parte de cargas sociales con tipo_registro: 'Cargas Sociales'
-      const payloadCargaHistorialCS = {
-        tipo_proyecto: tipoProyectoCarga,
-        presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
-        obra_id: obraIdAsociada,
-        contrato_mantenimiento_id: tipoProyectoCarga === 'contrato' ? contratoSeleccionadoCarga : '',
-        fecha: fechaCarga,
-        tipo_registro: 'Cargas Sociales',
-        detalle_personal: JSON.stringify(detalleCargaCalculado),
-        distribucion_rubros: JSON.stringify(distribucionRubros),
-        total_general: totalCargasSociales
-      };
-
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'CargasSemanales',
-          action: 'create',
-          data: payloadCargaHistorialCS
-        })
-      });
-
-      // 2. Registrar en Tesorería como Egreso Pendiente (AFIP)
-      for (let r of distribucionRubros) {
-        const pct = Number(r.porcentaje) || 0;
-        if (pct <= 0) continue;
-        const montoRubro = Math.round((totalCargasSociales * (pct / 100)) * 100) / 100;
-
-        const payloadTesoreriaCS = {
-          tipo: 'Egreso',
-          estado: 'Pendiente',
-          fecha: fechaCarga,
-          concepto: `Cargas Sociales (${porcentajeCargasSociales}%) - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
-          monto: montoRubro,
-          proveedor: 'AFIP / Cargas Sociales',
-          referencia: 'RRHH - Cargas Sociales',
-          rubro: r.rubro,
-          rubro_imputacion: r.rubro,
-          tipo_insumo: 'Mano de Obra',
-          presupuesto_id: tipoProyectoCarga === 'obra' ? presupuestoSeleccionadoCarga : '',
-          obra_id: obraIdAsociada
-        };
-
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            tabla: 'Tesoreria',
-            action: 'create',
-            data: payloadTesoreriaCS
-          })
-        });
-      }
-
-      alert("¡Cargas sociales registradas en Cargas Semanales y como Egreso Pendiente en Tesorería con éxito!");
-      cargarDatos();
-    } catch (err) {
-      console.error(err);
-      alert("Error de conexión al guardar las cargas sociales.");
-    } finally {
-      setGuardandoCargasSociales(false);
     }
   };
 
@@ -2100,7 +2198,7 @@ export default function Rrhh({
                   className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
                 >
                   {guardandoCargasSociales ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} 
-                  {guardandoCargasSociales ? 'Registrando...' : 'Registrar Cargas Sociales en Tesorería'}
+                  {guardandoCargasSociales ? 'Registrando...' : 'Registrar Cargas Sociales'}
                 </button>
               </div>
             </div>
@@ -2114,7 +2212,7 @@ export default function Rrhh({
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <div>
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">HISTORIAL DE CARGAS REALIZADAS (CARGAS SEMANALES)</h3>
-              <p className="text-xs text-slate-500 mt-0.5">Visualiza, edita o elimina los partes semanales de horas y viáticos guardados.</p>
+              <p className="text-xs text-slate-500 mt-0.5">Visualiza, edita, volcá a Tesorería o eliminá los partes semanales de horas y viáticos guardados.</p>
             </div>
           </div>
 
@@ -2130,6 +2228,8 @@ export default function Rrhh({
                   <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
                     <th className="px-6 py-4">Fecha</th>
                     <th className="px-4 py-4">Tipo de Registro</th>
+                    {/* 🔑 NUEVA COLUMNA */}
+                    <th className="px-4 py-4">Estado Volcado</th>
                     <th className="px-4 py-4">Tipo Proyecto</th>
                     <th className="px-4 py-4">Destino (Presupuesto / Contrato)</th>
                     <th className="px-4 py-4">Obra ID</th>
@@ -2147,6 +2247,11 @@ export default function Rrhh({
                     const cTotal = Number(c.total_general || c.Total_general || 0);
                     const cFecha = c.fecha || c.Fecha ? new Date(c.fecha || c.Fecha).toLocaleDateString('es-AR') : '---';
                     const cObraId = c.obra_id || c.Obra_id || '---';
+                    // 🔑 NUEVO: leer estado_volcado y version
+                    const cEstadoVolcado = String(c.estado_volcado || c.Estado_volcado || 'pendiente').toLowerCase();
+                    const cVersion = Number(c.version || c.Version || 0);
+                    const estaVolcada = cEstadoVolcado === 'volcado';
+                    const estaVolcando = String(volcandoCargaId) === String(cId);
 
                     return (
                       <tr key={cId} className="hover:bg-slate-50">
@@ -2158,6 +2263,16 @@ export default function Rrhh({
                               : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                           }`}>
                             {cTipoReg}
+                          </span>
+                        </td>
+                        {/* 🔑 NUEVA CELDA: Estado Volcado */}
+                        <td className="px-4 py-4">
+                          <span className={`px-2.5 py-1 rounded-full font-extrabold text-[10px] uppercase ${
+                            estaVolcada
+                              ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                              : 'bg-amber-100 text-amber-800 border border-amber-200'
+                          }`}>
+                            {estaVolcada ? `Volcado (v${cVersion || 1})` : 'Pendiente'}
                           </span>
                         </td>
                         <td className="px-4 py-4">
@@ -2174,9 +2289,43 @@ export default function Rrhh({
                         <td className="px-4 py-4 text-right font-black text-blue-600">
                           $ {cTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
-                        <td className="px-6 py-4 text-right space-x-2">
-                          <button onClick={() => handleEditarCargaHistorial(c)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Ver / Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarCargaHistorial(cId)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
+                        {/* 🔑 CELDA DE ACCIONES: se agrega botón Volcar / Re-volcar */}
+                        <td className="px-6 py-4 text-right space-x-1">
+                          <button 
+                            onClick={() => handleEditarCargaHistorial(c)} 
+                            className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" 
+                            title="Ver / Editar"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button 
+                            onClick={() => handleEliminarCargaHistorial(cId)} 
+                            className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" 
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                          {estaVolcada ? (
+                            <button
+                              onClick={() => handleVolcarCargaATesoreria(c)}
+                              disabled={estaVolcando}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 rounded-lg font-bold text-[10px] shadow-sm cursor-pointer"
+                              title="Borrar egresos previos y regenerarlos"
+                            >
+                              {estaVolcando ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                              Re-volcar
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleVolcarCargaATesoreria(c)}
+                              disabled={estaVolcando}
+                              className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer"
+                              title="Generar egresos en Tesorería"
+                            >
+                              {estaVolcando ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                              Volcar
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
