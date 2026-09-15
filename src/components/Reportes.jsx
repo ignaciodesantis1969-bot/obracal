@@ -108,11 +108,27 @@ function ReportesContent({
 
   const [reportesLocalesExtra, setReportesLocalesExtra] = useState([]);
 
+  // Punto 1 del análisis: el padre necesita conocer los partes diarios
+  // eliminados para poder excluirlos de allReportesSice, que se pasa a
+  // CertificacionesTab (y de ahí, a CertificadoHorasHombreTab) y a ComparativoTab.
+  const [idsEliminadosLocales, setIdsEliminadosLocales] = useState([]);
+
+  // Límite de entradas para evitar que el cache de localStorage crezca sin
+  // control (punto 8 del análisis).
+  const MAX_ENTRADAS_LOCALSTORAGE = 300;
+
   useEffect(() => {
     try {
       const cached = localStorage.getItem('sice_partes_local_cache_v3');
       if (cached) {
         setReportesLocalesExtra(JSON.parse(cached));
+      }
+    } catch (e) {}
+
+    try {
+      const eliminados = localStorage.getItem('sice_partes_eliminados_global_v5');
+      if (eliminados) {
+        setIdsEliminadosLocales(JSON.parse(eliminados));
       }
     } catch (e) {}
   }, []);
@@ -121,12 +137,23 @@ function ReportesContent({
     setFetchedReportesSice(prev => {
       const actualizados = typeof updater === 'function' ? updater(prev) : updater;
       try {
-        localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(actualizados));
-      } catch (e) {}
-      setReportesLocalesExtra(actualizados);
+        const limitados = Array.isArray(actualizados) ? actualizados.slice(-MAX_ENTRADAS_LOCALSTORAGE) : actualizados;
+        localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(limitados));
+        setReportesLocalesExtra(limitados);
+        return limitados;
+      } catch (e) {
+        setReportesLocalesExtra(actualizados);
+      }
       return actualizados;
     });
   }, [setFetchedReportesSice]);
+
+  // Punto 1: callback que ReportesDiariosTab invoca cada vez que cambia la
+  // lista negra de eliminados, para que Certificaciones/Comparativo se
+  // actualicen sin necesidad de recargar la página.
+  const handleEliminadosChange = useCallback((nuevaLista) => {
+    setIdsEliminadosLocales(Array.isArray(nuevaLista) ? nuevaLista : []);
+  }, []);
 
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
@@ -136,6 +163,16 @@ function ReportesContent({
     const unicosMap = new Map();
     combinados.forEach(item => {
       if (!item) return;
+
+      const idItem = String(item?.id || item?.ID || '').trim();
+      const nroCrud = String(item?.nro || item?.Nro || '').trim();
+      const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
+      const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
+
+      const estaEliminado = (idItem && idsEliminadosLocales.includes(idItem)) ||
+        (nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNormalizado) || idsEliminadosLocales.includes(nroPadded)));
+      if (estaEliminado) return;
+
       const key = String(item.id || item.ID || item.nro || item.Nro || Math.random());
       if (!unicosMap.has(key)) {
         unicosMap.set(key, item);
@@ -143,7 +180,7 @@ function ReportesContent({
     });
 
     return Array.from(unicosMap.values());
-  }, [propReportes, reportesSheet, reportesLocalesExtra]);
+  }, [propReportes, reportesSheet, reportesLocalesExtra, idsEliminadosLocales]);
 
   const [activeTab, setActiveTab] = useState(isOp2 ? 'Reportes Diarios' : 'Certificaciones');
 
@@ -224,6 +261,7 @@ function ReportesContent({
           contratosList={contratosList}
           allReportesSice={allReportesSice}
           setFetchedReportesSice={handleAgregarReporteLocal}
+          onEliminadosChange={handleEliminadosChange}
           listaEmpleadosActivos={listaEmpleadosActivos}
           esOperador={esOperadorEstandar}
           buscarValorEnObjeto={buscarValorEnObjeto}
