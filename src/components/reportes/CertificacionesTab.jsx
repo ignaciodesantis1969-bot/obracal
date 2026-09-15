@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2, Loader2 } from 'lucide-react';
+import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2, Loader2, Pencil, Lock } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
 
@@ -11,8 +11,13 @@ export default function CertificacionesTab({
   facturas = [],
   contratosList = [],
   isOp2 = false,
+  currentUser = null,
   ...props 
 }) {
+  // 🔑 NUEVO: detección de rol admin para bloquear borrado de certificados
+  const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
+  const esAdminOGerencia = rolStr === 'administrador' || rolStr === 'admin' || rolStr === 'gerencia' || rolStr === 'gerente';
+
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState(isOp2 ? 'horas_hombre' : 'avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
   const [certClienteNombre, setCertClienteNombre] = useState('');
@@ -29,6 +34,10 @@ export default function CertificacionesTab({
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
+  // 🔑 NUEVO: override manual del descuento por desacopio
+  const [ajusteManualDescuento, setAjusteManualDescuento] = useState(false);
+  const [descuentoManualMonto, setDescuentoManualMonto] = useState(0);
+
   const [certRespProveedor, setCertRespProveedor] = useState({ nombre: '', cargo: '' });
   const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: '' });
   const [isSavingCert, setIsSavingCert] = useState(false);
@@ -43,7 +52,6 @@ export default function CertificacionesTab({
     }
     if (arr.length === 0) return [];
 
-    // Si viene como Array de Arrays (Google Sheets crudo)
     if (Array.isArray(arr[0])) {
       const headers = arr[0].map(h => String(h).toLowerCase().trim());
       return arr.slice(1).map(row => {
@@ -69,20 +77,19 @@ export default function CertificacionesTab({
           setFetchedCertificadosLocal(arr);
         }
       } catch (e) {
-        // Silenciado para mantener limpio
+        // Silenciado
       }
     };
     cargarCertificadosDesdeSheet();
   }, []);
 
+  // 🔑 SIMPLIFICADO: menos fuentes, memo dependencias concretas
   const allCertificados = useMemo(() => {
     const combinados = [
       ...extraerArrayDatos(fetchedCertificadosLocal),
-      ...extraerArrayDatos(props.certificadosList),
       ...extraerArrayDatos(props.certificadosProps),
       ...extraerArrayDatos(props.fetchedCertificados),
-      ...extraerArrayDatos(props.certificados),
-      ...extraerArrayDatos(props.historial)
+      ...extraerArrayDatos(props.certificadosList),
     ];
     
     const map = new Map();
@@ -101,7 +108,7 @@ export default function CertificacionesTab({
       }
     });
     return Array.from(map.values());
-  }, [props, fetchedCertificadosLocal]);
+  }, [fetchedCertificadosLocal, props.certificadosProps, props.fetchedCertificados, props.certificadosList]);
 
   const certificadoPresupuestoObj = useMemo(() => {
     if (!certPresupuestoId) return null;
@@ -115,7 +122,6 @@ export default function CertificacionesTab({
     });
   }, [presupuestos, certPresupuestoId]);
 
-  // FILTRO INTELIGENTE UNIFICADO: Compara ID real, código visual y variantes numéricas de forma infalible
   const certificadosDelPresupuestoActual = useMemo(() => {
     if (!certPresupuestoId) return [];
     const idSel = String(certPresupuestoId).trim();
@@ -143,6 +149,22 @@ export default function CertificacionesTab({
       return (isNaN(nroB) ? 0 : nroB) - (isNaN(nroA) ? 0 : nroA);
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
+
+  // 🔑 NUEVO: buscar el Certificado 0 (Adelanto Financiero) del presupuesto actual
+  const certificadoCero = useMemo(() => {
+    return certificadosDelPresupuestoActual.find(c => {
+      const nro = String(c?.certificado_nro ?? c?.certificadoNro ?? c?.certificadonro ?? '').trim();
+      return nro === '0';
+    }) || null;
+  }, [certificadosDelPresupuestoActual]);
+
+  // 🔑 NUEVO: monto del adelanto otorgado en el Certificado 0
+  const adelantoOriginalOtorgado = useMemo(() => {
+    if (!certificadoCero) return 0;
+    // Se guarda como total_periodo en Cert. 0 según esquema acordado
+    const v = certificadoCero.total_periodo ?? certificadoCero.totalPeriodo ?? certificadoCero.adelanto_descuento ?? certificadoCero.adelantoDescuento ?? 0;
+    return Number(v) || 0;
+  }, [certificadoCero]);
 
   useEffect(() => {
     if (certificadoPresupuestoObj) {
@@ -172,7 +194,9 @@ export default function CertificacionesTab({
           return isNaN(n) ? 0 : n;
         });
         const maxNro = Math.max(...numeros, -1);
-        setCertificadoNro(String(maxNro + 1));
+        // 🔑 NUEVO: si ya existe Cert. 0, forzar el siguiente a 1 como mínimo
+        const siguiente = maxNro + 1;
+        setCertificadoNro(String(siguiente < 0 ? 0 : siguiente));
       } else {
         setCertificadoNro('0');
       }
@@ -259,6 +283,56 @@ export default function CertificacionesTab({
     return { filasRender, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
+  // 🔑 NUEVO: cálculo unificado del resumen financiero
+  const resumenFinanciero = useMemo(() => {
+    const esCertificadoCero = Number(certificadoNro) === 0;
+    const presupuestoTotalVenta = certificadoCalculos.totalPresupuestoCalc || 0;
+    const avanceCertificadoPeriodo = certificadoCalculos.totalActualCalc || 0;
+
+    // Descuento por desacopio (solo en Cert. > 0 y si existe Cert. 0 con adelanto)
+    const descuentoCalculado = (!esCertificadoCero && adelantoOriginalOtorgado > 0 && presupuestoTotalVenta > 0)
+      ? Math.round(avanceCertificadoPeriodo * (adelantoOriginalOtorgado / presupuestoTotalVenta))
+      : 0;
+
+    // Override manual del descuento
+    const descuentoDesacopio = ajusteManualDescuento ? (Number(descuentoManualMonto) || 0) : descuentoCalculado;
+
+    // Monto del adelanto a otorgar (solo en Cert. 0)
+    const adelantoOtorgado = esCertificadoCero
+      ? Number(adelantoMonto || (presupuestoTotalVenta * (adelantoPct / 100)))
+      : 0;
+
+    // Total período (avance certificado en Cert. > 0; $0 en Cert. 0)
+    const totalPeriodo = esCertificadoCero ? 0 : avanceCertificadoPeriodo;
+
+    // Neto (avance − descuento + adicionales, o adelanto otorgado en Cert. 0)
+    const netoACertificar = esCertificadoCero
+      ? adelantoOtorgado
+      : (avanceCertificadoPeriodo - descuentoDesacopio + Number(adicionalesMonto || 0));
+
+    // Redeterminación sobre el NETO (confirmado por el usuario)
+    const redeterminacion = Number(redeterminacionMonto) || (netoACertificar * (Number(redeterminacionPct) || 0) / 100);
+
+    const totalFinalLiquidacion = netoACertificar + redeterminacion;
+
+    return {
+      esCertificadoCero,
+      presupuestoTotalVenta,
+      avanceCertificadoPeriodo,
+      descuentoCalculado,
+      descuentoDesacopio,
+      adelantoOtorgado,
+      totalPeriodo,
+      netoACertificar,
+      redeterminacion,
+      totalFinalLiquidacion
+    };
+  }, [
+    certificadoNro, certificadoCalculos, adelantoOriginalOtorgado,
+    ajusteManualDescuento, descuentoManualMonto,
+    adelantoMonto, adelantoPct, adicionalesMonto, redeterminacionMonto, redeterminacionPct
+  ]);
+
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
     
@@ -267,22 +341,18 @@ export default function CertificacionesTab({
       return;
     }
 
+    // 🔑 NUEVO: validar que no se emita un segundo Cert. 0
+    if (Number(certificadoNro) === 0 && certificadoCero) {
+      toast.error("Ya existe un Certificado N° 0 para este presupuesto. Solo puede haber uno.");
+      return;
+    }
+
     setIsSavingCert(true);
     const toastId = toast.loading('Generando PDF en Google Drive y guardando certificado...');
 
     try {
-      const nroCertInt = parseInt(certificadoNro, 10) || 0;
-      const totalPresupuestoGeneral = certificadoCalculos?.totalPresupuestoCalc || 1;
-      const totalCertificadoPeriodo = nroCertInt === 0 ? 0 : certificadoCalculos?.totalActualCalc;
-      
-      const descuentoAdelantoCert = nroCertInt === 0 
-        ? Number(adelantoMonto || (totalPresupuestoGeneral * (adelantoPct / 100)))
-        : 0;
-      
-      const netoACertificar = (nroCertInt === 0 ? descuentoAdelantoCert : totalCertificadoPeriodo) + Number(adicionalesMonto);
-      const totalFinalLiquidacion = netoACertificar + redeterminacionMonto;
-
       const idLimpio = String(certPresupuestoId).trim();
+      const r = resumenFinanciero;
 
       const payloadCert = {
         action: 'guardarCertificado',
@@ -296,11 +366,11 @@ export default function CertificacionesTab({
         obra: String(certificadoPresupuestoObj?.nombre || 'Obra'),
         orden_compra: obtenerOrdenDeCompraLocal(certificadoPresupuestoObj),
         filas: JSON.stringify(certificadoCalculos.filasRender),
-        total_periodo: totalCertificadoPeriodo,
-        adelanto_descuento: descuentoAdelantoCert,
+        total_periodo: r.totalPeriodo,
+        adelanto_descuento: r.descuentoDesacopio,
         adicionales: Number(adicionalesMonto),
-        redeterminacion: redeterminacionMonto,
-        total_general: totalFinalLiquidacion,
+        redeterminacion: r.redeterminacion,
+        total_general: r.totalFinalLiquidacion,
         proveedor_nombre: certRespProveedor.nombre,
         proveedor_cargo: certRespProveedor.cargo,
         cliente_nombre: certRespCliente.nombre,
@@ -314,7 +384,6 @@ export default function CertificacionesTab({
       });
       const resultado = await res.json();
       
-      // SOLUCIÓN DE RAÍZ: Validación robusta para evitar falso positivo de "Error al guardar certificado"
       if (!resultado || (resultado.success === false && !resultado.ok && resultado.status !== 'success')) {
         throw new Error(resultado?.error || "Error desconocido devuelto por el servidor.");
       }
@@ -342,7 +411,12 @@ export default function CertificacionesTab({
     }
   };
 
+  // 🔑 MODIFICADO: bloqueo de borrado para no-admins
   const eliminarCertificadoServidor = async (certId) => {
+    if (!esAdminOGerencia) {
+      toast.error("Solo administradores pueden eliminar certificados.");
+      return;
+    }
     if (!window.confirm("¿Está seguro de eliminar este certificado?")) return;
     const toastId = toast.loading('Eliminando certificado...');
     try {
@@ -451,6 +525,31 @@ export default function CertificacionesTab({
             </div>
           ) : (
             <div id="printable-certificado-container" className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
+              {/* 🔑 NUEVO: banner de aviso si es Cert. 0 */}
+              {resumenFinanciero.esCertificadoCero && (
+                <div className="bg-blue-50 border border-blue-300 rounded-xl p-3 flex items-start gap-2 text-xs">
+                  <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-blue-900">Certificado N° 0 — Adelanto Financiero</p>
+                    <p className="text-blue-700 mt-0.5">No se certifica avance de obra en este documento. Los porcentajes de avance están bloqueados.</p>
+                  </div>
+                </div>
+              )}
+
+              {/* 🔑 NUEVO: aviso si hay Cert. 0 emitido y estamos en un cert. > 0 */}
+              {!resumenFinanciero.esCertificadoCero && adelantoOriginalOtorgado > 0 && (
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-start gap-2 text-xs">
+                  <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-amber-900">Descuento por adelanto financiero aplicado</p>
+                    <p className="text-amber-700 mt-0.5">
+                      Adelanto original: ${adelantoOriginalOtorgado.toLocaleString('es-AR')} ·
+                      Descuento calculado: <b>${resumenFinanciero.descuentoCalculado.toLocaleString('es-AR')}</b>
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
                 <div>
                   <img src="/logo-07.png" alt="SICE S.A." className="h-20 object-contain mb-2" />
@@ -459,7 +558,7 @@ export default function CertificacionesTab({
                 <div className="text-right">
                   <h2 className="text-2xl font-black text-slate-900 tracking-wide uppercase">CERTIFICADO POR AVANCE DE OBRA</h2>
                   <p className="text-sm font-bold mt-1 text-blue-600">
-                    Certificado Nro.: {certificadoNro}
+                    Certificado Nro.: {certificadoNro} {resumenFinanciero.esCertificadoCero ? '(Adelanto Financiero)' : ''}
                   </p>
                 </div>
               </div>
@@ -553,11 +652,13 @@ export default function CertificacionesTab({
                                   min="0"
                                   max="100"
                                   value={t.pctActual}
+                                  // 🔑 NUEVO: inputs bloqueados en Cert. 0
+                                  disabled={resumenFinanciero.esCertificadoCero}
                                   onChange={(e) => {
                                     const val = parseFloat(e.target.value) || 0;
                                     setAvanceActualMap({ ...avanceActualMap, [t.keyMap]: val });
                                   }}
-                                  className="w-16 bg-white border border-slate-300 rounded px-1.5 py-1 text-center font-bold text-xs outline-none focus:border-amber-500"
+                                  className="w-16 bg-white border border-slate-300 rounded px-1.5 py-1 text-center font-bold text-xs outline-none focus:border-amber-500 disabled:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
                                 />
                               </td>
                               <td className="py-2 px-3 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50 whitespace-nowrap">$ {t.impActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
@@ -572,73 +673,93 @@ export default function CertificacionesTab({
                 </table>
               </div>
 
+              {/* 🔑 NUEVO: resumen financiero unificado */}
               <div className="bg-slate-50 border-2 border-slate-800 rounded-2xl p-6 space-y-4">
                 <h3 className="text-xs font-black text-slate-900 uppercase border-b border-slate-300 pb-2">RESUMEN Y LIQUIDACIÓN FINANCIERA</h3>
-                
-                {(() => {
-                  const nroCertInt = parseInt(certificadoNro, 10) || 0;
-                  const totalPresupuestoGeneral = certificadoCalculos.totalPresupuestoCalc || 1;
-                  const totalCertificadoPeriodo = nroCertInt === 0 ? 0 : certificadoCalculos.totalActualCalc;
-                  
-                  const montoAdelantoFinanciero = nroCertInt === 0 
-                    ? Number(adelantoMonto || (totalPresupuestoGeneral * (adelantoPct / 100)))
-                    : 0;
 
-                  const netoACertificar = (nroCertInt === 0 ? montoAdelantoFinanciero : totalCertificadoPeriodo) + Number(adicionalesMonto);
-                  const totalFinalLiquidacion = netoACertificar + redeterminacionMonto;
-
-                  return (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-                      <div className="space-y-3">
-                        {nroCertInt === 0 ? (
-                          <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
-                            <span className="font-bold text-slate-700 block uppercase">Anticipo Financiero (Certificado N° 0)</span>
-                            <div className="grid grid-cols-2 gap-2">
-                              <div>
-                                <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
-                                <input
-                                  type="number"
-                                  step="any"
-                                  value={adelantoPct}
-                                  onChange={(e) => {
-                                    const pct = parseFloat(e.target.value) || 0;
-                                    setAdelantoPct(pct);
-                                    setAdelantoMonto(totalPresupuestoGeneral * (pct / 100));
-                                  }}
-                                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono"
-                                />
-                              </div>
-                              <div>
-                                <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
-                                <div className="relative flex items-center">
-                                  <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
-                                  <input
-                                    type="text"
-                                    value={adelantoMonto ? Math.round(adelantoMonto).toLocaleString('es-AR') : Math.round(totalPresupuestoGeneral * (adelantoPct / 100)).toLocaleString('es-AR')}
-                                    onChange={(e) => {
-                                      const raw = e.target.value.replace(/\D/g, '');
-                                      const monto = parseFloat(raw) || 0;
-                                      setAdelantoMonto(monto);
-                                      setAdelantoPct(totalPresupuestoGeneral > 0 ? Number(((monto / totalPresupuestoGeneral) * 100).toFixed(2)) : 0);
-                                    }}
-                                    className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono text-xs"
-                                  />
-                                </div>
-                              </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
+                  {/* COLUMNA IZQUIERDA: Cálculos del certificado */}
+                  <div className="space-y-3">
+                    {resumenFinanciero.esCertificadoCero ? (
+                      <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
+                        <span className="font-bold text-slate-700 block uppercase">Anticipo Financiero (Certificado N° 0)</span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
+                            <input
+                              type="number"
+                              step="any"
+                              value={adelantoPct}
+                              onChange={(e) => {
+                                const pct = parseFloat(e.target.value) || 0;
+                                setAdelantoPct(pct);
+                                setAdelantoMonto(resumenFinanciero.presupuestoTotalVenta * (pct / 100));
+                              }}
+                              className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
+                            <div className="relative flex items-center">
+                              <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
+                              <input
+                                type="text"
+                                value={adelantoMonto ? Math.round(adelantoMonto).toLocaleString('es-AR') : Math.round(resumenFinanciero.presupuestoTotalVenta * (adelantoPct / 100)).toLocaleString('es-AR')}
+                                onChange={(e) => {
+                                  const raw = e.target.value.replace(/\D/g, '');
+                                  const monto = parseFloat(raw) || 0;
+                                  setAdelantoMonto(monto);
+                                  setAdelantoPct(resumenFinanciero.presupuestoTotalVenta > 0 ? Number(((monto / resumenFinanciero.presupuestoTotalVenta) * 100).toFixed(2)) : 0);
+                                }}
+                                className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono text-xs"
+                              />
                             </div>
                           </div>
-                        ) : null}
-
-                        {/* SOLUCIÓN DE RAÍZ: La línea Descuento / Adelanto Financiero se renderiza siempre (incluso en $ 0 para certificados > 0) */}
+                        </div>
+                      </div>
+                    ) : (
+                      <>
                         <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
-                          <span className="font-bold text-slate-700">Descuento / Adelanto Financiero:</span>
-                          <span className="font-bold text-rose-700 font-mono">- $ {Math.round(montoAdelantoFinanciero).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                          <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
+                          <span className="font-black text-slate-900 text-sm font-mono">$ {resumenFinanciero.avanceCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                         </div>
 
-                        {nroCertInt !== 0 && (
-                          <div className="flex justify-between items-center bg-white p-3 rounded-xl border border-slate-300">
-                            <span className="font-bold text-slate-700">Total Certificado Período (Actual):</span>
-                            <span className="font-black text-slate-900 text-sm font-mono">$ {totalCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                        {/* 🔑 NUEVO: bloque de descuento por desacopio con override manual */}
+                        {adelantoOriginalOtorgado > 0 && (
+                          <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
+                            <div className="flex justify-between items-center">
+                              <span className="font-bold text-slate-700">Descuento / Adelanto Financiero:</span>
+                              <span className="font-bold text-rose-700 font-mono">- $ {resumenFinanciero.descuentoDesacopio.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                            </div>
+                            <div className="flex items-center justify-between text-[10px] text-slate-500">
+                              <span>Calculado: ${resumenFinanciero.descuentoCalculado.toLocaleString('es-AR')} ({((adelantoOriginalOtorgado / resumenFinanciero.presupuestoTotalVenta) * 100).toFixed(2)}% del avance)</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const nuevo = !ajusteManualDescuento;
+                                  setAjusteManualDescuento(nuevo);
+                                  if (nuevo) setDescuentoManualMonto(resumenFinanciero.descuentoCalculado);
+                                }}
+                                className="flex items-center gap-1 text-amber-700 hover:text-amber-900 font-bold"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                {ajusteManualDescuento ? 'Volver a automático' : 'Ajustar manualmente'}
+                              </button>
+                            </div>
+                            {ajusteManualDescuento && (
+                              <input
+                                type="number"
+                                value={descuentoManualMonto}
+                                onChange={(e) => setDescuentoManualMonto(Number(e.target.value) || 0)}
+                                className="w-full bg-amber-50 border border-amber-300 rounded px-2 py-1 text-right font-bold text-rose-700 outline-none focus:border-amber-500 font-mono text-xs"
+                              />
+                            )}
+                          </div>
+                        )}
+
+                        {adelantoOriginalOtorgado === 0 && (
+                          <div className="bg-slate-100 p-3 rounded-xl border border-slate-300 text-[11px] text-slate-500 italic">
+                            Sin adelanto financiero registrado para este presupuesto. No se aplica descuento por desacopio.
                           </div>
                         )}
 
@@ -651,57 +772,60 @@ export default function CertificacionesTab({
                             className="w-32 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-emerald-700 outline-none focus:border-amber-500 font-mono"
                           />
                         </div>
-                        <div className="flex justify-between items-center bg-slate-900 text-white p-3.5 rounded-xl shadow">
-                          <span className="font-extrabold text-xs uppercase">TOTAL NETO A CERTIFICAR:</span>
-                          <span className="font-black text-base text-amber-400 font-mono">$ {netoACertificar.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
-                        </div>
-                      </div>
+                      </>
+                    )}
 
-                      <div className="space-y-3">
-                        <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
-                          <span className="font-bold text-slate-700 block uppercase">Redeterminación de Precio</span>
-                          <div className="grid grid-cols-2 gap-2">
-                            <div>
-                              <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
-                              <input
-                                type="number"
-                                step="any"
-                                value={redeterminacionPct}
-                                onChange={(e) => {
-                                  const pct = parseFloat(e.target.value) || 0;
-                                  setRedeterminacionPct(pct);
-                                  setRedeterminacionMonto(netoACertificar * (pct / 100));
-                                }}
-                                className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono"
-                              />
-                            </div>
-                            <div>
-                              <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
-                              <div className="relative flex items-center">
-                                <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
-                                <input
-                                  type="text"
-                                  value={redeterminacionMonto ? Math.round(redeterminacionMonto).toLocaleString('es-AR') : '0'}
-                                  onChange={(e) => {
-                                    const raw = e.target.value.replace(/\D/g, '');
-                                    const monto = parseFloat(raw) || 0;
-                                    setRedeterminacionMonto(monto);
-                                    setRedeterminacionPct(netoACertificar > 0 ? Number(((monto / netoACertificar) * 100).toFixed(2)) : 0);
-                                  }}
-                                  className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono text-xs"
-                                />
-                              </div>
-                            </div>
+                    <div className="flex justify-between items-center bg-slate-900 text-white p-3.5 rounded-xl shadow">
+                      <span className="font-extrabold text-xs uppercase">TOTAL NETO A CERTIFICAR:</span>
+                      <span className="font-black text-base text-amber-400 font-mono">$ {resumenFinanciero.netoACertificar.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                    </div>
+                  </div>
+
+                  {/* COLUMNA DERECHA: Redeterminación y total general */}
+                  <div className="space-y-3">
+                    <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
+                      <span className="font-bold text-slate-700 block uppercase">Redeterminación de Precio</span>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-slate-500 block">Porcentaje (%)</label>
+                          <input
+                            type="number"
+                            step="any"
+                            value={redeterminacionPct}
+                            onChange={(e) => {
+                              const pct = parseFloat(e.target.value) || 0;
+                              setRedeterminacionPct(pct);
+                              setRedeterminacionMonto(resumenFinanciero.netoACertificar * (pct / 100));
+                            }}
+                            className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-slate-500 block">Monto Absoluto ($)</label>
+                          <div className="relative flex items-center">
+                            <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
+                            <input
+                              type="text"
+                              value={redeterminacionMonto ? Math.round(redeterminacionMonto).toLocaleString('es-AR') : '0'}
+                              onChange={(e) => {
+                                const raw = e.target.value.replace(/\D/g, '');
+                                const monto = parseFloat(raw) || 0;
+                                setRedeterminacionMonto(monto);
+                                setRedeterminacionPct(resumenFinanciero.netoACertificar > 0 ? Number(((monto / resumenFinanciero.netoACertificar) * 100).toFixed(2)) : 0);
+                              }}
+                              className="w-full bg-slate-50 border border-slate-300 rounded pl-7 pr-2 py-1 text-right font-bold text-slate-900 outline-none focus:border-amber-500 font-mono text-xs"
+                            />
                           </div>
                         </div>
-                        <div className="flex justify-between items-center bg-slate-950 text-white p-4 rounded-xl shadow-md mt-6">
-                          <span className="font-extrabold text-xs uppercase">TOTAL GENERAL A CERTIFICAR:</span>
-                          <span className="font-black text-lg text-amber-400 font-mono">$ {totalFinalLiquidacion.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
-                        </div>
                       </div>
+                      <p className="text-[10px] text-slate-500 italic">Se calcula sobre el neto (avance − descuento + adicionales).</p>
                     </div>
-                  );
-                })()}
+                    <div className="flex justify-between items-center bg-slate-950 text-white p-4 rounded-xl shadow-md mt-6">
+                      <span className="font-extrabold text-xs uppercase">TOTAL GENERAL A CERTIFICAR:</span>
+                      <span className="font-black text-lg text-amber-400 font-mono">$ {resumenFinanciero.totalFinalLiquidacion.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* BLOQUE DE FIRMAS */}
@@ -787,7 +911,8 @@ export default function CertificacionesTab({
                       <th className="px-4 py-3">Cliente</th>
                       <th className="px-4 py-3">Obra</th>
                       <th className="px-4 py-3 text-right">Total General</th>
-                      <th className="px-4 py-3 text-center">Acciones</th>
+                      {/* 🔑 NUEVO: columna acciones solo si es admin */}
+                      {esAdminOGerencia && <th className="px-4 py-3 text-center">Acciones</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
@@ -798,23 +923,27 @@ export default function CertificacionesTab({
 
                       return (
                         <tr key={certKeyId} className="hover:bg-slate-50">
-                          <td className="px-4 py-3 font-bold text-amber-800">Certificado #{nroCert}</td>
+                          <td className="px-4 py-3 font-bold text-amber-800">
+                            Certificado #{nroCert} {String(nroCert) === '0' && <span className="text-[10px] text-blue-700 font-semibold">(Adelanto)</span>}
+                          </td>
                           <td className="px-4 py-3 text-slate-600">{cert?.fecha}</td>
                           <td className="px-4 py-3 text-slate-800 font-semibold">{cert?.cliente}</td>
                           <td className="px-4 py-3 text-slate-600">{cert?.obra}</td>
                           <td className="px-4 py-3 text-right font-black text-slate-950 font-mono">
                             $ {Number(cert?.total_general || cert?.totalGeneral || cert?.totalgeneral || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}
                           </td>
-                          <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
-                            {pdfLink && (
-                              <a href={pdfLink} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] inline-flex items-center gap-1">
-                                <ExternalLink className="w-3 h-3" /> Ver PDF
-                              </a>
-                            )}
-                            <button onClick={() => eliminarCertificadoServidor(certKeyId)} className="p-1.5 bg-rose-600 text-white rounded-lg cursor-pointer">
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </td>
+                          {esAdminOGerencia && (
+                            <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
+                              {pdfLink && (
+                                <a href={pdfLink} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] inline-flex items-center gap-1">
+                                  <ExternalLink className="w-3 h-3" /> Ver PDF
+                                </a>
+                              )}
+                              <button onClick={() => eliminarCertificadoServidor(certKeyId)} className="p-1.5 bg-rose-600 text-white rounded-lg cursor-pointer">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </td>
+                          )}
                         </tr>
                       );
                     })}
@@ -827,7 +956,11 @@ export default function CertificacionesTab({
       )}
 
       {tipoCertificadoSubTab === 'horas_hombre' && (
-        <CertificadoHorasHombreTab contratosList={contratosList} allReportesSice={allReportesSice} />
+        <CertificadoHorasHombreTab 
+          contratosList={contratosList} 
+          allReportesSice={allReportesSice} 
+          currentUser={currentUser}
+        />
       )}
 
       {tipoCertificadoSubTab === 'compra_materiales' && (

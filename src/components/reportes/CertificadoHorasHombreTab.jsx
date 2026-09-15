@@ -12,7 +12,6 @@ export default function CertificadoHorasHombreTab({
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   
-  // HISTORIAL DE CERTIFICACIONES
   const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData('CertificacionesHoras');
 
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
@@ -96,8 +95,6 @@ export default function CertificadoHorasHombreTab({
 
   const historialCertificados = useMemo(() => {
     const raw = extraerArrayDatos(certificacionesRealizadas);
-    // Filtro relajado al máximo: si es un objeto con datos, lo muestra.
-    // Esto evita que filas sin un ID perfecto sean ocultadas.
     return raw.filter(c => c && typeof c === 'object' && Object.keys(c).length > 2);
   }, [certificacionesRealizadas]);
 
@@ -125,7 +122,6 @@ export default function CertificadoHorasHombreTab({
     });
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
-  // Se eliminó el "fallback" al código SICE. Si no hay número de cliente, queda en blanco.
   const nroContratoClienteReal = useMemo(() => {
     if (!contratoActual) return '---';
     return contratoActual.nro_contrato_cliente || 
@@ -195,17 +191,41 @@ export default function CertificadoHorasHombreTab({
     return usados;
   }, [historialCertificados]);
 
+  // 🔑 MODIFICADO: filtro por contrato seleccionado
   const partesDisponiblesParaAgregar = useMemo(() => {
     const seleccionadosActuales = partesSeleccionados.map(p => String(p.nroParte));
-    
+
+    // Si no hay contrato seleccionado, no mostramos partes
+    if (!contratoIdSeleccionado) return [];
+
+    const contratoIdStr = String(contratoIdSeleccionado).trim();
+    const codigoSICEStr = String(codigoSICEReal || '').trim();
+    const idContratoRealStr = String(contratoActual?.id || contratoActual?.ID || '').trim();
+
     return allReportesSice.filter(p => {
       const idNro = String(p?.nro || p?.id || '').trim();
       if (!idNro || idNro === 'undefined' || idNro === 'null') return false; 
       if (partesUsadosEnHistorial.has(idNro)) return false; 
       if (seleccionadosActuales.includes(idNro)) return false;
-      return true;
+
+      // 🔑 NUEVO: filtrar por contrato
+      const pContratoId = String(
+        p?.contratoid || p?.contratoId || p?.contrato_id || p?.ContratoId || ''
+      ).trim();
+
+      // Si el parte no tiene contrato_id, excluir (evita contaminar con partes huérfanos)
+      if (!pContratoId) return false;
+
+      // Match contra: id del contrato seleccionado, código SICE, o el id real del objeto contrato
+      const matchPorId = pContratoId === contratoIdStr;
+      const matchPorIdReal = idContratoRealStr && pContratoId === idContratoRealStr;
+      const matchPorCodigo = codigoSICEStr && codigoSICEStr !== '---' && pContratoId === codigoSICEStr;
+      const matchParcial = codigoSICEStr && codigoSICEStr !== '---' &&
+        (pContratoId.includes(codigoSICEStr) || codigoSICEStr.includes(pContratoId));
+
+      return matchPorId || matchPorIdReal || matchPorCodigo || matchParcial;
     });
-  }, [allReportesSice, partesUsadosEnHistorial, partesSeleccionados]);
+  }, [allReportesSice, partesUsadosEnHistorial, partesSeleccionados, contratoIdSeleccionado, codigoSICEReal, contratoActual]);
 
   const formatearFecha = (fechaISO) => {
     if (!fechaISO) return '';
@@ -361,7 +381,6 @@ export default function CertificadoHorasHombreTab({
       const payload = {
         tabla: 'CertificacionesHoras',
         action: 'guardar_certificado_horas',
-        // Inyectamos un ID desde el frontend para evitar filas vacías en Google Sheets
         id: `CERT-HH-${Date.now()}`, 
         contrato_id: String(contratoIdSeleccionado),
         contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
@@ -493,7 +512,6 @@ export default function CertificadoHorasHombreTab({
             </strong>
           </div>
 
-          {/* CÓDIGOS DE CONTRATO CLARAMENTE SEPARADOS */}
           <div>
             <span className="text-slate-500 font-semibold block">Código SICE:</span>
             <strong className="text-slate-900 block mt-1 font-mono">
@@ -563,7 +581,9 @@ export default function CertificadoHorasHombreTab({
             }}
             className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-bold text-slate-800 outline-none cursor-pointer w-72"
           >
-            <option value="">+ Seleccionar parte diario aprobado...</option>
+            <option value="">
+              {contratoIdSeleccionado ? '+ Seleccionar parte diario aprobado...' : 'Primero seleccione un contrato...'}
+            </option>
             {partesDisponiblesParaAgregar.map((p, idx) => (
               <option key={idx} value={p?.id || p?.nro}>
                 Parte #{p?.nro || idx + 1} ({formatearFecha(p?.fecha)})
@@ -673,7 +693,6 @@ export default function CertificadoHorasHombreTab({
           </table>
         </div>
 
-        {/* SECCIÓN DE RESPONSABLES EDITABLES */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
           <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
             <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
@@ -766,14 +785,12 @@ export default function CertificadoHorasHombreTab({
         </div>
       </div>
 
-      {/* SECCIÓN DE HISTORIAL DE CERTIFICADOS */}
       <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-4 shadow-sm">
         <div className="flex items-center justify-between border-b-2 border-slate-800 pb-3">
           <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
             <FileText className="w-4 h-4 text-blue-900" /> Historial de Certificados de Horas Hombre Emitidos
           </h3>
           
-          {/* BOTÓN DE ACTUALIZAR AÑADIDO AQUÍ */}
           <div className="flex items-center gap-3">
             <span className="text-xs font-bold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-300">
               Total: {historialCertificados.length}
@@ -811,12 +828,10 @@ export default function CertificadoHorasHombreTab({
                 </tr>
               ) : (
                 historialCertificados.map((cert, idx) => {
-                  // Fallbacks robustos por si el ID está vacío en la base de datos
                   const certId = cert.id || cert.certificado_nro || `fallback-${idx}`;
                   const certNro = cert.certificado_nro || cert.certificadonro || 'S/N';
                   const clienteText = cert.cliente || '---';
                   
-                  // EXTRAYENDO AMBOS CÓDIGOS PARA MOSTRARLOS
                   const codigoSice = cert.contrato_codigo || cert.contratocodigo || '---';
                   const codigoCliente = cert.nro_contrato_cliente || cert.nrocontratocliente || '---';
                   
@@ -833,7 +848,6 @@ export default function CertificadoHorasHombreTab({
                       </td>
                       <td className="py-2.5 px-3 font-medium">
                         <div className="font-bold text-slate-900">{clienteText}</div>
-                        {/* AHORA SE MUESTRAN AMBOS CÓDIGOS CLARAMENTE */}
                         <div className="text-[10px] text-slate-500 font-mono mt-0.5 flex gap-2">
                           <span className="bg-slate-100 px-1 py-0.5 rounded border border-slate-200">SICE: <b>{codigoSice}</b></span>
                           <span className="bg-slate-100 px-1 py-0.5 rounded border border-slate-200">CLI: <b>{codigoCliente}</b></span>
