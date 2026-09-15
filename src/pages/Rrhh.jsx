@@ -13,14 +13,13 @@ export default function Rrhh({
   cargasHorasIniciales = [],
   cargarDatos = () => {} 
 }) {
-  const [activeTab, setActiveTab] = useState('personal'); // 'personal' | 'legajos' | 'salarios' | 'carga' | 'historial_carga'
+  const [activeTab, setActiveTab] = useState('personal');
   const [searchTerm, setSearchTerm] = useState('');
   const [guardandoCarga, setGuardandoCarga] = useState(false);
   const [guardandoCargasSociales, setGuardandoCargasSociales] = useState(false);
-  // 🔑 NUEVO: estado para bloquear el botón mientras se vuelca una carga
+  // 🔑 Estado para bloquear el botón y mostrar progreso mientras se vuelca
   const [volcandoCargaId, setVolcandoCargaId] = useState(null);
 
-  // Respaldos seguros locales por si el componente padre no envía alguna prop
   const safePersonal = Array.isArray(personalInicial) ? personalInicial : [];
   const safeInsumos = Array.isArray(insumos) ? insumos : [];
   const safePresupuestos = Array.isArray(presupuestos) ? presupuestos : [];
@@ -40,7 +39,6 @@ export default function Rrhh({
     if (Array.isArray(cargasHorasIniciales)) setCargasHorasLista(cargasHorasIniciales);
   }, [cargasHorasIniciales]);
 
-  // Función auxiliar para limpiar y formatear correctamente los números y textos de Google Sheets
   const procesarPersonalInicial = (lista) => {
     if (!Array.isArray(lista)) return [];
     return lista.map(p => {
@@ -54,7 +52,6 @@ export default function Rrhh({
         mesCrudo = 'Agosto 2026';
       }
 
-      // Normalizar estado (activo o baja) desde la nueva columna
       let estadoCrudo = String(p.estado || p.Estado || 'activo').trim().toLowerCase();
       const esBaja = estadoCrudo.includes('baja') || estadoCrudo.includes('inactivo') || estadoCrudo === 'no';
       const estadoNormalizado = esBaja ? 'baja' : 'activo';
@@ -68,37 +65,32 @@ export default function Rrhh({
     });
   };
 
-  // Estado local para los salarios y datos del personal
   const [personalSalarios, setPersonalSalarios] = useState(procesarPersonalInicial(safePersonal));
 
   const [multiplicadorParitaria, setMultiplicadorParitaria] = useState('');
   const [mesAcuerdoGlobal, setMesAcuerdoGlobal] = useState('Agosto 2026');
 
-  // Estados para la gestión y edición de Cuadrillas
-  const [vistaCuadrilla, setVistaCuadrilla] = useState('lista'); // 'lista' | 'editor'
+  const [vistaCuadrilla, setVistaCuadrilla] = useState('lista');
   const [cuadrillaIdEditando, setCuadrillaIdEditando] = useState(null);
   const [nombreCuadrilla, setNombreCuadrilla] = useState('CUADRILLA LDC ZARATE - PROMEDIO ESTABLE');
   const [porcentajeCargas, setPorcentajeCargas] = useState(76.00);
   const [cuadrillaItems, setCuadrillaItems] = useState([]);
   const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 0 });
 
-  // ESTADOS PARA LA CARGA SEMANAL DE HORAS / VIÁTICOS
   const [editingCargaId, setEditingCargaId] = useState(null);
-  const [tipoProyectoCarga, setTipoProyectoCarga] = useState('obra'); // 'obra' | 'contrato'
+  const [tipoProyectoCarga, setTipoProyectoCarga] = useState('obra');
   const [presupuestoSeleccionadoCarga, setPresupuestoSeleccionadoCarga] = useState('');
   const [contratoSeleccionadoCarga, setContratoSeleccionadoCarga] = useState('');
   const [fechaCarga, setFechaCarga] = useState(new Date().toISOString().split('T')[0]);
   const [porcentajeCargasSociales, setPorcentajeCargasSociales] = useState(76.00);
   const [detalleCargaPersonal, setDetalleCargaPersonal] = useState([]);
 
-  // Estados para el Módulo de Legajos
   const [legajoEmpleadoSeleccionado, setLegajoEmpleadoSeleccionado] = useState('');
   const [legajoSubseccionActiva, setLegajoSubseccionActiva] = useState('documentacion_principal');
   const [nombreDocumentoLegajo, setNombreDocumentoLegajo] = useState('');
   const [archivoLegajoBase64, setArchivoLegajoBase64] = useState('');
   const [cargandoLegajo, setCargandoLegajo] = useState(false);
 
-  // Listado fijo requerido para Documentación Principal
   const DOCUMENTOS_PRINCIPALES_OBLIGATORIOS = [
     "DNI",
     "Alta Afip",
@@ -118,12 +110,10 @@ export default function Rrhh({
     }
   }, [safePersonal, legajoEmpleadoSeleccionado]);
 
-  // Estado para la distribución por Rubros del Presupuesto
   const [distribucionRubros, setDistribucionRubros] = useState([
     { id: 1, rubro: '', porcentaje: 100 }
   ]);
 
-  // Filtrar presupuestos aprobados de manera flexible
   const presupuestosAprobados = safePresupuestos.filter(p => {
     const estado = String(p.estado || p.Estado || p.estado_presupuesto || '').toLowerCase();
     const aprobadoProp = p.aprobado ?? p.Aprobado;
@@ -132,13 +122,11 @@ export default function Rrhh({
     return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado || estado === '';
   });
 
-  // Filtrado ROBUSTO Y FLEXIBLE DE CONTRATOS ACTIVOS/APROBADOS
   const contratosActivos = safeContratos.filter(c => {
     const estado = String(c.estado || c.Estado || c.status || c.Status || '').toLowerCase();
     return estado.includes('activo') || estado.includes('vigente') || estado.includes('aprobado') || estado.includes('curso') || estado === '';
   });
 
-  // Obtener rubros disponibles (Restricción estricta a "Horas trabajadas" si es contrato de mantenimiento)
   const rubrosDisponiblesPresupuesto = React.useMemo(() => {
     if (tipoProyectoCarga === 'contrato') {
       return ['Horas trabajadas'];
@@ -184,7 +172,6 @@ export default function Rrhh({
     ];
   }, [tipoProyectoCarga, presupuestoSeleccionadoCarga, safePresupuestos, safeRubros]);
 
-  // Sincronizar salarios y estado
   React.useEffect(() => {
     if (safePersonal.length > 0) {
       const procesados = procesarPersonalInicial(safePersonal);
@@ -218,7 +205,6 @@ export default function Rrhh({
     return tipo.includes('mano') || nombre.includes('cuadrilla');
   });
 
-  // Modal Nuevo / Editar Personal
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [formData, setFormData] = useState({
@@ -462,7 +448,6 @@ export default function Rrhh({
     }
   };
 
-  // Manejo de Archivos de Legajos Fijos (Documentación Principal)
   const handleSubirDocumentoFijo = async (docTitulo, file) => {
     if (!file) return;
     if (!legajoEmpleadoSeleccionado) {
@@ -509,7 +494,6 @@ export default function Rrhh({
     reader.readAsDataURL(file);
   };
 
-  // Manejo de Foto de Perfil del Trabajador
   const handleSubirFotoTrabajador = async (file) => {
     if (!file) return;
     if (!legajoEmpleadoSeleccionado) {
@@ -556,7 +540,6 @@ export default function Rrhh({
     reader.readAsDataURL(file);
   };
 
-  // Manejo de Archivos para otras Secciones (Recibos, Estudios, etc.)
   const handleArchivoLegajoChange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -698,8 +681,7 @@ export default function Rrhh({
   };
 
   // 🔑 MODIFICADO: Guardar Carga Salarial. Ya NO genera egresos en Tesorería.
-  // Solo guarda en CargasSemanales con estado_volcado: 'pendiente'. Los egresos
-  // se generan desde el botón "Volcar a Tesorería" en el historial.
+  // Solo guarda en CargasSemanales con estado_volcado: 'pendiente'.
   const handleGuardarCargaSalarial = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -710,7 +692,6 @@ export default function Rrhh({
 
     setGuardandoCarga(true);
     try {
-      // BUSCAR EL ID DE LA OBRA RELACIONADA AL PRESUPUESTO SELECCIONADO
       let obraIdAsociada = '';
       if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
         const presupuestoEncontrado = safePresupuestos.find(p => String(p.id || p.ID || p.codigo) === String(presupuestoSeleccionadoCarga));
@@ -719,7 +700,6 @@ export default function Rrhh({
         }
       }
 
-      // 🔑 NUEVO: detectar si la carga que estamos editando ya estaba volcada
       const cargaOriginal = editingCargaId
         ? cargasHorasLista.find(c => String(c.id || c.ID) === String(editingCargaId))
         : null;
@@ -735,7 +715,6 @@ export default function Rrhh({
         detalle_personal: JSON.stringify(detalleCargaCalculado),
         distribucion_rubros: JSON.stringify(distribucionRubros),
         total_general: totalGeneralCarga,
-        // 🔑 CAMPOS NUEVOS
         estado_volcado: yaEstabaVolcada ? 'pendiente' : (cargaOriginal?.estado_volcado || 'pendiente'),
         version: Number(cargaOriginal?.version || 0),
         fecha_volcado: cargaOriginal?.fecha_volcado || ''
@@ -778,7 +757,6 @@ export default function Rrhh({
   };
 
   // 🔑 MODIFICADO: Registrar Cargas Sociales. Ya NO genera egresos en Tesorería.
-  // Solo registra el parte en CargasSemanales con estado_volcado: 'pendiente'.
   const handleRegistrarCargasSociales = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -789,7 +767,6 @@ export default function Rrhh({
 
     setGuardandoCargasSociales(true);
     try {
-      // BUSCAR EL ID DE LA OBRA RELACIONADA AL PRESUPUESTO SELECCIONADO
       let obraIdAsociada = '';
       if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
         const presupuestoEncontrado = safePresupuestos.find(p => String(p.id || p.ID || p.codigo) === String(presupuestoSeleccionadoCarga));
@@ -808,7 +785,6 @@ export default function Rrhh({
         detalle_personal: JSON.stringify(detalleCargaCalculado),
         distribucion_rubros: JSON.stringify(distribucionRubros),
         total_general: totalCargasSociales,
-        // 🔑 CAMPOS NUEVOS — siempre nace pendiente
         estado_volcado: 'pendiente',
         version: 0,
         fecha_volcado: ''
@@ -835,9 +811,9 @@ export default function Rrhh({
     }
   };
 
-  // 🔑 NUEVO: Volcar (o re-volcar) una carga a Tesorería.
-  // Si la carga ya estaba volcada, primero borra los egresos anteriores
-  // (por carga_id) y luego crea los nuevos con la versión incrementada.
+  // 🔑 OPTIMIZADO: Volcado atómico en 1 llamada al backend.
+  // El backend hace el borrado previo (si re-volcás) + creación masiva
+  // con setValues() en una sola pasada.
   const handleVolcarCargaATesoreria = async (carga) => {
     const cargaId = carga.id || carga.ID;
     if (!cargaId) {
@@ -859,80 +835,45 @@ export default function Rrhh({
     const versionActual = Number(carga.version || 0);
     const nuevaVersion = versionActual + 1;
 
+    const rubros = typeof carga.distribucion_rubros === 'string'
+      ? JSON.parse(carga.distribucion_rubros)
+      : carga.distribucion_rubros;
+
+    if (!Array.isArray(rubros) || rubros.length === 0) {
+      alert("La carga no tiene rubros definidos.");
+      return;
+    }
+
     setVolcandoCargaId(cargaId);
     try {
-      // PASO 1: borrar egresos previos si estamos re-volcando
-      if (esReVolcado) {
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            tabla: 'Tesoreria',
-            action: 'deleteByField',
-            field: 'carga_id',
-            value: String(cargaId)
-          })
-        });
-      }
+      // PASO 1: un SOLO fetch al backend (borra + crea masivamente)
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'volcarCargaATesoreria',
+          carga_id: String(cargaId),
+          es_revolcado: esReVolcado,
+          tipo_registro: carga.tipo_registro || 'Sueldos',
+          tipo_proyecto: carga.tipo_proyecto || 'obra',
+          presupuesto_id: carga.presupuesto_id || '',
+          obra_id: carga.obra_id || '',
+          contrato_mantenimiento_id: carga.contrato_mantenimiento_id || '',
+          fecha: carga.fecha,
+          total: Number(carga.total_general || 0),
+          rubros: rubros,
+          version_nueva: nuevaVersion
+        })
+      });
 
-      // PASO 2: regenerar egresos
-      const rubros = typeof carga.distribucion_rubros === 'string'
-        ? JSON.parse(carga.distribucion_rubros)
-        : carga.distribucion_rubros;
-      const total = Number(carga.total_general || 0);
+      const data = await res.json().catch(() => ({ success: false, error: 'Respuesta inválida del servidor.' }));
 
-      if (!Array.isArray(rubros) || rubros.length === 0) {
-        alert("La carga no tiene rubros definidos.");
+      if (data.success === false) {
+        alert("Error al volcar: " + (data.error || 'Desconocido'));
         return;
       }
 
-      const tipoRegistro = String(carga.tipo_registro || 'Sueldos').toLowerCase();
-      const esCargasSociales = tipoRegistro.includes('social');
-      const estadoTesoreria = esCargasSociales ? 'Pendiente' : 'Pagado';
-      const proveedorTesoreria = esCargasSociales ? 'AFIP / Cargas Sociales' : 'Personal / Sueldos';
-      const referenciaTesoreria = esCargasSociales ? 'RRHH - Cargas Sociales' : 'RRHH - Pago Directo';
-
-      const tipoProyecto = String(carga.tipo_proyecto || 'obra');
-      const destinoNombre = tipoProyecto === 'obra'
-        ? `Presupuesto: ${carga.presupuesto_id}`
-        : `Contrato Mantenimiento: ${carga.contrato_mantenimiento_id}`;
-
-      for (const r of rubros) {
-        const pct = Number(r.porcentaje) || 0;
-        if (pct <= 0) continue;
-        const montoRubro = Math.round((total * (pct / 100)) * 100) / 100;
-
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            tabla: 'Tesoreria',
-            action: 'create',
-            data: {
-              tipo: 'Egreso',
-              estado: estadoTesoreria,
-              fecha: carga.fecha,
-              concepto: esCargasSociales
-                ? `Cargas Sociales - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`
-                : `Sueldos y Viáticos - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`,
-              monto: montoRubro,
-              proveedor: proveedorTesoreria,
-              referencia: referenciaTesoreria,
-              rubro: r.rubro,
-              rubro_imputacion: r.rubro,
-              tipo_insumo: 'Mano de Obra',
-              presupuesto_id: carga.presupuesto_id || '',
-              obra_id: carga.obra_id || '',
-              contrato_id: carga.contrato_mantenimiento_id || '',
-              // 🔑 CLAVES DEL VÍNCULO
-              carga_id: String(cargaId),
-              carga_version: nuevaVersion
-            }
-          })
-        });
-      }
-
-      // PASO 3: marcar la carga como volcada en su versión actual
+      // PASO 2: marcar la carga como volcada en CargasSemanales
       await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -950,8 +891,8 @@ export default function Rrhh({
       });
 
       alert(esReVolcado
-        ? "¡Carga re-volcada! Se reemplazaron los egresos anteriores."
-        : "¡Carga volcada a Tesorería con éxito!");
+        ? `¡Carga re-volcada! Se reemplazaron los egresos anteriores (${data.egresos_creados} nuevos egresos creados).`
+        : `¡Carga volcada a Tesorería! (${data.egresos_creados} egresos creados).`);
       cargarDatos();
     } catch (err) {
       console.error(err);
@@ -996,7 +937,6 @@ export default function Rrhh({
     if (!window.confirm(msg)) return;
 
     try {
-      // 🔑 NUEVO: si estaba volcada, borrar sus egresos primero
       if (estaVolcada) {
         await fetch(GOOGLE_SCRIPT_URL, {
           method: 'POST',
@@ -1030,7 +970,6 @@ export default function Rrhh({
     return nombre.includes(query) || cuil.includes(query) || especialidad.includes(query);
   });
 
-  // Dividir empleados en Activos y De Baja
   const personalActivo = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'activo');
   const personalDeBaja = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'baja');
 
@@ -1109,7 +1048,6 @@ export default function Rrhh({
             </div>
           </div>
 
-          {/* LISTA DE PERSONAL ACTIVO */}
           <div className="space-y-3">
             <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 inline-block"></span> Empleados Activos ({personalActivo.length})
@@ -1162,7 +1100,6 @@ export default function Rrhh({
             </div>
           </div>
 
-          {/* LISTA DE PERSONAL DE BAJA */}
           <div className="space-y-3 pt-4">
             <h3 className="text-xs font-extrabold uppercase text-slate-900 tracking-wider flex items-center gap-2">
               <span className="w-2.5 h-2.5 rounded-full bg-rose-500 inline-block"></span> Empleados De Baja ({personalDeBaja.length})
@@ -1217,7 +1154,6 @@ export default function Rrhh({
         </div>
       )}
 
-      {/* MÓDULO DE LEGAJOS */}
       {activeTab === 'legajos' && (
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -1882,7 +1818,6 @@ export default function Rrhh({
         </div>
       )}
 
-      {/* MÓDULO CARGA SEMANAL / VIÁTICOS */}
       {activeTab === 'carga' && (
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
@@ -1903,7 +1838,6 @@ export default function Rrhh({
               )}
             </div>
 
-            {/* SECTOR DE SELECCIÓN TIPO DE PROYECTO (OBRA VS CONTRATO) */}
             <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
               <label className="block text-xs font-bold text-slate-700 uppercase">Destino del Parte de Horas *</label>
               <div className="flex gap-6">
@@ -2206,7 +2140,6 @@ export default function Rrhh({
         </div>
       )}
 
-      {/* MÓDULO HISTORIAL DE CARGAS REALIZADAS (CARGAS SEMANALES) */}
       {activeTab === 'historial_carga' && (
         <div className="space-y-6">
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -2215,6 +2148,17 @@ export default function Rrhh({
               <p className="text-xs text-slate-500 mt-0.5">Visualiza, edita, volcá a Tesorería o eliminá los partes semanales de horas y viáticos guardados.</p>
             </div>
           </div>
+
+          {/* 🔑 NUEVO: banner de progreso mientras hay un volcado en curso */}
+          {volcandoCargaId && (
+            <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-center gap-3 shadow-sm">
+              <Loader2 className="w-5 h-5 text-amber-600 animate-spin shrink-0" />
+              <div>
+                <p className="text-xs font-bold text-amber-900">Volcando carga a Tesorería...</p>
+                <p className="text-[11px] text-amber-700">No cierres esta pestaña. Esto puede tardar unos segundos.</p>
+              </div>
+            </div>
+          )}
 
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
             {cargasHorasLista.length === 0 ? (
@@ -2228,7 +2172,6 @@ export default function Rrhh({
                   <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
                     <th className="px-6 py-4">Fecha</th>
                     <th className="px-4 py-4">Tipo de Registro</th>
-                    {/* 🔑 NUEVA COLUMNA */}
                     <th className="px-4 py-4">Estado Volcado</th>
                     <th className="px-4 py-4">Tipo Proyecto</th>
                     <th className="px-4 py-4">Destino (Presupuesto / Contrato)</th>
@@ -2247,7 +2190,6 @@ export default function Rrhh({
                     const cTotal = Number(c.total_general || c.Total_general || 0);
                     const cFecha = c.fecha || c.Fecha ? new Date(c.fecha || c.Fecha).toLocaleDateString('es-AR') : '---';
                     const cObraId = c.obra_id || c.Obra_id || '---';
-                    // 🔑 NUEVO: leer estado_volcado y version
                     const cEstadoVolcado = String(c.estado_volcado || c.Estado_volcado || 'pendiente').toLowerCase();
                     const cVersion = Number(c.version || c.Version || 0);
                     const estaVolcada = cEstadoVolcado === 'volcado';
@@ -2265,7 +2207,6 @@ export default function Rrhh({
                             {cTipoReg}
                           </span>
                         </td>
-                        {/* 🔑 NUEVA CELDA: Estado Volcado */}
                         <td className="px-4 py-4">
                           <span className={`px-2.5 py-1 rounded-full font-extrabold text-[10px] uppercase ${
                             estaVolcada
@@ -2289,7 +2230,6 @@ export default function Rrhh({
                         <td className="px-4 py-4 text-right font-black text-blue-600">
                           $ {cTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
-                        {/* 🔑 CELDA DE ACCIONES: se agrega botón Volcar / Re-volcar */}
                         <td className="px-6 py-4 text-right space-x-1">
                           <button 
                             onClick={() => handleEditarCargaHistorial(c)} 
@@ -2312,8 +2252,17 @@ export default function Rrhh({
                               className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-200 hover:bg-slate-300 disabled:opacity-50 text-slate-700 rounded-lg font-bold text-[10px] shadow-sm cursor-pointer"
                               title="Borrar egresos previos y regenerarlos"
                             >
-                              {estaVolcando ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-                              Re-volcar
+                              {estaVolcando ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  Volcando...
+                                </>
+                              ) : (
+                                <>
+                                  <RefreshCw className="w-3 h-3" />
+                                  Re-volcar
+                                </>
+                              )}
                             </button>
                           ) : (
                             <button
@@ -2322,8 +2271,17 @@ export default function Rrhh({
                               className="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg font-bold text-[10px] shadow-sm cursor-pointer"
                               title="Generar egresos en Tesorería"
                             >
-                              {estaVolcando ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                              Volcar
+                              {estaVolcando ? (
+                                <>
+                                  <Loader2 className="w-3 h-3 animate-spin" />
+                                  Volcando...
+                                </>
+                              ) : (
+                                <>
+                                  <Send className="w-3 h-3" />
+                                  Volcar
+                                </>
+                              )}
                             </button>
                           )}
                         </td>
