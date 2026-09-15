@@ -7,16 +7,17 @@ import { OBRAS_CONFIG } from '@/config/constants';
 export default function CertificadoHorasHombreTab({ 
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [],
-  currentUser // <-- Necesario para validar si es Administrador
+  currentUser // <-- Necesario para validar si es Administrador/Gerencia
 }) {
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   
-  // HISTORIAL DE CERTIFICACIONES
-  const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData('CertificacionesHoras');
+  // HISTORIAL DE CERTIFICACIONES: Usando la configuración dinámica
+  const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData(OBRAS_CONFIG?.TABLAS?.CERTIFICACIONES_HORAS || 'CertificacionesHoras');
 
+  // Permisos para eliminar certificados del historial
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
-  const esAdmin = rolStr === 'administrador' || rolStr === 'admin';
+  const esAdminOGerencia = rolStr === 'administrador' || rolStr === 'admin' || rolStr === 'gerencia' || rolStr === 'gerente';
 
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
@@ -75,8 +76,6 @@ export default function CertificadoHorasHombreTab({
       extraGlobales = extraerArrayDatos(window.globalData.allReportesSice);
     }
 
-    // Punto 1 del análisis: respetar la baja de partes diarios eliminados en la
-    // pestaña "Reportes Diarios", que comparte esta misma clave de localStorage.
     let idsEliminados = [];
     try {
       const eliminadosRaw = localStorage.getItem('sice_partes_eliminados_global_v5');
@@ -108,8 +107,6 @@ export default function CertificadoHorasHombreTab({
     return raw.filter(c => {
       if (!c) return false;
       const hasId = c.id !== undefined && c.id !== null && String(c.id).trim() !== '';
-      // Punto 2 del análisis: era "&&" y nunca se cumplía (el backend normaliza
-      // el header a UNA sola variante, no a ambas a la vez en el mismo objeto).
       const hasNro = (c.certificado_nro !== undefined && c.certificado_nro !== null && String(c.certificado_nro).trim() !== '') ||
                      (c.certificadonro !== undefined && c.certificadonro !== null && String(c.certificadonro).trim() !== '');
       const hasContrato = c.contrato_id || c.contratoid || c.contrato_codigo || c.contratocodigo;
@@ -151,11 +148,6 @@ export default function CertificadoHorasHombreTab({
            '---';
   }, [contratoActual]);
 
-  // Punto 5 del análisis: antes esta pestaña solo exigía firma.length >= 4 sin
-  // validar contra ninguna clave del contrato, a diferencia de ReportesDiariosTab
-  // (que exige formato AB1234 + coincidencia con la clave del contrato). Se
-  // replica la misma lógica acá para que ambas firmas tengan el mismo nivel de
-  // control de acceso.
   const clavesContratoActual = useMemo(() => {
     if (!contratoActual) return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
     const pKey = contratoActual.proveedor_key || contratoActual.proveedorKey || contratoActual.claveProveedor || contratoActual?.proveedor?.key || 'AT1020';
@@ -194,13 +186,9 @@ export default function CertificadoHorasHombreTab({
     }
   }, [contratoActual, historialCertificados]);
 
-  // ---> NUEVA LÓGICA: Identificar Partes Diarios ya certificados para quitarlos del desplegable <---
   const partesUsadosEnHistorial = useMemo(() => {
     const usados = new Set();
     historialCertificados.forEach(cert => {
-      // Punto 3 del análisis: el backend puede guardar este dato bajo 'filas'
-      // o bajo 'detalle_filas'/'detallefilas' según cómo esté nombrada la
-      // columna real en la hoja de cálculo. Se soportan ambas variantes.
       const rawFilas = cert.filas ?? cert.detalle_filas ?? cert.detallefilas;
       let filas = [];
       if (typeof rawFilas === 'string') {
@@ -220,16 +208,9 @@ export default function CertificadoHorasHombreTab({
     
     return allReportesSice.filter(p => {
       const idNro = String(p?.nro || p?.id || '').trim();
-      
-      // Eliminar fantasmas o sin número
       if (!idNro || idNro === 'undefined' || idNro === 'null') return false; 
-      
-      // Eliminar los ya guardados en el historial
       if (partesUsadosEnHistorial.has(idNro)) return false; 
-      
-      // Eliminar los que acabo de agregar a la tabla del borrador actual
       if (seleccionadosActuales.includes(idNro)) return false;
-      
       return true;
     });
   }, [allReportesSice, partesUsadosEnHistorial, partesSeleccionados]);
@@ -253,7 +234,6 @@ export default function CertificadoHorasHombreTab({
   };
 
   const obtenerValoresPolinomica = (contrato) => {
-    // Si tienes los valores guardados en "contrato", puedes extraerlos aquí.
     return {
       "S": contrato?.valor_s || 36714.21,
       "T-EHS": contrato?.valor_tehs || 20819.69,
@@ -264,13 +244,12 @@ export default function CertificadoHorasHombreTab({
     };
   };
 
-  // ---> NUEVA LÓGICA: Desglose por categoría del Parte Diario <---
+  // ---> FUNCIÓN CORREGIDA PARA DISCRIMINAR HORAS ("S", "OE", etc.) <---
   const agregarParteFila = (parteObj) => {
     const tablaValores = obtenerValoresPolinomica(contratoActual);
     const fechaParte = parteObj?.fecha || fechaEmision;
     const nroParte = parteObj?.nro || parteObj?.id || '001';
 
-    // Mapeo de categorías y sus posibles llaves viniendo del Parte Diario
     const categoriasBase = [
       { id: 'S', keys: ['horas_S', 'horasS', 'S'] },
       { id: 'T-EHS', keys: ['horas_TEHS', 'horasTEHS', 'T_EHS', 'T-EHS'] },
@@ -282,15 +261,33 @@ export default function CertificadoHorasHombreTab({
     let seAgregoAlgunaCategoria = false;
     const nuevasFilas = [];
 
-    // Intenta extraer las horas discriminadas
+    // Lee el formato "desgloseCategorias" que usa ReportesDiariosTab
+    let desgloseArray = parteObj?.desgloseCategorias || parteObj?.desglose_categorias;
+    if (typeof desgloseArray === 'string') {
+      try { desgloseArray = JSON.parse(desgloseArray); } catch(e) { desgloseArray = []; }
+    }
+
+    // Por si viene en formato objeto (legacy)
     let detalleCategorias = typeof parteObj?.categorias_hh === 'string' 
       ? JSON.parse(parteObj.categorias_hh || '{}') 
       : (parteObj?.categorias_hh || {});
 
     categoriasBase.forEach(cat => {
-      let horas = Number(detalleCategorias[cat.id]) || 0;
+      let horas = 0;
+
+      // 1. Busca en el nuevo formato de array de desglose
+      if (Array.isArray(desgloseArray)) {
+        const catEncontrada = desgloseArray.find(d => String(d.categoria).toUpperCase() === cat.id);
+        if (catEncontrada) horas = Number(catEncontrada.totalHoras) || 0;
+      }
+
+      // 2. Si no hay horas, busca en el formato legacy objeto
       if (horas === 0) {
-        // Busca en las propiedades directas del objeto si no existe 'categorias_hh'
+        horas = Number(detalleCategorias[cat.id]) || 0;
+      }
+
+      // 3. Si sigue sin horas, busca en columnas directas (ej: "horas_S")
+      if (horas === 0) {
         for (const k of cat.keys) {
           if (Number(parteObj[k]) > 0) {
             horas = Number(parteObj[k]);
@@ -314,7 +311,7 @@ export default function CertificadoHorasHombreTab({
       }
     });
 
-    // Fallback: Si el parte viejo no tiene categorías discriminadas, asume todo al total de horas y lo manda a 'OE'
+    // Fallback: Si no hay categorías discriminadas, asume todo al total de horas y lo manda a 'OE'
     if (!seAgregoAlgunaCategoria) {
       const horasTotales = Number(parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
       if (horasTotales > 0) {
@@ -377,7 +374,7 @@ export default function CertificadoHorasHombreTab({
     setIsSaving(true);
     try {
       const payload = {
-        tabla: 'CertificacionesHoras',
+        tabla: OBRAS_CONFIG?.TABLAS?.CERTIFICACIONES_HORAS || 'CertificacionesHoras',
         action: 'guardar_certificado_horas',
         contrato_id: String(contratoIdSeleccionado),
         contrato_codigo: contratoActual.codigo || contratoActual.Codigo || '',
@@ -404,10 +401,6 @@ export default function CertificadoHorasHombreTab({
       if (resultado?.success === false) {
         alert("Error del servidor: " + (resultado.error || 'Desconocido'));
       } else {
-        // El backend ahora recalcula certificado_nro de forma atómica bajo
-        // LockService (punto 7 del análisis), por lo que puede diferir del
-        // número que se mostraba en el formulario si otro usuario generó un
-        // certificado para el mismo contrato mientras se completaba este.
         const nroConfirmado = resultado?.certificado_nro || certificadoNro;
         if (resultado?.certificado_nro && String(resultado.certificado_nro) !== String(certificadoNro)) {
           alert("¡Certificado guardado con éxito! Nro. asignado: " + nroConfirmado + " (otro usuario generó un certificado para este contrato mientras completabas el formulario). Se generó el PDF en Google Drive.");
@@ -428,14 +421,13 @@ export default function CertificadoHorasHombreTab({
     }
   };
 
-  // ---> NUEVA LÓGICA: Eliminar Certificado (Solo Admin) <---
   const handleEliminarCertificado = async (idCertificado) => {
     if (!window.confirm("¿Estás seguro de que deseas eliminar este certificado del historial?")) return;
     try {
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'CertificacionesHoras', action: 'delete', id: idCertificado })
+        body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.CERTIFICACIONES_HORAS || 'CertificacionesHoras', action: 'delete', id: idCertificado })
       });
       const data = await res.json();
       if (data.success !== false) {
@@ -712,7 +704,7 @@ export default function CertificadoHorasHombreTab({
               <div>
                 <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
                 <input 
-                  type="password"  // ---> Modificado para mostrar círculos <---
+                  type="password"
                   maxLength={6}
                   value={respProveedor.firma} 
                   onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value.toUpperCase()})} 
@@ -749,7 +741,7 @@ export default function CertificadoHorasHombreTab({
               <div>
                 <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
                 <input 
-                  type="password" // ---> Modificado para mostrar círculos <---
+                  type="password"
                   maxLength={6}
                   value={respCliente.firma} 
                   onChange={(e) => setRespCliente({...respCliente, firma: e.target.value.toUpperCase()})} 
@@ -798,13 +790,13 @@ export default function CertificadoHorasHombreTab({
                 <th className="py-2.5 px-3 text-center">PERÍODO</th>
                 <th className="py-2.5 px-3 text-right">TOTAL GENERAL ($)</th>
                 <th className="py-2.5 px-3 text-center w-28">DOCUMENTO PDF</th>
-                {esAdmin && <th className="py-2.5 px-3 text-center w-12">ELIMINAR</th>}
+                {esAdminOGerencia && <th className="py-2.5 px-3 text-center w-12">ELIMINAR</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 bg-white">
               {historialCertificados.length === 0 ? (
                 <tr>
-                  <td colSpan={esAdmin ? "7" : "6"} className="py-8 text-center text-slate-400 italic">
+                  <td colSpan={esAdminOGerencia ? "7" : "6"} className="py-8 text-center text-slate-400 italic">
                     No hay certificados de horas hombre registrados en el sistema todavía.
                   </td>
                 </tr>
@@ -852,8 +844,7 @@ export default function CertificadoHorasHombreTab({
                           <span className="text-slate-400 italic">No disponible</span>
                         )}
                       </td>
-                      {/* Lógica de borrado solo para Admin */}
-                      {esAdmin && (
+                      {esAdminOGerencia && (
                         <td className="py-2.5 px-3 text-center">
                           <button
                             type="button"
