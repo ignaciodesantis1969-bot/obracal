@@ -36,6 +36,13 @@ export const useObraData = (tabla, action = 'get') => {
     queryFn: () => fetchObraData(tabla, action),
     enabled: !!tabla,
     staleTime: 1000 * 60 * 5, // Caché fresca por 5 minutos para evitar peticiones innecesarias
+    // 🔑 FIX: reducir concurrencia contra Apps Script para evitar
+    // los 404 transitorios de Google cuando hay múltiples requests
+    // simultáneos al mismo deployment.
+    refetchOnMount: false,      // No refetch al montar si hay cache válida
+    refetchOnWindowFocus: false, // No refetch al volver a la pestaña
+    retry: 1,                    // 1 reintento si falla
+    retryDelay: 2000,            // Esperar 2s antes del reintento
   });
 
   useEffect(() => {
