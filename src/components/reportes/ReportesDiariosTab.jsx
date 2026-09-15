@@ -38,7 +38,16 @@ export default function ReportesDiariosTab({
   const { data: reportesSheet, refetch: refetchReportes } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: personalSheet } = useObraData('Personal');
 
-  const [partesRecienModificados, setPartesRecienModificados] = useState([]);
+  // 🔑 FIX: persistir en localStorage los partes recién modificados, para que
+// sobrevivan a un refresh cuando el refetch de React Query falla (rate limit).
+const [partesRecienModificados, setPartesRecienModificados] = useState(() => {
+  try {
+    const raw = localStorage.getItem('sice_partes_recien_modificados_v1');
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+});
 
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
     try {
@@ -68,10 +77,23 @@ export default function ReportesDiariosTab({
   }, [propContratos, contratosSheet]);
 
   const allReportesSice = useMemo(() => {
-    const s = extraerArrayDatos(reportesSheet);
-    const p = extraerArrayDatos(propReportes);
-    const pr = extraerArrayDatos(partesRecienModificados);
-    const base = [...s, ...p, ...pr];
+  const s = extraerArrayDatos(reportesSheet);
+  const p = extraerArrayDatos(propReportes);
+  
+  // 🔑 FIX: filtrar partesRecienModificados para excluir los que ya están
+  // en reportesSheet. Así evitamos duplicados permanentes cuando el refetch
+  // SÍ funciona y trae el item desde el Sheet.
+  const nrosEnSheet = new Set([
+    ...s.map(item => String(item?.nro || '').replace(/\D/g, '')),
+    ...p.map(item => String(item?.nro || '').replace(/\D/g, ''))
+  ].filter(Boolean));
+
+  const prFiltrados = extraerArrayDatos(partesRecienModificados).filter(item => {
+    const nroItem = String(item?.nro || '').replace(/\D/g, '');
+    return nroItem && !nrosEnSheet.has(nroItem);
+  });
+  
+  const base = [...s, ...p, ...prFiltrados];
 
     const unicosMap = new Map();
 
@@ -144,6 +166,13 @@ export default function ReportesDiariosTab({
       console.info('[ReportesDiarios] Contrato seleccionado:', contratoSeleccionadoId);
     }
   }, [contratoSeleccionadoId]);
+
+  // 🔑 FIX: persistir partesRecienModificados en localStorage cada vez que cambia
+useEffect(() => {
+  try {
+    localStorage.setItem('sice_partes_recien_modificados_v1', JSON.stringify(partesRecienModificados));
+  } catch (e) {}
+}, [partesRecienModificados]);
 
   const contratoActivoObj = useMemo(() => {
     if (!contratoSeleccionadoId) return null;
