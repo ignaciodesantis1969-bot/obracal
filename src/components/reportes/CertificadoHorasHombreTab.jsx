@@ -12,8 +12,8 @@ export default function CertificadoHorasHombreTab({
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   
-  // HISTORIAL DE CERTIFICACIONES: Usando la configuración dinámica
-  const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData(OBRAS_CONFIG?.TABLAS?.CERTIFICACIONES_HORAS || 'CertificacionesHoras');
+  // HISTORIAL DE CERTIFICACIONES: Apuntamos de forma estricta a la hoja
+  const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData('CertificacionesHoras');
 
   // Permisos para eliminar certificados del historial
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
@@ -32,6 +32,7 @@ export default function CertificadoHorasHombreTab({
       if (Array.isArray(fuente.reportessice)) return fuente.reportessice;
       if (Array.isArray(fuente.certificaciones_horas)) return fuente.certificaciones_horas;
       if (Array.isArray(fuente.certificacionesHoras)) return fuente.certificacionesHoras;
+      if (Array.isArray(fuente.CertificacionesHoras)) return fuente.CertificacionesHoras;
       const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
       if (posibleArray) return posibleArray;
     }
@@ -105,12 +106,8 @@ export default function CertificadoHorasHombreTab({
   const historialCertificados = useMemo(() => {
     const raw = extraerArrayDatos(certificacionesRealizadas);
     return raw.filter(c => {
-      if (!c) return false;
-      const hasId = c.id !== undefined && c.id !== null && String(c.id).trim() !== '';
-      const hasNro = (c.certificado_nro !== undefined && c.certificado_nro !== null && String(c.certificado_nro).trim() !== '') ||
-                     (c.certificadonro !== undefined && c.certificadonro !== null && String(c.certificadonro).trim() !== '');
-      const hasContrato = c.contrato_id || c.contratoid || c.contrato_codigo || c.contratocodigo;
-      return hasId || hasNro || hasContrato;
+      // Filtro relajado: Si tiene aunque sea uno de estos datos clave, es un certificado válido
+      return c && (c.id || c.certificado_nro || c.certificadonro || c.fecha_emision || c.contrato_codigo);
     });
   }, [certificacionesRealizadas]);
 
@@ -244,7 +241,6 @@ export default function CertificadoHorasHombreTab({
     };
   };
 
-  // ---> FUNCIÓN CORREGIDA PARA DISCRIMINAR HORAS ("S", "OE", etc.) <---
   const agregarParteFila = (parteObj) => {
     const tablaValores = obtenerValoresPolinomica(contratoActual);
     const fechaParte = parteObj?.fecha || fechaEmision;
@@ -261,13 +257,11 @@ export default function CertificadoHorasHombreTab({
     let seAgregoAlgunaCategoria = false;
     const nuevasFilas = [];
 
-    // Lee el formato "desgloseCategorias" que usa ReportesDiariosTab
     let desgloseArray = parteObj?.desgloseCategorias || parteObj?.desglose_categorias;
     if (typeof desgloseArray === 'string') {
       try { desgloseArray = JSON.parse(desgloseArray); } catch(e) { desgloseArray = []; }
     }
 
-    // Por si viene en formato objeto (legacy)
     let detalleCategorias = typeof parteObj?.categorias_hh === 'string' 
       ? JSON.parse(parteObj.categorias_hh || '{}') 
       : (parteObj?.categorias_hh || {});
@@ -275,18 +269,15 @@ export default function CertificadoHorasHombreTab({
     categoriasBase.forEach(cat => {
       let horas = 0;
 
-      // 1. Busca en el nuevo formato de array de desglose
       if (Array.isArray(desgloseArray)) {
         const catEncontrada = desgloseArray.find(d => String(d.categoria).toUpperCase() === cat.id);
         if (catEncontrada) horas = Number(catEncontrada.totalHoras) || 0;
       }
 
-      // 2. Si no hay horas, busca en el formato legacy objeto
       if (horas === 0) {
         horas = Number(detalleCategorias[cat.id]) || 0;
       }
 
-      // 3. Si sigue sin horas, busca en columnas directas (ej: "horas_S")
       if (horas === 0) {
         for (const k of cat.keys) {
           if (Number(parteObj[k]) > 0) {
@@ -311,7 +302,6 @@ export default function CertificadoHorasHombreTab({
       }
     });
 
-    // Fallback: Si no hay categorías discriminadas, asume todo al total de horas y lo manda a 'OE'
     if (!seAgregoAlgunaCategoria) {
       const horasTotales = Number(parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
       if (horasTotales > 0) {
@@ -374,7 +364,7 @@ export default function CertificadoHorasHombreTab({
     setIsSaving(true);
     try {
       const payload = {
-        tabla: OBRAS_CONFIG?.TABLAS?.CERTIFICACIONES_HORAS || 'CertificacionesHoras',
+        tabla: 'CertificacionesHoras', // Revertido al nombre de tabla original y estricto
         action: 'guardar_certificado_horas',
         contrato_id: String(contratoIdSeleccionado),
         contrato_codigo: contratoActual.codigo || contratoActual.Codigo || '',
@@ -427,7 +417,7 @@ export default function CertificadoHorasHombreTab({
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: OBRAS_CONFIG?.TABLAS?.CERTIFICACIONES_HORAS || 'CertificacionesHoras', action: 'delete', id: idCertificado })
+        body: JSON.stringify({ tabla: 'CertificacionesHoras', action: 'delete', id: idCertificado })
       });
       const data = await res.json();
       if (data.success !== false) {
@@ -803,9 +793,12 @@ export default function CertificadoHorasHombreTab({
               ) : (
                 historialCertificados.map((cert, idx) => {
                   const certId = cert.id || idx;
-                  const certNro = cert.certificado_nro || cert.certificadonro || `000${idx + 1}`;
+                  const certNro = cert.certificado_nro || cert.certificadonro || cert.id || `000${idx + 1}`;
                   const clienteText = cert.cliente || '---';
-                  const contratoRef = cert.nro_contrato_cliente || cert.nrocontratocliente || cert.contrato_codigo || cert.contrato_id || '---';
+                  
+                  // PRIORIZAMOS EL CÓDIGO DE CONTRATO (CM001) ANTES QUE EL NUMERO DE CLIENTE
+                  const contratoRef = cert.contrato_codigo || cert.contratocodigo || cert.nro_contrato_cliente || cert.nrocontratocliente || '---';
+                  
                   const fechaEm = formatearFecha(cert.fecha_emision || cert.fechaemision);
                   const pDesde = formatearFecha(cert.periodo_desde || cert.periododesde);
                   const pHasta = formatearFecha(cert.periodo_hasta || cert.periodohasta);
