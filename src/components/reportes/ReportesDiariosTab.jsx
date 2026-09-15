@@ -1075,14 +1075,12 @@ export default function ReportesDiariosTab({
         ) : (
           <div className="space-y-3">
             {sicePartesAprobados.map((parte, idx) => {
+              // 🔑 FIX: key ESTABLE y ÚNICA. Sin idx, sin Math.random, sin timestamps.
+              // Usamos solo `nro` + `id` que son únicos por parte y estables entre renders.
+              // Esto evita que React duplique componentes cuando el array se re-renderiza.
+              const uniqueKey = `parte-nro-${parte?.nro || 'x'}-id-${parte?.id || parte?.ID || 'x'}`;
+
               const parteId = parte?.id || parte?.nro || `parte-${idx}`;
-
-              // 🔑 FIX: key 100% única usando nro + id + idx + un hash corto del pdfUrl
-              // El bug era que React descartaba el 00011 porque tenía el mismo `key`
-              // que otro item (por id o nro repetido entre fuentes). Con esta key
-              // combinada, es imposible que dos items colisionen.
-              const uniqueKey = `parte-${parte?.nro || 'sin-nro'}-${parteId}-${idx}-${String(parte?.pdfUrl || '').slice(-8)}`;
-
               const pObj = parte?.proveedor;
               const pNombre = (pObj && typeof pObj === 'object') ? (pObj.nombre || '---') : (pObj || '---');
               const pCargo = (pObj && typeof pObj === 'object') ? (pObj.cargo || '---') : '';
