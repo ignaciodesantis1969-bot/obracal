@@ -70,14 +70,28 @@ export default function ReportesDiariosTab({
   const allReportesSice = useMemo(() => {
     const s = extraerArrayDatos(reportesSheet);
     const p = extraerArrayDatos(propReportes);
-    const base = [...s, ...p];
-    const combinados = [...base, ...extraerArrayDatos(partesRecienModificados)];
+    const pr = extraerArrayDatos(partesRecienModificados);
+    const base = [...s, ...p, ...pr];
 
+    // 🔑 FIX: dedupe robusto. Normalizamos el `nro` siempre a 5 dígitos
+    // como string. Si hay conflicto, preferimos el objeto MÁS RECIENTE
+    // (por `id` numérico más alto, o por fecha más reciente como fallback).
     const unicosMap = new Map();
-    
-    combinados.forEach(item => {
+
+    const calcularScore = (item) => {
+      const idNum = Number(item?.id || item?.ID || 0);
+      if (idNum > 0) return idNum;
+      const fecha = item?.fecha || item?.Fecha || '';
+      if (fecha) {
+        const ts = new Date(fecha).getTime();
+        if (!isNaN(ts)) return ts;
+      }
+      return 0;
+    };
+
+    base.forEach(item => {
       if (!item) return;
-      
+
       const idItem = String(item.id || item.ID || '').trim();
       const nroCrud = String(item.nro || item.Nro || item.numero || '').trim();
       const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
@@ -85,28 +99,33 @@ export default function ReportesDiariosTab({
 
       const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
       const estaEliminadoPorNro = nroCrud && (
-        idsEliminadosLocales.includes(nroCrud) || 
-        idsEliminadosLocales.includes(nroNormalizado) || 
+        idsEliminadosLocales.includes(nroCrud) ||
+        idsEliminadosLocales.includes(nroNormalizado) ||
         idsEliminadosLocales.includes(nroPadded)
       );
 
       if (estaEliminadoPorId || estaEliminadoPorNro) return;
 
-      const key = nroNormalizado ? `nro-${nroNormalizado}` : (idItem || Math.random());
+      // 🔑 Key robusta: siempre en formato `nro-00011` para que matchee
+      // sin importar si el nro viene como "11", "00011", 11 o " 11 ".
+      const key = nroNormalizado ? `nro-${nroPadded}` : (idItem || `rand-${Math.random()}`);
+
+      const scoreNuevo = calcularScore(item);
 
       if (!unicosMap.has(key)) {
-        unicosMap.set(key, item);
+        unicosMap.set(key, { item, score: scoreNuevo });
       } else {
         const existente = unicosMap.get(key);
-        const tienePdfNuevo = Boolean(item?.pdf_url || item?.pdfUrl);
-        const tienePdfViejo = Boolean(existente?.pdf_url || existente?.pdfUrl);
-        if (tienePdfNuevo && !tienePdfViejo) {
-          unicosMap.set(key, item);
+        // 🔑 Preferir el más reciente
+        if (scoreNuevo > existente.score) {
+          unicosMap.set(key, { item, score: scoreNuevo });
         }
       }
     });
 
-    return Array.from(unicosMap.values()).sort((a, b) => {
+    const resultado = Array.from(unicosMap.values()).map(entry => entry.item);
+
+    return resultado.sort((a, b) => {
       const nA = parseInt(String(a.nro).replace(/\D/g, '') || '0', 10);
       const nB = parseInt(String(b.nro).replace(/\D/g, '') || '0', 10);
       return nB - nA;
@@ -126,9 +145,6 @@ export default function ReportesDiariosTab({
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
 
-  // 🔑 FIX: log ÚNICO por cambio de contrato. Este useEffect NO hace refetch
-  // (antes causaba un loop infinito porque refetchReportes cambia de referencia
-  // en cada render, disparando el efecto constantemente).
   useEffect(() => {
     if (contratoSeleccionadoId) {
       console.info('[ReportesDiarios] Contrato seleccionado:', contratoSeleccionadoId);
