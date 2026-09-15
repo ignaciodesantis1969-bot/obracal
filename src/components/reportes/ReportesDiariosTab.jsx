@@ -146,14 +146,11 @@ export default function ReportesDiariosTab({
     return buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'nro_contrato', 'contratoCliente']) || '---';
   }, [contratoActivoObj, buscarValorEnObjeto]);
   
-  // NOTA (punto 7 del análisis): este número se calcula en el cliente como
-  // max(existentes) + 1. Si dos usuarios generan un parte casi simultáneamente
-  // con datos aún no sincronizados entre sí, podrían obtener el mismo número.
-  // Mitigamos deshabilitando el botón de guardado mientras isSavingSice=true
-  // (evita duplicados del mismo usuario), pero una solución 100% libre de
-  // condición de carrera entre USUARIOS DISTINTOS requiere un contador atómico
-  // en el backend (p. ej. LockService en el Apps Script), fuera del alcance de
-  // un cambio puramente de frontend.
+  // NOTA (punto 7 del análisis, RESUELTO en el backend): este valor calculado
+  // en el cliente es solo una referencia visual mientras se completa el
+  // formulario. El número definitivo se recalcula de forma atómica en el
+  // servidor con LockService al momento de guardar (ver 'resultado?.nro' más
+  // abajo), por lo que ya no puede haber colisión entre usuarios concurrentes.
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
@@ -534,9 +531,19 @@ export default function ReportesDiariosTab({
         return;
       }
 
+      // El backend ahora recalcula "nro" de forma atómica bajo LockService
+      // (punto 7 del análisis) para eliminar la condición de carrera entre
+      // usuarios concurrentes. Se usa ese valor como definitivo; si por algún
+      // motivo el backend no lo devuelve (versión vieja del script), se cae al
+      // valor calculado localmente como antes.
+      const nroFinalAsignado = resultado?.nro ? String(resultado.nro) : String(siceParteNro);
+      if (resultado?.nro && String(resultado.nro) !== String(siceParteNro)) {
+        toast('El número de parte asignado fue el ' + resultado.nro + ' (otro usuario generó un parte mientras completabas este formulario).', { icon: 'ℹ️' });
+      }
+
       const nuevoParte = {
         id: resultado?.id || `sice-${Date.now()}`,
-        nro: String(siceParteNro),
+        nro: nroFinalAsignado,
         fecha: String(siceFecha),
         contratoid: String(contratoSeleccionadoId),
         nroContratoCliente: String(nroContratoClienteDinamico),

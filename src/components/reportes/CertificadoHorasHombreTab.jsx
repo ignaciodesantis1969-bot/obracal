@@ -404,7 +404,16 @@ export default function CertificadoHorasHombreTab({
       if (resultado?.success === false) {
         alert("Error del servidor: " + (resultado.error || 'Desconocido'));
       } else {
-        alert("¡Certificado guardado con éxito! Se ha generado el PDF en Google Drive.");
+        // El backend ahora recalcula certificado_nro de forma atómica bajo
+        // LockService (punto 7 del análisis), por lo que puede diferir del
+        // número que se mostraba en el formulario si otro usuario generó un
+        // certificado para el mismo contrato mientras se completaba este.
+        const nroConfirmado = resultado?.certificado_nro || certificadoNro;
+        if (resultado?.certificado_nro && String(resultado.certificado_nro) !== String(certificadoNro)) {
+          alert("¡Certificado guardado con éxito! Nro. asignado: " + nroConfirmado + " (otro usuario generó un certificado para este contrato mientras completabas el formulario). Se generó el PDF en Google Drive.");
+        } else {
+          alert("¡Certificado guardado con éxito! Se ha generado el PDF en Google Drive.");
+        }
         if (mutateCertificaciones) mutateCertificaciones();
         
         setPartesSeleccionados([]);
