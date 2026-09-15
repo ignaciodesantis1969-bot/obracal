@@ -113,16 +113,6 @@ export default function ReportesDiariosTab({
     });
   }, [partesRecienModificados, reportesSheet, propReportes, idsEliminadosLocales]);
 
-  // 🔑 FIX 2: refetch de reportes al cambiar de contrato, para traer la versión
-  // más reciente del Sheet y no depender solo del cache de React Query.
-  useEffect(() => {
-    if (contratoSeleccionadoId && typeof refetchReportes === 'function') {
-      console.info('[ReportesDiarios] Refetch por cambio de contrato');
-      refetchReportes({ throwOnError: false }).catch(() => {});
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contratoSeleccionadoId]);
-
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
     if (p.length > 0) return p;
@@ -135,6 +125,18 @@ export default function ReportesDiariosTab({
 
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
+
+  // 🔑 FIX 2 (UBICADO CORRECTAMENTE): refetch de reportes al cambiar de contrato,
+  // para traer la versión más reciente del Sheet y no depender solo del cache de React Query.
+  // Este useEffect TIENE que estar después de declarar `contratoSeleccionadoId`,
+  // si no React tira "Cannot access 'X' before initialization" (el bug que rompió la app).
+  useEffect(() => {
+    if (contratoSeleccionadoId && typeof refetchReportes === 'function') {
+      console.info('[ReportesDiarios] Refetch por cambio de contrato');
+      refetchReportes({ throwOnError: false }).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contratoSeleccionadoId]);
 
   const contratoActivoObj = useMemo(() => {
     if (!contratoSeleccionadoId) return null;
