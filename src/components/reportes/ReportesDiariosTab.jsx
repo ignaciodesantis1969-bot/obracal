@@ -126,16 +126,13 @@ export default function ReportesDiariosTab({
   const [contratoSeleccionadoId, setContratoSeleccionadoId] = useState('');
   const [siceFecha, setSiceFecha] = useState(new Date().toISOString().slice(0, 10));
 
-  // 🔑 FIX 2 (UBICADO CORRECTAMENTE): refetch de reportes al cambiar de contrato,
-  // para traer la versión más reciente del Sheet y no depender solo del cache de React Query.
-  // Este useEffect TIENE que estar después de declarar `contratoSeleccionadoId`,
-  // si no React tira "Cannot access 'X' before initialization" (el bug que rompió la app).
+  // 🔑 FIX: log ÚNICO por cambio de contrato. Este useEffect NO hace refetch
+  // (antes causaba un loop infinito porque refetchReportes cambia de referencia
+  // en cada render, disparando el efecto constantemente).
   useEffect(() => {
-    if (contratoSeleccionadoId && typeof refetchReportes === 'function') {
-      console.info('[ReportesDiarios] Refetch por cambio de contrato');
-      refetchReportes({ throwOnError: false }).catch(() => {});
+    if (contratoSeleccionadoId) {
+      console.info('[ReportesDiarios] Contrato seleccionado:', contratoSeleccionadoId);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [contratoSeleccionadoId]);
 
   const contratoActivoObj = useMemo(() => {
@@ -302,8 +299,6 @@ export default function ReportesDiariosTab({
       const idsValidos = [selectedIdStr, idContratoActivo, codigoContratoActivo, nroClienteActivo]
         .filter(Boolean)
         .map(v => String(v).trim());
-
-      console.info('[ReportesDiarios] Filtrando partes. IDs válidos:', idsValidos);
 
       lista = allReportesSice.filter(r => {
         if (!r) return false;
@@ -631,7 +626,6 @@ export default function ReportesDiariosTab({
       setPartesRecienModificados(prev => [nuevoParte, ...prev]);
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
 
-      // 🔑 FIX 1: forzar refetch y esperar activamente antes de limpiar el form
       if (typeof refetchReportes === 'function') {
         try {
           await refetchReportes({ throwOnError: false });
@@ -641,7 +635,6 @@ export default function ReportesDiariosTab({
         }
       }
 
-      // 🔑 FIX 1b: actualizar cache de sessionStorage con el nuevo parte
       try {
         const cacheKey = `obraData:${OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice'}:get`;
         const cacheRaw = sessionStorage.getItem(cacheKey);
