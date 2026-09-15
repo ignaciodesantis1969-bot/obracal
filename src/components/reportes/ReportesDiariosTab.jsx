@@ -70,9 +70,6 @@ export default function ReportesDiariosTab({
   const allReportesSice = useMemo(() => {
     const s = extraerArrayDatos(reportesSheet);
     const p = extraerArrayDatos(propReportes);
-    // 🔑 FIX: combinar SIEMPRE las dos fuentes (sheet + props), no elegir una u otra.
-    // Antes se hacía `base = s.length > 0 ? s : p`, lo cual causaba que el parte
-    // recién creado no apareciera hasta que React Query terminara el refetch.
     const base = [...s, ...p];
     const combinados = [...base, ...extraerArrayDatos(partesRecienModificados)];
 
@@ -278,9 +275,6 @@ export default function ReportesDiariosTab({
     let lista = allReportesSice;
     if (contratoSeleccionadoId) {
       const selectedIdStr = String(contratoSeleccionadoId).trim();
-      // 🔑 FIX: incluir también el código del contrato activo en el filtro,
-      // porque los partes nuevos se guardan con el código (ej: "5000002190")
-      // y no con el ID interno.
       const codigoContratoActivo = String(
         buscarValorEnObjeto(contratoActivoObj, ['codigo', 'Codigo', 'nro_contrato', 'contrato_codigo']) || ''
       ).trim();
@@ -288,7 +282,7 @@ export default function ReportesDiariosTab({
       lista = allReportesSice.filter(r => {
         if (!r) return false;
         const rContratoId = String(buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId'])).trim();
-        if (!rContratoId) return true; // sin contrato → mostrar (huérfanos)
+        if (!rContratoId) return true;
         if (rContratoId === selectedIdStr) return true;
         if (codigoContratoActivo && rContratoId === codigoContratoActivo) return true;
         if (rContratoId.includes(selectedIdStr) || selectedIdStr.includes(rContratoId)) return true;
@@ -523,7 +517,60 @@ export default function ReportesDiariosTab({
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payloadPdf)
       });
-      const resultado = await res.json();
+
+      // 🔑 FIX: parseo defensivo. Si Google devuelve HTML (por 404 en el redirect),
+      // capturamos el error sin romper el flujo.
+      let resultado = null;
+      try {
+        const textoCrudo = await res.text();
+        try {
+          resultado = JSON.parse(textoCrudo);
+        } catch (jsonErr) {
+          console.warn('[ReportesDiarios] Respuesta no-JSON del backend (posible 404 en redirect). Status:', res.status);
+          console.warn('[ReportesDiarios] Primeros 200 chars:', textoCrudo.slice(0, 200));
+        }
+      } catch (readErr) {
+        console.warn('[ReportesDiarios] No se pudo leer el body del response:', readErr);
+      }
+
+      // 🔑 FIX: si NO hay resultado (porque la respuesta se perdió),
+      // asumimos que el backend probablemente procesó el request y disparamos
+      // un refetch para confirmar.
+      if (!resultado) {
+        console.info('[ReportesDiarios] Sin respuesta JSON. Reintentando refetch para confirmar...');
+        
+        await new Promise(resolve => {
+          if (typeof refetchReportes === 'function') {
+            refetchReportes().then(() => resolve()).catch(() => resolve());
+          } else {
+            resolve();
+          }
+        });
+
+        // Pequeña espera para que la respuesta llegue
+        await new Promise(r => setTimeout(r, 1500));
+
+        const parteConfirmado = allReportesSice.find(p => 
+          String(p?.nro || '').replace(/\D/g, '') === String(siceParteNro).replace(/\D/g, '')
+        );
+
+        if (parteConfirmado) {
+          console.info('[ReportesDiarios] Parte confirmado en el Sheet tras refetch:', parteConfirmado.nro);
+          toast.success('¡Parte guardado! (confirmado en el Sheet)', { id: toastId });
+        } else {
+          toast('El parte puede haberse guardado, pero no lo pudimos confirmar todavía. Recargá la página en unos segundos.', { icon: '⚠️', duration: 6000, id: toastId });
+        }
+
+        // Limpiar el formulario igual
+        setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', operariosIds: [], terminoTarea: 'SI' }]);
+        setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
+        setSiceRespCliente(prev => ({ ...prev, clave: '' }));
+        setOperariosSeleccionados([]);
+        setSiceFecha(new Date().toISOString().slice(0, 10));
+
+        setIsSavingSice(false);
+        return;
+      }
 
       const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
       if (resultado?.success === false || (resultado?.error && !pdfUrlFinal)) {
@@ -569,7 +616,7 @@ export default function ReportesDiariosTab({
       }]);
       setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
       setSiceRespCliente(prev => ({ ...prev, clave: '' }));
-      setOperariosSeleccionados([]);   // <-- forzar reinicialización con el primer operario
+      setOperariosSeleccionados([]);
       setSiceFecha(new Date().toISOString().slice(0, 10));
 
       toast.success('¡Parte Diario aprobado, PDF en Drive y guardado con éxito!', { id: toastId });
