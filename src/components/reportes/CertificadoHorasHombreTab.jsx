@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Trash2, ShieldCheck, Loader2, FileText, ExternalLink } from 'lucide-react';
+import { Clock, Trash2, ShieldCheck, Loader2, FileText, ExternalLink, RefreshCw } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { useObraData } from '@/hooks/useObraData';
 import { OBRAS_CONFIG } from '@/config/constants';
@@ -7,15 +7,14 @@ import { OBRAS_CONFIG } from '@/config/constants';
 export default function CertificadoHorasHombreTab({ 
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [],
-  currentUser // <-- Necesario para validar si es Administrador/Gerencia
+  currentUser
 }) {
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   
-  // HISTORIAL DE CERTIFICACIONES: Apuntamos de forma estricta a la hoja
+  // HISTORIAL DE CERTIFICACIONES
   const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData('CertificacionesHoras');
 
-  // Permisos para eliminar certificados del historial
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
   const esAdminOGerencia = rolStr === 'administrador' || rolStr === 'admin' || rolStr === 'gerencia' || rolStr === 'gerente';
 
@@ -25,14 +24,6 @@ export default function CertificadoHorasHombreTab({
       if (Array.isArray(fuente.data)) return fuente.data;
       if (Array.isArray(fuente.items)) return fuente.items;
       if (Array.isArray(fuente.result)) return fuente.result;
-      if (Array.isArray(fuente.contratos_mantenimiento)) return fuente.contratos_mantenimiento;
-      if (Array.isArray(fuente.contratosMantenimiento)) return fuente.contratosMantenimiento;
-      if (Array.isArray(fuente.ContratosMantenimiento)) return fuente.ContratosMantenimiento;
-      if (Array.isArray(fuente.reportes_sice)) return fuente.reportes_sice;
-      if (Array.isArray(fuente.reportessice)) return fuente.reportessice;
-      if (Array.isArray(fuente.certificaciones_horas)) return fuente.certificaciones_horas;
-      if (Array.isArray(fuente.certificacionesHoras)) return fuente.certificacionesHoras;
-      if (Array.isArray(fuente.CertificacionesHoras)) return fuente.CertificacionesHoras;
       const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
       if (posibleArray) return posibleArray;
     }
@@ -105,10 +96,9 @@ export default function CertificadoHorasHombreTab({
 
   const historialCertificados = useMemo(() => {
     const raw = extraerArrayDatos(certificacionesRealizadas);
-    return raw.filter(c => {
-      // Filtro relajado: Si tiene aunque sea uno de estos datos clave, es un certificado válido
-      return c && (c.id || c.certificado_nro || c.certificadonro || c.fecha_emision || c.contrato_codigo);
-    });
+    // Filtro relajado al máximo: si es un objeto con datos, lo muestra.
+    // Esto evita que filas sin un ID perfecto sean ocultadas.
+    return raw.filter(c => c && typeof c === 'object' && Object.keys(c).length > 2);
   }, [certificacionesRealizadas]);
 
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
@@ -120,6 +110,7 @@ export default function CertificadoHorasHombreTab({
 
   const [partesSeleccionados, setPartesSeleccionados] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [respProveedor, setRespProveedor] = useState({ cargo: 'JEFE DE OBRA', nombre: 'Alexander Torres Lopez', firma: '' });
   const [respCliente, setRespCliente] = useState({ cargo: '', nombre: '', firma: '' });
@@ -134,15 +125,19 @@ export default function CertificadoHorasHombreTab({
     });
   }, [contratosDisponibles, contratoIdSeleccionado]);
 
+  // Se eliminó el "fallback" al código SICE. Si no hay número de cliente, queda en blanco.
   const nroContratoClienteReal = useMemo(() => {
     if (!contratoActual) return '---';
     return contratoActual.nro_contrato_cliente || 
            contratoActual.contrato_nro_cliente || 
            contratoActual.nrocontratocliente || 
            contratoActual.contratocliente || 
-           contratoActual.codigo || 
-           contratoActual.Codigo || 
            '---';
+  }, [contratoActual]);
+
+  const codigoSICEReal = useMemo(() => {
+    if (!contratoActual) return '---';
+    return contratoActual.codigo || contratoActual.Codigo || contratoActual.contrato_codigo || '---';
   }, [contratoActual]);
 
   const clavesContratoActual = useMemo(() => {
@@ -155,12 +150,12 @@ export default function CertificadoHorasHombreTab({
   useEffect(() => {
     if (contratoActual) {
       const idContratoStr = String(contratoActual.id || '').trim();
-      const codContratoStr = String(contratoActual.codigo || contratoActual.Codigo || '').trim();
+      const codContratoStr = String(codigoSICEReal).trim();
 
       const certificadosDelContrato = historialCertificados.filter(c => {
         const cIdRef = String(c.contrato_id || c.contratoid || '').trim();
         const cCodRef = String(c.contrato_codigo || c.contratocodigo || '').trim();
-        return (idContratoStr && cIdRef === idContratoStr) || (codContratoStr && cCodRef === codContratoStr);
+        return (idContratoStr && cIdRef === idContratoStr) || (codContratoStr !== '---' && cCodRef === codContratoStr);
       });
       
       const nuevoNumero = certificadosDelContrato.length + 1;
@@ -181,7 +176,7 @@ export default function CertificadoHorasHombreTab({
     } else {
       setCertificadoNro('');
     }
-  }, [contratoActual, historialCertificados]);
+  }, [contratoActual, historialCertificados, codigoSICEReal]);
 
   const partesUsadosEnHistorial = useMemo(() => {
     const usados = new Set();
@@ -364,11 +359,13 @@ export default function CertificadoHorasHombreTab({
     setIsSaving(true);
     try {
       const payload = {
-        tabla: 'CertificacionesHoras', // Revertido al nombre de tabla original y estricto
+        tabla: 'CertificacionesHoras',
         action: 'guardar_certificado_horas',
+        // Inyectamos un ID desde el frontend para evitar filas vacías en Google Sheets
+        id: `CERT-HH-${Date.now()}`, 
         contrato_id: String(contratoIdSeleccionado),
-        contrato_codigo: contratoActual.codigo || contratoActual.Codigo || '',
-        nro_contrato_cliente: nroContratoClienteReal,
+        contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
+        nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
         certificado_nro: certificadoNro,
         fecha_emision: formatearFecha(fechaEmision),
         periodo_desde: formatearFecha(periodoDesde),
@@ -393,7 +390,7 @@ export default function CertificadoHorasHombreTab({
       } else {
         const nroConfirmado = resultado?.certificado_nro || certificadoNro;
         if (resultado?.certificado_nro && String(resultado.certificado_nro) !== String(certificadoNro)) {
-          alert("¡Certificado guardado con éxito! Nro. asignado: " + nroConfirmado + " (otro usuario generó un certificado para este contrato mientras completabas el formulario). Se generó el PDF en Google Drive.");
+          alert("¡Certificado guardado con éxito! Nro. asignado: " + nroConfirmado + " (otro usuario generó uno mientras completabas el formulario). Se generó el PDF en Drive.");
         } else {
           alert("¡Certificado guardado con éxito! Se ha generado el PDF en Google Drive.");
         }
@@ -428,6 +425,14 @@ export default function CertificadoHorasHombreTab({
     } catch (err) {
       console.error(err);
       alert("Fallo de conexión al eliminar.");
+    }
+  };
+
+  const refreshHistory = async () => {
+    if (mutateCertificaciones) {
+      setIsRefreshing(true);
+      await mutateCertificaciones();
+      setTimeout(() => setIsRefreshing(false), 800);
     }
   };
 
@@ -482,19 +487,21 @@ export default function CertificadoHorasHombreTab({
           </div>
 
           <div>
-            <span className="text-slate-500 font-semibold block">Número de Proveedor Nro.:</span>
-            <strong className="text-slate-900 block mt-1">1490175</strong>
-          </div>
-
-          <div>
             <span className="text-slate-500 font-semibold block">Cliente:</span>
             <strong className="text-slate-900 block mt-1">
               {contratoActual?.cliente || contratoActual?.Cliente || '---'}
             </strong>
           </div>
 
+          {/* CÓDIGOS DE CONTRATO CLARAMENTE SEPARADOS */}
           <div>
-            <span className="text-slate-500 font-semibold block">Contrato Nro. (Cliente):</span>
+            <span className="text-slate-500 font-semibold block">Código SICE:</span>
+            <strong className="text-slate-900 block mt-1 font-mono">
+              {codigoSICEReal}
+            </strong>
+          </div>
+          <div>
+            <span className="text-slate-500 font-semibold block">Nro. Contrato Cliente:</span>
             <strong className="text-slate-900 block mt-1 font-mono">
               {nroContratoClienteReal}
             </strong>
@@ -765,9 +772,21 @@ export default function CertificadoHorasHombreTab({
           <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
             <FileText className="w-4 h-4 text-blue-900" /> Historial de Certificados de Horas Hombre Emitidos
           </h3>
-          <span className="text-xs font-bold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-300">
-            Total: {historialCertificados.length}
-          </span>
+          
+          {/* BOTÓN DE ACTUALIZAR AÑADIDO AQUÍ */}
+          <div className="flex items-center gap-3">
+            <span className="text-xs font-bold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-300">
+              Total: {historialCertificados.length}
+            </span>
+            <button 
+              onClick={refreshHistory}
+              disabled={isRefreshing}
+              className={`p-1.5 rounded-lg border border-slate-300 transition-colors ${isRefreshing ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer'}`}
+              title="Actualizar tabla desde Google Sheets"
+            >
+              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto border border-slate-300 rounded-xl">
@@ -792,12 +811,14 @@ export default function CertificadoHorasHombreTab({
                 </tr>
               ) : (
                 historialCertificados.map((cert, idx) => {
-                  const certId = cert.id || idx;
-                  const certNro = cert.certificado_nro || cert.certificadonro || cert.id || `000${idx + 1}`;
+                  // Fallbacks robustos por si el ID está vacío en la base de datos
+                  const certId = cert.id || cert.certificado_nro || `fallback-${idx}`;
+                  const certNro = cert.certificado_nro || cert.certificadonro || 'S/N';
                   const clienteText = cert.cliente || '---';
                   
-                  // PRIORIZAMOS EL CÓDIGO DE CONTRATO (CM001) ANTES QUE EL NUMERO DE CLIENTE
-                  const contratoRef = cert.contrato_codigo || cert.contratocodigo || cert.nro_contrato_cliente || cert.nrocontratocliente || '---';
+                  // EXTRAYENDO AMBOS CÓDIGOS PARA MOSTRARLOS
+                  const codigoSice = cert.contrato_codigo || cert.contratocodigo || '---';
+                  const codigoCliente = cert.nro_contrato_cliente || cert.nrocontratocliente || '---';
                   
                   const fechaEm = formatearFecha(cert.fecha_emision || cert.fechaemision);
                   const pDesde = formatearFecha(cert.periodo_desde || cert.periododesde);
@@ -812,7 +833,11 @@ export default function CertificadoHorasHombreTab({
                       </td>
                       <td className="py-2.5 px-3 font-medium">
                         <div className="font-bold text-slate-900">{clienteText}</div>
-                        <div className="text-[10px] text-slate-500 font-mono">Contrato: {contratoRef}</div>
+                        {/* AHORA SE MUESTRAN AMBOS CÓDIGOS CLARAMENTE */}
+                        <div className="text-[10px] text-slate-500 font-mono mt-0.5 flex gap-2">
+                          <span className="bg-slate-100 px-1 py-0.5 rounded border border-slate-200">SICE: <b>{codigoSice}</b></span>
+                          <span className="bg-slate-100 px-1 py-0.5 rounded border border-slate-200">CLI: <b>{codigoCliente}</b></span>
+                        </div>
                       </td>
                       <td className="py-2.5 px-3 text-center font-mono">
                         {fechaEm}
@@ -841,7 +866,7 @@ export default function CertificadoHorasHombreTab({
                         <td className="py-2.5 px-3 text-center">
                           <button
                             type="button"
-                            onClick={() => handleEliminarCertificado(certId)}
+                            onClick={() => handleEliminarCertificado(cert.id)}
                             className="p-1.5 bg-rose-100 text-rose-600 rounded-lg hover:bg-rose-600 hover:text-white cursor-pointer transition-colors shadow-sm"
                             title="Eliminar Certificado"
                           >
