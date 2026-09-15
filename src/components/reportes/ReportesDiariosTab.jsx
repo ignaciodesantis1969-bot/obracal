@@ -113,6 +113,16 @@ export default function ReportesDiariosTab({
     });
   }, [partesRecienModificados, reportesSheet, propReportes, idsEliminadosLocales]);
 
+  // 🔑 FIX 2: refetch de reportes al cambiar de contrato, para traer la versión
+  // más reciente del Sheet y no depender solo del cache de React Query.
+  useEffect(() => {
+    if (contratoSeleccionadoId && typeof refetchReportes === 'function') {
+      console.info('[ReportesDiarios] Refetch por cambio de contrato');
+      refetchReportes({ throwOnError: false }).catch(() => {});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contratoSeleccionadoId]);
+
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
     if (p.length > 0) return p;
@@ -271,17 +281,12 @@ export default function ReportesDiariosTab({
     }
   }, [contratoActivoObj, extraerDatosContrato]);
 
-  // 🔑 FIX: filtro de contrato ampliado para aceptar MÚLTIPLES formas de
-  // identificar el mismo contrato (id, codigo, nro_contrato, nro_contrato_cliente).
-  // Esto resuelve el bug donde el parte 00011 no aparecía porque el Sheet
-  // guardaba `contratoid = "1"` pero el dropdown tenía `"CM001"` como valor.
   const sicePartesAprobados = useMemo(() => {
     let lista = allReportesSice;
 
     if (contratoSeleccionadoId) {
       const selectedIdStr = String(contratoSeleccionadoId).trim();
 
-      // 🔑 Recolectar todos los posibles identificadores del contrato activo
       const idContratoActivo = String(
         buscarValorEnObjeto(contratoActivoObj, ['id', 'ID', 'contrato_id']) || ''
       ).trim();
@@ -305,20 +310,16 @@ export default function ReportesDiariosTab({
           buscarValorEnObjeto(r, ['contratoid', 'contratoId', 'contrato_id', 'ContratoId']) || ''
         ).trim();
 
-        // 🔑 Si el parte no tiene contratoid, lo mostramos igual (huérfano)
         if (!rContratoId) return true;
 
-        // 🔑 Match exacto contra cualquiera de los IDs válidos
         if (idsValidos.includes(rContratoId)) return true;
 
-        // 🔑 Match parcial por si hay espacios, prefijos, etc.
         for (const idVal of idsValidos) {
           if (rContratoId.includes(idVal) || idVal.includes(rContratoId)) {
             return true;
           }
         }
 
-        // No matchea → excluir
         return false;
       });
     }
@@ -550,8 +551,6 @@ export default function ReportesDiariosTab({
         body: JSON.stringify(payloadPdf)
       });
 
-      // 🔑 FIX: parseo defensivo. Si Google devuelve HTML (por 404 en el redirect),
-      // capturamos el error sin romper el flujo.
       let resultado = null;
       try {
         const textoCrudo = await res.text();
@@ -565,9 +564,6 @@ export default function ReportesDiariosTab({
         console.warn('[ReportesDiarios] No se pudo leer el body del response:', readErr);
       }
 
-      // 🔑 FIX: si NO hay resultado (porque la respuesta se perdió),
-      // asumimos que el backend probablemente procesó el request y disparamos
-      // un refetch para confirmar.
       if (!resultado) {
         console.info('[ReportesDiarios] Sin respuesta JSON. Reintentando refetch para confirmar...');
         
@@ -632,9 +628,37 @@ export default function ReportesDiariosTab({
 
       setPartesRecienModificados(prev => [nuevoParte, ...prev]);
       setFetchedReportesSice(prev => [nuevoParte, ...prev]);
-      if (typeof refetchReportes === 'function') refetchReportes();
 
-      // 🔑 FIX: limpieza completa del formulario
+      // 🔑 FIX 1: forzar refetch y esperar activamente antes de limpiar el form
+      if (typeof refetchReportes === 'function') {
+        try {
+          await refetchReportes({ throwOnError: false });
+          console.info('[ReportesDiarios] Refetch completado tras guardar');
+        } catch (e) {
+          console.warn('[ReportesDiarios] refetch falló, usando cache local:', e);
+        }
+      }
+
+      // 🔑 FIX 1b: actualizar cache de sessionStorage con el nuevo parte
+      try {
+        const cacheKey = `obraData:${OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice'}:get`;
+        const cacheRaw = sessionStorage.getItem(cacheKey);
+        if (cacheRaw) {
+          const cacheParsed = JSON.parse(cacheRaw);
+          if (Array.isArray(cacheParsed.data)) {
+            const yaEsta = cacheParsed.data.some(p => 
+              String(p?.nro || '').replace(/\D/g, '') === String(nroFinalAsignado).replace(/\D/g, '')
+            );
+            if (!yaEsta) {
+              cacheParsed.data.push(nuevoParte);
+              cacheParsed.ts = Date.now();
+              sessionStorage.setItem(cacheKey, JSON.stringify(cacheParsed));
+              console.info('[ReportesDiarios] Cache actualizado con el nuevo parte');
+            }
+          }
+        }
+      } catch (e) {}
+
       setSiceItems([{ 
         id: 1, 
         descripcion: '', 
