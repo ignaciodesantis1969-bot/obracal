@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import toast from 'react-hot-toast';
+import { useQueryClient } from '@tanstack/react-query';
 import { useObraData } from '@/hooks/useObraData';
 import { OBRAS_CONFIG } from '@/config/constants';
 import ReportesDiariosTab from './reportes/ReportesDiariosTab';
@@ -54,13 +54,15 @@ function ReportesContent({
   },
   presupuestos = [],
   facturas = [],
-  insumos = [],           // <-- Prop global de insumos
-  proveedores = [],       // <-- Prop global de proveedores
+  insumos = [],
+  proveedores = [],
   cargasSemanales = [], 
   setFetchedCertificados = () => {},
   certificadosList = [],
   obras = []
 }) {
+  const queryClient = useQueryClient();
+
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
   const esOperadorEstandar = Boolean(esOperador || rolStr === 'operador' || rolStr === 'operator');
   const isOp2 = Boolean(esOperadorII || rolStr === 'operador_ii' || rolStr === 'operadorii' || rolStr === 'operador2' || rolStr === 'operador ii');
@@ -107,14 +109,8 @@ function ReportesContent({
   }, [certificadosList, certificadosSheet]);
 
   const [reportesLocalesExtra, setReportesLocalesExtra] = useState([]);
-
-  // Punto 1 del análisis: el padre necesita conocer los partes diarios
-  // eliminados para poder excluirlos de allReportesSice, que se pasa a
-  // CertificacionesTab (y de ahí, a CertificadoHorasHombreTab) y a ComparativoTab.
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState([]);
 
-  // Límite de entradas para evitar que el cache de localStorage crezca sin
-  // control (punto 8 del análisis).
   const MAX_ENTRADAS_LOCALSTORAGE = 300;
 
   useEffect(() => {
@@ -148,12 +144,16 @@ function ReportesContent({
     });
   }, [setFetchedReportesSice]);
 
-  // Punto 1: callback que ReportesDiariosTab invoca cada vez que cambia la
-  // lista negra de eliminados, para que Certificaciones/Comparativo se
-  // actualicen sin necesidad de recargar la página.
+  // 🔑 MODIFICADO: al cambiar la lista negra, actualizamos estado local
+  // y ADEMÁS invalidamos las queries dependientes para que se refresquen
+  // coordinadamente (Horas Hombre, Comparativo, etc.).
   const handleEliminadosChange = useCallback((nuevaLista) => {
     setIdsEliminadosLocales(Array.isArray(nuevaLista) ? nuevaLista : []);
-  }, []);
+    try {
+      queryClient.invalidateQueries({ queryKey: ['obraData', OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice'] });
+      queryClient.invalidateQueries({ queryKey: ['obraData', 'CertificacionesHoras'] });
+    } catch (e) {}
+  }, [queryClient]);
 
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
@@ -239,7 +239,7 @@ function ReportesContent({
 
       {!esOperadorEstandar && activeTab === 'Certificaciones' && (
         <CertificacionesTab
-          currentUser={currentUser} /* <-- PROP AÑADIDA PARA PERMISOS DE ADMIN */
+          currentUser={currentUser}
           presupuestos={presupuestos}
           obras={obras}
           certificadosList={certificadosList}
@@ -265,6 +265,7 @@ function ReportesContent({
           listaEmpleadosActivos={listaEmpleadosActivos}
           esOperador={esOperadorEstandar}
           buscarValorEnObjeto={buscarValorEnObjeto}
+          currentUser={currentUser}
         />
       )}
 

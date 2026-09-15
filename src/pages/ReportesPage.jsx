@@ -1,11 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useEffect } from 'react';
 import { useAuth } from '@/hooks/useAuth';
-import { GOOGLE_SCRIPT_URL } from '@/api';
 
 // Importamos tu componente de reportes desde components
 import ReportesComponente from '../components/Reportes'; 
-
-const CONTRATO_DEFAULT = [{ id: "1", codigo: "CM001", nombre: "Mantenimiento Correctivo Edilicio", cliente: "LDC ARGENTINA S.A.", estado: "Activo" }];
 
 class ErrorBoundary extends React.Component {
   state = { hasError: false, error: null };
@@ -28,94 +25,41 @@ class ErrorBoundary extends React.Component {
   }
 }
 
-const extraerArrayDatos = (fuente) => {
-  if (Array.isArray(fuente)) return fuente;
-  if (fuente && typeof fuente === 'object') {
-    if (Array.isArray(fuente.certificados)) return fuente.certificados; // <--- BLINDAJE CERTIFICADOS
-    if (Array.isArray(fuente.data)) return fuente.data;
-    if (Array.isArray(fuente.items)) return fuente.items;
-    if (Array.isArray(fuente.result)) return fuente.result;
-    if (Array.isArray(fuente.reportes)) return fuente.reportes;
-    const posibleArray = Object.values(fuente).find(val => Array.isArray(val));
-    if (posibleArray) return posibleArray;
-  }
-  return [];
-};
-
 function ReportesContent(props) {
   const { user } = useAuth();
   
-  // Detección robusta de roles
+  // 🔑 Detección robusta de roles (se mantiene igual)
   const rawRoleValue = props?.role || user?.role || user?.rol || user?.reloadUserInfo?.rol || '';
   const rolUsuario = String(rawRoleValue).trim().toLowerCase().replace(/-/g, '_');
   
   const esOperadorEstandar = rolUsuario === 'operador' || rolUsuario === 'operator';
   const isOp2 = rolUsuario === 'operador_ii' || rolUsuario === 'operadorii' || rolUsuario === 'operador2' || rolUsuario === 'operador ii' || rolUsuario.includes('operador_ii');
 
+  // 🔑 Limpieza única de la clave vieja de localStorage (residuo de versión anterior)
+  useEffect(() => {
+    try {
+      if (localStorage.getItem('sice_partes_local_cache_v2')) {
+        localStorage.removeItem('sice_partes_local_cache_v2');
+        console.info('[Reportes] Limpiada clave obsoleta sice_partes_local_cache_v2');
+      }
+    } catch (e) {}
+  }, []);
+
+  // 🔑 Props que vienen del App.jsx global (si existen). El hijo se encarga del resto.
   const obras = Array.isArray(props?.obras) ? props.obras : [];
   const presupuestos = Array.isArray(props?.presupuestos) ? props.presupuestos : [];
   const facturas = Array.isArray(props?.facturas) ? props.facturas : [];
   const empleadosListProps = Array.isArray(props?.empleados) ? props.empleados : [];
-  const reportesProps = Array.isArray(props?.allReportesSice) ? props.allReportesSice : [];
   const insumosProps = Array.isArray(props?.insumos) ? props.insumos : [];
   const proveedoresProps = Array.isArray(props?.proveedores) ? props.proveedores : [];
 
-  const [fetchedContratos, setFetchedContratos] = useState([]);
-  const [fetchedReportesSice, setFetchedReportesSice] = useState([]);
-  const [fetchedCertificados, setFetchedCertificados] = useState([]);
-
-  useEffect(() => {
-    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'get' }) })
-      .then(res => res.json()).then(data => setFetchedContratos(extraerArrayDatos(data))).catch(() => {});
-    
-    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Certificados', action: 'get' }) })
-      .then(res => res.json()).then(data => setFetchedCertificados(extraerArrayDatos(data))).catch(() => {});
-
-    fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesSice', action: 'get' }) })
-      .then(res => res.json())
-      .then(data => {
-        const arrayReportes = extraerArrayDatos(data);
-        if (arrayReportes.length > 0) {
-          setFetchedReportesSice(arrayReportes);
-        } else {
-          return fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'ReportesDiariosSice', action: 'get' }) })
-            .then(res => res.json())
-            .then(dataAlt => {
-              const altReportes = extraerArrayDatos(dataAlt);
-              if (altReportes.length > 0) setFetchedReportesSice(altReportes);
-            });
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const contratosList = useMemo(() => {
-    const arr = extraerArrayDatos(fetchedContratos);
-    return arr.length > 0 ? arr : CONTRATO_DEFAULT;
-  }, [fetchedContratos]);
-
-  const allReportesSiceConsolidados = useMemo(() => {
-    let localCache = [];
-    try {
-      const cached = localStorage.getItem('sice_partes_local_cache_v2');
-      if (cached) localCache = JSON.parse(cached);
-    } catch (e) {}
-
-    const combinados = [
-      ...extraerArrayDatos(reportesProps), 
-      ...extraerArrayDatos(fetchedReportesSice), 
-      ...localCache
-    ];
-    
-    const unicosMap = new Map();
-    combinados.forEach(item => {
-      if (!item) return;
-      const key = String(item.id || item.ID || item.nro || item.Nro || Math.random());
-      if (!unicosMap.has(key)) unicosMap.set(key, item);
-    });
-
-    return Array.from(unicosMap.values());
-  }, [reportesProps, fetchedReportesSice]);
+  // 🔑 NOTA IMPORTANTE:
+  // Ya NO fetcheamos ContratosMantenimiento / Certificados / ReportesSice acá.
+  // Eso lo hace el hijo (<ReportesComponente>) vía React Query (useObraData),
+  // que deduplica requests automáticamente y respeta el cache de 5 minutos.
+  //
+  // Al eliminar los fetch crudos duplicados, este wrapper deja de disparar
+  // 3 requests redundantes cada vez que se entra a la pantalla de Reportes.
 
   // Delegamos el renderizado de la UI y las pestañas al componente centralizado
   return (
@@ -124,11 +68,6 @@ function ReportesContent(props) {
       currentUser={user}
       esOperador={esOperadorEstandar}
       esOperadorII={isOp2}
-      contratosList={contratosList}
-      allReportesSice={allReportesSiceConsolidados}
-      setFetchedReportesSice={setFetchedReportesSice}
-      certificadosList={fetchedCertificados}
-      setFetchedCertificados={setFetchedCertificados}
       obras={obras}
       presupuestos={presupuestos}
       facturas={facturas}
