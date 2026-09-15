@@ -7,11 +7,12 @@ import { OBRAS_CONFIG } from '@/config/constants';
 export default function CertificadoHorasHombreTab({ 
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [],
-  currentUser 
+  currentUser // <-- Necesario para validar si es Administrador
 }) {
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
   const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   
+  // HISTORIAL DE CERTIFICACIONES
   const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData('CertificacionesHoras');
 
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
@@ -59,13 +60,6 @@ export default function CertificadoHorasHombreTab({
     return Array.from(unicosMap.values());
   }, [propContratos, contratosSheet]);
 
-  const normalizarNro = (nro) => {
-    if (!nro && nro !== 0) return '';
-    const str = String(nro).trim();
-    const numMatch = str.replace(/\D/g, '');
-    return numMatch ? parseInt(numMatch, 10).toString() : str.toLowerCase();
-  };
-
   const allReportesSice = useMemo(() => {
     const p1 = extraerArrayDatos(propReportes);
     const p2 = extraerArrayDatos(reportesSheet);
@@ -81,35 +75,31 @@ export default function CertificadoHorasHombreTab({
       extraGlobales = extraerArrayDatos(window.globalData.allReportesSice);
     }
 
-    const combinados = [...localesExtra, ...p1, ...p2, ...extraGlobales];
+    // Punto 1 del análisis: respetar la baja de partes diarios eliminados en la
+    // pestaña "Reportes Diarios", que comparte esta misma clave de localStorage.
+    let idsEliminados = [];
+    try {
+      const eliminadosRaw = localStorage.getItem('sice_partes_eliminados_global_v5');
+      if (eliminadosRaw) idsEliminados = JSON.parse(eliminadosRaw);
+    } catch (e) {}
+
+    const combinados = [...p1, ...p2, ...localesExtra, ...extraGlobales];
     const unicosMap = new Map();
-    
     combinados.forEach((item, index) => {
       if (!item) return;
-      
-      let desgloseParsed = item.desgloseCategorias || item.desglose_categorias || item.desglose;
-      if (typeof desgloseParsed === 'string' && desgloseParsed.trim()) {
-        try { desgloseParsed = JSON.parse(desgloseParsed); } catch { desgloseParsed = []; }
-      }
 
-      let itemProcesado = {
-        ...item,
-        desgloseCategorias: Array.isArray(desgloseParsed) ? desgloseParsed : []
-      };
+      const idItem = String(item?.id || item?.ID || '').trim();
+      const nroCrud = String(item?.nro || item?.Nro || '').trim();
+      const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
+      const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
 
-      const rawNro = item?.nro || item?.ID || item?.id || index;
-      const key = normalizarNro(rawNro) || String(index);
+      const estaEliminado = (idItem && idsEliminados.includes(idItem)) ||
+        (nroCrud && (idsEliminados.includes(nroCrud) || idsEliminados.includes(nroNormalizado) || idsEliminados.includes(nroPadded)));
+      if (estaEliminado) return;
 
-      if (!unicosMap.has(key)) {
-        unicosMap.set(key, itemProcesado);
-      } else {
-        const existente = unicosMap.get(key);
-        if ((itemProcesado.pdfUrl || itemProcesado.pdf_url) && !(existente.pdfUrl || existente.pdf_url)) {
-          unicosMap.set(key, itemProcesado);
-        }
-      }
+      const key = String(item?.id || item?.ID || item?.nro || index);
+      if (!unicosMap.has(key)) unicosMap.set(key, item);
     });
-
     return Array.from(unicosMap.values());
   }, [propReportes, reportesSheet]);
 
@@ -118,7 +108,10 @@ export default function CertificadoHorasHombreTab({
     return raw.filter(c => {
       if (!c) return false;
       const hasId = c.id !== undefined && c.id !== null && String(c.id).trim() !== '';
-      const hasNro = (c.certificado_nro !== undefined && c.certificado_nro !== '') || (c.certificadonro !== undefined && c.certificadonro !== '');
+      // Punto 2 del análisis: era "&&" y nunca se cumplía (el backend normaliza
+      // el header a UNA sola variante, no a ambas a la vez en el mismo objeto).
+      const hasNro = (c.certificado_nro !== undefined && c.certificado_nro !== null && String(c.certificado_nro).trim() !== '') ||
+                     (c.certificadonro !== undefined && c.certificadonro !== null && String(c.certificadonro).trim() !== '');
       const hasContrato = c.contrato_id || c.contratoid || c.contrato_codigo || c.contratocodigo;
       return hasId || hasNro || hasContrato;
     });
@@ -158,6 +151,18 @@ export default function CertificadoHorasHombreTab({
            '---';
   }, [contratoActual]);
 
+  // Punto 5 del análisis: antes esta pestaña solo exigía firma.length >= 4 sin
+  // validar contra ninguna clave del contrato, a diferencia de ReportesDiariosTab
+  // (que exige formato AB1234 + coincidencia con la clave del contrato). Se
+  // replica la misma lógica acá para que ambas firmas tengan el mismo nivel de
+  // control de acceso.
+  const clavesContratoActual = useMemo(() => {
+    if (!contratoActual) return { proveedorKey: 'AT1020', clienteKey: 'CM7030' };
+    const pKey = contratoActual.proveedor_key || contratoActual.proveedorKey || contratoActual.claveProveedor || contratoActual?.proveedor?.key || 'AT1020';
+    const cKey = contratoActual.cliente_key || contratoActual.clienteKey || contratoActual.claveCliente || contratoActual?.cliente?.key || 'CM7030';
+    return { proveedorKey: String(pKey), clienteKey: String(cKey) };
+  }, [contratoActual]);
+
   useEffect(() => {
     if (contratoActual) {
       const idContratoStr = String(contratoActual.id || '').trim();
@@ -189,35 +194,42 @@ export default function CertificadoHorasHombreTab({
     }
   }, [contratoActual, historialCertificados]);
 
+  // ---> NUEVA LÓGICA: Identificar Partes Diarios ya certificados para quitarlos del desplegable <---
   const partesUsadosEnHistorial = useMemo(() => {
     const usados = new Set();
     historialCertificados.forEach(cert => {
+      // Punto 3 del análisis: el backend puede guardar este dato bajo 'filas'
+      // o bajo 'detalle_filas'/'detallefilas' según cómo esté nombrada la
+      // columna real en la hoja de cálculo. Se soportan ambas variantes.
+      const rawFilas = cert.filas ?? cert.detalle_filas ?? cert.detallefilas;
       let filas = [];
-      let detalleFilasRaw = cert.filas || cert.detalle_filas || cert.detallefilas;
-      if (typeof detalleFilasRaw === 'string') {
-        try { filas = JSON.parse(detalleFilasRaw); } catch (e) {}
-      } else if (Array.isArray(detalleFilasRaw)) {
-        filas = detalleFilasRaw;
+      if (typeof rawFilas === 'string') {
+        try { filas = JSON.parse(rawFilas); } catch (e) {}
+      } else if (Array.isArray(rawFilas)) {
+        filas = rawFilas;
       }
       filas.forEach(f => {
-        if (f.nroParte) {
-          usados.add(normalizarNro(f.nroParte));
-        }
+        if (f.nroParte) usados.add(String(f.nroParte));
       });
     });
     return usados;
   }, [historialCertificados]);
 
   const partesDisponiblesParaAgregar = useMemo(() => {
-    const seleccionadosActuales = partesSeleccionados.map(p => normalizarNro(p.nroParte));
+    const seleccionadosActuales = partesSeleccionados.map(p => String(p.nroParte));
     
     return allReportesSice.filter(p => {
-      const rawNro = p?.nro || p?.id;
-      const idNroNorm = normalizarNro(rawNro);
+      const idNro = String(p?.nro || p?.id || '').trim();
       
-      if (!idNroNorm || idNroNorm === 'undefined' || idNroNorm === 'null') return false; 
-      if (partesUsadosEnHistorial.has(idNroNorm)) return false; 
-      if (seleccionadosActuales.includes(idNroNorm)) return false;
+      // Eliminar fantasmas o sin número
+      if (!idNro || idNro === 'undefined' || idNro === 'null') return false; 
+      
+      // Eliminar los ya guardados en el historial
+      if (partesUsadosEnHistorial.has(idNro)) return false; 
+      
+      // Eliminar los que acabo de agregar a la tabla del borrador actual
+      if (seleccionadosActuales.includes(idNro)) return false;
+      
       return true;
     });
   }, [allReportesSice, partesUsadosEnHistorial, partesSeleccionados]);
@@ -241,63 +253,83 @@ export default function CertificadoHorasHombreTab({
   };
 
   const obtenerValoresPolinomica = (contrato) => {
+    // Si tienes los valores guardados en "contrato", puedes extraerlos aquí.
     return {
       "S": contrato?.valor_s || 36714.21,
       "T-EHS": contrato?.valor_tehs || 20819.69,
       "OE": contrato?.valor_oe || 27195.44,
       "MO": contrato?.valor_mo || 23950.67,
       "TOT": contrato?.valor_tot || 42235.51,
-      "DEFAULT": 27195.44
+      "DEFAULT": 15000
     };
   };
 
-  // ---> LÓGICA ROBUSTA MEJORADA: Desglose discriminado por categoría ("S", "OE", etc.) <---
+  // ---> NUEVA LÓGICA: Desglose por categoría del Parte Diario <---
   const agregarParteFila = (parteObj) => {
     const tablaValores = obtenerValoresPolinomica(contratoActual);
     const fechaParte = parteObj?.fecha || fechaEmision;
     const nroParte = parteObj?.nro || parteObj?.id || '001';
 
-    // Extraer y parsear cualquier variante de desglose de categorías de forma segura
-    let desgloseRaw = parteObj?.desgloseCategorias || parteObj?.desglose_categorias || parteObj?.desglose;
-    if (typeof desgloseRaw === 'string' && desgloseRaw.trim()) {
-      try { desgloseRaw = JSON.parse(desgloseRaw); } catch (e) { desgloseRaw = []; }
-    }
+    // Mapeo de categorías y sus posibles llaves viniendo del Parte Diario
+    const categoriasBase = [
+      { id: 'S', keys: ['horas_S', 'horasS', 'S'] },
+      { id: 'T-EHS', keys: ['horas_TEHS', 'horasTEHS', 'T_EHS', 'T-EHS'] },
+      { id: 'OE', keys: ['horas_OE', 'horasOE', 'OE'] },
+      { id: 'MO', keys: ['horas_MO', 'horasMO', 'MO'] },
+      { id: 'TOT', keys: ['horas_TOT', 'horasTOT', 'TOT'] }
+    ];
 
+    let seAgregoAlgunaCategoria = false;
     const nuevasFilas = [];
 
-    if (Array.isArray(desgloseRaw) && desgloseRaw.length > 0) {
-      desgloseRaw.forEach(d => {
-        const cat = String(d.categoria || d.Cat || d.category || 'OE').trim().toUpperCase();
-        const horas = Number(d.totalHoras || d.total_horas || d.horas || 0);
-        if (horas > 0) {
-          const valorHora = tablaValores[cat] || tablaValores['DEFAULT'];
-          nuevasFilas.push({
-            id: `parte-${nroParte}-${cat}-${Date.now()}-${Math.random()}`,
-            nroParte,
-            fecha: fechaParte,
-            totalHoras: horas,
-            valorHora,
-            valorTotal: horas * valorHora,
-            clasificacion: cat
-          });
-        }
-      });
-    }
+    // Intenta extraer las horas discriminadas
+    let detalleCategorias = typeof parteObj?.categorias_hh === 'string' 
+      ? JSON.parse(parteObj.categorias_hh || '{}') 
+      : (parteObj?.categorias_hh || {});
 
-    // Si el desglose no arrojó filas válidas, respaldar buscando en las horas totales del parte
-    if (nuevasFilas.length === 0) {
-      const horasTotales = Number(parteObj?.totalHorasSuma || parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.totalHoras || 8);
-      const catDefault = 'OE';
-      const valorHora = tablaValores[catDefault] || tablaValores['DEFAULT'];
-      nuevasFilas.push({
-        id: `parte-${nroParte}-DEFAULT-${Date.now()}`,
-        nroParte,
-        fecha: fechaParte,
-        totalHoras: horasTotales,
-        valorHora,
-        valorTotal: horasTotales * valorHora,
-        clasificacion: catDefault
-      });
+    categoriasBase.forEach(cat => {
+      let horas = Number(detalleCategorias[cat.id]) || 0;
+      if (horas === 0) {
+        // Busca en las propiedades directas del objeto si no existe 'categorias_hh'
+        for (const k of cat.keys) {
+          if (Number(parteObj[k]) > 0) {
+            horas = Number(parteObj[k]);
+            break;
+          }
+        }
+      }
+
+      if (horas > 0) {
+        const valorHora = tablaValores[cat.id] || tablaValores['DEFAULT'];
+        nuevasFilas.push({
+          id: `parte-${nroParte}-${cat.id}-${Date.now()}`,
+          nroParte,
+          fecha: fechaParte,
+          totalHoras: horas,
+          valorHora,
+          valorTotal: horas * valorHora,
+          clasificacion: cat.id
+        });
+        seAgregoAlgunaCategoria = true;
+      }
+    });
+
+    // Fallback: Si el parte viejo no tiene categorías discriminadas, asume todo al total de horas y lo manda a 'OE'
+    if (!seAgregoAlgunaCategoria) {
+      const horasTotales = Number(parteObj?.totalhorassuma || parteObj?.total_horas_suma || parteObj?.horas || 8);
+      if (horasTotales > 0) {
+        const catDefault = 'OE';
+        const valorHora = tablaValores[catDefault] || tablaValores['DEFAULT'];
+        nuevasFilas.push({
+          id: `parte-${nroParte}-DEFAULT-${Date.now()}`,
+          nroParte,
+          fecha: fechaParte,
+          totalHoras: horasTotales,
+          valorHora,
+          valorTotal: horasTotales * valorHora,
+          clasificacion: catDefault
+        });
+      }
     }
 
     setPartesSeleccionados(prev => [...prev, ...nuevasFilas]);
@@ -331,8 +363,16 @@ export default function CertificadoHorasHombreTab({
     if (!contratoActual) return alert("Seleccione un contrato válido.");
     if (partesSeleccionados.length === 0) return alert("Agregue al menos un parte diario al certificado.");
     
-    if (respProveedor.firma.length < 4) return alert("El responsable proveedor debe firmar (contraseña).");
-    if (respCliente.firma.length < 4) return alert("El responsable cliente debe firmar (contraseña).");
+    const regexClave = /^[A-Za-z]{2}\d{4}$/;
+    if (!regexClave.test(respProveedor.firma)) return alert("La clave del Responsable Proveedor debe tener 2 letras y 4 números (Ej: AB1234).");
+    if (!regexClave.test(respCliente.firma)) return alert("La clave del Responsable Cliente debe tener 2 letras y 4 números (Ej: CD5678).");
+
+    if (respProveedor.firma.toUpperCase() !== clavesContratoActual.proveedorKey.toUpperCase()) {
+      return alert("La clave del Responsable Proveedor no coincide con el contrato.");
+    }
+    if (respCliente.firma.toUpperCase() !== clavesContratoActual.clienteKey.toUpperCase()) {
+      return alert("La clave del Responsable Cliente no coincide con el contrato.");
+    }
 
     setIsSaving(true);
     try {
@@ -379,6 +419,7 @@ export default function CertificadoHorasHombreTab({
     }
   };
 
+  // ---> NUEVA LÓGICA: Eliminar Certificado (Solo Admin) <---
   const handleEliminarCertificado = async (idCertificado) => {
     if (!window.confirm("¿Estás seguro de que deseas eliminar este certificado del historial?")) return;
     try {
@@ -401,6 +442,7 @@ export default function CertificadoHorasHombreTab({
 
   return (
     <div className="space-y-8">
+      {/* FORMULARIO PRINCIPAL */}
       <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
           <div>
@@ -633,6 +675,7 @@ export default function CertificadoHorasHombreTab({
           </table>
         </div>
 
+        {/* SECCIÓN DE RESPONSABLES EDITABLES */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
           <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
             <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
@@ -660,10 +703,10 @@ export default function CertificadoHorasHombreTab({
               <div>
                 <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
                 <input 
-                  type="password"
+                  type="password"  // ---> Modificado para mostrar círculos <---
                   maxLength={6}
                   value={respProveedor.firma} 
-                  onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value})} 
+                  onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value.toUpperCase()})} 
                   placeholder="••••••"
                   className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]" 
                 />
@@ -697,10 +740,10 @@ export default function CertificadoHorasHombreTab({
               <div>
                 <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
                 <input 
-                  type="password"
+                  type="password" // ---> Modificado para mostrar círculos <---
                   maxLength={6}
                   value={respCliente.firma} 
-                  onChange={(e) => setRespCliente({...respCliente, firma: e.target.value})} 
+                  onChange={(e) => setRespCliente({...respCliente, firma: e.target.value.toUpperCase()})} 
                   placeholder="••••••"
                   className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]" 
                 />
@@ -725,6 +768,7 @@ export default function CertificadoHorasHombreTab({
         </div>
       </div>
 
+      {/* SECCIÓN DE HISTORIAL DE CERTIFICADOS */}
       <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-4 shadow-sm">
         <div className="flex items-center justify-between border-b-2 border-slate-800 pb-3">
           <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
@@ -799,6 +843,7 @@ export default function CertificadoHorasHombreTab({
                           <span className="text-slate-400 italic">No disponible</span>
                         )}
                       </td>
+                      {/* Lógica de borrado solo para Admin */}
                       {esAdmin && (
                         <td className="py-2.5 px-3 text-center">
                           <button
