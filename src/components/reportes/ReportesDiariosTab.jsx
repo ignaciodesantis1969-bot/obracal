@@ -1,22 +1,13 @@
+// src/components/reportes/ReportesDiariosTab.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { Printer, Plus, Trash2, ShieldCheck, ExternalLink, Eye, X, Users, Calendar, Calculator } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '../../api';
-import { useObraData } from '../../hooks/useObraData';
+// 🔑 FIX: lectura directa de Firestore (en vez de useObraData)
+import { useFirestoreCollection } from '../../hooks/useFirestoreCollection';
 import { OBRAS_CONFIG } from '../../config/constants';
+// 🔑 FIX: escritura directa a Firestore
 import { crearDoc, eliminarDoc } from '../../lib/firestoreHelpers';
-
-const MAX_ENTRADAS_LOCALSTORAGE = 300;
-
-function guardarEnLocalStorageConLimite(key, arr) {
-  try {
-    const limitado = Array.isArray(arr) ? arr.slice(-MAX_ENTRADAS_LOCALSTORAGE) : arr;
-    localStorage.setItem(key, JSON.stringify(limitado));
-    return limitado;
-  } catch (e) {
-    return arr;
-  }
-}
 
 export default function ReportesDiariosTab({
   contratosList: propContratos = [],
@@ -35,27 +26,10 @@ export default function ReportesDiariosTab({
     return '';
   }
 }) {
-  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
-  const { data: reportesSheet, refetch: refetchReportes } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
-  const { data: personalSheet } = useObraData('Personal');
-
-  const [partesRecienModificados, setPartesRecienModificados] = useState(() => {
-    try {
-      const raw = localStorage.getItem('sice_partes_recien_modificados_v1');
-      return raw ? JSON.parse(raw) : [];
-    } catch {
-      return [];
-    }
-  });
-
-  const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
-    try {
-      const eliminados = localStorage.getItem('sice_partes_eliminados_global_v5');
-      return eliminados ? JSON.parse(eliminados) : [];
-    } catch {
-      return [];
-    }
-  });
+  // 🔑 FIX: lectura directa de Firestore
+  const { data: contratosFs } = useFirestoreCollection('contratos');
+  const { data: reportesFs } = useFirestoreCollection('reportes_diarios');
+  const { data: personalFs } = useFirestoreCollection('personal');
 
   const extraerArrayDatos = (fuente) => {
     if (Array.isArray(fuente)) return fuente;
@@ -72,18 +46,14 @@ export default function ReportesDiariosTab({
   const contratosList = useMemo(() => {
     const p = extraerArrayDatos(propContratos);
     if (p.length > 0) return p;
-    return extraerArrayDatos(contratosSheet);
-  }, [propContratos, contratosSheet]);
+    return extraerArrayDatos(contratosFs);
+  }, [propContratos, contratosFs]);
 
-  // 🔑 FIX: combinamos las 3 fuentes (Firestore + propReportes + partesRecienModificados)
-  // SIN descartar los recién creados. Deduplicamos por `nro` para no duplicar.
+  // 🔑 FIX: combinamos Firestore + propReportes (sin localStorage ni window.globalData)
   const allReportesSice = useMemo(() => {
-    const s = extraerArrayDatos(reportesSheet);
+    const s = extraerArrayDatos(reportesFs);
     const p = extraerArrayDatos(propReportes);
-    const pr = extraerArrayDatos(partesRecienModificados);
-
-    // Combinamos las 3 fuentes (los recién creados ya NO se filtran)
-    const base = [...s, ...p, ...pr];
+    const base = [...s, ...p];
 
     const unicosMap = new Map();
 
@@ -95,19 +65,10 @@ export default function ReportesDiariosTab({
       const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
       const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
 
-      // Filtrar eliminados
-      const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
-      const estaEliminadoPorNro = nroCrud && (
-        idsEliminadosLocales.includes(nroCrud) ||
-        idsEliminadosLocales.includes(nroNormalizado) ||
-        idsEliminadosLocales.includes(nroPadded)
-      );
-      if (estaEliminadoPorId || estaEliminadoPorNro) return;
-
       // Key ÚNICA por nro (si no hay nro, por id)
       const key = nroNormalizado ? `nro-${nroPadded}` : (idItem || `rand-${Math.random()}`);
 
-      // 🔑 Priorizar el que tenga `pdfUrl` (el recién creado tiene pdfUrl, el viejo a veces no)
+      // Priorizar el que tenga `pdfUrl`
       const previo = unicosMap.get(key);
       const previoTieneMasInfo = previo && previo.pdfUrl && !item.pdfUrl;
       if (!previo || (!previoTieneMasInfo && item.pdfUrl && !previo.pdfUrl)) {
@@ -122,15 +83,15 @@ export default function ReportesDiariosTab({
       const nB = parseInt(String(b.nro).replace(/\D/g, '') || '0', 10);
       return nB - nA;
     });
-  }, [partesRecienModificados, reportesSheet, propReportes, idsEliminadosLocales]);
+  }, [reportesFs, propReportes]);
 
   const listaEmpleadosActivos = useMemo(() => {
     const p = extraerArrayDatos(propEmpleados);
     if (p.length > 0) return p;
-    const s = extraerArrayDatos(personalSheet);
+    const s = extraerArrayDatos(personalFs);
     if (s.length > 0) return s;
     return extraerArrayDatos(propPersonal);
-  }, [propEmpleados, personalSheet, propPersonal]);
+  }, [propEmpleados, personalFs, propPersonal]);
 
   const personal = propPersonal;
 
@@ -142,12 +103,6 @@ export default function ReportesDiariosTab({
       console.info('[ReportesDiarios] Contrato seleccionado:', contratoSeleccionadoId);
     }
   }, [contratoSeleccionadoId]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('sice_partes_recien_modificados_v1', JSON.stringify(partesRecienModificados));
-    } catch (e) {}
-  }, [partesRecienModificados]);
 
   const contratoActivoObj = useMemo(() => {
     if (!contratoSeleccionadoId) return null;
@@ -162,7 +117,8 @@ export default function ReportesDiariosTab({
     return buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'nro_contrato', 'contratoCliente']) || '---';
   }, [contratoActivoObj, buscarValorEnObjeto]);
 
-  const siceParteNro = useMemo(() => {
+  // 🔑 FIX: cálculo de próximo nro desde Firestore (fuente de verdad)
+  const calcularProximoNro = useCallback(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
       const nroStr = String(buscarValorEnObjeto(item, ['nro', 'Nro', 'numero', 'Numero']) || '0');
@@ -171,6 +127,8 @@ export default function ReportesDiariosTab({
     const maxNro = Math.max(...numeros, 0);
     return String(maxNro + 1).padStart(5, '0');
   }, [allReportesSice, buscarValorEnObjeto]);
+
+  const siceParteNro = useMemo(() => calcularProximoNro(), [calcularProximoNro]);
 
   const [operariosSeleccionados, setOperariosSeleccionados] = useState([]);
 
@@ -421,6 +379,7 @@ export default function ReportesDiariosTab({
     }
   };
 
+  // 🔑 FIX: eliminar directo de Firestore (sin localStorage de eliminados)
   const eliminarParteServidor = async (idParte, nroParte) => {
     const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
     const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
@@ -431,8 +390,9 @@ export default function ReportesDiariosTab({
 
     if (!window.confirm("¿Está seguro de eliminar este parte diario del sistema?")) return;
 
+    // Buscar el doc por nro (para tener el id correcto)
     const nroBuscado = String(nroParte || '').replace(/\D/g, '');
-    const docEncontrado = (reportesSheet || []).find(item =>
+    const docEncontrado = (reportesFs || []).find(item =>
       String(item.nro || '').replace(/\D/g, '') === nroBuscado
     );
     const idFinal = docEncontrado?.id || idParte;
@@ -446,33 +406,6 @@ export default function ReportesDiariosTab({
 
     try {
       await eliminarDoc('reportes_diarios', idFinal);
-
-      const idLimpio = String(idFinal).trim();
-      const nroOriginal = String(nroParte || '').trim();
-      const nroNum = nroOriginal ? parseInt(nroOriginal.replace(/\D/g, ''), 10).toString() : '';
-      const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
-
-      const nuevosEliminados = Array.from(new Set([
-        ...idsEliminadosLocales,
-        idLimpio,
-        nroOriginal,
-        nroNum,
-        nroPadded
-      ].filter(Boolean)));
-
-      const nuevosEliminadosLimitados = guardarEnLocalStorageConLimite('sice_partes_eliminados_global_v5', nuevosEliminados);
-      setIdsEliminadosLocales(nuevosEliminadosLimitados);
-      onEliminadosChange(nuevosEliminadosLimitados);
-
-      setPartesRecienModificados(prev => prev.filter(item => {
-        const iId = String(item?.id || item?.ID || '').trim();
-        const iNro = String(item?.nro || item?.Nro || '').trim();
-        const iNroNum = iNro ? parseInt(iNro.replace(/\D/g, ''), 10).toString() : '';
-        return iId !== idLimpio && iNro !== nroOriginal && iNroNum !== nroNum;
-      }));
-
-      if (typeof refetchReportes === 'function') refetchReportes();
-
       toast.success('Parte diario eliminado correctamente', { id: toastId });
     } catch (err) {
       console.error('[ReportesDiarios] Error eliminando parte:', err);
@@ -512,6 +445,7 @@ export default function ReportesDiariosTab({
     }
   };
 
+  // 🔑 FIX: el nro lo calcula el FRONTEND (no el .gs) y se guarda en Firestore
   const aprobarYArchivarParteSice = async (e) => {
     e.preventDefault();
     if (!contratoSeleccionadoId) {
@@ -544,13 +478,17 @@ export default function ReportesDiariosTab({
     const nombreUsuarioGenerador = (rolActualUsuario === 'administrador' || rolActualUsuario === 'admin') ? 'Administrador' : 'Operario';
 
     try {
+      // 🔑 FIX: recalcular nro JUSTO ANTES de guardar (evita stale state)
+      const nroNuevo = calcularProximoNro();
+      console.info('[ReportesDiarios] Nro calculado para nuevo parte:', nroNuevo);
+
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
         tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice',
         contratoId: String(contratoSeleccionadoId),
         nroContratoCliente: String(nroContratoClienteDinamico),
         fecha: String(siceFecha),
-        nro: String(siceParteNro),
+        nro: String(nroNuevo),
         items: siceItems,
         operarios: operariosSeleccionados,
         desgloseCategorias: horasPorCategoria,
@@ -592,13 +530,13 @@ export default function ReportesDiariosTab({
         return;
       }
 
-      const nroFinalAsignado = resultado?.nro ? String(resultado.nro) : String(siceParteNro);
-      if (resultado?.nro && String(resultado.nro) !== String(siceParteNro)) {
-        toast('El número de parte asignado fue el ' + resultado.nro + ' (otro usuario generó un parte mientras completabas este formulario).', { icon: 'ℹ️' });
+      // 🔑 FIX: solo loguear si el .gs devolvió un nro distinto, pero NO usarlo
+      if (resultado?.nro && String(resultado.nro) !== String(nroNuevo)) {
+        console.warn('[ReportesDiarios] El .gs devolvió nro distinto:', resultado.nro, 'vs calculado:', nroNuevo, '(se ignora el del .gs)');
       }
 
       const payloadFirestore = {
-        nro: nroFinalAsignado,
+        nro: String(nroNuevo), // 🔑 FIX: el nro del frontend, no el del .gs
         fecha: String(siceFecha),
         contratoid: String(contratoSeleccionadoId),
         nroContratoCliente: String(nroContratoClienteDinamico),
@@ -618,25 +556,14 @@ export default function ReportesDiariosTab({
         pdfUrl: pdfUrlFinal
       };
 
-      const nuevoIdFirestore = await crearDoc('reportes_diarios', payloadFirestore);
+      await crearDoc('reportes_diarios', payloadFirestore);
 
-      const nuevoParte = {
-        id: nuevoIdFirestore,
-        ...payloadFirestore
-      };
-
-      setPartesRecienModificados(prev => [nuevoParte, ...prev]);
-      setFetchedReportesSice(prev => [nuevoParte, ...prev]);
-
-      if (typeof refetchReportes === 'function') {
-        try {
-          await refetchReportes({ throwOnError: false });
-          console.info('[ReportesDiarios] Refetch completado tras guardar');
-        } catch (e) {
-          console.warn('[ReportesDiarios] refetch falló:', e);
-        }
+      // 🔑 FIX: no-op por compatibilidad con el padre (onSnapshot refresca solo)
+      if (typeof setFetchedReportesSice === 'function') {
+        setFetchedReportesSice(prev => [...(Array.isArray(prev) ? prev : []), { nro: nroNuevo }]);
       }
 
+      // Reset form
       setSiceItems([{
         id: 1,
         descripcion: '',
@@ -651,7 +578,7 @@ export default function ReportesDiariosTab({
       setOperariosSeleccionados([]);
       setSiceFecha(new Date().toISOString().slice(0, 10));
 
-      toast.success('¡Parte Diario aprobado, PDF en Drive y guardado con éxito!', { id: toastId });
+      toast.success(`¡Parte Nro ${nroNuevo} aprobado y guardado con éxito!`, { id: toastId });
     } catch (err) {
       console.error('[ReportesDiarios] Error:', err);
       toast.error('Ocurrió un error al generar el PDF o guardar el parte.', { id: toastId });
@@ -659,6 +586,7 @@ export default function ReportesDiariosTab({
       setIsSavingSice(false);
     }
   };
+
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
