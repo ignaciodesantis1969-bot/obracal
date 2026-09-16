@@ -75,34 +75,17 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosSheet);
   }, [propContratos, contratosSheet]);
 
+  // 🔑 FIX: combinamos las 3 fuentes (Firestore + propReportes + partesRecienModificados)
+  // SIN descartar los recién creados. Deduplicamos por `nro` para no duplicar.
   const allReportesSice = useMemo(() => {
     const s = extraerArrayDatos(reportesSheet);
     const p = extraerArrayDatos(propReportes);
+    const pr = extraerArrayDatos(partesRecienModificados);
 
-    const nrosEnSheet = new Set([
-      ...s.map(item => String(item?.nro || '').replace(/\D/g, '')),
-      ...p.map(item => String(item?.nro || '').replace(/\D/g, ''))
-    ].filter(Boolean));
-
-    const prFiltrados = extraerArrayDatos(partesRecienModificados).filter(item => {
-      const nroItem = String(item?.nro || '').replace(/\D/g, '');
-      return nroItem && !nrosEnSheet.has(nroItem);
-    });
-
-    const base = [...s, ...p, ...prFiltrados];
+    // Combinamos las 3 fuentes (los recién creados ya NO se filtran)
+    const base = [...s, ...p, ...pr];
 
     const unicosMap = new Map();
-
-    const calcularScore = (item) => {
-      const idNum = Number(item?.id || item?.ID || 0);
-      if (idNum > 0) return idNum;
-      const fecha = item?.fecha || item?.Fecha || '';
-      if (fecha) {
-        const ts = new Date(fecha).getTime();
-        if (!isNaN(ts)) return ts;
-      }
-      return 0;
-    };
 
     base.forEach(item => {
       if (!item) return;
@@ -112,30 +95,27 @@ export default function ReportesDiariosTab({
       const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
       const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
 
+      // Filtrar eliminados
       const estaEliminadoPorId = idItem && idsEliminadosLocales.includes(idItem);
       const estaEliminadoPorNro = nroCrud && (
         idsEliminadosLocales.includes(nroCrud) ||
         idsEliminadosLocales.includes(nroNormalizado) ||
         idsEliminadosLocales.includes(nroPadded)
       );
-
       if (estaEliminadoPorId || estaEliminadoPorNro) return;
 
+      // Key ÚNICA por nro (si no hay nro, por id)
       const key = nroNormalizado ? `nro-${nroPadded}` : (idItem || `rand-${Math.random()}`);
 
-      const scoreNuevo = calcularScore(item);
-
-      if (!unicosMap.has(key)) {
-        unicosMap.set(key, { item, score: scoreNuevo });
-      } else {
-        const existente = unicosMap.get(key);
-        if (scoreNuevo > existente.score) {
-          unicosMap.set(key, { item, score: scoreNuevo });
-        }
+      // 🔑 Priorizar el que tenga `pdfUrl` (el recién creado tiene pdfUrl, el viejo a veces no)
+      const previo = unicosMap.get(key);
+      const previoTieneMasInfo = previo && previo.pdfUrl && !item.pdfUrl;
+      if (!previo || (!previoTieneMasInfo && item.pdfUrl && !previo.pdfUrl)) {
+        unicosMap.set(key, item);
       }
     });
 
-    const resultado = Array.from(unicosMap.values()).map(entry => entry.item);
+    const resultado = Array.from(unicosMap.values());
 
     return resultado.sort((a, b) => {
       const nA = parseInt(String(a.nro).replace(/\D/g, '') || '0', 10);
@@ -441,7 +421,6 @@ export default function ReportesDiariosTab({
     }
   };
 
-  // 🔑 MIGRACIÓN A FIRESTORE: eliminar directo de la colección `reportes_diarios`
   const eliminarParteServidor = async (idParte, nroParte) => {
     const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
     const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
@@ -452,7 +431,6 @@ export default function ReportesDiariosTab({
 
     if (!window.confirm("¿Está seguro de eliminar este parte diario del sistema?")) return;
 
-    // 🔑 Buscar el doc real en Firestore por nro (por si el id que llega es el viejo de Sheets)
     const nroBuscado = String(nroParte || '').replace(/\D/g, '');
     const docEncontrado = (reportesSheet || []).find(item =>
       String(item.nro || '').replace(/\D/g, '') === nroBuscado
@@ -467,10 +445,8 @@ export default function ReportesDiariosTab({
     const toastId = toast.loading('Eliminando parte diario...');
 
     try {
-      // 🔑 Eliminar de Firestore
       await eliminarDoc('reportes_diarios', idFinal);
 
-      // Registrar en localStorage para evitar que reaparezca por cachés locales
       const idLimpio = String(idFinal).trim();
       const nroOriginal = String(nroParte || '').trim();
       const nroNum = nroOriginal ? parseInt(nroOriginal.replace(/\D/g, ''), 10).toString() : '';
@@ -536,7 +512,6 @@ export default function ReportesDiariosTab({
     }
   };
 
-  // 🔑 MIGRACIÓN A FIRESTORE: el .gs genera el PDF, el frontend guarda en Firestore
   const aprobarYArchivarParteSice = async (e) => {
     e.preventDefault();
     if (!contratoSeleccionadoId) {
@@ -569,7 +544,6 @@ export default function ReportesDiariosTab({
     const nombreUsuarioGenerador = (rolActualUsuario === 'administrador' || rolActualUsuario === 'admin') ? 'Administrador' : 'Operario';
 
     try {
-      // PASO 1: pedirle al .gs que genere el PDF en Drive
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
         tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice',
@@ -623,7 +597,6 @@ export default function ReportesDiariosTab({
         toast('El número de parte asignado fue el ' + resultado.nro + ' (otro usuario generó un parte mientras completabas este formulario).', { icon: 'ℹ️' });
       }
 
-      // PASO 2: guardar el parte en Firestore
       const payloadFirestore = {
         nro: nroFinalAsignado,
         fecha: String(siceFecha),
@@ -686,7 +659,6 @@ export default function ReportesDiariosTab({
       setIsSavingSice(false);
     }
   };
-
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
