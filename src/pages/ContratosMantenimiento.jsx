@@ -68,6 +68,7 @@ export default function ContratosMantenimiento() {
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
   // 🔑 FIX: cuando cambia el contrato en detalle, parseamos el JSON embebido en `descripcion`
+  // 🔑 NUEVO: también leemos porcentaje_beneficio_deseado del doc (top-level)
   useEffect(() => {
     if (contratoDetalle) {
       const desc = contratoDetalle.descripcion || '';
@@ -112,6 +113,13 @@ export default function ContratosMantenimiento() {
       setProveedorNombre(pNombre);
       setClienteCargo(cCargo);
       setClienteNombre(cNombre);
+
+      // 🔑 NUEVO: leer fee del contrato (con default 4.61 para contratos viejos)
+      setPorcentajeBeneficioDeseado(
+        contratoDetalle.porcentaje_beneficio_deseado != null
+          ? Number(contratoDetalle.porcentaje_beneficio_deseado)
+          : 4.61
+      );
 
       setContratoGeneralFile(null);
       setAcuerdoEconomicoFile(null);
@@ -286,6 +294,8 @@ export default function ContratosMantenimiento() {
       clienteCargo: 'Supervisor de Planta',
       clienteNombre: 'Carlos Gómez'
     });
+    // 🔑 NUEVO: resetear fee a default en alta nueva
+    setPorcentajeBeneficioDeseado(4.61);
     setModalAbierto(true);
   };
 
@@ -335,10 +345,19 @@ export default function ContratosMantenimiento() {
       clienteCargo: cCargo,
       clienteNombre: cNombre
     });
+
+    // 🔑 NUEVO: leer fee del contrato (con default para contratos viejos)
+    setPorcentajeBeneficioDeseado(
+      c.porcentaje_beneficio_deseado != null
+        ? Number(c.porcentaje_beneficio_deseado)
+        : 4.61
+    );
+
     setModalAbierto(true);
   };
 
   // 🔑 FIX: guardar contrato directo a Firestore
+  // 🔑 NUEVO: persistir porcentaje_beneficio_deseado + fee_materiales
   const guardarContrato = async (e) => {
     e.preventDefault();
     setCargando(true);
@@ -363,7 +382,10 @@ export default function ContratosMantenimiento() {
 
       const datosAGuardar = {
         ...formData,
-        descripcion: descripcionFinal
+        descripcion: descripcionFinal,
+        // 🔑 NUEVO: persistir fee (top-level, consultable desde CertificadoMaterialesTab)
+        porcentaje_beneficio_deseado: Number(porcentajeBeneficioDeseado),
+        fee_materiales: Number(porcentajeFee.toFixed(2))
       };
       // 🔑 FIX: limpiar campos internos de Firestore
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosAGuardar;
@@ -496,7 +518,9 @@ export default function ContratosMantenimiento() {
     const nuevosAjustes = ajustesAplicados.filter((_, i) => i !== indexAjuste);
     setAjustesAplicados(nuevosAjustes);
     guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes);
-  };  if (contratoDetalle) {
+  };
+
+  if (contratoDetalle) {
     const manoDeObraBase = [
       { codigo: '4000011125', topico: 'Valor HH SUPERVISOR', ars: 34157.25 },
       { codigo: '4000001424', topico: 'Valor HH TECNICO EHS', ars: 19369.70 },

@@ -1,18 +1,21 @@
+// src/components/reportes/CertificadoHorasHombreTab.jsx
 import React, { useState, useMemo, useEffect } from 'react';
-import { Clock, Trash2, ShieldCheck, Loader2, FileText, ExternalLink, RefreshCw } from 'lucide-react';
+import { Clock, Trash2, ShieldCheck, Loader2, FileText, ExternalLink } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-import { useObraData } from '@/hooks/useObraData';
-import { OBRAS_CONFIG } from '@/config/constants';
+// 🔑 FIX: lectura de Firestore (en vez de useObraData)
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+// 🔑 FIX: escritura directa a Firestore
+import { crearDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function CertificadoHorasHombreTab({ 
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [],
   currentUser
 }) {
-  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
-  const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
-  
-  const { data: certificacionesRealizadas, mutate: mutateCertificaciones } = useObraData('CertificacionesHoras');
+  // 🔑 FIX: lectura directa de Firestore
+  const { data: contratosFs } = useFirestoreCollection('contratos');
+  const { data: reportesFs } = useFirestoreCollection('reportes_diarios');
+  const { data: certificacionesRealizadas } = useFirestoreCollection('certificaciones_horas');
 
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
   const esAdminOGerencia = rolStr === 'administrador' || rolStr === 'admin' || rolStr === 'gerencia' || rolStr === 'gerente';
@@ -29,20 +32,11 @@ export default function CertificadoHorasHombreTab({
     return [];
   };
 
+  // 🔑 FIX: sin window.globalData
   const contratosList = useMemo(() => {
     const c1 = extraerArrayDatos(propContratos);
-    const c2 = extraerArrayDatos(contratosSheet);
-    
-    let extraGlobales = [];
-    if (typeof window !== 'undefined' && window.globalData) {
-      extraGlobales = [
-        ...extraerArrayDatos(window.globalData.contratos),
-        ...extraerArrayDatos(window.globalData.contratosList),
-        ...extraerArrayDatos(window.globalData.contratos_mantenimiento)
-      ];
-    }
-
-    const combinados = [...c1, ...c2, ...extraGlobales];
+    const c2 = extraerArrayDatos(contratosFs);
+    const combinados = [...c1, ...c2];
     const unicosMap = new Map();
     combinados.forEach((item, index) => {
       if (!item) return;
@@ -50,48 +44,21 @@ export default function CertificadoHorasHombreTab({
       if (!unicosMap.has(key)) unicosMap.set(key, item);
     });
     return Array.from(unicosMap.values());
-  }, [propContratos, contratosSheet]);
+  }, [propContratos, contratosFs]);
 
+  // 🔑 FIX: sin localStorage de eliminados ni window.globalData
   const allReportesSice = useMemo(() => {
     const p1 = extraerArrayDatos(propReportes);
-    const p2 = extraerArrayDatos(reportesSheet);
-    
-    let localesExtra = [];
-    try {
-      const cached = localStorage.getItem('sice_partes_local_cache_v3');
-      if (cached) localesExtra = JSON.parse(cached);
-    } catch (e) {}
-
-    let extraGlobales = [];
-    if (typeof window !== 'undefined' && window.globalData) {
-      extraGlobales = extraerArrayDatos(window.globalData.allReportesSice);
-    }
-
-    let idsEliminados = [];
-    try {
-      const eliminadosRaw = localStorage.getItem('sice_partes_eliminados_global_v5');
-      if (eliminadosRaw) idsEliminados = JSON.parse(eliminadosRaw);
-    } catch (e) {}
-
-    const combinados = [...p1, ...p2, ...localesExtra, ...extraGlobales];
+    const p2 = extraerArrayDatos(reportesFs);
+    const combinados = [...p1, ...p2];
     const unicosMap = new Map();
     combinados.forEach((item, index) => {
       if (!item) return;
-
-      const idItem = String(item?.id || item?.ID || '').trim();
-      const nroCrud = String(item?.nro || item?.Nro || '').trim();
-      const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
-      const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
-
-      const estaEliminado = (idItem && idsEliminados.includes(idItem)) ||
-        (nroCrud && (idsEliminados.includes(nroCrud) || idsEliminados.includes(nroNormalizado) || idsEliminados.includes(nroPadded)));
-      if (estaEliminado) return;
-
       const key = String(item?.id || item?.ID || item?.nro || index);
       if (!unicosMap.has(key)) unicosMap.set(key, item);
     });
     return Array.from(unicosMap.values());
-  }, [propReportes, reportesSheet]);
+  }, [propReportes, reportesFs]);
 
   const historialCertificados = useMemo(() => {
     const raw = extraerArrayDatos(certificacionesRealizadas);
@@ -107,7 +74,6 @@ export default function CertificadoHorasHombreTab({
 
   const [partesSeleccionados, setPartesSeleccionados] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
-  const [isRefreshing, setIsRefreshing] = useState(false);
 
   const [respProveedor, setRespProveedor] = useState({ cargo: 'JEFE DE OBRA', nombre: 'Alexander Torres Lopez', firma: '' });
   const [respCliente, setRespCliente] = useState({ cargo: '', nombre: '', firma: '' });
@@ -143,6 +109,7 @@ export default function CertificadoHorasHombreTab({
     return { proveedorKey: String(pKey), clienteKey: String(cKey) };
   }, [contratoActual]);
 
+  // 🔑 FIX: numeración correlativa desde Firestore (solo para preview; el .gs reasigna)
   useEffect(() => {
     if (contratoActual) {
       const idContratoStr = String(contratoActual.id || '').trim();
@@ -174,10 +141,16 @@ export default function CertificadoHorasHombreTab({
     }
   }, [contratoActual, historialCertificados, codigoSICEReal]);
 
+  // 🔑 FIX: doble chequeo (partes_usados + detalle_filas) para evitar reusar partes
   const partesUsadosEnHistorial = useMemo(() => {
     const usados = new Set();
     historialCertificados.forEach(cert => {
-      const rawFilas = cert.filas ?? cert.detalle_filas ?? cert.detallefilas;
+      // (A) array plano partes_usados (nuevo)
+      if (Array.isArray(cert.partes_usados)) {
+        cert.partes_usados.forEach(n => n && usados.add(String(n)));
+      }
+      // (B) fallback: parsear detalle_filas (viejo)
+      const rawFilas = cert.detalle_filas ?? cert.detalleFilas ?? cert.filas ?? cert.detallefilas;
       let filas = [];
       if (typeof rawFilas === 'string') {
         try { filas = JSON.parse(rawFilas); } catch (e) {}
@@ -191,11 +164,8 @@ export default function CertificadoHorasHombreTab({
     return usados;
   }, [historialCertificados]);
 
-  // 🔑 MODIFICADO: filtro por contrato seleccionado
   const partesDisponiblesParaAgregar = useMemo(() => {
     const seleccionadosActuales = partesSeleccionados.map(p => String(p.nroParte));
-
-    // Si no hay contrato seleccionado, no mostramos partes
     if (!contratoIdSeleccionado) return [];
 
     const contratoIdStr = String(contratoIdSeleccionado).trim();
@@ -208,15 +178,11 @@ export default function CertificadoHorasHombreTab({
       if (partesUsadosEnHistorial.has(idNro)) return false; 
       if (seleccionadosActuales.includes(idNro)) return false;
 
-      // 🔑 NUEVO: filtrar por contrato
       const pContratoId = String(
         p?.contratoid || p?.contratoId || p?.contrato_id || p?.ContratoId || ''
       ).trim();
-
-      // Si el parte no tiene contrato_id, excluir (evita contaminar con partes huérfanos)
       if (!pContratoId) return false;
 
-      // Match contra: id del contrato seleccionado, código SICE, o el id real del objeto contrato
       const matchPorId = pContratoId === contratoIdStr;
       const matchPorIdReal = idContratoRealStr && pContratoId === idContratoRealStr;
       const matchPorCodigo = codigoSICEStr && codigoSICEStr !== '---' && pContratoId === codigoSICEStr;
@@ -360,6 +326,7 @@ export default function CertificadoHorasHombreTab({
     return partesSeleccionados.reduce((acc, curr) => acc + (Number(curr.valorTotal) || 0), 0);
   }, [partesSeleccionados]);
 
+  // 🔑 FIX: guardar certificado → (a) .gs solo PDF + correlativo, (b) Firestore doc
   const guardarCertificadoHoras = async (e) => {
     e.preventDefault();
     if (!contratoActual) return alert("Seleccione un contrato válido.");
@@ -378,10 +345,10 @@ export default function CertificadoHorasHombreTab({
 
     setIsSaving(true);
     try {
-      const payload = {
+      // (a) fetch al .gs SOLO para generar PDF + obtener correlativo real
+      const payloadGs = {
         tabla: 'CertificacionesHoras',
         action: 'guardar_certificado_horas',
-        id: `CERT-HH-${Date.now()}`, 
         contrato_id: String(contratoIdSeleccionado),
         contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
         nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
@@ -401,24 +368,47 @@ export default function CertificadoHorasHombreTab({
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payloadGs)
       });
       const resultado = await res.json();
+
       if (resultado?.success === false) {
         alert("Error del servidor: " + (resultado.error || 'Desconocido'));
-      } else {
-        const nroConfirmado = resultado?.certificado_nro || certificadoNro;
-        if (resultado?.certificado_nro && String(resultado.certificado_nro) !== String(certificadoNro)) {
-          alert("¡Certificado guardado con éxito! Nro. asignado: " + nroConfirmado + " (otro usuario generó uno mientras completabas el formulario). Se generó el PDF en Drive.");
-        } else {
-          alert("¡Certificado guardado con éxito! Se ha generado el PDF en Google Drive.");
-        }
-        if (mutateCertificaciones) mutateCertificaciones();
-        
-        setPartesSeleccionados([]);
-        setRespCliente(prev => ({...prev, firma: ''}));
-        setRespProveedor(prev => ({...prev, firma: ''}));
+        return;
       }
+
+      const pdfUrlFinal = resultado?.pdf_url || resultado?.pdfUrl || resultado?.url || '';
+      const certificadoNroFinal = resultado?.certificado_nro || certificadoNro;
+
+      // (b) crear doc en Firestore
+      const partesUsados = Array.from(new Set(partesSeleccionados.map(f => String(f.nroParte))));
+
+      await crearDoc('certificaciones_horas', {
+        contrato_id: String(contratoIdSeleccionado),
+        contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
+        nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
+        certificado_nro: certificadoNroFinal,
+        fecha_emision: formatearFecha(fechaEmision),
+        periodo_desde: formatearFecha(periodoDesde),
+        periodo_hasta: formatearFecha(periodoHasta),
+        cliente: contratoActual?.cliente || contratoActual?.Cliente || 'Cliente',
+        detalle_filas: partesSeleccionados,
+        partes_usados: partesUsados,
+        total_general: totalGeneralMonto,
+        responsable_proveedor: respProveedor,
+        responsable_cliente: respCliente,
+        pdf_url: pdfUrlFinal
+      });
+
+      if (String(certificadoNroFinal) !== String(certificadoNro)) {
+        alert("¡Certificado guardado con éxito! Nro. asignado: " + certificadoNroFinal + " (otro usuario generó uno mientras completabas el formulario). Se generó el PDF en Drive.");
+      } else {
+        alert("¡Certificado guardado con éxito! Se ha generado el PDF en Google Drive.");
+      }
+
+      setPartesSeleccionados([]);
+      setRespCliente(prev => ({...prev, firma: ''}));
+      setRespProveedor(prev => ({...prev, firma: ''}));
     } catch (err) {
       console.error(err);
       alert("Error al conectar con el servidor.");
@@ -427,31 +417,18 @@ export default function CertificadoHorasHombreTab({
     }
   };
 
+  // 🔑 FIX: eliminar certificado directo de Firestore
   const handleEliminarCertificado = async (idCertificado) => {
+    if (!idCertificado) {
+      alert("No se puede eliminar: falta el ID del certificado.");
+      return;
+    }
     if (!window.confirm("¿Estás seguro de que deseas eliminar este certificado del historial?")) return;
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'CertificacionesHoras', action: 'delete', id: idCertificado })
-      });
-      const data = await res.json();
-      if (data.success !== false) {
-        if (mutateCertificaciones) mutateCertificaciones();
-      } else {
-        alert("Error al intentar eliminar el certificado.");
-      }
+      await eliminarDoc('certificaciones_horas', idCertificado);
     } catch (err) {
       console.error(err);
-      alert("Fallo de conexión al eliminar.");
-    }
-  };
-
-  const refreshHistory = async () => {
-    if (mutateCertificaciones) {
-      setIsRefreshing(true);
-      await mutateCertificaciones();
-      setTimeout(() => setIsRefreshing(false), 800);
+      alert("Error al eliminar el certificado: " + (err.message || ''));
     }
   };
 
@@ -777,33 +754,23 @@ export default function CertificadoHorasHombreTab({
             type="button"
             onClick={guardarCertificadoHoras}
             disabled={isSaving}
-            className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
+            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-500/50 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-colors shadow-md cursor-pointer text-sm"
           >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin text-amber-300" /> : <ShieldCheck className="w-4 h-4" />}
+            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
             {isSaving ? 'Guardando Certificado...' : 'Aprobar, Firmar y Guardar Certificado'}
           </button>
         </div>
       </div>
 
+      {/* HISTORIAL */}
       <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-4 shadow-sm">
         <div className="flex items-center justify-between border-b-2 border-slate-800 pb-3">
           <h3 className="text-sm font-black text-slate-900 uppercase tracking-wide flex items-center gap-2">
             <FileText className="w-4 h-4 text-blue-900" /> Historial de Certificados de Horas Hombre Emitidos
           </h3>
-          
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-bold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-300">
-              Total: {historialCertificados.length}
-            </span>
-            <button 
-              onClick={refreshHistory}
-              disabled={isRefreshing}
-              className={`p-1.5 rounded-lg border border-slate-300 transition-colors ${isRefreshing ? 'bg-amber-100 text-amber-600' : 'bg-slate-100 hover:bg-slate-200 text-slate-600 cursor-pointer'}`}
-              title="Actualizar tabla desde Google Sheets"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
-            </button>
-          </div>
+          <span className="text-xs font-bold bg-slate-100 text-slate-700 px-2.5 py-1 rounded-full border border-slate-300">
+            Total: {historialCertificados.length}
+          </span>
         </div>
 
         <div className="overflow-x-auto border border-slate-300 rounded-xl">
@@ -828,7 +795,7 @@ export default function CertificadoHorasHombreTab({
                 </tr>
               ) : (
                 historialCertificados.map((cert, idx) => {
-                  const certId = cert.id || cert.certificado_nro || `fallback-${idx}`;
+                  const certId = cert.id || `fallback-${idx}`;
                   const certNro = cert.certificado_nro || cert.certificadonro || 'S/N';
                   const clienteText = cert.cliente || '---';
                   
