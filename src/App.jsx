@@ -5,7 +5,9 @@ import { queryClientInstance } from '@/lib/query-client';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
-import { GOOGLE_SCRIPT_URL } from '@/api';
+// 🔑 NUEVO: para leer el rol del usuario desde Firestore
+import { collection, query, where, getDocs } from "firebase/firestore";
+import { db } from "./firebase";
 
 // Layout y Auth
 import Layout from '@/components/Layout';
@@ -32,65 +34,50 @@ const Usuarios = lazy(() => import('@/pages/Usuarios'));
 const TareasTemplate = lazy(() => import('@/pages/TareasTemplate'));
 const ContratosMantenimiento = lazy(() => import('@/pages/ContratosMantenimiento'));
 
+// 🔑 NUEVO: lee el perfil (nombre + rol) del usuario desde Firestore.
+// Si falla o no existe, devuelve null y se usa el fallback.
+const cargarPerfilUsuario = async (emailFirebase) => {
+  try {
+    const emailLimpio = String(emailFirebase || '').trim().toLowerCase();
+    if (!emailLimpio) return null;
+
+    const ref = collection(db, 'usuarios');
+    const q = query(ref, where('email', '==', emailLimpio));
+    const snapshot = await getDocs(q);
+
+    if (snapshot.empty) {
+      // Fallback: intentar match case-insensitive sobre todos los usuarios
+      // (por si el email se guardó con mayúsculas)
+      const snapshotTodos = await getDocs(ref);
+      const match = snapshotTodos.docs.find(d => {
+        const dEmail = String(d.data()?.email || '').trim().toLowerCase();
+        return dEmail === emailLimpio;
+      });
+      if (match) {
+        const data = match.data();
+        return {
+          nombre: data?.nombre || data?.Nombre || null,
+          role: data?.role || data?.rol || null,
+        };
+      }
+      return null;
+    }
+
+    const doc0 = snapshot.docs[0];
+    const data = doc0.data();
+    return {
+      nombre: data?.nombre || data?.Nombre || null,
+      role: data?.role || data?.rol || null,
+    };
+  } catch (error) {
+    console.error('[App] Error al leer perfil de Firestore:', error);
+    return null;
+  }
+};
+
 const AuthenticatedApp = () => {
   const { user, setUser } = useAuth();
   const [loadingSession, setLoadingSession] = useState(true);
-  
-  const [globalData, setGlobalData] = useState({
-    facturas: [],
-    facturasVenta: [],
-    ordenesCompra: [],
-    proveedores: [],
-    obras: [],
-    presupuestos: [],
-    insumos: [],
-    clientes: [],
-    movimientos: [],
-    personal: [],
-    rubros: [],
-    maestroTareasRubros: [],
-    legajos: [],
-    contratosMantenimiento: [],
-    certificados: [],
-    usuarios: []
-  });
-
-  // CARGA ÚNICA GLOBAL BLINDADA CON TODAS LAS VARIANTES DE CLAVES
-  const cargarDatos = async () => {
-    try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'cargarDetalleCompleto' })
-      });
-      const data = await response.json();
-      if (data.success) {
-         setGlobalData({
-          facturas: data.facturas || data.Facturas || [],
-          facturasVenta: data.facturas_venta || data.facturasVenta || data.FacturasVenta || [],
-          ordenesCompra: data.ordenes_compra || data.ordenesCompra || data.OrdenesCompra || [],
-          proveedores: data.proveedores || data.Proveedores || [],
-          obras: data.obras || data.Obras || [],
-          presupuestos: data.presupuestos || data.Presupuestos || [],
-          insumos: data.insumos || data.Insumos || [],
-          clientes: data.clientes || data.Clientes || [],
-          movimientos: data.movimientos || data.tesoreria || data.Tesoreria || [],
-          personal: data.personal || data.Personal || [],
-          rubros: data.rubros || data.Rubros || [],
-          maestroTareasRubros: data.maestro || data.maestro_tareas_rubros || data.maestroTareasRubros || data.MaestroTareasRubros || [],
-          legajos: data.legajos || data.Legajos || [],
-          contratosMantenimiento: data.contratos_mantenimiento || data.contratosMantenimiento || data.contratos || [],
-          certificados: data.certificados || data.certificados_emitidos || data.certificaciones_horas || data.certificacionesHoras || [],
-          cargasSemanales: data.cargas_semanales || data.cargasSemanales || data.CargasSemanales || [],
-          usuarios: data.usuarios || data.usuario || data.Usuarios || []
-        });
-        return data.usuarios || data.usuario || data.Usuarios || [];
-      }
-    } catch (error) {
-      console.error("Error al sincronizar datos globales:", error);
-    }
-    return [];
-  };
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -99,28 +86,22 @@ const AuthenticatedApp = () => {
         let nombreFinal = firebaseUser.email.split('@')[0];
         const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
 
-        // Resguardo directo para correos principales (evita demoras)
+        // 🔑 Resguardo directo para correos principales (evita la lectura a Firestore
+        // y garantiza que siempre entren como admin/operador_ii)
         if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
           rolFinal = 'admin';
         } else if (emailFirebase === 'roldangerman033@gmail.com') {
           rolFinal = 'operador_ii';
         }
 
-        // Ejecutamos la carga global que trae tanto los datos como la lista de usuarios
-        const listaUsuarios = await cargarDatos();
+        // 🔑 Leer el perfil desde Firestore (nombre + rol)
+        const perfil = await cargarPerfilUsuario(emailFirebase);
 
-        if (Array.isArray(listaUsuarios) && listaUsuarios.length > 0) {
-          const userInfo = listaUsuarios.find(u => {
-            const uEmail = String(u.email || u.Email || u.correo || '').trim().toLowerCase();
-            return uEmail === emailFirebase;
-          });
-          
-          if (userInfo) {
-            nombreFinal = userInfo?.nombre || userInfo?.Nombre || nombreFinal;
-            const rawRol = userInfo?.role || userInfo?.rol || userInfo?.Role || userInfo?.ROL || '';
-            if (rawRol && emailFirebase !== 'ignaciodesantis@sicesa.com.ar') {
-              rolFinal = String(rawRol).toLowerCase().trim();
-            }
+        if (perfil) {
+          if (perfil.nombre) nombreFinal = perfil.nombre;
+          // El resguardo directo tiene prioridad sobre lo que dice Firestore
+          if (perfil.role && emailFirebase !== 'ignaciodesantis@sicesa.com.ar' && emailFirebase !== 'roldangerman033@gmail.com') {
+            rolFinal = String(perfil.role).toLowerCase().trim();
           }
         }
 
@@ -150,7 +131,7 @@ const AuthenticatedApp = () => {
   if (!user) {
     return (
       <Suspense fallback={<div className="min-h-screen bg-[#070e1b] flex items-center justify-center text-white">Cargando login...</div>}>
-        <Login GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} onLoginSuccess={(userData) => setUser(userData)} />
+        <Login onLoginSuccess={(userData) => setUser(userData)} />
       </Suspense>
     );
   }
@@ -170,211 +151,121 @@ const AuthenticatedApp = () => {
         <Route element={<Layout />}>
           {/* 1. Operador Estándar: Solo partes diarios */}
           {esOperadorEstandar ? (
-            <Route 
-              path="*" 
+            <Route
+              path="*"
               element={
-                <Reportes 
+                <Reportes
                   currentUser={user}
                   userRole={userRole}
                   esOperador={true}
                   esOperadorII={false}
-                  obras={globalData.obras}
-                  presupuestos={globalData.presupuestos}
-                  movimientos={globalData.movimientos}
-                  insumos={globalData.insumos}
-                  rubros={globalData.rubros}
-                  facturas={globalData.facturas}
-                  maestroTareasRubros={globalData.maestroTareasRubros}
-                  contratosMantenimiento={globalData.contratosMantenimiento}
-                  certificados={globalData.certificados}
-                  certificadosList={globalData.certificados}
                 />
-              } 
+              }
             />
           ) : esOperadorII ? (
             /* 2. Operador II: Menú de reportes e insumos sin dashboard */
             <>
               <Route path="/" element={<Navigate to="/reportes" replace />} />
-              <Route 
-                path="/reportes" 
+              <Route
+                path="/reportes"
                 element={
-                  <Reportes 
+                  <Reportes
                     currentUser={user}
                     userRole={userRole}
                     esOperador={false}
-                    esOperadorII={true} 
-                    obras={globalData.obras}
-                    presupuestos={globalData.presupuestos}
-                    movimientos={globalData.movimientos}
-                    insumos={globalData.insumos}
-                    rubros={globalData.rubros}
-                    facturas={globalData.facturas}
-                    maestroTareasRubros={globalData.maestroTareasRubros}
-                    contratosMantenimiento={globalData.contratosMantenimiento}
-                    certificados={globalData.certificados}
-                    certificadosList={globalData.certificados}
-                    setFetchedCertificados={cargarDatos}
+                    esOperadorII={true}
                   />
-                } 
+                }
               />
-              <Route 
-                path="/insumos" 
+              <Route
+                path="/insumos"
                 element={
                   <RequirePermiso modulo="insumos">
-                    <Insumos 
-                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
-                      insumos={globalData.insumos}
-                      proveedores={globalData.proveedores}
-                      presupuestos={globalData.presupuestos}
-                      cargarDatos={cargarDatos}
-                    />
+                    <Insumos />
                   </RequirePermiso>
-                } 
+                }
               />
               <Route path="*" element={<Navigate to="/reportes" replace />} />
             </>
           ) : (
             /* 3. Administradores: Acceso total al sistema */
             <>
-              <Route 
-                path="/" 
+              <Route
+                path="/"
                 element={
-                  <Dashboard 
-                    movimientos={globalData.movimientos}
-                    facturas={globalData.facturas}
-                    obras={globalData.obras}
-                    presupuestos={globalData.presupuestos}
-                    clientes={globalData.clientes}
-                    proveedores={globalData.proveedores}
-                  />
-                } 
+                  <Dashboard />
+                }
               />
-              <Route 
-                path="/clientes" 
+              <Route
+                path="/clientes"
                 element={
                   <RequirePermiso modulo="clientes">
-                    <Clientes clientesIniciales={globalData.clientes} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} />
+                    <Clientes />
                   </RequirePermiso>
-                } 
+                }
               />
-              <Route 
-                path="/proveedores" 
+              <Route
+                path="/proveedores"
                 element={
                   <RequirePermiso modulo="proveedores">
-                    <Proveedores proveedoresIniciales={globalData.proveedores} GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL} cargarDatos={cargarDatos} />
+                    <Proveedores />
                   </RequirePermiso>
-                } 
+                }
               />
               <Route path="/obras" element={<RequirePermiso modulo="obras"><Obras /></RequirePermiso>} />
-              <Route 
-                path="/insumos" 
+              <Route
+                path="/insumos"
                 element={
                   <RequirePermiso modulo="insumos">
-                    <Insumos 
-                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
-                      insumos={globalData.insumos}
-                      proveedores={globalData.proveedores}
-                      presupuestos={globalData.presupuestos}
-                      cargarDatos={cargarDatos}
-                    />
+                    <Insumos />
                   </RequirePermiso>
-                } 
+                }
               />
               <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
               <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
               <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
-              <Route 
-                path="/rrhh" 
+              <Route
+                path="/rrhh"
                 element={
                   <RequirePermiso modulo="rrhh">
-                    <Rrhh 
-                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
-                      personalInicial={globalData.personal}
-                      insumos={globalData.insumos}
-                      obras={globalData.obras}
-                      rubros={globalData.rubros}
-                      presupuestos={globalData.presupuestos}
-                      contratosMantenimiento={globalData.contratosMantenimiento}
-                      legajosIniciales={globalData.legajos}
-                      cargasHorasIniciales={globalData.cargasSemanales}
-                      cargarDatos={cargarDatos}
-                    />
+                    <Rrhh />
                   </RequirePermiso>
-                } 
+                }
               />
-              <Route 
-                path="/compras" 
+              <Route
+                path="/compras"
                 element={
                   <RequirePermiso modulo="compras">
-                   <Compras 
-                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
-                      facturas={globalData.facturas}
-                      ordenesCompra={globalData.ordenesCompra}
-                      proveedores={globalData.proveedores}
-                      obras={globalData.obras}
-                      presupuestos={globalData.presupuestos}
-                      contratosList={globalData.contratosMantenimiento}
-                      contratos={globalData.contratosMantenimiento}
-                      insumosList={globalData.insumos}
-                      rubros={globalData.rubros}
-                      cargarDatos={cargarDatos}
-                    />   
+                    <Compras />
                   </RequirePermiso>
-                } 
+                }
               />
-              <Route 
-                path="/tesoreria" 
+              <Route
+                path="/tesoreria"
                 element={
                   <RequirePermiso modulo="tesoreria">
-                    <Tesoreria 
-                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
-                      movimientos={globalData.movimientos}
-                      facturas={globalData.facturas}
-                      facturasVenta={globalData.facturasVenta}
-                      proveedores={globalData.proveedores}
-                      obras={globalData.obras}
-                      presupuestos={globalData.presupuestos}
-                      clientes={globalData.clientes}
-                      cargarDatos={cargarDatos}
-                    />
+                    <Tesoreria />
                   </RequirePermiso>
-                } 
+                }
               />
-              <Route 
-                path="/reportes" 
+              <Route
+                path="/reportes"
                 element={
-                  <Reportes 
+                  <Reportes
                     currentUser={user}
                     userRole={userRole}
                     esOperador={false}
-                    esOperadorII={false} 
-                    obras={globalData.obras}
-                    presupuestos={globalData.presupuestos}
-                    movimientos={globalData.movimientos}
-                    insumos={globalData.insumos}
-                    rubros={globalData.rubros}
-                    facturas={globalData.facturas}
-                    maestroTareasRubros={globalData.maestroTareasRubros}
-                    contratosMantenimiento={globalData.contratosMantenimiento}
-                    certificados={globalData.certificados}
-                    certificadosList={globalData.certificados}
-                    setFetchedCertificados={cargarDatos}
+                    esOperadorII={false}
                   />
-                } 
+                }
               />
-              <Route 
-                path="/contratos-mantenimiento" 
+              <Route
+                path="/contratos-mantenimiento"
                 element={
                   <RequirePermiso modulo="contratos_mantenimiento">
-                    <ContratosMantenimiento 
-                      GOOGLE_SCRIPT_URL={GOOGLE_SCRIPT_URL}
-                      contratos={globalData.contratosMantenimiento}
-                      proveedores={globalData.proveedores}
-                      obras={globalData.obras}
-                      cargarDatos={cargarDatos}
-                    />
+                    <ContratosMantenimiento />
                   </RequirePermiso>
-                } 
+                }
               />
               <Route path="/usuarios" element={<Usuarios />} />
               <Route path="/tareas-template" element={<RequirePermiso modulo="presupuestos"><TareasTemplate /></RequirePermiso>} />
