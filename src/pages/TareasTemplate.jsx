@@ -1,80 +1,62 @@
+// src/pages/TareasTemplate.jsx
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Copy, Search, Download, Loader2, FolderPlus, Clock, ChevronDown, ChevronUp, X, Filter } from 'lucide-react';
-import { GOOGLE_SCRIPT_URL } from '@/api';
+// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function TareasTemplate() {
-  const [items, setItems] = useState([]);
-  const [insumosDisponibles, setInsumosDisponibles] = useState([]);
-  const [rubrosList, setRubrosList] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // 🔑 NUEVO: leemos las 3 colecciones necesarias en paralelo
+  // OJO: la colección en Firestore se llama 'maestro' (no 'MaestroTareasRubros')
+  const { data: items, loading: loadingItems } = useFirestoreCollection('maestro');
+  const { data: insumosDisponibles, loading: loadingInsumos } = useFirestoreCollection('insumos');
+  const { data: rubrosList, loading: loadingRubros } = useFirestoreCollection('rubros');
+
+  const isLoading = loadingItems || loadingInsumos || loadingRubros;
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedRubro, setSelectedRubro] = useState(''); 
-  const [activeForm, setActiveForm] = useState(null); 
+  const [selectedRubro, setSelectedRubro] = useState('');
+  const [activeForm, setActiveForm] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [rubrosAbiertos, setRubrosAbiertos] = useState({});
   const [tareasAbiertas, setTareasAbiertas] = useState({});
 
   const [isSaving, setIsSaving] = useState(false);
 
-  const [formData, setFormData] = useState({ 
-    codigo: '', 
-    rubro: '', 
-    tarea: '', 
-    unidad: 'm2', 
+  const [formData, setFormData] = useState({
+    codigo: '',
+    rubro: '',
+    tarea: '',
+    unidad: 'm2',
     descripcion: '',
-    costo_estimado: 0, 
-    hs_mo: '', 
+    costo_estimado: 0,
+    hs_mo: '',
     insumos_asociados: [],
     estado: 'activo'
   });
 
   const [busquedaInsumo, setBusquedaInsumo] = useState('');
 
-  // 🚀 CARGA LIGERA Y RÁPIDA EN PARALELO (Optimizado por tabla)
-  const cargarDatos = async (reintentos = 3) => {
-    setIsLoading(true);
-    try {
-      const [resTareas, resInsumos, resRubros] = await Promise.all([
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'MaestroTareasRubros', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Insumos', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Rubros', action: 'list' }) })
-      ]);
-      
-      const dataTareas = await resTareas.json();
-      const dataInsumos = await resInsumos.json();
-      const dataRubros = await resRubros.json();
-
-      const itemsList = Array.isArray(dataTareas) ? dataTareas : [];
-      
-      if (itemsList.length === 0 && reintentos > 0) {
-        console.warn(`Maestro de tareas vacío temporalmente. Reintentando en 1s... (${reintentos} intentos restantes)`);
-        setTimeout(() => cargarDatos(reintentos - 1), 1000);
-        return;
-      }
-
-      setItems(itemsList);
-      setInsumosDisponibles(Array.isArray(dataInsumos) ? dataInsumos : []);
-      setRubrosList(Array.isArray(dataRubros) ? dataRubros : []);
-
+  // 🔑 NUEVO: cuando llega el maestro desde Firestore, abrimos todos los rubros por defecto
+  useEffect(() => {
+    if (items.length > 0) {
       const rubrosUnicos = [...new Set([
-        ...itemsList.map(i => String(i.rubro || 'GENERAL').toUpperCase()),
-        ...dataRubros.map(r => String(r.nombre || r.Nombre || '').toUpperCase())
+        ...items.map(i => String(i.rubro || 'GENERAL').toUpperCase()),
+        ...rubrosList.map(r => String(r.nombre || r.Nombre || '').toUpperCase())
       ])].filter(Boolean);
 
       const inicialAbiertos = {};
-      rubrosUnicos.forEach(r => inicialAbiertos[r] = true);
-      setRubrosAbiertos(inicialAbiertos);
-    } catch (err) { 
-      console.error("Error al cargar maestro de tareas:", err); 
-      if (reintentos > 0) {
-        setTimeout(() => cargarDatos(reintentos - 1), 1000);
-      }
-    } finally { 
-      setIsLoading(false); 
+      rubrosUnicos.forEach(r => { inicialAbiertos[r] = true; });
+      setRubrosAbiertos(prev => {
+        // Solo setear si está vacío, para no pisar el estado del usuario cada vez que cambian los datos
+        if (Object.keys(prev).length === 0) return inicialAbiertos;
+        // Sino, agregar los rubros nuevos sin tocar los existentes
+        const merged = { ...inicialAbiertos, ...prev };
+        return merged;
+      });
     }
-  };
-
-  useEffect(() => { cargarDatos(); }, []);
+  }, [items, rubrosList]);
 
   const obtenerClaseTipo = (tipo) => {
     const t = (tipo || '').toLowerCase();
@@ -160,10 +142,11 @@ export default function TareasTemplate() {
     setActiveForm('tarea');
   };
 
+  // 🔑 FIX: duplicar tarea directo a Firestore con crearDoc
   const handleDuplicarTarea = async (item) => {
     const nombreActual = item.tarea || '';
     const nuevoNombre = window.prompt("Ingrese el nombre para la nueva tarea duplicada:", `${nombreActual} (Copia)`);
-    
+
     if (!nuevoNombre || !nuevoNombre.trim()) return;
 
     let insumosParseados = [];
@@ -175,7 +158,6 @@ export default function TareasTemplate() {
       insumosParseados = [];
     }
 
-    setIsLoading(true);
     try {
       const itemADuplicar = {
         codigo: item.codigo || '',
@@ -189,23 +171,12 @@ export default function TareasTemplate() {
         estado: item.estado || 'activo'
       };
 
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'MaestroTareasRubros', action: 'create', data: itemADuplicar })
-      });
-      const res = await response.json();
-
-      if (res.success || res.id) {
-        cargarDatos();
-      } else {
-        alert("Error al duplicar la tarea: " + (res.error || "Desconocido"));
-        setIsLoading(false);
-      }
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = itemADuplicar;
+      await crearDoc('maestro', datosLimpios);
+      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al duplicar la tarea.");
-      setIsLoading(false);
+      alert("Error al duplicar la tarea: " + (err.message || ''));
     }
   };
 
@@ -222,9 +193,10 @@ export default function TareasTemplate() {
     return `R${String(maxNum + 1).padStart(3, '0')}`;
   };
 
+  // 🔑 FIX: guardado directo a Firestore (rubro → colección 'rubros'; tarea → colección 'maestro')
   const handleGuardar = async (e) => {
     e.preventDefault();
-    if (isSaving) return; 
+    if (isSaving) return;
 
     setIsSaving(true);
     try {
@@ -232,97 +204,85 @@ export default function TareasTemplate() {
         const nombreRubroUpper = (formData.rubro || '').trim().toUpperCase();
         if (!nombreRubroUpper) {
           alert("Ingrese un nombre de rubro válido.");
+          setIsSaving(false);
           return;
         }
 
         const codigoGenerado = generarCodigoRubroAutomatico();
 
-        const resRubro = await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            tabla: 'Rubros',
-            action: 'create',
-            data: {
-              codigo: codigoGenerado,
-              nombre: nombreRubroUpper,
-              descripcion: 'Creado desde Maestro de Tareas'
-            }
-          })
+        await crearDoc('rubros', {
+          codigo: codigoGenerado,
+          nombre: nombreRubroUpper,
+          descripcion: 'Creado desde Maestro de Tareas'
         });
-        const resData = await resRubro.json();
 
-        if (resData.success || resData.id) {
-          setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
-          setEditingId(null);
-          setActiveForm(null);
-          cargarDatos();
-        } else {
-          alert("Error al guardar el rubro: " + (resData.error || "Desconocido"));
-        }
-        return;
-      }
-
-      const action = editingId ? 'update' : 'create';
-      const itemAGuardar = {
-          ...formData,
-          rubro: (formData.rubro || '').trim().toUpperCase(),
-          tarea: formData.tarea,
-          costo_estimado: costoTotal,
-          hs_mo: `${totalHsMo.toFixed(3)} hs`,
-          insumos_detalle: JSON.stringify(formData.insumos_asociados)
-      };
-      
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'MaestroTareasRubros', action, id: editingId, data: itemAGuardar })
-      });
-      const res = await response.json();
-      
-      if (res.success || res.id) {
         setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
         setEditingId(null);
         setActiveForm(null);
-        cargarDatos();
-      } else {
-        alert("Error al guardar: " + (res.error || "Desconocido"));
+        // Firestore actualiza la lista en tiempo real.
+        return;
       }
+
+      // Tarea
+      const itemAGuardar = {
+        ...formData,
+        rubro: (formData.rubro || '').trim().toUpperCase(),
+        tarea: formData.tarea,
+        costo_estimado: costoTotal,
+        hs_mo: `${totalHsMo.toFixed(3)} hs`,
+        insumos_detalle: JSON.stringify(formData.insumos_asociados)
+      };
+
+      // 🔑 FIX: limpiar campos internos antes de guardar
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = itemAGuardar;
+
+      if (editingId) {
+        await actualizarDoc('maestro', editingId, datosLimpios);
+      } else {
+        await crearDoc('maestro', datosLimpios);
+      }
+
+      setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
+      setEditingId(null);
+      setActiveForm(null);
+      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al intentar guardar.");
+      alert("Error al guardar: " + (err.message || ''));
     } finally {
-      setIsSaving(false); 
+      setIsSaving(false);
     }
   };
 
+  // 🔑 FIX: eliminación de tarea directo a Firestore
   const handleEliminar = async (id) => {
-    if (window.confirm("¿Estás seguro de eliminar este registro?")) {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'MaestroTareasRubros', action: 'delete', id })
-      });
-      cargarDatos();
+    if (!window.confirm("¿Estás seguro de eliminar este registro?")) return;
+    try {
+      await eliminarDoc('maestro', id);
+    } catch (err) {
+      console.error("Error al eliminar tarea:", err);
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
+  // 🔑 FIX: eliminar rubro global → buscar por nombre en colección 'rubros' y eliminar el doc
   const handleEliminarRubroGlobal = async (rubroName) => {
-    if (window.confirm(`¿Estás seguro de eliminar el rubro "${rubroName}"? Esto lo borrará de la lista general.`)) {
-      const rubroEncontrado = rubrosList.find(r => String(r.nombre || r.Nombre || '').trim().toUpperCase() === rubroName);
-      
-      if (rubroEncontrado && rubroEncontrado.id) {
-        try {
-          await fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ tabla: 'Rubros', action: 'delete', id: rubroEncontrado.id })
-          });
-        } catch (err) {
-          console.error("Error al eliminar el rubro:", err);
-        }
-      }
-      cargarDatos();
+    if (!window.confirm(`¿Estás seguro de eliminar el rubro "${rubroName}"? Esto lo borrará de la lista general.`)) return;
+
+    const rubroEncontrado = rubrosList.find(r =>
+      String(r.nombre || r.Nombre || '').trim().toUpperCase() === rubroName
+    );
+
+    if (!rubroEncontrado || !rubroEncontrado.id) {
+      alert("No se encontró el rubro en la base de datos.");
+      return;
+    }
+
+    try {
+      await eliminarDoc('rubros', rubroEncontrado.id);
+    } catch (err) {
+      console.error("Error al eliminar el rubro:", err);
+      alert("Error al eliminar el rubro: " + (err.message || ''));
     }
   };
 
@@ -331,7 +291,9 @@ export default function TareasTemplate() {
     ...rubrosList.map(r => String(r.nombre || r.Nombre || '').toUpperCase())
   ])].filter(Boolean);
 
-  const insumosFiltradosBusqueda = insumosDisponibles.filter(i => (i.nombre || '').toLowerCase().includes(busquedaInsumo.toLowerCase()));
+  const insumosFiltradosBusqueda = insumosDisponibles.filter(i =>
+    (i.nombre || '').toLowerCase().includes(busquedaInsumo.toLowerCase())
+  );
 
   const toggleTareaAbierta = (id) => {
     setTareasAbiertas(prev => ({ ...prev, [id]: !prev[id] }));
@@ -345,8 +307,8 @@ export default function TareasTemplate() {
     const term = searchTerm.toLowerCase();
     const rubroMatches = rubroName.toLowerCase().includes(term);
     const tareasDelRubro = items.filter(i => String(i.rubro || 'GENERAL').toUpperCase() === rubroName && i.tarea !== '---');
-    const hasMatchingTask = tareasDelRubro.some(t => 
-      (t.tarea || '').toLowerCase().includes(term) || 
+    const hasMatchingTask = tareasDelRubro.some(t =>
+      (t.tarea || '').toLowerCase().includes(term) ||
       (t.descripcion || '').toLowerCase().includes(term)
     );
 
@@ -361,25 +323,25 @@ export default function TareasTemplate() {
           <p className="text-slate-500 text-sm mt-1">{items.filter(i => i.tarea !== '---').length} plantillas de tareas reutilizables</p>
         </div>
         <div className="flex gap-2">
-            <button 
-              onClick={() => { setActiveForm('rubro'); setEditingId(null); setFormData({rubro: '', tarea: '', insumos_asociados: []}); }} 
-              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
-            >
-                <FolderPlus className="w-4 h-4" /> Nuevo Rubro
-            </button>
-            <button 
-              onClick={() => { setActiveForm('tarea'); setEditingId(null); setFormData({rubro: listaRubrosUnicos[0] || '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: []}); }} 
-              className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
-            >
-                <Plus className="w-4 h-4" /> Nueva Tarea
-            </button>
+          <button
+            onClick={() => { setActiveForm('rubro'); setEditingId(null); setFormData({rubro: '', tarea: '', insumos_asociados: []}); }}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
+          >
+            <FolderPlus className="w-4 h-4" /> Nuevo Rubro
+          </button>
+          <button
+            onClick={() => { setActiveForm('tarea'); setEditingId(null); setFormData({rubro: listaRubrosUnicos[0] || '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: []}); }}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
+          >
+            <Plus className="w-4 h-4" /> Nueva Tarea
+          </button>
         </div>
       </div>
 
       <div className="flex flex-col md:flex-row items-center gap-3">
         <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border border-slate-300 shadow-sm w-full flex-1">
           <Search className="w-5 h-5 text-slate-400 shrink-0" />
-          <input 
+          <input
             type="text"
             placeholder="Buscar por nombre de tarea, descripción o rubro..."
             className="w-full bg-transparent outline-none text-sm text-slate-800 placeholder:text-slate-400"
@@ -418,16 +380,16 @@ export default function TareasTemplate() {
             <form onSubmit={handleGuardar} className="p-6 space-y-5 max-h-[80vh] overflow-y-auto">
               {activeForm === 'rubro' && (
                 <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre del Rubro (En Mayúsculas) *</label>
-                    <input 
-                        type="text" 
-                        required
-                        disabled={isSaving}
-                        placeholder="Ej: INSTALACIONES, ESTRUCTURA" 
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase font-semibold focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
-                        value={formData.rubro}
-                        onChange={(e) => setFormData({...formData, rubro: e.target.value.toUpperCase()})}
-                    />
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre del Rubro (En Mayúsculas) *</label>
+                  <input
+                    type="text"
+                    required
+                    disabled={isSaving}
+                    placeholder="Ej: INSTALACIONES, ESTRUCTURA"
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase font-semibold focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                    value={formData.rubro}
+                    onChange={(e) => setFormData({...formData, rubro: e.target.value.toUpperCase()})}
+                  />
                 </div>
               )}
 
@@ -435,59 +397,59 @@ export default function TareasTemplate() {
                 <>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar Rubro *</label>
-                    <select 
-                        required
-                        disabled={isSaving}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase font-semibold focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
-                        value={formData.rubro}
-                        onChange={(e) => setFormData({...formData, rubro: e.target.value})}
+                    <select
+                      required
+                      disabled={isSaving}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase font-semibold focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                      value={formData.rubro}
+                      onChange={(e) => setFormData({...formData, rubro: e.target.value})}
                     >
-                        <option value="">Seleccione un Rubro...</option>
-                        {listaRubrosUnicos.map(r => (
-                            <option key={r} value={r}>{r}</option>
-                        ))}
+                      <option value="">Seleccione un Rubro...</option>
+                      {listaRubrosUnicos.map(r => (
+                        <option key={r} value={r}>{r}</option>
+                      ))}
                     </select>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div className="sm:col-span-2">
-                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de la Tarea *</label>
-                        <input 
-                            type="text" 
-                            required
-                            disabled={isSaving}
-                            placeholder="Ej: Hormigón H-21" 
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
-                            value={formData.tarea}
-                            onChange={(e) => setFormData({...formData, tarea: e.target.value})}
-                        />
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de la Tarea *</label>
+                      <input
+                        type="text"
+                        required
+                        disabled={isSaving}
+                        placeholder="Ej: Hormigón H-21"
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                        value={formData.tarea}
+                        onChange={(e) => setFormData({...formData, tarea: e.target.value})}
+                      />
                     </div>
                     <div>
-                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Unidad de Medida *</label>
-                        <select 
-                            disabled={isSaving}
-                            className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
-                            value={formData.unidad}
-                            onChange={(e) => setFormData({...formData, unidad: e.target.value})}
-                        >
-                            <option value="m2">m²</option>
-                            <option value="m3">m³</option>
-                            <option value="ml">ml</option>
-                            <option value="un">un</option>
-                            <option value="gl">gl</option>
-                        </select>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Unidad de Medida *</label>
+                      <select
+                        disabled={isSaving}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                        value={formData.unidad}
+                        onChange={(e) => setFormData({...formData, unidad: e.target.value})}
+                      >
+                        <option value="m2">m²</option>
+                        <option value="m3">m³</option>
+                        <option value="ml">ml</option>
+                        <option value="un">un</option>
+                        <option value="gl">gl</option>
+                      </select>
                     </div>
                   </div>
 
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Descripción</label>
-                    <textarea 
-                        rows="2"
-                        disabled={isSaving}
-                        placeholder="Descripción opcional" 
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
-                        value={formData.descripcion}
-                        onChange={(e) => setFormData({...formData, descripcion: e.target.value})}
+                    <textarea
+                      rows="2"
+                      disabled={isSaving}
+                      placeholder="Descripción opcional"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                      value={formData.descripcion}
+                      onChange={(e) => setFormData({...formData, descripcion: e.target.value})}
                     />
                   </div>
 
@@ -498,7 +460,7 @@ export default function TareasTemplate() {
 
                     <div className="relative">
                       <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                      <input 
+                      <input
                         type="text"
                         disabled={isSaving}
                         placeholder="Buscar insumo para agregar..."
@@ -506,14 +468,14 @@ export default function TareasTemplate() {
                         value={busquedaInsumo}
                         onChange={(e) => setBusquedaInsumo(e.target.value)}
                       />
-                      
+
                       {busquedaInsumo.trim() !== '' && (
                         <div className="absolute left-0 right-0 mt-1 bg-white border border-slate-300 rounded-lg shadow-lg z-20 max-h-48 overflow-y-auto divide-y divide-slate-100">
                           {insumosFiltradosBusqueda.length === 0 ? (
                             <div className="p-3 text-xs text-slate-500 text-center">No se encontraron insumos.</div>
                           ) : (
                             insumosFiltradosBusqueda.map(ins => (
-                              <div 
+                              <div
                                 key={ins.id}
                                 onClick={() => handleAgregarInsumo(ins)}
                                 className="p-2.5 hover:bg-amber-50 cursor-pointer flex justify-between items-center text-xs"
@@ -544,9 +506,9 @@ export default function TareasTemplate() {
                             </div>
                             <div className="flex items-center gap-2">
                               <span className="text-slate-500">Cant ({item.unidad}):</span>
-                              <input 
-                                type="number" 
-                                step="0.001" 
+                              <input
+                                type="number"
+                                step="0.001"
                                 disabled={isSaving}
                                 className="w-20 bg-white border border-slate-300 rounded px-2 py-1 text-center font-bold text-slate-800 focus:outline-none focus:border-amber-500 disabled:bg-slate-100"
                                 value={item.cantidad}
@@ -576,11 +538,11 @@ export default function TareasTemplate() {
               )}
 
               <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
-                  <button type="button" onClick={() => { setActiveForm(null); setEditingId(null); }} disabled={isSaving} className="px-4 py-2.5 text-slate-700 hover:bg-slate-100 rounded-xl text-sm font-medium disabled:opacity-50">Cancelar</button>
-                  <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-sm font-semibold shadow-sm flex items-center gap-2">
-                    {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {isSaving ? 'Guardando...' : (activeForm === 'rubro' ? 'Crear Rubro' : (editingId ? 'Actualizar Tarea' : 'Crear Tarea'))}
-                  </button>
+                <button type="button" onClick={() => { setActiveForm(null); setEditingId(null); }} disabled={isSaving} className="px-4 py-2.5 text-slate-700 hover:bg-slate-100 rounded-xl text-sm font-medium disabled:opacity-50">Cancelar</button>
+                <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-sm font-semibold shadow-sm flex items-center gap-2">
+                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {isSaving ? 'Guardando...' : (activeForm === 'rubro' ? 'Crear Rubro' : (editingId ? 'Actualizar Tarea' : 'Crear Tarea'))}
+                </button>
               </div>
             </form>
           </div>
@@ -607,124 +569,124 @@ export default function TareasTemplate() {
             return (
               <div key={rubroName} className="border border-slate-300 rounded-xl overflow-hidden shadow-sm bg-white">
                 <div className="bg-slate-700 text-white px-6 py-3.5 flex justify-between items-center hover:bg-slate-800 transition-colors">
-                   <div 
-                     onClick={() => setRubrosAbiertos({...rubrosAbiertos, [rubroName]: !isOpen})} 
-                     className="flex-1 cursor-pointer flex items-center"
-                   >
-                     <span className="font-extrabold tracking-wider text-sm uppercase">
-                       {rubroName} <span className="text-xs font-normal text-slate-300 ml-2">({tareasDelRubro.length} tareas)</span>
-                     </span>
-                   </div>
-                   <div className="flex items-center gap-3">
-                     <button 
-                       onClick={(e) => { e.stopPropagation(); handleEliminarRubroGlobal(rubroName); }} 
-                       className="text-red-300 hover:text-white p-1.5 rounded transition-colors text-xs font-semibold bg-slate-800 hover:bg-red-600 border border-red-500/40 flex items-center gap-1 px-2.5 py-1"
-                       title="Eliminar Rubro"
-                     >
-                       <Trash2 className="w-3.5 h-3.5"/> Eliminar Rubro
-                     </button>
-                     <div 
-                       onClick={() => setRubrosAbiertos({...rubrosAbiertos, [rubroName]: !isOpen})} 
-                       className="cursor-pointer p-1"
-                     >
-                       {isOpen ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
-                     </div>
-                   </div>
+                  <div
+                    onClick={() => setRubrosAbiertos({...rubrosAbiertos, [rubroName]: !isOpen})}
+                    className="flex-1 cursor-pointer flex items-center"
+                  >
+                    <span className="font-extrabold tracking-wider text-sm uppercase">
+                      {rubroName} <span className="text-xs font-normal text-slate-300 ml-2">({tareasDelRubro.length} tareas)</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleEliminarRubroGlobal(rubroName); }}
+                      className="text-red-300 hover:text-white p-1.5 rounded transition-colors text-xs font-semibold bg-slate-800 hover:bg-red-600 border border-red-500/40 flex items-center gap-1 px-2.5 py-1"
+                      title="Eliminar Rubro"
+                    >
+                      <Trash2 className="w-3.5 h-3.5"/> Eliminar Rubro
+                    </button>
+                    <div
+                      onClick={() => setRubrosAbiertos({...rubrosAbiertos, [rubroName]: !isOpen})}
+                      className="cursor-pointer p-1"
+                    >
+                      {isOpen ? <ChevronUp className="w-4 h-4"/> : <ChevronDown className="w-4 h-4"/>}
+                    </div>
+                  </div>
                 </div>
 
                 {isOpen && (
-                    <div className="divide-y divide-slate-200">
-                        {tareasDelRubro.length === 0 ? (
-                            <div className="px-6 py-4 text-xs text-slate-400 italic">No hay tareas que coincidan con la búsqueda en este rubro.</div>
-                        ) : (
-                            tareasDelRubro.map(item => {
-                              const isTareaOpen = tareasAbiertas[item.id];
-                              let insumosDetalle = [];
-                              try {
-                                insumosDetalle = typeof item.insumos_detalle === 'string' ? JSON.parse(item.insumos_detalle) : (item.insumos_detalle || []);
-                              } catch (e) {
-                                insumosDetalle = [];
-                              }
+                  <div className="divide-y divide-slate-200">
+                    {tareasDelRubro.length === 0 ? (
+                      <div className="px-6 py-4 text-xs text-slate-400 italic">No hay tareas que coincidan con la búsqueda en este rubro.</div>
+                    ) : (
+                      tareasDelRubro.map(item => {
+                        const isTareaOpen = tareasAbiertas[item.id];
+                        let insumosDetalle = [];
+                        try {
+                          insumosDetalle = typeof item.insumos_detalle === 'string' ? JSON.parse(item.insumos_detalle) : (item.insumos_detalle || []);
+                        } catch (e) {
+                          insumosDetalle = [];
+                        }
 
-                              return (
-                                <div key={item.id} className="border-b border-slate-200 last:border-b-0">
-                                  <div 
-                                    onClick={() => toggleTareaAbierta(item.id)}
-                                    className="px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:bg-slate-50 cursor-pointer group"
-                                  >
-                                    <div className="flex items-center gap-3">
-                                      <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isTareaOpen ? 'rotate-180' : ''}`} />
-                                      <div>
-                                        <p className="text-sm font-bold text-slate-800">{item.tarea}</p>
-                                        {item.descripcion && <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{item.descripcion}</p>}
-                                        <div className="flex gap-3 text-xs text-slate-500 mt-1.5">
-                                            <span className="uppercase font-bold bg-slate-100 px-2 py-0.5 rounded border">{item.unidad || 'un'}</span>
-                                            <span className="text-slate-600">{insumosDetalle.length} insumos</span>
-                                            {item.hs_mo && <span className="text-amber-700 font-semibold">{item.hs_mo} MO/u</span>}
-                                        </div>
-                                      </div>
-                                    </div>
-                                    <div className="flex items-center gap-6 self-end sm:self-center">
-                                        <div className="text-right">
-                                            <span className="text-xs text-slate-400 block">Costo/u</span>
-                                            <span className="text-sm font-black text-slate-900">$ {Number(item.costo_estimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                                        </div>
-                                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                            <button onClick={(e) => { e.stopPropagation(); handleDuplicarTarea(item); }} className="p-1.5 text-slate-500 hover:text-blue-600 bg-white border rounded-md shadow-sm" title="Duplicar tarea"><Copy className="w-4 h-4"/></button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleEditarTarea(item); }} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded-md shadow-sm" title="Editar tarea"><Edit2 className="w-4 h-4"/></button>
-                                            <button onClick={(e) => { e.stopPropagation(); handleEliminar(item.id); }} className="p-1.5 text-slate-500 hover:text-red-600 bg-white border rounded-md shadow-sm" title="Eliminar tarea"><Trash2 className="w-4 h-4"/></button>
-                                        </div>
-                                    </div>
+                        return (
+                          <div key={item.id} className="border-b border-slate-200 last:border-b-0">
+                            <div
+                              onClick={() => toggleTareaAbierta(item.id)}
+                              className="px-6 py-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 hover:bg-slate-50 cursor-pointer group"
+                            >
+                              <div className="flex items-center gap-3">
+                                <ChevronDown className={`w-4 h-4 text-slate-400 transition-transform ${isTareaOpen ? 'rotate-180' : ''}`} />
+                                <div>
+                                  <p className="text-sm font-bold text-slate-800">{item.tarea}</p>
+                                  {item.descripcion && <p className="text-xs text-slate-500 mt-0.5 line-clamp-1">{item.descripcion}</p>}
+                                  <div className="flex gap-3 text-xs text-slate-500 mt-1.5">
+                                    <span className="uppercase font-bold bg-slate-100 px-2 py-0.5 rounded border">{item.unidad || 'un'}</span>
+                                    <span className="text-slate-600">{insumosDetalle.length} insumos</span>
+                                    {item.hs_mo && <span className="text-amber-700 font-semibold">{item.hs_mo} MO/u</span>}
                                   </div>
-
-                                  {isTareaOpen && (
-                                    <div className="bg-slate-50/80 px-6 py-4 border-t border-slate-200">
-                                      {insumosDetalle.length === 0 ? (
-                                        <p className="text-xs text-slate-400 italic py-2 text-center">No hay insumos detallados para esta tarea.</p>
-                                      ) : (
-                                        <div className="overflow-x-auto">
-                                          <table className="w-full text-left text-xs">
-                                            <thead>
-                                              <tr className="text-slate-400 font-semibold uppercase border-b border-slate-200 pb-2">
-                                                <th className="pb-2">Tipo</th>
-                                                <th className="pb-2">Insumo</th>
-                                                <th className="pb-2 text-center">Cantidad/unidad</th>
-                                                <th className="pb-2">Unidad</th>
-                                                <th className="pb-2 text-right">Costo Unit.</th>
-                                                <th className="pb-2 text-right">Costo/unidad tarea</th>
-                                              </tr>
-                                            </thead>
-                                            <tbody className="divide-y divide-slate-200/60">
-                                              {insumosDetalle.map((ins, idx) => {
-                                                const cantidad = Number(ins.cantidad) || 0;
-                                                const costoUnit = Number(ins.costo_unitario || ins.precio) || 0;
-                                                const subtotal = cantidad * costoUnit;
-                                                return (
-                                                  <tr key={idx} className="hover:bg-slate-100/50">
-                                                    <td className="py-2.5 whitespace-nowrap">
-                                                      <span className={`px-2.5 py-1 rounded-full font-bold text-[11px] ${obtenerClaseTipo(ins.tipo)}`}>
-                                                        {ins.tipo || 'Material'}
-                                                      </span>
-                                                    </td>
-                                                    <td className="py-2.5 font-medium text-slate-800">{ins.nombre}</td>
-                                                    <td className="py-2.5 text-center text-slate-600 font-semibold">{cantidad}</td>
-                                                    <td className="py-2.5 text-slate-500 uppercase">{ins.unidad}</td>
-                                                    <td className="py-2.5 text-right text-slate-600">$ {costoUnit.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                                    <td className="py-2.5 text-right font-bold text-slate-900">$ {subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                                                  </tr>
-                                                );
-                                              })}
-                                            </tbody>
-                                          </table>
-                                        </div>
-                                      )}
-                                    </div>
-                                  )}
                                 </div>
-                              );
-                            })
-                        )}
-                    </div>
+                              </div>
+                              <div className="flex items-center gap-6 self-end sm:self-center">
+                                <div className="text-right">
+                                  <span className="text-xs text-slate-400 block">Costo/u</span>
+                                  <span className="text-sm font-black text-slate-900">$ {Number(item.costo_estimado || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <button onClick={(e) => { e.stopPropagation(); handleDuplicarTarea(item); }} className="p-1.5 text-slate-500 hover:text-blue-600 bg-white border rounded-md shadow-sm" title="Duplicar tarea"><Copy className="w-4 h-4"/></button>
+                                  <button onClick={(e) => { e.stopPropagation(); handleEditarTarea(item); }} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded-md shadow-sm" title="Editar tarea"><Edit2 className="w-4 h-4"/></button>
+                                  <button onClick={(e) => { e.stopPropagation(); handleEliminar(item.id); }} className="p-1.5 text-slate-500 hover:text-red-600 bg-white border rounded-md shadow-sm" title="Eliminar tarea"><Trash2 className="w-4 h-4"/></button>
+                                </div>
+                              </div>
+                            </div>
+
+                            {isTareaOpen && (
+                              <div className="bg-slate-50/80 px-6 py-4 border-t border-slate-200">
+                                {insumosDetalle.length === 0 ? (
+                                  <p className="text-xs text-slate-400 italic py-2 text-center">No hay insumos detallados para esta tarea.</p>
+                                ) : (
+                                  <div className="overflow-x-auto">
+                                    <table className="w-full text-left text-xs">
+                                      <thead>
+                                        <tr className="text-slate-400 font-semibold uppercase border-b border-slate-200 pb-2">
+                                          <th className="pb-2">Tipo</th>
+                                          <th className="pb-2">Insumo</th>
+                                          <th className="pb-2 text-center">Cantidad/unidad</th>
+                                          <th className="pb-2">Unidad</th>
+                                          <th className="pb-2 text-right">Costo Unit.</th>
+                                          <th className="pb-2 text-right">Costo/unidad tarea</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-slate-200/60">
+                                        {insumosDetalle.map((ins, idx) => {
+                                          const cantidad = Number(ins.cantidad) || 0;
+                                          const costoUnit = Number(ins.costo_unitario || ins.precio) || 0;
+                                          const subtotal = cantidad * costoUnit;
+                                          return (
+                                            <tr key={idx} className="hover:bg-slate-100/50">
+                                              <td className="py-2.5 whitespace-nowrap">
+                                                <span className={`px-2.5 py-1 rounded-full font-bold text-[11px] ${obtenerClaseTipo(ins.tipo)}`}>
+                                                  {ins.tipo || 'Material'}
+                                                </span>
+                                              </td>
+                                              <td className="py-2.5 font-medium text-slate-800">{ins.nombre}</td>
+                                              <td className="py-2.5 text-center text-slate-600 font-semibold">{cantidad}</td>
+                                              <td className="py-2.5 text-slate-500 uppercase">{ins.unidad}</td>
+                                              <td className="py-2.5 text-right text-slate-600">$ {costoUnit.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                              <td className="py-2.5 text-right font-bold text-slate-900">$ {subtotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                                            </tr>
+                                          );
+                                        })}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
                 )}
               </div>
             );

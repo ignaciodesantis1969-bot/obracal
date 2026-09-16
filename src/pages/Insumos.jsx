@@ -1,13 +1,19 @@
-import { useState, useEffect } from 'react';
+// src/pages/Insumos.jsx
+import { useState } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2 } from 'lucide-react';
-import { GOOGLE_SCRIPT_URL } from '@/api';
+// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL (ya no se usa)
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function Insumos() {
-  const [insumos, setInsumos] = useState([]);
-  const [proveedores, setProveedores] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  
+  // 🔑 NUEVO: leemos insumos + proveedores en paralelo desde Firestore
+  const { data: insumos, loading: loadingInsumos, error: errorInsumos } = useFirestoreCollection('insumos');
+  const { data: proveedores, loading: loadingProveedores } = useFirestoreCollection('proveedores');
+
+  const isLoading = loadingInsumos || loadingProveedores;
+  const errorFirestore = errorInsumos;
+
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipo, setFiltroTipo] = useState('');
   const [filtroProveedor, setFiltroProveedor] = useState('');
@@ -17,52 +23,30 @@ export default function Insumos() {
   // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSaving, setIsSaving] = useState(false);
 
-  const [nuevoInsumo, setNuevoInsumo] = useState({ 
-    codigo: '', 
-    nombre: '', 
-    tipo: 'Material', 
-    proveedor_id: '', 
-    unidad: 'un', 
-    costo_unitario: '', 
+  const [nuevoInsumo, setNuevoInsumo] = useState({
+    codigo: '',
+    nombre: '',
+    tipo: 'Material',
+    proveedor_id: '',
+    unidad: 'un',
+    costo_unitario: '',
     estado: 'activo'
   });
 
-
-
-  const cargarDatos = async () => {
-    setIsLoading(true);
-    setError('');
-    try {
-      const [resInsumos, resProveedores] = await Promise.all([
-        fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'Insumos', action: 'list' })
-        }),
-        fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'Proveedores', action: 'list' })
-        })
-      ]);
-
-      const dataInsumos = await resInsumos.json();
-      const dataProveedores = await resProveedores.json();
-
-      setInsumos(Array.isArray(dataInsumos) ? dataInsumos : []);
-      setProveedores(Array.isArray(dataProveedores) ? dataProveedores : []);
-    } catch (err) {
-      setError('Error al conectar con Google Sheets.');
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => { cargarDatos(); }, []);
-
+  // 🔑 NUEVO: autogenera INS### basándose en el mayor número existente
+  // (antes usaba lista.length + 1, lo cual rompía si borrabas alguno en el medio)
   const generarCodigoAutomatico = (listaInsumos) => {
-    const num = listaInsumos.length + 1;
-    return `INS${String(num).padStart(3, '0')}`;
+    let maxNum = 0;
+    (listaInsumos || []).forEach(i => {
+      const cod = String(i.codigo || '').toUpperCase().trim();
+      // Acepta "INS001", "INS1", "INS-001", y también códigos con formato PROV-INS
+      const match = cod.match(/INS-?0*(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+    return `INS${String(maxNum + 1).padStart(3, '0')}`;
   };
 
   const obtenerCodigosSeparados = (insumo) => {
@@ -100,57 +84,47 @@ export default function Insumos() {
     setIsFormOpen(true);
   };
 
-  // 🛡️ FUNCIÓN DE GUARDADO CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
+  // 🔑 FIX: guardado directo a Firestore (create / update)
+  // 🛡️ bloqueo anti doble clic con isSaving
   const handleGuardar = async (e) => {
     e.preventDefault();
-    if (isSaving) return; // Detiene clics adicionales si ya está enviando
+    if (isSaving) return;
 
     setIsSaving(true);
     try {
-      const action = editingId ? 'update' : 'create';
-      const bodyPayload = { 
-        tabla: 'Insumos', 
-        action: action, 
-        data: {
-          ...nuevoInsumo,
-          categoria: nuevoInsumo.tipo
-        } 
+      const datosAGuardar = {
+        ...nuevoInsumo,
+        categoria: nuevoInsumo.tipo
       };
-      if (editingId) bodyPayload.id = editingId;
+      // 🔑 FIX: limpiar campos internos de Firestore (los que empiezan con _) y el id
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosAGuardar;
 
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(bodyPayload)
-      });
-      const res = await response.json();
-      if (res.success || res) {
-        setNuevoInsumo({ codigo: '', nombre: '', tipo: 'Material', proveedor_id: '', unidad: 'un', costo_unitario: '', estado: 'activo' });
-        setEditingId(null);
-        setIsFormOpen(false);
-        cargarDatos();
+      if (editingId) {
+        await actualizarDoc('insumos', editingId, datosLimpios);
       } else {
-        alert("Error al guardar: " + (res.error || "Desconocido"));
+        await crearDoc('insumos', datosLimpios);
       }
+
+      setNuevoInsumo({ codigo: '', nombre: '', tipo: 'Material', proveedor_id: '', unidad: 'un', costo_unitario: '', estado: 'activo' });
+      setEditingId(null);
+      setIsFormOpen(false);
+      // Firestore actualiza la lista en tiempo real vía onSnapshot.
     } catch (err) {
-      alert("Error de conexión al intentar guardar.");
+      console.error("Error al guardar insumo:", err);
+      alert("Error al guardar: " + (err.message || 'Error desconocido'));
     } finally {
-      setIsSaving(false); // 🔓 Libera el bloqueo al finalizar la petición
+      setIsSaving(false);
     }
   };
 
+  // 🔑 FIX: eliminación directo a Firestore
   const handleEliminar = async (id) => {
-    if (window.confirm("¿Estás seguro de eliminar este insumo?")) {
-      try {
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'Insumos', action: 'delete', id })
-        });
-        cargarDatos();
-      } catch (err) {
-        alert("Error al eliminar.");
-      }
+    if (!window.confirm("¿Estás seguro de eliminar este insumo?")) return;
+    try {
+      await eliminarDoc('insumos', id);
+    } catch (err) {
+      console.error("Error al eliminar:", err);
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
@@ -181,13 +155,19 @@ export default function Insumos() {
     const proveedorNombre = obtenerNombreProveedor(i.proveedor_id).toLowerCase();
     const { prov, ins } = obtenerCodigosSeparados(i);
     const codigoCompleto = `${prov}-${ins}`.toLowerCase();
-    
+
     const coincideBusqueda = nombreInsumo.includes(term) || codigoCompleto.includes(term) || proveedorNombre.includes(term) || tipoInsumo.includes(term);
     const coincideFiltroTipo = filtroTipo ? tipoInsumo.includes(filtroTipo.toLowerCase()) : true;
     const coincideFiltroProveedor = filtroProveedor ? String(i.proveedor_id) === String(filtroProveedor) : true;
-    
+
     return coincideBusqueda && coincideFiltroTipo && coincideFiltroProveedor;
   });
+
+  const error = errorFirestore ? 'Error al conectar con Firestore.' : '';
+
+  if (isLoading) {
+    return <div className="p-20 text-center"><Loader2 className="w-10 h-10 animate-spin mx-auto text-amber-500" /> <span className="text-sm text-slate-500 font-medium">Cargando insumos...</span></div>;
+  }
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -197,19 +177,19 @@ export default function Insumos() {
           <p className="text-slate-500 text-sm mt-1">{insumos.length} insumos registrados</p>
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto">
-          <button 
-            onClick={() => { 
-              setEditingId(null); 
-              setNuevoInsumo({ 
-                codigo: generarCodigoAutomatico(insumos), 
-                nombre: '', 
-                tipo: 'Material', 
-                proveedor_id: '', 
-                unidad: 'un', 
-                costo_unitario: '', 
-                estado: 'activo' 
+          <button
+            onClick={() => {
+              setEditingId(null);
+              setNuevoInsumo({
+                codigo: generarCodigoAutomatico(insumos),
+                nombre: '',
+                tipo: 'Material',
+                proveedor_id: '',
+                unidad: 'un',
+                costo_unitario: '',
+                estado: 'activo'
               });
-              setIsFormOpen(!isFormOpen); 
+              setIsFormOpen(!isFormOpen);
             }}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors flex-1 sm:flex-none shadow-sm"
           >
@@ -242,21 +222,21 @@ export default function Insumos() {
                 <option key={p.id} value={p.id}>{p.codigo ? `${p.codigo} - ` : ''}{p.razon_social || p.nombre}</option>
               ))}
             </select>
-            <input 
-              type="text" 
-              placeholder="Código automático" 
+            <input
+              type="text"
+              placeholder="Código automático"
               required
               readOnly
               className="bg-slate-100 border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold text-slate-600 cursor-not-allowed"
-              value={nuevoInsumo.codigo} 
+              value={nuevoInsumo.codigo}
             />
-            <input 
-              type="text" 
-              placeholder="Nombre / Descripción" 
-              required 
+            <input
+              type="text"
+              placeholder="Nombre / Descripción"
+              required
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2"
-              value={nuevoInsumo.nombre} 
-              onChange={(e) => setNuevoInsumo({ ...nuevoInsumo, nombre: e.target.value })} 
+              value={nuevoInsumo.nombre}
+              onChange={(e) => setNuevoInsumo({ ...nuevoInsumo, nombre: e.target.value })}
             />
             <select
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold"
@@ -269,22 +249,22 @@ export default function Insumos() {
               <option value="Gastos Generales">Gastos Generales</option>
               <option value="Subcontrato">Subcontrato</option>
             </select>
-            <input 
-              type="text" 
-              placeholder="Unidad (ej. un, m2, mes)" 
+            <input
+              type="text"
+              placeholder="Unidad (ej. un, m2, mes)"
               required
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm"
-              value={nuevoInsumo.unidad} 
-              onChange={(e) => setNuevoInsumo({ ...nuevoInsumo, unidad: e.target.value })} 
+              value={nuevoInsumo.unidad}
+              onChange={(e) => setNuevoInsumo({ ...nuevoInsumo, unidad: e.target.value })}
             />
-            <input 
-              type="number" 
+            <input
+              type="number"
               step="0.01"
-              placeholder="Costo Unitario ($)" 
+              placeholder="Costo Unitario ($)"
               required
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-bold text-amber-600"
-              value={nuevoInsumo.costo_unitario} 
-              onChange={(e) => setNuevoInsumo({ ...nuevoInsumo, costo_unitario: e.target.value })} 
+              value={nuevoInsumo.costo_unitario}
+              onChange={(e) => setNuevoInsumo({ ...nuevoInsumo, costo_unitario: e.target.value })}
             />
             <select
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm"
@@ -295,16 +275,16 @@ export default function Insumos() {
               <option value="inactivo">Inactivo</option>
             </select>
             <div className="md:col-span-4 flex justify-end gap-2 mt-2">
-              <button 
-                type="button" 
-                onClick={() => { setIsFormOpen(false); setEditingId(null); }} 
+              <button
+                type="button"
+                onClick={() => { setIsFormOpen(false); setEditingId(null); }}
                 disabled={isSaving}
                 className="px-4 py-2 text-slate-700 text-sm font-medium disabled:opacity-50"
               >
                 Cancelar
               </button>
-              <button 
-                type="submit" 
+              <button
+                type="submit"
                 disabled={isSaving}
                 className="px-6 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold shadow-sm flex items-center gap-2"
               >

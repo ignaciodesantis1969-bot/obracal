@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { useObraData } from '@/hooks/useObraData';
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { OBRAS_CONFIG } from '@/config/constants';
 import ReportesDiariosTab from './reportes/ReportesDiariosTab';
 import ListadoInsumosTab from './reportes/ListadoInsumosTab';
@@ -24,8 +24,8 @@ class ErrorBoundary extends React.Component {
         <div className="p-8 text-center bg-white rounded-2xl border shadow-sm space-y-3">
           <h2 className="text-lg font-bold text-slate-900">Algo salió mal en este panel</h2>
           <p className="text-xs text-slate-500">Ocurrió un error inesperado al renderizar los reportes.</p>
-          <button 
-            onClick={() => window.location.reload()} 
+          <button
+            onClick={() => window.location.reload()}
             className="px-4 py-2 bg-amber-500 text-white rounded-xl text-xs font-bold cursor-pointer"
           >
             Recargar Página
@@ -56,7 +56,7 @@ function ReportesContent({
   facturas = [],
   insumos = [],
   proveedores = [],
-  cargasSemanales = [], 
+  cargasSemanales = [],
   setFetchedCertificados = () => {},
   certificadosList = [],
   obras = []
@@ -67,10 +67,20 @@ function ReportesContent({
   const esOperadorEstandar = Boolean(esOperador || rolStr === 'operador' || rolStr === 'operator');
   const isOp2 = Boolean(esOperadorII || rolStr === 'operador_ii' || rolStr === 'operadorii' || rolStr === 'operador2' || rolStr === 'operador ii');
 
-  const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
-  const { data: reportesSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
-  const { data: tesoreriaSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.TESORERIA || 'Tesoreria');
-  const { data: certificadosSheet } = useObraData('Certificados');
+  // 🔑 MIGRACIÓN A FIRESTORE: leemos TODAS las colecciones necesarias directo de Firestore.
+  // Las props viejas (que venían de App.jsx → globalData → Apps Script) ya no son confiables
+  // porque el usuario puede entrar directo a /reportes sin pasar por el flujo de login,
+  // y en ese caso globalData queda vacío.
+  const { data: contratosSheet } = useFirestoreCollection('contratos');
+  const { data: reportesSheet } = useFirestoreCollection('reportes_diarios');
+  const { data: tesoreriaSheet } = useFirestoreCollection('tesoreria');
+  const { data: certificadosSheet } = useFirestoreCollection('certificados');
+  const { data: presupuestosSheet } = useFirestoreCollection('presupuestos');
+  const { data: obrasSheet } = useFirestoreCollection('obras');
+  const { data: facturasSheet } = useFirestoreCollection('facturas_compras');
+  const { data: insumosSheet } = useFirestoreCollection('insumos');
+  const { data: proveedoresSheet } = useFirestoreCollection('proveedores');
+  const { data: cargasSemanalesSheet } = useFirestoreCollection('cargas_semanales');
 
   const extraerArrayDatos = (fuente) => {
     if (!fuente) return [];
@@ -82,6 +92,7 @@ function ReportesContent({
     return arr;
   };
 
+  // 🔑 Listas unificadas: props primero, y si están vacías usamos Firestore.
   const contratosList = useMemo(() => {
     const p = extraerArrayDatos(propContratos);
     if (p.length > 0) return p;
@@ -92,11 +103,48 @@ function ReportesContent({
     return extraerArrayDatos(tesoreriaSheet);
   }, [tesoreriaSheet]);
 
+  // 🔑 NUEVO: listas con fallback a Firestore para las tabs Certificaciones / Insumos / Comparativo
+  const presupuestosList = useMemo(() => {
+    const p = extraerArrayDatos(presupuestos);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(presupuestosSheet);
+  }, [presupuestos, presupuestosSheet]);
+
+  const obrasList = useMemo(() => {
+    const p = extraerArrayDatos(obras);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(obrasSheet);
+  }, [obras, obrasSheet]);
+
+  const facturasList = useMemo(() => {
+    const p = extraerArrayDatos(facturas);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(facturasSheet);
+  }, [facturas, facturasSheet]);
+
+  const insumosList = useMemo(() => {
+    const p = extraerArrayDatos(insumos);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(insumosSheet);
+  }, [insumos, insumosSheet]);
+
+  const proveedoresList = useMemo(() => {
+    const p = extraerArrayDatos(proveedores);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(proveedoresSheet);
+  }, [proveedores, proveedoresSheet]);
+
+  const cargasSemanalesList = useMemo(() => {
+    const p = extraerArrayDatos(cargasSemanales);
+    if (p.length > 0) return p;
+    return extraerArrayDatos(cargasSemanalesSheet);
+  }, [cargasSemanales, cargasSemanalesSheet]);
+
   const allCertificadosList = useMemo(() => {
     const p = extraerArrayDatos(certificadosList);
     const s = extraerArrayDatos(certificadosSheet);
     const combinados = [...p, ...s];
-    
+
     const unicosMap = new Map();
     combinados.forEach(item => {
       if (!item) return;
@@ -144,9 +192,6 @@ function ReportesContent({
     });
   }, [setFetchedReportesSice]);
 
-  // 🔑 MODIFICADO: al cambiar la lista negra, actualizamos estado local
-  // y ADEMÁS invalidamos las queries dependientes para que se refresquen
-  // coordinadamente (Horas Hombre, Comparativo, etc.).
   const handleEliminadosChange = useCallback((nuevaLista) => {
     setIdsEliminadosLocales(Array.isArray(nuevaLista) ? nuevaLista : []);
     try {
@@ -159,7 +204,7 @@ function ReportesContent({
     const p = extraerArrayDatos(propReportes);
     const s = extraerArrayDatos(reportesSheet);
     const combinados = [...p, ...s, ...reportesLocalesExtra];
-    
+
     const unicosMap = new Map();
     combinados.forEach(item => {
       if (!item) return;
@@ -226,8 +271,8 @@ function ReportesContent({
           ) : (
             ['Certificaciones', 'Reportes Diarios', 'Listado de Insumos', 'Comparativo'].map((tab) => (
               <button
-                key={tab} 
-                onClick={() => setActiveTab(tab)} 
+                key={tab}
+                onClick={() => setActiveTab(tab)}
                 className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === tab ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}
               >
                 {tab}
@@ -240,8 +285,8 @@ function ReportesContent({
       {!esOperadorEstandar && activeTab === 'Certificaciones' && (
         <CertificacionesTab
           currentUser={currentUser}
-          presupuestos={presupuestos}
-          obras={obras}
+          presupuestos={presupuestosList}
+          obras={obrasList}
           certificadosList={certificadosList}
           certificadosProps={allCertificadosList}
           fetchedCertificados={allCertificadosList}
@@ -251,7 +296,7 @@ function ReportesContent({
           buscarValorEnObjeto={buscarValorEnObjeto}
           contratosList={contratosList}
           allReportesSice={allReportesSice}
-          facturas={facturas}
+          facturas={facturasList}
           isOp2={isOp2}
         />
       )}
@@ -270,23 +315,23 @@ function ReportesContent({
       )}
 
       {!esOperadorEstandar && !isOp2 && activeTab === 'Listado de Insumos' && (
-        <ListadoInsumosTab 
-          presupuestos={presupuestos} 
-          insumos={insumos}
-          proveedores={proveedores}
+        <ListadoInsumosTab
+          presupuestos={presupuestosList}
+          insumos={insumosList}
+          proveedores={proveedoresList}
         />
       )}
 
       {!esOperadorEstandar && !isOp2 && activeTab === 'Comparativo' && (
         <ComparativoTab
-          presupuestos={presupuestos}
-          facturas={facturas}
+          presupuestos={presupuestosList}
+          facturas={facturasList}
           tesoreria={tesoreriaList}
           allReportesSice={allReportesSice}
-          obras={obras}
+          obras={obrasList}
           contratos={contratosList}
           contratosList={contratosList}
-          cargasSemanales={cargasSemanales}
+          cargasSemanales={cargasSemanalesList}
         />
       )}
     </div>

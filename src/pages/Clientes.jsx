@@ -1,25 +1,22 @@
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2 } from 'lucide-react';
-import { GOOGLE_SCRIPT_URL } from '@/api';
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function Clientes() {
-  const [clientes, setClientes] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
-  
+  // 🔑 LECTURA: Firestore en tiempo real
+  const { data: clientes, loading: isLoading, error: errorFirestore } = useFirestoreCollection('clientes');
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-
-  // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSaving, setIsSaving] = useState(false);
 
-  // Incluimos 'direccion' en el estado del formulario
-  const [nuevoCliente, setNuevoCliente] = useState({ 
-    codigo: '', 
-    razon_social: '', 
-    cuit: '', 
-    telefono: '', 
+  const [nuevoCliente, setNuevoCliente] = useState({
+    codigo: '',
+    razon_social: '',
+    cuit: '',
+    telefono: '',
     email: '',
     direccion: '',
     ciudad: '',
@@ -27,26 +24,34 @@ export default function Clientes() {
     estado: 'activo'
   });
 
-
-  const cargarClientes = async () => {
-    setIsLoading(true);
-    setError('');
-    try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Clientes', action: 'list' })
-      });
-      const data = await response.json();
-      setClientes(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError('Error al conectar con Google Sheets.');
-    } finally {
-      setIsLoading(false);
-    }
+  // 🔑 Genera el siguiente código basándose en los clientes existentes
+  // Formato: CL001, CL002, CL003...
+  const generarSiguienteCodigoCliente = () => {
+    let maxNum = 0;
+    clientes.forEach(c => {
+      const cod = String(c.codigo || '').toUpperCase().trim();
+      // Acepta "CL001", "CL1", "CL-001", etc.
+      const match = cod.match(/^CL-?0*(\d+)$/);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) maxNum = num;
+      }
+    });
+    return `CL${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  useEffect(() => { cargarClientes(); }, []);
+  // 🔑 Cuando el usuario abre el modal de "Nuevo Cliente",
+  // se autogenera el código.
+  // Cuando edita un cliente existente, se respeta el código que ya tenía.
+  useEffect(() => {
+    if (isFormOpen && !editingId && clientes.length > 0 && !nuevoCliente.codigo) {
+      setNuevoCliente(prev => ({
+        ...prev,
+        codigo: generarSiguienteCodigoCliente()
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFormOpen, editingId, clientes]);
 
   const handleEditarClick = (cliente) => {
     setEditingId(cliente.id);
@@ -64,58 +69,58 @@ export default function Clientes() {
     setIsFormOpen(true);
   };
 
-  // 🛡️ FUNCIÓN DE GUARDADO CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
+  // 🔑 Handler para abrir el modal de "Nuevo Cliente"
+  const handleNuevoClienteClick = () => {
+    setEditingId(null);
+    setNuevoCliente({
+      codigo: generarSiguienteCodigoCliente(), // 🔑 Autogenera al abrir
+      razon_social: '',
+      cuit: '',
+      telefono: '',
+      email: '',
+      direccion: '',
+      ciudad: '',
+      provincia: '',
+      estado: 'activo'
+    });
+    setIsFormOpen(true);
+  };
+
+  // 🔑 ESCRITURA: directo a Firestore
   const handleGuardar = async (e) => {
     e.preventDefault();
-    if (isSaving) return; // Detiene clics adicionales si ya está enviando
+    if (isSaving) return;
 
     setIsSaving(true);
     try {
-      const action = editingId ? 'update' : 'create';
-      const bodyPayload = {
-        tabla: 'Clientes',
-        action: action,
-        data: nuevoCliente
-      };
-      
+      // Limpiar los campos internos de Firestore (los que empiezan con _)
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = nuevoCliente;
+
       if (editingId) {
-        bodyPayload.id = editingId;
+        await actualizarDoc('clientes', editingId, datosLimpios);
+      } else {
+        await crearDoc('clientes', datosLimpios);
       }
 
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(bodyPayload)
-      });
-      
-      const res = await response.json();
-      if (res.success) {
-        setNuevoCliente({ codigo: '', razon_social: '', cuit: '', telefono: '', email: '', direccion: '', ciudad: '', provincia: '', estado: 'activo' });
-        setEditingId(null);
-        setIsFormOpen(false);
-        cargarClientes();
-      } else {
-        alert("Error al guardar: " + (res.error || "Desconocido"));
-      }
+      setNuevoCliente({ codigo: '', razon_social: '', cuit: '', telefono: '', email: '', direccion: '', ciudad: '', provincia: '', estado: 'activo' });
+      setEditingId(null);
+      setIsFormOpen(false);
+      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
-      alert("Error de conexión al intentar guardar.");
+      console.error(err);
+      alert("Error al guardar: " + err.message);
     } finally {
-      setIsSaving(false); // 🔓 Libera el bloqueo al finalizar la petición
+      setIsSaving(false);
     }
   };
 
   const handleEliminar = async (id) => {
-    if (window.confirm("¿Estás seguro de eliminar este cliente?")) {
-      try {
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'Clientes', action: 'delete', id })
-        });
-        cargarClientes();
-      } catch (err) {
-        alert("Error al eliminar.");
-      }
+    if (!window.confirm("¿Estás seguro de eliminar este cliente?")) return;
+    try {
+      await eliminarDoc('clientes', id);
+    } catch (err) {
+      console.error(err);
+      alert("Error al eliminar: " + err.message);
     }
   };
 
@@ -129,6 +134,8 @@ export default function Clientes() {
     );
   });
 
+  const error = errorFirestore ? 'Error al conectar con Firestore.' : '';
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       
@@ -140,11 +147,7 @@ export default function Clientes() {
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto">
           <button 
-            onClick={() => { 
-              setEditingId(null); 
-              setNuevoCliente({ codigo: '', razon_social: '', cuit: '', telefono: '', email: '', direccion: '', ciudad: '', provincia: '', estado: 'activo' });
-              setIsFormOpen(!isFormOpen); 
-            }}
+            onClick={handleNuevoClienteClick}
             className="flex items-center justify-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors w-full sm:w-auto shadow-sm"
           >
             <Plus className="w-4 h-4" /> Nuevo Cliente
@@ -165,7 +168,7 @@ export default function Clientes() {
             <input 
               type="text" 
               placeholder="Código (ej. CL005)" 
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
+              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm font-bold text-blue-600"
               value={nuevoCliente.codigo} 
               onChange={(e) => setNuevoCliente({ ...nuevoCliente, codigo: e.target.value })} 
             />

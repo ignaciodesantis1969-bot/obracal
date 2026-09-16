@@ -1,23 +1,27 @@
+// src/pages/Rrhh.jsx
 import React, { useState } from 'react';
 import { Users, Plus, Search, Trash2, Edit2, X, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2, Send } from 'lucide-react';
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc, eliminarDocsFiltrados } from '@/lib/firestoreHelpers';
+// 🔑 FIX: Apps Script solo se usa para subir archivos a Drive
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
-export default function Rrhh({ 
-  GOOGLE_SCRIPT_URL = '', 
-  personalInicial = [], 
-  insumos = [], 
-  obras = [], 
-  rubros = [], 
-  presupuestos = [], 
-  contratosMantenimiento = [],
-  legajosIniciales = [],
-  cargasHorasIniciales = [],
-  cargarDatos = () => {} 
-}) {
+export default function Rrhh() {
+  // 🔑 NUEVO: leemos todas las colecciones necesarias en paralelo
+  const { data: personalInicial } = useFirestoreCollection('personal');
+  const { data: insumos } = useFirestoreCollection('insumos');
+  const { data: obras } = useFirestoreCollection('obras');
+  const { data: rubros } = useFirestoreCollection('rubros');
+  const { data: presupuestos } = useFirestoreCollection('presupuestos');
+  const { data: contratosMantenimiento } = useFirestoreCollection('contratos');
+  const { data: legajosIniciales } = useFirestoreCollection('legajos');
+  const { data: cargasHorasIniciales } = useFirestoreCollection('cargas_semanales');
+
   const [activeTab, setActiveTab] = useState('personal');
   const [searchTerm, setSearchTerm] = useState('');
   const [guardandoCarga, setGuardandoCarga] = useState(false);
   const [guardandoCargasSociales, setGuardandoCargasSociales] = useState(false);
-  // 🔑 Estado para bloquear el botón y mostrar progreso mientras se vuelca
   const [volcandoCargaId, setVolcandoCargaId] = useState(null);
 
   const safePersonal = Array.isArray(personalInicial) ? personalInicial : [];
@@ -118,7 +122,7 @@ export default function Rrhh({
     const estado = String(p.estado || p.Estado || p.estado_presupuesto || '').toLowerCase();
     const aprobadoProp = p.aprobado ?? p.Aprobado;
     const esBooleanoAprobado = aprobadoProp === true || String(aprobadoProp).toLowerCase() === 'true' || String(aprobadoProp).toLowerCase() === 'sí' || String(aprobadoProp).toLowerCase() === 'si';
-    
+
     return estado.includes('aprobado') || estado.includes('aprobada') || esBooleanoAprobado || estado === '';
   });
 
@@ -140,7 +144,7 @@ export default function Rrhh({
 
       if (presupuestoObj) {
         let rawItems = presupuestoObj.items_detalle || presupuestoObj.rubros || presupuestoObj.items || presupuestoObj.detalle;
-        
+
         if (typeof rawItems === 'string') {
           try { rawItems = JSON.parse(rawItems); } catch(e) { rawItems = {}; }
         }
@@ -172,29 +176,54 @@ export default function Rrhh({
     ];
   }, [tipoProyectoCarga, presupuestoSeleccionadoCarga, safePresupuestos, safeRubros]);
 
+  // 🔑 FIX: sincroniza personal ↔ detalle de carga.
+  // - Actualiza el `costoDiario` de los que ya están en el detalle.
+  // - AGREGA los personales nuevos que todavía no estaban (esto era lo que fallaba).
   React.useEffect(() => {
     if (safePersonal.length > 0) {
       const procesados = procesarPersonalInicial(safePersonal);
       setPersonalSalarios(procesados);
-      
+
       setDetalleCargaPersonal(prev => {
-        if (prev.length > 0) {
-          return prev.map(item => {
-            const match = procesados.find(p => String(p.id || p.ID) === String(item.id || item.empleado_id));
-            return match ? { ...item, costoDiario: Number(match.costo_en_mano || 0) } : item;
-          });
+        // Si es la primera vez, armar todo desde cero
+        if (prev.length === 0) {
+          return procesados.map(p => ({
+            id: p.id || p.ID || Math.random(),
+            empleado_id: p.id || p.ID || '',
+            nombre: p.nombre || p.Nombre || 'Personal',
+            especialidad: p.especialidad || p.Especialidad || 'Operario',
+            dias: 5,
+            costoDiario: Number(p.costo_en_mano || 0),
+            viaticosCant: 5,
+            viaticosCosto: 0,
+            incluirCargas: true
+          }));
         }
-        return procesados.map(p => ({
-          id: p.id || p.ID || Math.random(),
-          empleado_id: p.id || p.ID || '',
-          nombre: p.nombre || p.Nombre || 'Personal',
-          especialidad: p.especialidad || p.Especialidad || 'Operario',
-          dias: 5,
-          costoDiario: Number(p.costo_en_mano || 0),
-          viaticosCant: 5,
-          viaticosCosto: 0,
-          incluirCargas: true
-        }));
+
+        // 1) Actualizar los existentes (por si cambió el costo diario)
+        const actualizados = prev.map(item => {
+          const match = procesados.find(p => String(p.id || p.ID) === String(item.id || item.empleado_id));
+          return match ? { ...item, costoDiario: Number(match.costo_en_mano || 0) } : item;
+        });
+
+        // 2) Detectar los nuevos que NO están en `prev` y agregarlos
+        const idsExistentes = new Set(actualizados.map(i => String(i.id || i.empleado_id)));
+        const nuevos = procesados
+          .filter(p => !idsExistentes.has(String(p.id || p.ID)))
+          .map(p => ({
+            id: p.id || p.ID || Math.random(),
+            empleado_id: p.id || p.ID || '',
+            nombre: p.nombre || p.Nombre || 'Personal',
+            especialidad: p.especialidad || p.Especialidad || 'Operario',
+            dias: 5,
+            costoDiario: Number(p.costo_en_mano || 0),
+            viaticosCant: 5,
+            viaticosCosto: 0,
+            incluirCargas: true
+          }));
+
+        // 3) Combinar
+        return [...actualizados, ...nuevos];
       });
     }
   }, [safePersonal]);
@@ -219,6 +248,30 @@ export default function Rrhh({
     estado: 'activo'
   });
 
+  // 🔑 NUEVO: helper para subir base64 a Drive vía Apps Script
+  const subirArchivoADrive = async (base64, tabla, subseccion = '') => {
+    if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'subirArchivoDrive',
+          base64,
+          tabla,
+          subseccion
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.archivo_url) return data.archivo_url;
+      console.warn("No se pudo subir archivo a Drive:", data.error);
+      return '';
+    } catch (err) {
+      console.error("Error subiendo archivo a Drive:", err);
+      return '';
+    }
+  };
+
   const handleOpenModal = (persona = null) => {
     if (persona) {
       setEditingId(persona.id || persona.ID);
@@ -240,41 +293,42 @@ export default function Rrhh({
     setIsModalOpen(true);
   };
 
+  // 🔑 FIX: guardar personal directo a Firestore
   const handleGuardarPersonal = async (e) => {
     e.preventDefault();
     try {
-      const action = editingId ? 'update' : 'create';
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Personal', action, id: editingId, data: formData })
-      });
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
-        setIsModalOpen(false);
-        cargarDatos();
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = formData;
+
+      if (editingId) {
+        await actualizarDoc('personal', editingId, datosLimpios);
       } else {
-        alert("Error al guardar personal.");
+        await crearDoc('personal', datosLimpios);
       }
+
+      setIsModalOpen(false);
     } catch (err) {
       console.error(err);
+      alert("Error al guardar: " + (err.message || ''));
     }
   };
 
+  // 🔑 FIX: eliminar personal directo a Firestore + sacarlo del detalle de carga
   const handleEliminarPersonal = async (id) => {
     if (!id || !window.confirm("¿Estás seguro de eliminar este registro?")) return;
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Personal', action: 'delete', id })
-      });
-      cargarDatos();
+      await eliminarDoc('personal', id);
+
+      // 🔑 NUEVO: sacarlo también del detalle de carga
+      setDetalleCargaPersonal(prev => prev.filter(item =>
+        String(item.id || item.empleado_id) !== String(id)
+      ));
     } catch (err) {
       console.error(err);
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
+  // 🔑 FIX: actualizar una celda de la fila → actualizarDoc en Firestore
   const handleActualizarPersonalFila = async (id, campo, valor) => {
     setPersonalSalarios(prev => prev.map(p => {
       const pId = p.id || p.ID;
@@ -284,21 +338,14 @@ export default function Rrhh({
       return p;
     }));
 
-    const personaActual = personalSalarios.find(p => String(p.id || p.ID) === String(id));
-    if (personaActual) {
-      const datosActualizados = { ...personaActual, [campo]: valor };
-      try {
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'Personal', action: 'update', id: id, data: datosActualizados })
-        });
-      } catch (err) {
-        console.error("Error al actualizar en servidor:", err);
-      }
+    try {
+      await actualizarDoc('personal', id, { [campo]: valor });
+    } catch (err) {
+      console.error("Error al actualizar en Firestore:", err);
     }
   };
 
+  // 🔑 FIX: paritaria masiva → actualizarDoc en loop por cada persona
   const handleAplicarParitariaMasiva = async () => {
     const mult = Number(multiplicadorParitaria);
     if (!mult || mult <= 0) {
@@ -317,17 +364,16 @@ export default function Rrhh({
     try {
       for (let p of nuevosSalarios) {
         const pId = p.id || p.ID;
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'Personal', action: 'update', id: pId, data: p })
+        if (!pId) continue;
+        await actualizarDoc('personal', pId, {
+          costo_en_mano: p.costo_en_mano,
+          mes_acuerdo: p.mes_acuerdo
         });
       }
       alert("¡Paritaria y salarios actualizados y guardados correctamente para todo el personal!");
-      cargarDatos();
     } catch (err) {
       console.error("Error al guardar paritaria masiva:", err);
-      alert("Hubo un error al sincronizar con la base de datos.");
+      alert("Hubo un error al sincronizar con Firestore.");
     }
   };
 
@@ -360,6 +406,7 @@ export default function Rrhh({
   const totalViaticos = (Number(viaticosCuadrilla.cantidad) || 0) * (Number(viaticosCuadrilla.costo) || 0);
   const costoDiarioCuadrilla = sumaSubtotalesPersonal + totalViaticos;
 
+  // 🔑 FIX: guardar cuadrilla como insumo directo a Firestore
   const handleGuardarCuadrillaComoInsumo = async () => {
     if (!nombreCuadrilla.trim()) {
       alert("Por favor ingresa un nombre para la cuadrilla.");
@@ -381,29 +428,17 @@ export default function Rrhh({
         })
       };
 
-      const action = cuadrillaIdEditando ? 'update' : 'create';
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Insumos',
-          action: action,
-          id: cuadrillaIdEditando,
-          data: payloadInsumo
-        })
-      });
-
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
-        alert("¡Cuadrilla guardada e impactada en el Maestro de Insumos con éxito!");
-        cargarDatos();
-        setVistaCuadrilla('lista');
+      if (cuadrillaIdEditando) {
+        await actualizarDoc('insumos', cuadrillaIdEditando, payloadInsumo);
       } else {
-        alert("Error al guardar la cuadrilla en Insumos.");
+        await crearDoc('insumos', payloadInsumo);
       }
+
+      alert("¡Cuadrilla guardada e impactada en el Maestro de Insumos con éxito!");
+      setVistaCuadrilla('lista');
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al guardar la cuadrilla.");
+      alert("Error al guardar la cuadrilla: " + (err.message || ''));
     }
   };
 
@@ -434,20 +469,18 @@ export default function Rrhh({
     setVistaCuadrilla('editor');
   };
 
+  // 🔑 FIX: eliminar cuadrilla directo a Firestore
   const handleEliminarCuadrilla = async (cId) => {
     if (!cId || !window.confirm("¿Estás seguro de eliminar esta cuadrilla del maestro de insumos?")) return;
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Insumos', action: 'delete', id: cId })
-      });
-      cargarDatos();
+      await eliminarDoc('insumos', cId);
     } catch (err) {
       console.error(err);
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
+  // 🔑 FIX: subir documento → subir a Drive primero, luego crearDoc en `legajos`
   const handleSubirDocumentoFijo = async (docTitulo, file) => {
     if (!file) return;
     if (!legajoEmpleadoSeleccionado) {
@@ -460,33 +493,21 @@ export default function Rrhh({
       const base64String = reader.result;
       setCargandoLegajo(true);
       try {
-        const payload = {
-          tabla: 'Legajos',
-          action: 'create',
-          data: {
-            personal_id: legajoEmpleadoSeleccionado,
-            subseccion: 'documentacion_principal',
-            nombre_archivo: docTitulo,
-            archivo_url: base64String,
-            fecha: new Date().toISOString().split('T')[0]
-          }
-        };
+        const urlDrive = await subirArchivoADrive(base64String, 'Legajos', '');
 
-        const res = await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(payload)
+        await crearDoc('legajos', {
+          personal_id: legajoEmpleadoSeleccionado,
+          subseccion: 'documentacion_principal',
+          nombre_archivo: docTitulo,
+          archivo_url: urlDrive,
+          url_archivo: urlDrive,
+          fecha: new Date().toISOString().split('T')[0]
         });
-        const data = await res.json().catch(() => ({ success: true }));
-        if (data.success !== false) {
-          alert(`¡Documento "${docTitulo}" subido y archivado con éxito!`);
-          cargarDatos();
-        } else {
-          alert("Error al subir el archivo: " + (data.error || 'Desconocido'));
-        }
+
+        alert(`¡Documento "${docTitulo}" subido y archivado con éxito!`);
       } catch (err) {
         console.error(err);
-        alert("Error de conexión al subir el documento.");
+        alert("Error al subir el documento: " + (err.message || ''));
       } finally {
         setCargandoLegajo(false);
       }
@@ -494,6 +515,7 @@ export default function Rrhh({
     reader.readAsDataURL(file);
   };
 
+  // 🔑 FIX: subir foto → Drive con subseccion 'foto_perfil', luego crearDoc
   const handleSubirFotoTrabajador = async (file) => {
     if (!file) return;
     if (!legajoEmpleadoSeleccionado) {
@@ -506,33 +528,21 @@ export default function Rrhh({
       const base64String = reader.result;
       setCargandoLegajo(true);
       try {
-        const payload = {
-          tabla: 'Legajos',
-          action: 'create',
-          data: {
-            personal_id: legajoEmpleadoSeleccionado,
-            subseccion: 'foto_perfil',
-            nombre_archivo: 'Foto Carnet',
-            archivo_url: base64String,
-            fecha: new Date().toISOString().split('T')[0]
-          }
-        };
+        const urlDrive = await subirArchivoADrive(base64String, 'Legajos', 'foto_perfil');
 
-        const res = await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify(payload)
+        await crearDoc('legajos', {
+          personal_id: legajoEmpleadoSeleccionado,
+          subseccion: 'foto_perfil',
+          nombre_archivo: 'Foto Carnet',
+          archivo_url: urlDrive,
+          url_archivo: urlDrive,
+          fecha: new Date().toISOString().split('T')[0]
         });
-        const data = await res.json().catch(() => ({ success: true }));
-        if (data.success !== false) {
-          alert("¡Foto de perfil actualizada con éxito!");
-          cargarDatos();
-        } else {
-          alert("Error al subir la foto.");
-        }
+
+        alert("¡Foto de perfil actualizada con éxito!");
       } catch (err) {
         console.error(err);
-        alert("Error de conexión al subir la foto.");
+        alert("Error al subir la foto: " + (err.message || ''));
       } finally {
         setCargandoLegajo(false);
       }
@@ -553,6 +563,7 @@ export default function Rrhh({
     reader.readAsDataURL(file);
   };
 
+  // 🔑 FIX: subir legajo libre → Drive + crearDoc
   const handleSubirLegajoLibre = async (e) => {
     e.preventDefault();
     if (!legajoEmpleadoSeleccionado) {
@@ -570,52 +581,36 @@ export default function Rrhh({
 
     setCargandoLegajo(true);
     try {
-      const payload = {
-        tabla: 'Legajos',
-        action: 'create',
-        data: {
-          personal_id: legajoEmpleadoSeleccionado,
-          subseccion: legajoSubseccionActiva,
-          nombre_archivo: nombreDocumentoLegajo,
-          archivo_url: archivoLegajoBase64,
-          fecha: new Date().toISOString().split('T')[0]
-        }
-      };
+      const urlDrive = await subirArchivoADrive(archivoLegajoBase64, 'Legajos', legajoSubseccionActiva);
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
+      await crearDoc('legajos', {
+        personal_id: legajoEmpleadoSeleccionado,
+        subseccion: legajoSubseccionActiva,
+        nombre_archivo: nombreDocumentoLegajo,
+        archivo_url: urlDrive,
+        url_archivo: urlDrive,
+        fecha: new Date().toISOString().split('T')[0]
       });
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
-        alert("¡Documento de legajo subido y archivado con éxito!");
-        setNombreDocumentoLegajo('');
-        setArchivoLegajoBase64('');
-        cargarDatos();
-      } else {
-        alert("Error al subir el archivo: " + (data.error || 'Desconocido'));
-      }
+
+      alert("¡Documento de legajo subido y archivado con éxito!");
+      setNombreDocumentoLegajo('');
+      setArchivoLegajoBase64('');
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al subir el documento.");
+      alert("Error al subir el documento: " + (err.message || ''));
     } finally {
       setCargandoLegajo(false);
     }
   };
 
+  // 🔑 FIX: eliminar legajo directo a Firestore
   const handleEliminarLegajo = async (id) => {
     if (!id || !window.confirm("¿Estás seguro de eliminar este documento del legajo?")) return;
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Legajos', action: 'delete', id })
-      });
-      cargarDatos();
+      await eliminarDoc('legajos', id);
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar el documento.");
+      alert("Error al eliminar el documento: " + (err.message || ''));
     }
   };
 
@@ -680,8 +675,7 @@ export default function Rrhh({
     return true;
   };
 
-  // 🔑 MODIFICADO: Guardar Carga Salarial. Ya NO genera egresos en Tesorería.
-  // Solo guarda en CargasSemanales con estado_volcado: 'pendiente'.
+  // 🔑 FIX: guardar carga salarial directo a Firestore (`cargas_semanales`)
   const handleGuardarCargaSalarial = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -720,23 +714,13 @@ export default function Rrhh({
         fecha_volcado: cargaOriginal?.fecha_volcado || ''
       };
 
-      const actionCarga = editingCargaId ? 'update' : 'create';
-      const resCarga = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'CargasSemanales',
-          action: actionCarga,
-          id: editingCargaId,
-          data: payloadCargaHistorial
-        })
-      });
+      // 🔑 FIX: limpiar campos internos antes de guardar
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadCargaHistorial;
 
-      const dataCargaRes = await resCarga.json().catch(() => ({ success: true }));
-
-      if (dataCargaRes.success === false) {
-        alert("Error al guardar en el historial de cargas.");
-        return;
+      if (editingCargaId) {
+        await actualizarDoc('cargas_semanales', editingCargaId, datosLimpios);
+      } else {
+        await crearDoc('cargas_semanales', datosLimpios);
       }
 
       alert(yaEstabaVolcada
@@ -746,17 +730,16 @@ export default function Rrhh({
             : "Carga registrada. Queda pendiente de volcar a Tesorería."));
 
       setEditingCargaId(null);
-      cargarDatos();
       setActiveTab('historial_carga');
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al guardar la carga salarial.");
+      alert("Error al guardar la carga salarial: " + (err.message || ''));
     } finally {
       setGuardandoCarga(false);
     }
   };
 
-  // 🔑 MODIFICADO: Registrar Cargas Sociales. Ya NO genera egresos en Tesorería.
+  // 🔑 FIX: registrar cargas sociales directo a Firestore
   const handleRegistrarCargasSociales = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -790,30 +773,20 @@ export default function Rrhh({
         fecha_volcado: ''
       };
 
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'CargasSemanales',
-          action: 'create',
-          data: payloadCargaHistorialCS
-        })
-      });
+      await crearDoc('cargas_semanales', payloadCargaHistorialCS);
 
       alert("¡Cargas sociales registradas! Quedan pendientes de volcar a Tesorería desde el historial.");
-      cargarDatos();
       setActiveTab('historial_carga');
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al guardar las cargas sociales.");
+      alert("Error al guardar las cargas sociales: " + (err.message || ''));
     } finally {
       setGuardandoCargasSociales(false);
     }
   };
 
-  // 🔑 OPTIMIZADO: Volcado atómico en 1 llamada al backend.
-  // El backend hace el borrado previo (si re-volcás) + creación masiva
-  // con setValues() en una sola pasada.
+  // 🔑 FIX: volcado a Tesorería DIRECTO a Firestore (Opción A)
+  // Usa eliminarDocsFiltrados con la firma (coleccion, filtroFn) que ya existe en el helper.
   const handleVolcarCargaATesoreria = async (carga) => {
     const cargaId = carga.id || carga.ID;
     if (!cargaId) {
@@ -846,57 +819,78 @@ export default function Rrhh({
 
     setVolcandoCargaId(cargaId);
     try {
-      // PASO 1: un SOLO fetch al backend (borra + crea masivamente)
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'volcarCargaATesoreria',
-          carga_id: String(cargaId),
-          es_revolcado: esReVolcado,
-          tipo_registro: carga.tipo_registro || 'Sueldos',
-          tipo_proyecto: carga.tipo_proyecto || 'obra',
-          presupuesto_id: carga.presupuesto_id || '',
-          obra_id: carga.obra_id || '',
-          contrato_mantenimiento_id: carga.contrato_mantenimiento_id || '',
-          fecha: carga.fecha,
-          total: Number(carga.total_general || 0),
-          rubros: rubros,
-          version_nueva: nuevaVersion
-        })
-      });
-
-      const data = await res.json().catch(() => ({ success: false, error: 'Respuesta inválida del servidor.' }));
-
-      if (data.success === false) {
-        alert("Error al volcar: " + (data.error || 'Desconocido'));
-        return;
+      // PASO 1: si es re-volcado, borrar los egresos anteriores vinculados a esta carga
+      if (esReVolcado) {
+        try {
+          // 🔑 FIX: usar la firma correcta (coleccion, filtroFn)
+          await eliminarDocsFiltrados('tesoreria', (docData) =>
+            String(docData.carga_id || '').trim() === String(cargaId).trim()
+          );
+        } catch (errBorrar) {
+          console.error("Error borrando egresos previos:", errBorrar);
+          alert("Error al borrar los egresos anteriores: " + (errBorrar.message || ''));
+          return;
+        }
       }
 
-      // PASO 2: marcar la carga como volcada en CargasSemanales
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'CargasSemanales',
-          action: 'update',
-          id: cargaId,
-          data: {
-            ...carga,
-            estado_volcado: 'volcado',
-            version: nuevaVersion,
-            fecha_volcado: new Date().toISOString().split('T')[0]
-          }
-        })
+      // PASO 2: crear los nuevos movimientos en Tesorería
+      const esCargasSociales = String(carga.tipo_registro || '').toLowerCase().indexOf('social') !== -1;
+      const estadoTesoreria = esCargasSociales ? 'Pendiente' : 'Pagado';
+      const proveedorTesoreria = esCargasSociales ? 'AFIP / Cargas Sociales' : 'Personal / Sueldos';
+      const referenciaTesoreria = esCargasSociales ? 'RRHH - Cargas Sociales' : 'RRHH - Pago Directo';
+      const tipoProyecto = String(carga.tipo_proyecto || 'obra');
+      const destinoNombre = tipoProyecto === 'obra'
+        ? 'Presupuesto: ' + (carga.presupuesto_id || '')
+        : 'Contrato Mantenimiento: ' + (carga.contrato_mantenimiento_id || '');
+
+      const total = Number(carga.total_general || 0);
+      let creados = 0;
+
+      for (const r of rubros) {
+        const pct = Number(r.porcentaje) || 0;
+        if (pct <= 0) continue;
+
+        const montoRubro = Math.round((total * (pct / 100)) * 100) / 100;
+
+        const concepto = esCargasSociales
+          ? `Cargas Sociales - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`
+          : `Sueldos y Viáticos - ${destinoNombre} [Rubro: ${r.rubro} - ${pct}%]`;
+
+        await crearDoc('tesoreria', {
+          tipo: 'Egreso',
+          estado: estadoTesoreria,
+          fecha: carga.fecha,
+          concepto,
+          monto: montoRubro,
+          proveedor: proveedorTesoreria,
+          referencia: referenciaTesoreria,
+          rubro: r.rubro,
+          rubro_imputacion: r.rubro,
+          tipo_insumo: 'Mano de Obra',
+          presupuesto_id: carga.presupuesto_id || '',
+          obra_id: carga.obra_id || '',
+          contrato_id: carga.contrato_mantenimiento_id || '',
+          carga_id: String(cargaId),
+          carga_version: nuevaVersion
+        });
+        creados++;
+      }
+
+      // PASO 3: marcar la carga como volcada
+      const { _creadoEn, _actualizadoEn, id, ...resto } = carga;
+      await actualizarDoc('cargas_semanales', cargaId, {
+        ...resto,
+        estado_volcado: 'volcado',
+        version: nuevaVersion,
+        fecha_volcado: new Date().toISOString().split('T')[0]
       });
 
       alert(esReVolcado
-        ? `¡Carga re-volcada! Se reemplazaron los egresos anteriores (${data.egresos_creados} nuevos egresos creados).`
-        : `¡Carga volcada a Tesorería! (${data.egresos_creados} egresos creados).`);
-      cargarDatos();
+        ? `¡Carga re-volcada! Se reemplazaron los egresos anteriores (${creados} nuevos egresos creados).`
+        : `¡Carga volcada a Tesorería! (${creados} egresos creados).`);
     } catch (err) {
       console.error(err);
-      alert("Error al volcar la carga a Tesorería.");
+      alert("Error al volcar la carga a Tesorería: " + (err.message || ''));
     } finally {
       setVolcandoCargaId(null);
     }
@@ -926,7 +920,8 @@ export default function Rrhh({
     setActiveTab('carga');
   };
 
-  // 🔑 MODIFICADO: al eliminar una carga volcada, también borra sus egresos en Tesorería.
+  // 🔑 FIX: al eliminar una carga volcada, también borrar sus egresos en Tesorería
+  // Usa la firma correcta (coleccion, filtroFn).
   const handleEliminarCargaHistorial = async (cId) => {
     const carga = cargasHorasLista.find(c => String(c.id || c.ID) === String(cId));
     const estaVolcada = String(carga?.estado_volcado || '').toLowerCase() === 'volcado';
@@ -938,27 +933,15 @@ export default function Rrhh({
 
     try {
       if (estaVolcada) {
-        await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            tabla: 'Tesoreria',
-            action: 'deleteByField',
-            field: 'carga_id',
-            value: String(cId)
-          })
-        });
+        await eliminarDocsFiltrados('tesoreria', (docData) =>
+          String(docData.carga_id || '').trim() === String(cId).trim()
+        );
       }
 
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'CargasSemanales', action: 'delete', id: cId })
-      });
-      cargarDatos();
+      await eliminarDoc('cargas_semanales', cId);
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar la carga.");
+      alert("Error al eliminar la carga: " + (err.message || ''));
     }
   };
 
@@ -971,9 +954,7 @@ export default function Rrhh({
   });
 
   const personalActivo = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'activo');
-  const personalDeBaja = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'baja');
-
-  return (
+  const personalDeBaja = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'baja');  return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -981,8 +962,8 @@ export default function Rrhh({
           <p className="text-slate-500 text-sm mt-1">Gestión de personal, salarios, legajos y armado de cuadrillas</p>
         </div>
         {activeTab === 'personal' && (
-          <button 
-            onClick={() => handleOpenModal()} 
+          <button
+            onClick={() => handleOpenModal()}
             className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer"
           >
             <Plus className="w-4 h-4" /> Nuevo Personal
@@ -1038,7 +1019,7 @@ export default function Rrhh({
           <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
             <div className="relative w-full sm:w-80">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input 
+              <input
                 type="text"
                 placeholder="Buscar por nombre, CUIL o especialidad..."
                 value={searchTerm}
@@ -1160,7 +1141,7 @@ export default function Rrhh({
             <div className="flex-1">
               <h3 className="text-sm font-extrabold text-slate-900 uppercase">Seleccionar Trabajador</h3>
               <p className="text-xs text-slate-500 mt-0.5">Elige el empleado para consultar o adjuntar documentación en su legajo digital.</p>
-              
+
               <div className="mt-4 w-full max-w-md">
                 <select
                   value={legajoEmpleadoSeleccionado}
@@ -1200,7 +1181,7 @@ export default function Rrhh({
                     const convertirUrlDrive = (url) => {
                       if (!url) return '';
                       if (url.startsWith('data:')) return url;
-                      
+
                       let fileId = '';
                       const matchD = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
                       if (matchD && matchD[1]) {
@@ -1222,9 +1203,9 @@ export default function Rrhh({
 
                     if (urlFinal && urlFinal !== 'Comprobante_Adjunto') {
                       return (
-                        <img 
-                          src={urlFinal} 
-                          alt="Foto empleado" 
+                        <img
+                          src={urlFinal}
+                          alt="Foto empleado"
                           className="w-full h-full object-cover"
                           onError={(e) => { e.target.style.display = 'none'; }}
                         />
@@ -1248,14 +1229,14 @@ export default function Rrhh({
                     })()}
                   </div>
                   <div className="flex items-center gap-2">
-                    <input 
+                    <input
                       type="file"
                       accept=".jpg,.jpeg,.png"
                       id="file-foto-perfil"
                       className="hidden"
                       onChange={(e) => handleSubirFotoTrabajador(e.target.files[0])}
                     />
-                    <label 
+                    <label
                       htmlFor="file-foto-perfil"
                       className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-xs font-bold shadow-sm cursor-pointer flex items-center gap-1 transition-all text-center"
                     >
@@ -1263,7 +1244,7 @@ export default function Rrhh({
                     </label>
 
                     {legajosLista.some(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '') === 'fotoperfil') && (
-                      <button 
+                      <button
                         onClick={() => {
                           const obj = legajosLista.find(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '') === 'fotoperfil');
                           if (obj) handleEliminarLegajo(obj.id || obj.ID);
@@ -1295,7 +1276,7 @@ export default function Rrhh({
                   const IconComp = sub.icon;
                   const isActive = legajoSubseccionActiva === sub.id;
                   const cantArchivos = legajosLista.filter(l => String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && String(l.subseccion || l.Subseccion) === sub.id).length;
-                  
+
                   return (
                     <button
                       key={sub.id}
@@ -1325,9 +1306,9 @@ export default function Rrhh({
 
                   <div className="grid grid-cols-1 gap-3 pt-2">
                     {DOCUMENTOS_PRINCIPALES_OBLIGATORIOS.map((docTitulo) => {
-                      const docExistente = legajosLista.find(l => 
-                        String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) && 
-                        String(l.subseccion || l.Subseccion) === 'documentacion_principal' && 
+                      const docExistente = legajosLista.find(l =>
+                        String(l.personal_id || l.Personal_id) === String(legajoEmpleadoSeleccionado) &&
+                        String(l.subseccion || l.Subseccion) === 'documentacion_principal' &&
                         String(l.nombre_archivo || l.Nombre_archivo).trim().toLowerCase() === docTitulo.toLowerCase()
                       );
 
@@ -1349,16 +1330,16 @@ export default function Rrhh({
                             {docExistente ? (
                               <>
                                 {(docExistente.url_archivo || docExistente.Url_archivo || docExistente.archivo_url) && (
-                                  <a 
-                                    href={docExistente.url_archivo || docExistente.Url_archivo || docExistente.archivo_url} 
-                                    target="_blank" 
+                                  <a
+                                    href={docExistente.url_archivo || docExistente.Url_archivo || docExistente.archivo_url}
+                                    target="_blank"
                                     rel="noopener noreferrer"
                                     className="px-3 py-1.5 bg-white border border-slate-300 hover:border-amber-500 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition-all"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5 text-amber-600" /> Ver Archivo
                                   </a>
                                 )}
-                                <button 
+                                <button
                                   onClick={() => handleEliminarLegajo(docExistente.id || docExistente.ID)}
                                   className="p-1.5 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg shadow-sm cursor-pointer"
                                   title="Eliminar documento"
@@ -1368,14 +1349,14 @@ export default function Rrhh({
                               </>
                             ) : (
                               <div className="flex items-center gap-2 w-full sm:w-auto">
-                                <input 
+                                <input
                                   type="file"
                                   accept=".pdf,.jpg,.jpeg,.png"
                                   id={`file-fixed-${docTitulo}`}
                                   className="hidden"
                                   onChange={(e) => handleSubirDocumentoFijo(docTitulo, e.target.files[0])}
                                 />
-                                <label 
+                                <label
                                   htmlFor={`file-fixed-${docTitulo}`}
                                   className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm cursor-pointer transition-all w-full sm:w-auto justify-center"
                                 >
@@ -1395,11 +1376,11 @@ export default function Rrhh({
                     <h4 className="text-xs font-extrabold text-slate-900 uppercase flex items-center gap-1.5">
                       <Upload className="w-4 h-4 text-amber-600" /> Subir Nuevo Archivo
                     </h4>
-                    
+
                     <form onSubmit={handleSubirLegajoLibre} className="space-y-4">
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Título / Descripción del Archivo *</label>
-                        <input 
+                        <input
                           type="text"
                           required
                           placeholder="Ej: Recibo Agosto 2026, Apto Médico..."
@@ -1411,7 +1392,7 @@ export default function Rrhh({
 
                       <div>
                         <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Seleccionar Archivo (PDF, JPG, PNG) *</label>
-                        <input 
+                        <input
                           type="file"
                           accept=".pdf,.jpg,.jpeg,.png"
                           onChange={handleArchivoLegajoChange}
@@ -1419,7 +1400,7 @@ export default function Rrhh({
                         />
                       </div>
 
-                      <button 
+                      <button
                         type="submit"
                         disabled={cargandoLegajo}
                         className="w-full py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer flex items-center justify-center gap-2"
@@ -1462,16 +1443,16 @@ export default function Rrhh({
 
                                 <div className="flex items-center gap-2">
                                   {lUrl && lUrl !== '#' && (
-                                    <a 
-                                      href={lUrl} 
-                                      target="_blank" 
+                                    <a
+                                      href={lUrl}
+                                      target="_blank"
                                       rel="noopener noreferrer"
                                       className="px-3 py-1.5 bg-white border border-slate-300 hover:border-amber-500 text-slate-700 rounded-lg text-xs font-bold flex items-center gap-1 shadow-sm transition-all"
                                     >
                                       <ExternalLink className="w-3.5 h-3.5 text-amber-600" /> Ver Archivo
                                     </a>
                                   )}
-                                  <button 
+                                  <button
                                     onClick={() => handleEliminarLegajo(lId)}
                                     className="p-1.5 text-slate-400 hover:text-red-600 bg-white border border-slate-200 rounded-lg shadow-sm cursor-pointer"
                                     title="Eliminar documento"
@@ -1502,23 +1483,23 @@ export default function Rrhh({
                     <h3 className="text-sm font-extrabold text-slate-900 uppercase">Salarios Acordados por Personal (Base Vigente)</h3>
                     <p className="text-xs text-slate-500 mt-0.5">Modifica manualmente cada salario/mes o aplica un multiplicador general por paritaria.</p>
                   </div>
-                  
+
                   <div className="flex flex-wrap items-center gap-2 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200">
                     <span className="text-xs font-bold text-amber-900">Mes Paritaria:</span>
-                    <input 
+                    <input
                       type="text" placeholder="Ej: Septiembre 2026"
                       value={mesAcuerdoGlobal}
                       onChange={(e) => setMesAcuerdoGlobal(e.target.value)}
                       className="w-32 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-bold text-amber-900 outline-none focus:border-amber-500 shadow-sm"
                     />
                     <span className="text-xs font-bold text-amber-900 ml-2">Multiplicador:</span>
-                    <input 
+                    <input
                       type="number" step="0.001" placeholder="Ej: 1.05"
                       value={multiplicadorParitaria}
                       onChange={(e) => setMultiplicadorParitaria(e.target.value)}
                       className="w-20 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-black text-amber-900 text-center outline-none focus:border-amber-500 shadow-sm"
                     />
-                    <button 
+                    <button
                       onClick={handleAplicarParitariaMasiva}
                       className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer flex items-center gap-1"
                     >
@@ -1545,7 +1526,7 @@ export default function Rrhh({
                             <td className="px-4 py-2.5 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
                             <td className="px-4 py-2.5 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
                             <td className="px-4 py-2.5 text-right">
-                              <input 
+                              <input
                                 type="number" step="0.01"
                                 value={p.costo_en_mano}
                                 onChange={(e) => handleActualizarPersonalFila(pId, 'costo_en_mano', Number(e.target.value))}
@@ -1553,7 +1534,7 @@ export default function Rrhh({
                               />
                             </td>
                             <td className="px-4 py-2.5">
-                              <input 
+                              <input
                                 type="text"
                                 value={p.mes_acuerdo}
                                 onChange={(e) => handleActualizarPersonalFila(pId, 'mes_acuerdo', e.target.value)}
@@ -1573,7 +1554,7 @@ export default function Rrhh({
                   <h3 className="text-sm font-extrabold text-slate-900 uppercase">Listado de Cuadrillas (Insumos de Mano de Obra)</h3>
                   <p className="text-xs text-slate-500 mt-1">Las cuadrillas creadas conservan el costo acordado en su momento de creación.</p>
                 </div>
-                <button 
+                <button
                   onClick={handleNuevaCuadrilla}
                   className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
                 >
@@ -1628,13 +1609,13 @@ export default function Rrhh({
           ) : (
             <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-6">
               <div className="flex justify-between items-center pb-4 border-b">
-                <button 
+                <button
                   onClick={() => setVistaCuadrilla('lista')}
                   className="flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 cursor-pointer bg-slate-100 px-3 py-1.5 rounded-lg"
                 >
                   <ArrowLeft className="w-4 h-4" /> Volver al listado
                 </button>
-                <button 
+                <button
                   onClick={handleGuardarCuadrillaComoInsumo}
                   className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer"
                 >
@@ -1645,17 +1626,17 @@ export default function Rrhh({
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="w-full max-w-md">
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1">Nombre de la Cuadrilla (Insumo)</label>
-                  <input 
-                    type="text" 
-                    value={nombreCuadrilla} 
+                  <input
+                    type="text"
+                    value={nombreCuadrilla}
                     onChange={(e) => setNombreCuadrilla(e.target.value)}
                     className="text-lg font-black text-slate-900 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 outline-none focus:border-amber-500 w-full"
                   />
                 </div>
-                
+
                 <div className="flex items-center gap-3 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200">
                   <span className="text-xs font-bold text-amber-900">Cargas Sociales (%):</span>
-                  <input 
+                  <input
                     type="number" step="0.01"
                     value={porcentajeCargas}
                     onChange={(e) => setPorcentajeCargas(Number(e.target.value) || 0)}
@@ -1724,8 +1705,8 @@ export default function Rrhh({
                     {itemsCalculados.map((item, idx) => (
                       <tr key={item.id || idx} className="hover:bg-slate-50">
                         <td className="px-4 py-3 font-bold text-slate-900">
-                          <input 
-                            type="text" 
+                          <input
+                            type="text"
                             value={item.categoria}
                             onChange={(e) => {
                               const val = e.target.value;
@@ -1735,7 +1716,7 @@ export default function Rrhh({
                           />
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <input 
+                          <input
                             type="number" min="0" max="10"
                             value={item.cantidad}
                             onChange={(e) => {
@@ -1746,7 +1727,7 @@ export default function Rrhh({
                           />
                         </td>
                         <td className="px-4 py-3 text-right">
-                          <input 
+                          <input
                             type="number" step="0.01"
                             value={item.costoEnMano}
                             onChange={(e) => {
@@ -1763,7 +1744,7 @@ export default function Rrhh({
                           $ {item.subtotalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="px-4 py-3 text-center">
-                          <button 
+                          <button
                             onClick={() => setCuadrillaItems(prev => prev.filter(i => i.id !== item.id))}
                             className="p-1 text-slate-400 hover:text-red-600 cursor-pointer" title="Quitar trabajador"
                           >
@@ -1778,15 +1759,15 @@ export default function Rrhh({
                         VIÁTICOS (Cantidad y Costo Diario)
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <input 
-                          type="number" min="0" 
+                        <input
+                          type="number" min="0"
                           value={viaticosCuadrilla.cantidad}
                           onChange={(e) => setViaticosCuadrilla({ ...viaticosCuadrilla, cantidad: Number(e.target.value) })}
                           className="w-16 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-bold text-center outline-none focus:border-amber-500"
                         />
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <input 
+                        <input
                           type="number" step="0.01"
                           value={viaticosCuadrilla.costo}
                           onChange={(e) => setViaticosCuadrilla({ ...viaticosCuadrilla, costo: Number(e.target.value) })}
@@ -1829,7 +1810,7 @@ export default function Rrhh({
                 <p className="text-xs text-slate-500 mt-0.5">Selecciona si la carga pertenece a un Presupuesto o Contrato de Mantenimiento y define la distribución por rubros.</p>
               </div>
               {editingCargaId && (
-                <button 
+                <button
                   onClick={() => { setEditingCargaId(null); setActiveTab('historial_carga'); }}
                   className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold"
                 >
@@ -1842,27 +1823,27 @@ export default function Rrhh({
               <label className="block text-xs font-bold text-slate-700 uppercase">Destino del Parte de Horas *</label>
               <div className="flex gap-6">
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
-                  <input 
-                    type="radio" 
-                    name="tipo_proyecto_carga" 
-                    checked={tipoProyectoCarga === 'obra'} 
+                  <input
+                    type="radio"
+                    name="tipo_proyecto_carga"
+                    checked={tipoProyectoCarga === 'obra'}
                     onChange={() => {
                       setTipoProyectoCarga('obra');
                       setDistribucionRubros([{ id: Date.now(), rubro: '', porcentaje: 100 }]);
-                    }} 
+                    }}
                     className="accent-amber-500"
                   />
                   Presupuesto / Obra
                 </label>
                 <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-slate-800">
-                  <input 
-                    type="radio" 
-                    name="tipo_proyecto_carga" 
-                    checked={tipoProyectoCarga === 'contrato'} 
+                  <input
+                    type="radio"
+                    name="tipo_proyecto_carga"
+                    checked={tipoProyectoCarga === 'contrato'}
                     onChange={() => {
                       setTipoProyectoCarga('contrato');
                       setDistribucionRubros([{ id: Date.now(), rubro: 'Horas trabajadas', porcentaje: 100 }]);
-                    }} 
+                    }}
                     className="accent-amber-500"
                   />
                   Contrato de Mantenimiento
@@ -1875,7 +1856,7 @@ export default function Rrhh({
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
                       <FileText className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Presupuesto Aprobado *
                     </label>
-                    <select 
+                    <select
                       value={presupuestoSeleccionadoCarga}
                       onChange={(e) => setPresupuestoSeleccionadoCarga(e.target.value)}
                       className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
@@ -1893,7 +1874,7 @@ export default function Rrhh({
                     <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
                       <FileText className="w-3.5 h-3.5 text-amber-600" /> Seleccionar Contrato de Mantenimiento Activo *
                     </label>
-                    <select 
+                    <select
                       value={contratoSeleccionadoCarga}
                       onChange={(e) => setContratoSeleccionadoCarga(e.target.value)}
                       className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-900 outline-none focus:border-amber-500"
@@ -1912,7 +1893,7 @@ export default function Rrhh({
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1 flex items-center gap-1">
                     <Calendar className="w-3.5 h-3.5 text-amber-600" /> Fecha de Liquidación / Parte *
                   </label>
-                  <input 
+                  <input
                     type="date"
                     value={fechaCarga}
                     onChange={(e) => setFechaCarga(e.target.value)}
@@ -1941,7 +1922,7 @@ export default function Rrhh({
               <div className="space-y-2">
                 {distribucionRubros.map((r, idx) => (
                   <div key={r.id || idx} className="flex items-center gap-2">
-                    <select 
+                    <select
                       value={r.rubro}
                       disabled={tipoProyectoCarga === 'contrato'}
                       onChange={(e) => handleActualizarRubro(r.id, 'rubro', e.target.value)}
@@ -1959,7 +1940,7 @@ export default function Rrhh({
                       )}
                     </select>
                     <div className="flex items-center gap-1 w-32">
-                      <input 
+                      <input
                         type="number" min="0" max="100" step="0.1"
                         value={r.porcentaje}
                         disabled={tipoProyectoCarga === 'contrato'}
@@ -1996,13 +1977,13 @@ export default function Rrhh({
                 <h3 className="text-sm font-extrabold text-slate-900 uppercase">Carga Semanal de Horas / Días y Viáticos</h3>
                 <p className="text-xs text-slate-500 mt-0.5">Registra la asistencia real y viáticos del personal.</p>
               </div>
-              
-              <button 
+
+              <button
                 onClick={handleGuardarCargaSalarial}
                 disabled={guardandoCarga}
                 className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
               >
-                {guardandoCarga ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} 
+                {guardandoCarga ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                 {guardandoCarga ? 'Registrando...' : (editingCargaId ? 'Actualizar Carga' : `Registrar Carga de Sueldos ($ ${totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})`)}
               </button>
             </div>
@@ -2025,7 +2006,7 @@ export default function Rrhh({
                   {detalleCargaCalculado.map((item, idx) => (
                     <tr key={item.id || idx} className="hover:bg-slate-50">
                       <td className="px-4 py-3 text-center">
-                        <input 
+                        <input
                           type="checkbox"
                           checked={item.incluirCargas}
                           onChange={(e) => {
@@ -2038,7 +2019,7 @@ export default function Rrhh({
                       <td className="px-4 py-3 font-bold text-slate-900">{item.nombre}</td>
                       <td className="px-4 py-3 text-slate-600">{item.especialidad}</td>
                       <td className="px-4 py-3 text-center">
-                        <input 
+                        <input
                           type="number" min="0" max="7" step="0.5"
                           value={item.dias}
                           onChange={(e) => {
@@ -2052,7 +2033,7 @@ export default function Rrhh({
                         $ {Number(item.costoDiario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-4 py-3 text-center">
-                        <input 
+                        <input
                           type="number" min="0" max="7"
                           value={item.viaticosCant}
                           onChange={(e) => {
@@ -2063,7 +2044,7 @@ export default function Rrhh({
                         />
                       </td>
                       <td className="px-4 py-3 text-right">
-                        <input 
+                        <input
                           type="number" step="0.01" min="0"
                           value={item.viaticosCosto}
                           onChange={(e) => {
@@ -2106,7 +2087,7 @@ export default function Rrhh({
 
               <div className="flex items-center gap-3 bg-blue-50 px-4 py-2 rounded-xl border border-blue-200">
                 <span className="text-xs font-bold text-blue-900">% Cargas Sociales:</span>
-                <input 
+                <input
                   type="number" step="0.01"
                   value={porcentajeCargasSociales}
                   onChange={(e) => setPorcentajeCargasSociales(Number(e.target.value) || 0)}
@@ -2126,12 +2107,12 @@ export default function Rrhh({
                 <span className="text-2xl font-black text-blue-700">
                   $ {totalCargasSociales.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
-                <button 
+                <button
                   onClick={handleRegistrarCargasSociales}
                   disabled={guardandoCargasSociales}
                   className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
                 >
-                  {guardandoCargasSociales ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />} 
+                  {guardandoCargasSociales ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
                   {guardandoCargasSociales ? 'Registrando...' : 'Registrar Cargas Sociales'}
                 </button>
               </div>
@@ -2149,7 +2130,6 @@ export default function Rrhh({
             </div>
           </div>
 
-          {/* 🔑 NUEVO: banner de progreso mientras hay un volcado en curso */}
           {volcandoCargaId && (
             <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-center gap-3 shadow-sm">
               <Loader2 className="w-5 h-5 text-amber-600 animate-spin shrink-0" />
@@ -2200,8 +2180,8 @@ export default function Rrhh({
                         <td className="px-6 py-4 font-bold text-slate-900">{cFecha}</td>
                         <td className="px-4 py-4">
                           <span className={`px-2.5 py-1 rounded-full font-extrabold text-[10px] uppercase ${
-                            cTipoReg.toLowerCase().includes('social') 
-                              ? 'bg-blue-100 text-blue-800 border border-blue-200' 
+                            cTipoReg.toLowerCase().includes('social')
+                              ? 'bg-blue-100 text-blue-800 border border-blue-200'
                               : 'bg-emerald-100 text-emerald-800 border border-emerald-200'
                           }`}>
                             {cTipoReg}
@@ -2231,16 +2211,16 @@ export default function Rrhh({
                           $ {cTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                         </td>
                         <td className="px-6 py-4 text-right space-x-1">
-                          <button 
-                            onClick={() => handleEditarCargaHistorial(c)} 
-                            className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" 
+                          <button
+                            onClick={() => handleEditarCargaHistorial(c)}
+                            className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer"
                             title="Ver / Editar"
                           >
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button 
-                            onClick={() => handleEliminarCargaHistorial(cId)} 
-                            className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" 
+                          <button
+                            onClick={() => handleEliminarCargaHistorial(cId)}
+                            className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer"
                             title="Eliminar"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -2309,7 +2289,7 @@ export default function Rrhh({
             <form onSubmit={handleGuardarPersonal} className="p-6 space-y-4">
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Nombre Completo *</label>
-                <input 
+                <input
                   type="text"
                   required
                   value={formData.nombre}
@@ -2320,7 +2300,7 @@ export default function Rrhh({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">CUIL</label>
-                  <input 
+                  <input
                     type="text"
                     value={formData.cuil}
                     onChange={(e) => setFormData({ ...formData, cuil: e.target.value })}
@@ -2329,7 +2309,7 @@ export default function Rrhh({
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Especialidad / Rol</label>
-                  <input 
+                  <input
                     type="text"
                     value={formData.especialidad}
                     onChange={(e) => setFormData({ ...formData, especialidad: e.target.value })}
@@ -2340,7 +2320,7 @@ export default function Rrhh({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Teléfono</label>
-                  <input 
+                  <input
                     type="text"
                     value={formData.telefono}
                     onChange={(e) => setFormData({ ...formData, telefono: e.target.value })}
@@ -2349,7 +2329,7 @@ export default function Rrhh({
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Email</label>
-                  <input 
+                  <input
                     type="email"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
@@ -2359,7 +2339,7 @@ export default function Rrhh({
               </div>
               <div>
                 <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Dirección</label>
-                <input 
+                <input
                   type="text"
                   value={formData.direccion}
                   onChange={(e) => setFormData({ ...formData, direccion: e.target.value })}
@@ -2369,7 +2349,7 @@ export default function Rrhh({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Costo en Mano ($)</label>
-                  <input 
+                  <input
                     type="number"
                     step="0.01"
                     value={formData.costo_en_mano}
@@ -2379,7 +2359,7 @@ export default function Rrhh({
                 </div>
                 <div>
                   <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Mes de Acuerdo</label>
-                  <input 
+                  <input
                     type="text"
                     value={formData.mes_acuerdo}
                     onChange={(e) => setFormData({ ...formData, mes_acuerdo: e.target.value })}

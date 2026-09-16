@@ -1,44 +1,22 @@
+// src/pages/Compras.jsx
 import React, { useState, useMemo, useCallback } from 'react';
 import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart } from 'lucide-react';
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+// 🔑 FIX: Apps Script se usa SOLO para el OCR y para subir archivos a Drive
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
-export default function Compras({  
-  GOOGLE_SCRIPT_URL, 
-  facturas = [], 
-  ordenesCompra = [], 
-  proveedores = [], 
-  obras = [], 
-  presupuestos = [],
-  contratosList: propContratos = [], 
-  contratos: propContratosAlt = [], 
-  insumosList = [], 
-  rubros = [], 
-  cargarDatos,
-  buscarValorEnObjeto = (obj, keys) => {
-    if (!obj || typeof obj !== 'object') return '';
-    
-    const normalizar = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
-    const objKeys = Object.keys(obj);
-    
-    for (const key of keys) {
-      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
-      const keyNorm = normalizar(key);
-      const realKey = objKeys.find(k => normalizar(k) === keyNorm);
-      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
-        return obj[realKey];
-      }
-    }
+export default function Compras() {
+  // 🔑 NUEVO: leemos las 7 colecciones necesarias en paralelo
+  const { data: facturas } = useFirestoreCollection('facturas_compras');
+  const { data: ordenesCompra } = useFirestoreCollection('ordenes_compra');
+  const { data: proveedores } = useFirestoreCollection('proveedores');
+  const { data: obras } = useFirestoreCollection('obras');
+  const { data: presupuestos } = useFirestoreCollection('presupuestos');
+  const { data: contratosList } = useFirestoreCollection('contratos');
+  const { data: rubros } = useFirestoreCollection('rubros');
 
-    for (const key of keys) {
-      const keyNorm = normalizar(key);
-      const realKey = objKeys.find(k => normalizar(k).includes(keyNorm) || keyNorm.includes(normalizar(k)));
-      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
-        return obj[realKey];
-      }
-    }
-
-    return '';
-  }
-}) {
   const [activeTab, setActiveTab] = useState('facturas');
   const [filtroProveedor, setFiltroProveedor] = useState('');
   const [filtroDocumento, setFiltroDocumento] = useState('');
@@ -62,10 +40,10 @@ export default function Compras({
     proveedor_id: '',
     obra_id: '',
     presupuesto_id: '',
-    contrato_id: '', 
-    tipo_gasto: 'Presupuesto', 
-    rubro_imputacion: '', 
-    tipo_insumo: 'Material', 
+    contrato_id: '',
+    tipo_gasto: 'Presupuesto',
+    rubro_imputacion: '',
+    tipo_insumo: 'Material',
     detalle_gasto: '',
     fecha: new Date().toISOString().split('T')[0],
     vencimiento: '',
@@ -95,6 +73,33 @@ export default function Compras({
     ]
   });
 
+  // 🔑 Helper: buscar valor en objeto ignorando mayúsculas/acentos
+  const buscarValorEnObjeto = useCallback((obj, keys) => {
+    if (!obj || typeof obj !== 'object') return '';
+
+    const normalizar = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
+    const objKeys = Object.keys(obj);
+
+    for (const key of keys) {
+      if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
+      const keyNorm = normalizar(key);
+      const realKey = objKeys.find(k => normalizar(k) === keyNorm);
+      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
+        return obj[realKey];
+      }
+    }
+
+    for (const key of keys) {
+      const keyNorm = normalizar(key);
+      const realKey = objKeys.find(k => normalizar(k).includes(keyNorm) || keyNorm.includes(normalizar(k)));
+      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
+        return obj[realKey];
+      }
+    }
+
+    return '';
+  }, []);
+
   const extraerArrayDatos = useCallback((fuente) => {
     if (Array.isArray(fuente)) return fuente;
     if (fuente && typeof fuente === 'object') {
@@ -114,42 +119,31 @@ export default function Compras({
       const est = String(buscarValorEnObjeto(pr, ['estado', 'Estado', 'ESTADO']) || '').toLowerCase();
       return !est || est.includes('aprobad') || est.includes('aprobado');
     });
-  }, [presupuestos]);
+  }, [presupuestos, buscarValorEnObjeto]);
 
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
-  const contratosList = useMemo(() => {
-    const p = extraerArrayDatos(propContratos);
-    const s = extraerArrayDatos(propContratosAlt);
-    
-    let extraGlobales = [];
-    if (p.length === 0 && s.length === 0) {
-      if (typeof window !== 'undefined' && window.globalData) {
-        extraGlobales = extraerArrayDatos(window.globalData.contratos || window.globalData.contratosList || window.globalData.contratos_mantenimiento);
-      }
-    }
-
-    const combinados = [...p, ...s, ...extraGlobales];
+  const contratosListFinal = useMemo(() => {
+    const todos = extraerArrayDatos(contratosList);
     const unicosMap = new Map();
-    combinados.forEach((item, index) => {
+    todos.forEach((item, index) => {
       if (!item) return;
       const key = String(buscarValorEnObjeto(item, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id', 'nro_contrato']) || index);
       if (!unicosMap.has(key)) {
         unicosMap.set(key, item);
       }
     });
-
     return Array.from(unicosMap.values());
-  }, [propContratos, propContratosAlt, extraerArrayDatos]);
+  }, [contratosList, extraerArrayDatos, buscarValorEnObjeto]);
 
   const listaContratosFinal = useMemo(() => {
-    if (!contratosList || contratosList.length === 0) return [];
-    const filtrados = contratosList.filter(c => {
+    if (!contratosListFinal || contratosListFinal.length === 0) return [];
+    const filtrados = contratosListFinal.filter(c => {
       const est = String(buscarValorEnObjeto(c, ['estado', 'Estado', 'ESTADO', 'status']) || '').toLowerCase();
       return !est || est.includes('aprobad') || est.includes('aprobado') || est.includes('vigente') || est.includes('activo') || est.includes('en curso');
     });
-    return filtrados.length > 0 ? filtrados : contratosList;
-  }, [contratosList]);
+    return filtrados.length > 0 ? filtrados : contratosListFinal;
+  }, [contratosListFinal, buscarValorEnObjeto]);
 
   const presupuestoSeleccionadoObj = useMemo(() => {
     if (!formData.presupuesto_id) return null;
@@ -157,10 +151,10 @@ export default function Compras({
       const pId = buscarValorEnObjeto(pr, ['id', 'ID', 'Id']);
       return String(pId).trim() === String(formData.presupuesto_id).trim();
     });
-  }, [presupuestos, formData.presupuesto_id]);
+  }, [presupuestos, formData.presupuesto_id, buscarValorEnObjeto]);
 
   const { rubrosDelPresupuesto, gastosGeneralesDelPresupuesto } = useMemo(() => {
-    let rubros = [];
+    let rubrosArr = [];
     let gastosGenerales = [];
     if (presupuestoSeleccionadoObj) {
       const rawItemsDetalle = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['items_detalle', 'Items_detalle', 'items', 'detalle']);
@@ -170,16 +164,16 @@ export default function Compras({
           parsedData = JSON.parse(rawItemsDetalle);
         }
         if (parsedData && Array.isArray(parsedData.rubros)) {
-          rubros = parsedData.rubros.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
+          rubrosArr = parsedData.rubros.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
         } else if (Array.isArray(parsedData)) {
-          rubros = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
+          rubrosArr = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
         }
 
         let rawGG = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['gastos_generales_insumos', 'Gastos_generales_insumos', 'gastos_generales', 'Gastos_generales']);
         if (!rawGG && parsedData && typeof parsedData === 'object') {
           rawGG = parsedData.gastos_generales_insumos || parsedData.gastos_generales || (parsedData.comercial && (parsedData.comercial.gastos_generales_insumos || parsedData.comercial.gastos_generales));
         }
-        
+
         let comercialObj = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['comercial', 'Comercial']);
         if (typeof comercialObj === 'string') {
           try { comercialObj = JSON.parse(comercialObj); } catch(e) {}
@@ -198,8 +192,8 @@ export default function Compras({
         console.error("Error al parsear presupuesto:", e);
       }
     }
-    return { rubrosDelPresupuesto: rubros, gastosGeneralesDelPresupuesto: gastosGenerales };
-  }, [presupuestoSeleccionadoObj]);
+    return { rubrosDelPresupuesto: rubrosArr, gastosGeneralesDelPresupuesto: gastosGenerales };
+  }, [presupuestoSeleccionadoObj, buscarValorEnObjeto]);
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
@@ -252,6 +246,32 @@ export default function Compras({
     return `OC-${String(maxNum + 1).padStart(4, '0')}`;
   };
 
+  // 🔑 NUEVO: sube un base64 a Drive vía Apps Script y devuelve la URL pública.
+  // Devuelve string vacío si algo falla (no rompe el guardado).
+  const subirArchivoADrive = async (base64, tabla) => {
+    if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'subirArchivoDrive',
+          base64,
+          tabla,
+          subseccion: ''
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.archivo_url) return data.archivo_url;
+      console.warn("No se pudo subir archivo a Drive:", data.error);
+      return '';
+    } catch (err) {
+      console.error("Error subiendo archivo a Drive:", err);
+      return '';
+    }
+  };
+
+  // ⚠️ OCR sigue usando Apps Script
   const handleArchivoSubido = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -264,7 +284,7 @@ export default function Compras({
     const nombreArchivo = archivo.name.toLowerCase();
     const esNcArchivo = nombreArchivo.includes('nc') || nombreArchivo.includes('nota de credito') || nombreArchivo.includes('nota de crédito') || nombreArchivo.includes('credito');
     const tipoNcSugerido = nombreArchivo.includes(' b') || nombreArchivo.includes('_b') || nombreArchivo.includes('-b') ? 'Nota de Crédito B' : 'Nota de Crédito A';
-    
+
     try {
       const reader = new FileReader();
       reader.readAsDataURL(archivo);
@@ -283,7 +303,7 @@ export default function Compras({
           const textoRespuesta = await res.text();
           let data;
           try { data = JSON.parse(textoRespuesta); } catch (parseErr) { data = { success: false }; }
-          
+
           let proveedorEncontradoId = '';
           if (data && data.proveedor && proveedores.length > 0) {
             const provMatch = proveedores.find(p => {
@@ -314,7 +334,7 @@ export default function Compras({
             persp_iibb_caba: Math.abs(Number(data && (data.persp_iibb_caba || data.percepcion_iibb_caba)) || prev.persp_iibb_caba),
             otros_impuestos: Math.abs(Number(data && data.otros_impuestos) || prev.otros_impuestos),
             total: Math.abs(Number(data && data.total) || prev.total),
-            archivo_url: base64Data
+            archivo_url: base64Data // se sube a Drive recién al guardar
           }));
           setIsUploadModalOpen(false);
           setIsFacturaModalOpen(true);
@@ -357,8 +377,8 @@ export default function Compras({
     const presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
     const contratoIdVal = tipoGastoObtenido === 'Contrato de Mantenimiento' ? buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) : '';
 
-    setFormData({ 
-      ...f, 
+    setFormData({
+      ...f,
       comprobante_tipo: tipoComp,
       n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '',
       proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']) || '',
@@ -384,12 +404,12 @@ export default function Compras({
     setIsFacturaModalOpen(true);
   };
 
+  // 🔑 FIX: guardar factura directo a Firestore (con subida a Drive si hay base64)
   const handleGuardarFactura = async (e) => {
     e.preventDefault();
     if (isSaving) return;
     setIsSaving(true);
     try {
-      const action = editingId ? 'update' : 'create';
       const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
 
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
@@ -398,8 +418,15 @@ export default function Compras({
       const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
       const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
 
+      // 🔑 NUEVO: subir el archivo a Drive si todavía es base64
+      let archivoUrlFinal = formData.archivo_url || '';
+      if (archivoUrlFinal && archivoUrlFinal.indexOf('data:') === 0) {
+        archivoUrlFinal = await subirArchivoADrive(archivoUrlFinal, 'Facturas');
+      }
+
       const payloadData = {
         ...formData,
+        archivo_url: archivoUrlFinal,
         subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
         iva_21: Math.abs(Number(formData.iva_21) || 0) * factorSigno,
         iva_10_5: Math.abs(Number(formData.iva_10_5) || 0) * factorSigno,
@@ -422,37 +449,23 @@ export default function Compras({
         insumo: formData.tipo_insumo
       };
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Facturas',
-          action: action,
-          id: editingId,
-          data: payloadData
-        })
-      });
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
 
-      const textoRespuesta = await res.text();
-      let data;
-      try { data = JSON.parse(textoRespuesta); } catch (parseErr) {
-        alert("Error del servidor.");
-        return;
-      }
-
-      if (data.success || data.id) {
-        setIsFacturaModalOpen(false);
-        if (cargarDatos) cargarDatos();
+      if (editingId) {
+        await actualizarDoc('facturas_compras', editingId, datosLimpios);
       } else {
-        alert("Error al guardar: " + (data.error || "Desconocido"));
+        await crearDoc('facturas_compras', datosLimpios);
       }
+
+      setIsFacturaModalOpen(false);
     } catch (err) {
-      alert("Error de conexión: " + err.message);
+      alert("Error al guardar: " + err.message);
     } finally {
       setIsSaving(false);
     }
   };
 
+  // 🔑 FIX: eliminar factura directo a Firestore
   const handleEliminarFactura = async (f) => {
     const facturaId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     if (!facturaId) {
@@ -461,19 +474,10 @@ export default function Compras({
     }
     if (!window.confirm("¿Estás seguro de eliminar esta factura?")) return;
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Facturas', action: 'delete', id: facturaId })
-      });
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
-        if (cargarDatos) cargarDatos();
-      } else {
-        alert("No se pudo eliminar.");
-      }
+      await eliminarDoc('facturas_compras', facturaId);
     } catch (err) {
       console.error(err);
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
@@ -518,50 +522,55 @@ export default function Compras({
       insumosParseados = [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
     }
 
-    setFormDataOc({ 
-      ...oc, 
+    setFormDataOc({
+      ...oc,
       fecha: formatearFechaParaInput(buscarValorEnObjeto(oc, ['fecha', 'Fecha'])),
       fecha_entrega: formatearFechaParaInput(buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega'])),
-      insumos_oc: insumosParseados 
+      insumos_oc: insumosParseados
     });
     setIsOcModalOpen(true);
   };
 
+  // 🔑 FIX: guardar OC directo a Firestore (colección `ordenes_compra`)
   const handleGuardarOc = async (e) => {
     e.preventDefault();
     if (isSaving) return;
     setIsSaving(true);
     try {
-      const action = editingOcId ? 'update' : 'create';
       const codigoFinal = editingOcId ? formDataOc.codigo : generarSiguienteCodigoOc();
-      const payloadData = { ...formDataOc, codigo: codigoFinal, insumos_oc: JSON.stringify(formDataOc.insumos_oc) };
+      const payloadData = {
+        ...formDataOc,
+        codigo: codigoFinal,
+        insumos_oc: JSON.stringify(formDataOc.insumos_oc)
+      };
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'OrdenesCompra', action: action, id: editingOcId, data: payloadData })
-      });
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success || data.id) {
-        setIsOcModalOpen(false);
-        if (cargarDatos) cargarDatos();
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
+
+      if (editingOcId) {
+        await actualizarDoc('ordenes_compra', editingOcId, datosLimpios);
       } else {
-        alert("Error al guardar OC.");
+        await crearDoc('ordenes_compra', datosLimpios);
       }
-    } catch (err) { console.error(err); } finally { setIsSaving(false); }
+
+      setIsOcModalOpen(false);
+    } catch (err) {
+      console.error(err);
+      alert("Error al guardar OC: " + (err.message || ''));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
+  // 🔑 FIX: eliminar OC directo a Firestore
   const handleEliminarOc = async (oc) => {
     const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
     if (!ocId || !window.confirm("¿Eliminar Orden de Compra?")) return;
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'OrdenesCompra', action: 'delete', id: ocId })
-      });
-      if (cargarDatos) cargarDatos();
-    } catch (err) { console.error(err); }
+      await eliminarDoc('ordenes_compra', ocId);
+    } catch (err) {
+      console.error(err);
+      alert("Error al eliminar OC: " + (err.message || ''));
+    }
   };
 
   const facturasFiltradas = useMemo(() => {
@@ -573,12 +582,11 @@ export default function Compras({
       if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
       if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
 
-      // Filtrado robusto con prefijos PRES- y CONT-
       let matchDocumento = true;
       if (filtroDocumento) {
         const presId = buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id', 'presupuestoid', 'presupuesto']);
         const contId = buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id', 'contratoid', 'contrato']);
-        
+
         if (filtroDocumento.startsWith('PRES-')) {
           const idLimpio = filtroDocumento.replace('PRES-', '');
           matchDocumento = String(presId).trim() === String(idLimpio).trim();
@@ -590,7 +598,7 @@ export default function Compras({
 
       return matchProveedor && matchFecha && matchDocumento;
     });
-  }, [facturas, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento]);
+  }, [facturas, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, buscarValorEnObjeto]);
 
   const ordenesFiltradas = useMemo(() => {
     return ordenesCompra.filter(oc => {
@@ -602,12 +610,10 @@ export default function Compras({
       if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
       return matchProveedor && matchFecha;
     });
-  }, [ordenesCompra, filtroProveedor, filtroFechaDesde, filtroFechaHasta]);
+  }, [ordenesCompra, filtroProveedor, filtroFechaDesde, filtroFechaHasta, buscarValorEnObjeto]);
 
   const requiereObra = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
-  const requierePresupuesto = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
-
-  return (
+  const requierePresupuesto = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';  return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -748,12 +754,12 @@ export default function Compras({
                   const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
                   const totalVal = Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL'])) || 0;
                   const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO', 'estadopago']) || 'pendiente').toLowerCase();
-                  
+
                   const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '---';
                   const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo', 'archivourl']) || '';
                   const tipoGastoDisplay = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto', 'tipogasto']) || 'Presupuesto';
-                  
+
                   const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro', 'rubroimputacion']);
                   const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon', 'tipoinsumo']);
                   const detalleDisplay = rubroImputacion ? `${rubroImputacion} ${tipoInsumo ? '(' + tipoInsumo + ')' : ''}` : (buscarValorEnObjeto(f, ['rubro', 'Rubro', 'detalle_gasto', 'detalle']) || '---');
@@ -773,7 +779,7 @@ export default function Compras({
                       <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : estadoPago === 'contabilizado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{estadoPago}</span></td>
                       <td className="px-4 py-4 text-center">
                         {archivoLink && archivoLink !== 'Comprobante_Adjunto' ? (
-                          <button type="button" onClick={() => handleVerArchivo(f)} className="text-blue-600 hover:text-blue-800 p-1.5 bg-blue-50 rounded-lg shadow-sm cursor-pointer" title="Ver comprobante en Google Drive"><Paperclip className="w-4 h-4" /></button>
+                          <button type="button" onClick={() => handleVerArchivo(f)} className="text-blue-600 hover:text-blue-800 p-1.5 bg-blue-50 rounded-lg shadow-sm cursor-pointer" title="Ver comprobante"><Paperclip className="w-4 h-4" /></button>
                         ) : (
                           <span className="text-slate-300">-</span>
                         )}
@@ -964,7 +970,7 @@ export default function Compras({
               <button onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50 cursor-pointer"><X className="w-5 h-5"/></button>
             </div>
             <form onSubmit={handleGuardarFactura} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-              
+
               <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl flex items-center gap-2 text-xs">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
                 <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación. Las notas de crédito se registrarán automáticamente en el listado de movimientos de tesorería y restarán en los totales.</span>
@@ -973,15 +979,15 @@ export default function Compras({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo Comprobante</label>
-                  <select 
-                    disabled={isSaving} 
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" 
-                    value={formData.comprobante_tipo} 
+                  <select
+                    disabled={isSaving}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
+                    value={formData.comprobante_tipo}
                     onChange={(e) => {
                       const tipoVal = e.target.value;
                       const esNC = tipoVal.toLowerCase().includes('nota de crédito') || tipoVal.toLowerCase().includes('nota de credito');
                       setFormData({
-                        ...formData, 
+                        ...formData,
                         comprobante_tipo: tipoVal,
                         estado_pago: esNC ? 'contabilizado' : formData.estado_pago
                       });
@@ -1017,12 +1023,12 @@ export default function Compras({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto *</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" 
-                    value={formData.tipo_gasto} 
+                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
+                    value={formData.tipo_gasto}
                     onChange={(e) => {
                       const val = e.target.value;
                       setFormData({
-                        ...formData, 
+                        ...formData,
                         tipo_gasto: val,
                         presupuesto_id: '',
                         contrato_id: '',
@@ -1070,17 +1076,17 @@ export default function Compras({
                         <option value="Materiales del Contrato">Materiales del Contrato</option>
                       </select>
                     ) : (
-                      <select 
-                        required 
-                        disabled={isSaving} 
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" 
-                        value={formData.rubro_imputacion} 
+                      <select
+                        required
+                        disabled={isSaving}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
+                        value={formData.rubro_imputacion}
                         onChange={(e) => {
                           const nuevoRubro = e.target.value;
                           setFormData({
-                            ...formData, 
+                            ...formData,
                             rubro_imputacion: nuevoRubro,
-                            tipo_insumo: formData.tipo_gasto === 'Viaticos-Nafta' ? 'Mano de Obra' : 'Material' 
+                            tipo_insumo: formData.tipo_gasto === 'Viaticos-Nafta' ? 'Mano de Obra' : 'Material'
                           });
                         }}
                       >
@@ -1102,11 +1108,11 @@ export default function Compras({
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
                     {formData.rubro_imputacion === 'Gastos Generales' ? 'Renglón Gastos Generales *' : 'Tipo de Insumo *'}
                   </label>
-                  <select 
+                  <select
                     required
-                    disabled={isSaving} 
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" 
-                    value={formData.tipo_insumo} 
+                    disabled={isSaving}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
+                    value={formData.tipo_insumo}
                     onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}
                   >
                     {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (

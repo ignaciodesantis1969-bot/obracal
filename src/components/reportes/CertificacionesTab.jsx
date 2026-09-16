@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2, Loader2, Pencil, Lock } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
+import { crearDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function CertificacionesTab({
   presupuestos = [],
@@ -12,29 +13,26 @@ export default function CertificacionesTab({
   contratosList = [],
   isOp2 = false,
   currentUser = null,
-  ...props 
+  ...props
 }) {
-  // 🔑 NUEVO: detección de rol admin para bloquear borrado de certificados
   const rolStr = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
   const esAdminOGerencia = rolStr === 'administrador' || rolStr === 'admin' || rolStr === 'gerencia' || rolStr === 'gerente';
 
   const [tipoCertificadoSubTab, setTipoCertificadoSubTab] = useState(isOp2 ? 'horas_hombre' : 'avance_obra');
   const [certPresupuestoId, setCertPresupuestoId] = useState('');
   const [certClienteNombre, setCertClienteNombre] = useState('');
-  const [fetchedCertificadosLocal, setFetchedCertificadosLocal] = useState([]);
-  
+
   const [avanceActualMap, setAvanceActualMap] = useState({});
   const [adicionalesMonto, setAdicionalesMonto] = useState(0);
-  
+
   const [certificadoNro, setCertificadoNro] = useState('0');
   const [certFecha, setCertFecha] = useState(new Date().toISOString().slice(0, 10));
-  
+
   const [adelantoPct, setAdelantoPct] = useState(10);
   const [adelantoMonto, setAdelantoMonto] = useState(0);
   const [redeterminacionPct, setRedeterminacionPct] = useState(0);
   const [redeterminacionMonto, setRedeterminacionMonto] = useState(0);
 
-  // 🔑 NUEVO: override manual del descuento por desacopio
   const [ajusteManualDescuento, setAjusteManualDescuento] = useState(false);
   const [descuentoManualMonto, setDescuentoManualMonto] = useState(0);
 
@@ -42,7 +40,6 @@ export default function CertificacionesTab({
   const [certRespCliente, setCertRespCliente] = useState({ nombre: '', cargo: '' });
   const [isSavingCert, setIsSavingCert] = useState(false);
 
-  // EXTRACTOR BLINDADO: Convierte Arrays 2D de Google Sheets a Objetos JSON mapeados
   const extraerArrayDatos = (fuente) => {
     if (!fuente) return [];
     let arr = Array.isArray(fuente) ? fuente : (fuente.certificados || fuente.data || fuente.items || fuente.result || []);
@@ -63,35 +60,17 @@ export default function CertificacionesTab({
     return arr;
   };
 
-  useEffect(() => {
-    const cargarCertificadosDesdeSheet = async () => {
-      try {
-        const res = await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({ tabla: 'Certificados', action: 'cargarCertificadosOptimizados' })
-        });
-        const data = await res.json();
-        const arr = extraerArrayDatos(data.certificados || data);
-        if (arr.length > 0) {
-          setFetchedCertificadosLocal(arr);
-        }
-      } catch (e) {
-        // Silenciado
-      }
-    };
-    cargarCertificadosDesdeSheet();
-  }, []);
+  // 🔑 MIGRACIÓN A FIRESTORE: ya NO fetcheamos certificados desde Sheets.
+  // Los certificados llegan por props desde Reportes.jsx (que lee de Firestore).
+  // (Se eliminó el useEffect que llamaba a cargarCertificadosOptimizados.)
 
-  // 🔑 SIMPLIFICADO: menos fuentes, memo dependencias concretas
   const allCertificados = useMemo(() => {
     const combinados = [
-      ...extraerArrayDatos(fetchedCertificadosLocal),
       ...extraerArrayDatos(props.certificadosProps),
       ...extraerArrayDatos(props.fetchedCertificados),
       ...extraerArrayDatos(props.certificadosList),
     ];
-    
+
     const map = new Map();
     combinados.forEach(c => {
       if (!c) return;
@@ -102,13 +81,13 @@ export default function CertificacionesTab({
         c.certificado_nro !== undefined ? c.certificado_nro : (c.certificadoNro || c.certificadonro || c.CertificadoNro || '')
       ).trim();
       const keyId = String(c.id || c.ID || `${pId}_${nro}` || Math.random());
-      
+
       if (pId && pId !== '' && pId !== 'undefined' && pId !== 'null' && keyId !== '_') {
         map.set(keyId, c);
       }
     });
     return Array.from(map.values());
-  }, [fetchedCertificadosLocal, props.certificadosProps, props.fetchedCertificados, props.certificadosList]);
+  }, [props.certificadosProps, props.fetchedCertificados, props.certificadosList]);
 
   const certificadoPresupuestoObj = useMemo(() => {
     if (!certPresupuestoId) return null;
@@ -127,7 +106,7 @@ export default function CertificacionesTab({
     const idSel = String(certPresupuestoId).trim();
     const codigoSel = String(certificadoPresupuestoObj?.codigo || '').trim();
     const idSelInt = parseInt(idSel, 10);
-    
+
     return allCertificados.filter(c => {
       if (!c) return false;
       const pId = String(
@@ -136,10 +115,10 @@ export default function CertificacionesTab({
       if (!pId || pId === 'undefined' || pId === 'null') return false;
 
       const pIdInt = parseInt(pId, 10);
-      
+
       return (
-        pId === idSel || 
-        (codigoSel && pId.toLowerCase() === codigoSel.toLowerCase()) || 
+        pId === idSel ||
+        (codigoSel && pId.toLowerCase() === codigoSel.toLowerCase()) ||
         (!isNaN(idSelInt) && !isNaN(pIdInt) && pIdInt === idSelInt) ||
         (codigoSel && !isNaN(pIdInt) && pIdInt === parseInt(codigoSel, 10))
       );
@@ -150,7 +129,6 @@ export default function CertificacionesTab({
     });
   }, [allCertificados, certPresupuestoId, certificadoPresupuestoObj]);
 
-  // 🔑 NUEVO: buscar el Certificado 0 (Adelanto Financiero) del presupuesto actual
   const certificadoCero = useMemo(() => {
     return certificadosDelPresupuestoActual.find(c => {
       const nro = String(c?.certificado_nro ?? c?.certificadoNro ?? c?.certificadonro ?? '').trim();
@@ -158,19 +136,17 @@ export default function CertificacionesTab({
     }) || null;
   }, [certificadosDelPresupuestoActual]);
 
-  // 🔑 NUEVO: monto del adelanto otorgado en el Certificado 0
   const adelantoOriginalOtorgado = useMemo(() => {
     if (!certificadoCero) return 0;
-    // Se guarda como total_periodo en Cert. 0 según esquema acordado
     const v = certificadoCero.total_periodo ?? certificadoCero.totalPeriodo ?? certificadoCero.adelanto_descuento ?? certificadoCero.adelantoDescuento ?? 0;
     return Number(v) || 0;
   }, [certificadoCero]);
 
   useEffect(() => {
     if (certificadoPresupuestoObj) {
-      const razonSocialCliente = certificadoPresupuestoObj.cliente || 
-                                 certificadoPresupuestoObj.razon_social || 
-                                 certificadoPresupuestoObj.cliente_razon_social || 
+      const razonSocialCliente = certificadoPresupuestoObj.cliente ||
+                                 certificadoPresupuestoObj.razon_social ||
+                                 certificadoPresupuestoObj.cliente_razon_social ||
                                  'YPF GAS S.A.';
       setCertClienteNombre(typeof razonSocialCliente === 'string' ? razonSocialCliente : 'YPF GAS S.A.');
 
@@ -194,7 +170,6 @@ export default function CertificacionesTab({
           return isNaN(n) ? 0 : n;
         });
         const maxNro = Math.max(...numeros, -1);
-        // 🔑 NUEVO: si ya existe Cert. 0, forzar el siguiente a 1 como mínimo
         const siguiente = maxNro + 1;
         setCertificadoNro(String(siguiente < 0 ? 0 : siguiente));
       } else {
@@ -249,13 +224,13 @@ export default function CertificacionesTab({
     const filasRender = itemsDetalle.map((rubro, rIdx) => {
       let totalRubro = 0, rubroAnterior = 0, rubroActual = 0;
       const tareasRubro = Array.isArray(rubro?.tareas) ? rubro.tareas : [];
-      
+
       const tareasFilas = tareasRubro.map((t, tIdx) => {
         const cant = Number(t?.cantidad) || Number(t?.cant) || 1;
         const costoUnit = Number(t?.costo_unitario || t?.costoUnitario || t?.costo || 0);
         const pUnit = Number(t?.precio_venta) || Number(t?.precioVenta) || Number(t?.precioUnitarioVenta) || Number(t?.precio_unitario) || Number(t?.precioUnitario) || Number(t?.precio) || (costoUnit * coefPase);
         const totalItem = Number(t?.total || t?.subtotal || (cant * pUnit));
-        
+
         totalRubro += totalItem;
 
         const pctAnterior = obtenerPctAnteriorAcumulado(rIdx, tIdx);
@@ -283,34 +258,27 @@ export default function CertificacionesTab({
     return { filasRender, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
-  // 🔑 NUEVO: cálculo unificado del resumen financiero
   const resumenFinanciero = useMemo(() => {
     const esCertificadoCero = Number(certificadoNro) === 0;
     const presupuestoTotalVenta = certificadoCalculos.totalPresupuestoCalc || 0;
     const avanceCertificadoPeriodo = certificadoCalculos.totalActualCalc || 0;
 
-    // Descuento por desacopio (solo en Cert. > 0 y si existe Cert. 0 con adelanto)
     const descuentoCalculado = (!esCertificadoCero && adelantoOriginalOtorgado > 0 && presupuestoTotalVenta > 0)
       ? Math.round(avanceCertificadoPeriodo * (adelantoOriginalOtorgado / presupuestoTotalVenta))
       : 0;
 
-    // Override manual del descuento
     const descuentoDesacopio = ajusteManualDescuento ? (Number(descuentoManualMonto) || 0) : descuentoCalculado;
 
-    // Monto del adelanto a otorgar (solo en Cert. 0)
     const adelantoOtorgado = esCertificadoCero
       ? Number(adelantoMonto || (presupuestoTotalVenta * (adelantoPct / 100)))
       : 0;
 
-    // Total período (avance certificado en Cert. > 0; $0 en Cert. 0)
     const totalPeriodo = esCertificadoCero ? 0 : avanceCertificadoPeriodo;
 
-    // Neto (avance − descuento + adicionales, o adelanto otorgado en Cert. 0)
     const netoACertificar = esCertificadoCero
       ? adelantoOtorgado
       : (avanceCertificadoPeriodo - descuentoDesacopio + Number(adicionalesMonto || 0));
 
-    // Redeterminación sobre el NETO (confirmado por el usuario)
     const redeterminacion = Number(redeterminacionMonto) || (netoACertificar * (Number(redeterminacionPct) || 0) / 100);
 
     const totalFinalLiquidacion = netoACertificar + redeterminacion;
@@ -333,22 +301,22 @@ export default function CertificacionesTab({
     adelantoMonto, adelantoPct, adicionalesMonto, redeterminacionMonto, redeterminacionPct
   ]);
 
+  // 🔑 MIGRACIÓN A FIRESTORE: el .gs genera el PDF, el frontend crea el doc en Firestore
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
-    
+
     if (!certPresupuestoId || String(certPresupuestoId).trim() === '') {
       toast.error("Debe seleccionar un presupuesto válido antes de guardar.");
       return;
     }
 
-    // 🔑 NUEVO: validar que no se emita un segundo Cert. 0
     if (Number(certificadoNro) === 0 && certificadoCero) {
       toast.error("Ya existe un Certificado N° 0 para este presupuesto. Solo puede haber uno.");
       return;
     }
 
     setIsSavingCert(true);
-    const toastId = toast.loading('Generando PDF en Google Drive y guardando certificado...');
+    const toastId = toast.loading('Generando PDF en Google Drive...');
 
     try {
       const idLimpio = String(certPresupuestoId).trim();
@@ -377,61 +345,77 @@ export default function CertificacionesTab({
         cliente_cargo: certRespCliente.cargo
       };
 
+      // PASO 1: pedirle al .gs que genere el PDF en Drive
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payloadCert)
       });
       const resultado = await res.json();
-      
+
       if (!resultado || (resultado.success === false && !resultado.ok && resultado.status !== 'success')) {
         throw new Error(resultado?.error || "Error desconocido devuelto por el servidor.");
       }
-      
+
       const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
-      
-      const nuevoCertGuardado = { 
-        ...payloadCert, 
-        presupuestoId: idLimpio, 
-        certificadoNro: String(certificadoNro), 
-        pdfUrl: pdfUrlFinal, 
-        id: resultado?.id || `cert-${Date.now()}` 
+
+      // PASO 2: crear el doc en Firestore
+      const payloadFirestore = {
+        presupuesto_id: idLimpio,
+        presupuestoId: idLimpio,
+        certificado_nro: String(certificadoNro),
+        certificadoNro: String(certificadoNro),
+        fecha: String(certFecha),
+        cliente: certClienteNombre,
+        obra: String(certificadoPresupuestoObj?.nombre || 'Obra'),
+        orden_compra: obtenerOrdenDeCompraLocal(certificadoPresupuestoObj),
+        filas: JSON.stringify(certificadoCalculos.filasRender),
+        total_periodo: r.totalPeriodo,
+        adelanto_descuento: r.descuentoDesacopio,
+        adicionales: Number(adicionalesMonto),
+        redeterminacion: r.redeterminacion,
+        total_general: r.totalFinalLiquidacion,
+        proveedor_nombre: certRespProveedor.nombre,
+        proveedor_cargo: certRespProveedor.cargo,
+        cliente_nombre: certRespCliente.nombre,
+        cliente_cargo: certRespCliente.cargo,
+        pdf_url: pdfUrlFinal,
+        pdfUrl: pdfUrlFinal
       };
 
-      setFetchedCertificadosLocal(prev => [nuevoCertGuardado, ...prev]);
-      if (typeof props.setFetchedCertificados === 'function') {
-        props.setFetchedCertificados(prev => [nuevoCertGuardado, ...prev]);
-      }
-      
-      toast.success("¡Certificado guardado con éxito en Sheets y PDF generado en Drive!", { id: toastId });
+      await crearDoc('certificados', payloadFirestore);
+
+      toast.success("¡Certificado guardado con éxito en Firestore y PDF generado en Drive!", { id: toastId });
+
+      // Reset opcional: limpiar avance actual y montos
+      setAvanceActualMap({});
+      setAdicionalesMonto(0);
+      setRedeterminacionPct(0);
+      setRedeterminacionMonto(0);
+      setAjusteManualDescuento(false);
+      setDescuentoManualMonto(0);
     } catch (err) {
+      console.error('[Certificaciones] Error al guardar:', err);
       toast.error(err.message || "Error al guardar certificado.", { id: toastId });
     } finally {
       setIsSavingCert(false);
     }
   };
 
-  // 🔑 MODIFICADO: bloqueo de borrado para no-admins
+  // 🔑 MIGRACIÓN A FIRESTORE: eliminar certificado directo de la colección
   const eliminarCertificadoServidor = async (certId) => {
     if (!esAdminOGerencia) {
       toast.error("Solo administradores pueden eliminar certificados.");
       return;
     }
     if (!window.confirm("¿Está seguro de eliminar este certificado?")) return;
+
     const toastId = toast.loading('Eliminando certificado...');
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Certificados', action: 'delete', id: certId })
-      });
-
-      setFetchedCertificadosLocal(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
-      if (typeof props.setFetchedCertificados === 'function') {
-        props.setFetchedCertificados(prev => prev.filter(c => String(c?.id || '') !== String(certId)));
-      }
+      await eliminarDoc('certificados', certId);
       toast.success("Certificado eliminado.", { id: toastId });
-    } catch (err) { 
+    } catch (err) {
+      console.error('[Certificaciones] Error al eliminar:', err);
       toast.error("Error al intentar eliminar.", { id: toastId });
     }
   };
@@ -525,7 +509,6 @@ export default function CertificacionesTab({
             </div>
           ) : (
             <div id="printable-certificado-container" className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
-              {/* 🔑 NUEVO: banner de aviso si es Cert. 0 */}
               {resumenFinanciero.esCertificadoCero && (
                 <div className="bg-blue-50 border border-blue-300 rounded-xl p-3 flex items-start gap-2 text-xs">
                   <Lock className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
@@ -536,7 +519,6 @@ export default function CertificacionesTab({
                 </div>
               )}
 
-              {/* 🔑 NUEVO: aviso si hay Cert. 0 emitido y estamos en un cert. > 0 */}
               {!resumenFinanciero.esCertificadoCero && adelantoOriginalOtorgado > 0 && (
                 <div className="bg-amber-50 border border-amber-300 rounded-xl p-3 flex items-start gap-2 text-xs">
                   <ShieldCheck className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
@@ -593,7 +575,7 @@ export default function CertificacionesTab({
                   </strong>
                 </div>
               </div>
-              
+
               <div className="overflow-x-auto border border-slate-400 rounded-xl">
                 <table className="w-full text-left text-xs border-collapse table-auto">
                   <thead>
@@ -652,7 +634,6 @@ export default function CertificacionesTab({
                                   min="0"
                                   max="100"
                                   value={t.pctActual}
-                                  // 🔑 NUEVO: inputs bloqueados en Cert. 0
                                   disabled={resumenFinanciero.esCertificadoCero}
                                   onChange={(e) => {
                                     const val = parseFloat(e.target.value) || 0;
@@ -673,12 +654,10 @@ export default function CertificacionesTab({
                 </table>
               </div>
 
-              {/* 🔑 NUEVO: resumen financiero unificado */}
               <div className="bg-slate-50 border-2 border-slate-800 rounded-2xl p-6 space-y-4">
                 <h3 className="text-xs font-black text-slate-900 uppercase border-b border-slate-300 pb-2">RESUMEN Y LIQUIDACIÓN FINANCIERA</h3>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-xs">
-                  {/* COLUMNA IZQUIERDA: Cálculos del certificado */}
                   <div className="space-y-3">
                     {resumenFinanciero.esCertificadoCero ? (
                       <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
@@ -724,7 +703,6 @@ export default function CertificacionesTab({
                           <span className="font-black text-slate-900 text-sm font-mono">$ {resumenFinanciero.avanceCertificadoPeriodo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
                         </div>
 
-                        {/* 🔑 NUEVO: bloque de descuento por desacopio con override manual */}
                         {adelantoOriginalOtorgado > 0 && (
                           <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
                             <div className="flex justify-between items-center">
@@ -781,7 +759,6 @@ export default function CertificacionesTab({
                     </div>
                   </div>
 
-                  {/* COLUMNA DERECHA: Redeterminación y total general */}
                   <div className="space-y-3">
                     <div className="bg-white p-3 rounded-xl border border-slate-300 space-y-2">
                       <span className="font-bold text-slate-700 block uppercase">Redeterminación de Precio</span>
@@ -828,7 +805,6 @@ export default function CertificacionesTab({
                 </div>
               </div>
 
-              {/* BLOQUE DE FIRMAS */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 print:mt-10">
                 <div className="border border-slate-400 rounded-lg overflow-hidden bg-white">
                   <div className="bg-[#e2e8f0] border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-[11px] uppercase tracking-wider">
@@ -879,13 +855,13 @@ export default function CertificacionesTab({
             <form onSubmit={aprobarYGuardarCertificado} className="border border-slate-300 rounded-xl overflow-hidden mt-6 bg-white p-4 space-y-4 shadow-sm print:hidden">
               <h4 className="font-black text-xs text-slate-900 uppercase">Aprobación y Firma del Certificado</h4>
               <div className="flex justify-end pt-2">
-                <button 
+                <button
                   type="submit"
                   disabled={isSavingCert}
                   className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
                 >
                   {isSavingCert ? <Loader2 className="w-4 h-4 animate-spin text-amber-300" /> : <ShieldCheck className="w-4 h-4" />}
-                  {isSavingCert ? 'Generando PDF y Guardando...' : 'Guardar Certificado en Sheets'}
+                  {isSavingCert ? 'Generando PDF y Guardando...' : 'Guardar Certificado'}
                 </button>
               </div>
             </form>
@@ -911,7 +887,6 @@ export default function CertificacionesTab({
                       <th className="px-4 py-3">Cliente</th>
                       <th className="px-4 py-3">Obra</th>
                       <th className="px-4 py-3 text-right">Total General</th>
-                      {/* 🔑 NUEVO: columna acciones solo si es admin */}
                       {esAdminOGerencia && <th className="px-4 py-3 text-center">Acciones</th>}
                     </tr>
                   </thead>
@@ -956,9 +931,9 @@ export default function CertificacionesTab({
       )}
 
       {tipoCertificadoSubTab === 'horas_hombre' && (
-        <CertificadoHorasHombreTab 
-          contratosList={contratosList} 
-          allReportesSice={allReportesSice} 
+        <CertificadoHorasHombreTab
+          contratosList={contratosList}
+          allReportesSice={allReportesSice}
           currentUser={currentUser}
         />
       )}

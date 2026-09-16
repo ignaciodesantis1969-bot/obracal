@@ -1,118 +1,117 @@
-import { useQuery } from '@tanstack/react-query';
-import { useEffect } from 'react';
-import toast from 'react-hot-toast';
-import { GOOGLE_SCRIPT_URL } from '../api';
+// src/hooks/useObraData.js
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 
-// 🔑 Cache helper: guarda y lee del sessionStorage
-const guardarCache = (key, data) => {
-  try {
-    if (Array.isArray(data) && data.length > 0) {
-      sessionStorage.setItem(`obraData:${key}`, JSON.stringify({
-        data,
-        ts: Date.now()
-      }));
-    }
-  } catch (e) {}
+/**
+ * 🔑 MIGRACIÓN A FIRESTORE
+ * -------------------------
+ * Este hook antes hacía fetch a Google Apps Script con React Query.
+ * Ahora lee directo de Firestore con useFirestoreCollection (onSnapshot).
+ *
+ * Se mantiene la MISMA interfaz pública para no tocar los 6 subcomponentes
+ * de Reportes ni ningún otro archivo que lo use:
+ *
+ *   const { data, isLoading, error, refetch } = useObraData('NombreDeTabla');
+ *
+ * `refetch` ya no hace nada real (Firestore es en vivo), pero se devuelve
+ * una función no-op para que el código que lo llama no explote.
+ */
+
+// Mapeo: nombre de "tabla" en Sheets/Apps Script → nombre de colección en Firestore
+const MAPA_TABLAS_A_COLECCIONES = {
+  // Contratos / Mantenimiento
+  'ContratosMantenimiento': 'contratos',
+  'Contratos': 'contratos',
+  'contratos_mantenimiento': 'contratos',
+  'contratosMantenimiento': 'contratos',
+
+  // Reportes diarios
+  'ReportesDiariosSice': 'reportes_diarios',
+  'ReportesSice': 'reportes_diarios',
+  'ReportesDiarios': 'reportes_diarios',
+
+  // Tesorería / movimientos
+  'Tesoreria': 'tesoreria',
+  'MovimientosTesoreria': 'tesoreria',
+
+  // Certificados (avance de obra)
+  'Certificados': 'certificados',
+  'CertificadosEmitidos': 'certificados',
+
+  // Certificaciones de horas (contratos)
+  'CertificacionesHoras': 'certificaciones_horas',
+  'Certificaciones_horas': 'certificaciones_horas',
+
+  // Personal / RRHH
+  'Personal': 'personal',
+  'Legajos': 'legajos',
+  'CargasSemanales': 'cargas_semanales',
+  'Cargas_semanales': 'cargas_semanales',
+
+  // Maestros
+  'Insumos': 'insumos',
+  'Proveedores': 'proveedores',
+  'Clientes': 'clientes',
+  'Obras': 'obras',
+  'Presupuestos': 'presupuestos',
+  'Rubros': 'rubros',
+  'MaestroTareasRubros': 'maestro',
+  'Maestro': 'maestro',
+  'TareasTemplate': 'maestro',
+
+  // Compras / ventas
+  'Facturas': 'facturas_compras',
+  'FacturasCompras': 'facturas_compras',
+  'FacturasVenta': 'facturas_ventas',
+  'Facturas_venta': 'facturas_ventas',
+  'OrdenesCompra': 'ordenes_compra',
+  'Ordenes_compra': 'ordenes_compra',
+
+  // Usuarios
+  'Usuarios': 'usuarios',
+  'Usuario': 'usuarios',
 };
 
-const leerCache = (key) => {
-  try {
-    const raw = sessionStorage.getItem(`obraData:${key}`);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    // Cache válida por 30 minutos
-    if (Date.now() - parsed.ts < 30 * 60 * 1000) {
-      return parsed.data;
-    }
-  } catch (e) {}
-  return null;
-};
+function resolverColeccion(tabla) {
+  if (!tabla) return null;
+  const tablaStr = String(tabla).trim();
+  if (!tablaStr) return null;
 
-const fetchObraData = async (tabla, action) => {
-  const cacheKey = `${tabla}:${action}`;
-  try {
-    const response = await fetch(GOOGLE_SCRIPT_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ tabla, action })
-    });
-
-    // 🔑 Detectar respuesta HTML (error de Google) en vez de JSON
-    const contentType = response.headers.get('content-type') || '';
-    if (!contentType.includes('json') && response.status !== 200) {
-      console.warn(`[useObraData] Respuesta no-JSON para ${tabla}. Status: ${response.status}`);
-      // Intentar usar cache
-      const cached = leerCache(cacheKey);
-      if (cached && cached.length > 0) {
-        console.info(`[useObraData] Usando cache de ${tabla} por fallo del backend`);
-        return cached;
-      }
-      return [];
-    }
-
-    const textResponse = await response.text();
-    let result;
-    try {
-      result = JSON.parse(textResponse);
-    } catch (e) {
-      console.warn(`[useObraData] JSON inválido para ${tabla}. Usando cache si existe.`);
-      // Fallback a cache
-      const cached = leerCache(cacheKey);
-      if (cached && cached.length > 0) return cached;
-      return [];
-    }
-
-    let arrayFinal = [];
-    if (Array.isArray(result)) {
-      arrayFinal = result;
-    } else if (result && typeof result === 'object') {
-      if (Array.isArray(result.data)) arrayFinal = result.data;
-      else if (Array.isArray(result.items)) arrayFinal = result.items;
-      else if (Array.isArray(result.result)) arrayFinal = result.result;
-      else {
-        const posibleArray = Object.values(result).find(val => Array.isArray(val));
-        arrayFinal = posibleArray || [];
-      }
-    }
-
-    // 🔑 Guardar en cache si obtuvimos datos válidos
-    if (arrayFinal.length > 0) {
-      guardarCache(cacheKey, arrayFinal);
-    }
-
-    return arrayFinal;
-  } catch (err) {
-    console.error(`[useObraData] Error de fetch para ${tabla}:`, err);
-    const cached = leerCache(cacheKey);
-    if (cached && cached.length > 0) return cached;
-    return [];
+  if (MAPA_TABLAS_A_COLECCIONES[tablaStr]) {
+    return MAPA_TABLAS_A_COLECCIONES[tablaStr];
   }
-};
+
+  const tablaLower = tablaStr.toLowerCase();
+  for (const [key, value] of Object.entries(MAPA_TABLAS_A_COLECCIONES)) {
+    if (key.toLowerCase() === tablaLower) {
+      return value;
+    }
+  }
+
+  return tablaLower;
+}
 
 export const useObraData = (tabla, action = 'get') => {
-  const { data = [], isLoading, error, refetch } = useQuery({
-    queryKey: ['obraData', tabla, action],
-    queryFn: () => fetchObraData(tabla, action),
-    enabled: !!tabla,
-    staleTime: 1000 * 60 * 5,
-    refetchOnMount: false,
-    refetchOnWindowFocus: false,
-    retry: 1,
-    retryDelay: 3000,
-    // 🔑 Cache inicial desde sessionStorage para render instantáneo
-    initialData: () => leerCache(`${tabla}:${action}`) || undefined,
-  });
+  const coleccion = resolverColeccion(tabla);
+  const coleccionValida = coleccion && String(coleccion).trim() ? String(coleccion).trim() : '';
 
-  useEffect(() => {
-    if (error) {
-      console.error(`Error al cargar datos de la tabla: ${tabla}`, error);
-      // Solo mostrar toast si NO tenemos cache disponible
-      const cached = leerCache(`${tabla}:${action}`);
-      if (!cached || cached.length === 0) {
-        toast.error(`Error al cargar datos de la tabla: ${tabla}`);
-      }
-    }
-  }, [error, tabla, action]);
+  // El hook de Firestore ya maneja '' devolviendo { data: [], loading: false, error: null }
+  const { data: firestoreData, loading, error: firestoreError } = useFirestoreCollection(coleccionValida);
 
-  return { data, isLoading, error, refetch };
+  const data = Array.isArray(firestoreData) ? firestoreData : [];
+
+  // refetch no-op: Firestore ya está en vivo
+  const refetch = async () => data;
+
+  if (process.env.NODE_ENV === 'development' && !coleccionValida) {
+    console.warn(`[useObraData] No se pudo resolver colección para tabla: ${tabla}`);
+  }
+
+  return {
+    data,
+    isLoading: loading,
+    error: firestoreError || null,
+    refetch,
+  };
 };
+
+export default useObraData;

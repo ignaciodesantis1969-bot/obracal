@@ -1,12 +1,17 @@
+// src/pages/Proveedores.jsx
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2, X, Filter } from 'lucide-react';
-import { GOOGLE_SCRIPT_URL } from '@/api';
+// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL (ya no se usa)
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function Proveedores() {
-  const [proveedores, setProveedores] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // 🔑 NUEVO: lectura en tiempo real desde Firestore (colección `proveedores`)
+  const { data: proveedores, loading: isLoading, error: errorFirestore } = useFirestoreCollection('proveedores');
+
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedRubro, setSelectedRubro] = useState(''); // Estado para el filtro por rubro
+  const [selectedRubro, setSelectedRubro] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingProveedor, setEditingProveedor] = useState(null);
@@ -25,50 +30,34 @@ export default function Proveedores() {
     contacto: ''
   });
 
- 
-
-  const fetchData = async () => {
-    setIsLoading(true);
-    try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' }, 
-        body: JSON.stringify({ action: 'cargarDetalleCompleto' }) 
-      });
-
-      const data = await response.json();
-      const listaProv = data.proveedores || data.Proveedores || [];
-      setProveedores(Array.isArray(listaProv) ? listaProv : []);
-
-      const codigoSugerido = generarCodigoAutomatico(listaProv);
-      setNuevoProveedor(prev => ({ ...prev, codigo: codigoSugerido }));
-    } catch (err) {
-      console.error("Error al cargar proveedores:", err);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-  }, []);
-
+  // 🔑 NUEVO: autogenera PR### basándose en los proveedores existentes
+  // Formato: PR001, PR002, PR003...  (acepta también PV### por compatibilidad)
   const generarCodigoAutomatico = (lista) => {
     let maxNum = 0;
     (lista || []).forEach(p => {
-      const cod = String(p.codigo || '');
-      const match = cod.match(/(?:PR|PV)(\d+)/i);
+      const cod = String(p.codigo || '').trim();
+      const match = cod.match(/^(?:PR|PV)-?0*(\d+)$/i);
       if (match) {
         const num = parseInt(match[1], 10);
-        if (!isNaN(num) && num > maxNum) {
-          maxNum = num;
-        }
+        if (!isNaN(num) && num > maxNum) maxNum = num;
       }
     });
     return `PR${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  // 🛡️ FUNCIÓN DE CREACIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
+  // 🔑 NUEVO: cuando el usuario abre el modal de "Nuevo Proveedor",
+  // se autogenera el código. Al editar, se respeta el que ya tenía.
+  useEffect(() => {
+    if (isModalOpen && proveedores.length > 0 && !nuevoProveedor.codigo) {
+      setNuevoProveedor(prev => ({
+        ...prev,
+        codigo: generarCodigoAutomatico(proveedores)
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isModalOpen, proveedores]);
+
+  // 🔑 FIX: creación directo a Firestore (sin fetch al Apps Script)
   const handleCrear = async (e) => {
     e.preventDefault();
     if (isSavingCreate) return;
@@ -76,82 +65,66 @@ export default function Proveedores() {
     setIsSavingCreate(true);
     try {
       const codigoActual = generarCodigoAutomatico(proveedores);
-      const proveedorConCodigo = { ...nuevoProveedor, codigo: codigoActual, estado: 'Activo' };
+      const proveedorConCodigo = {
+        ...nuevoProveedor,
+        codigo: codigoActual,
+        estado: 'Activo'
+      };
+      // 🔑 FIX: limpiar campos internos de Firestore (los que empiezan con _)
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = proveedorConCodigo;
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Proveedores',
-          action: 'create',
-          data: proveedorConCodigo
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setIsModalOpen(false);
-        setNuevoProveedor({ codigo: '', razon_social: '', rubro: '', cuit: '', telefono: '', email: '', contacto: '' });
-        fetchData();
-      } else {
-        alert("Error al crear proveedor: " + (data.error || ''));
-      }
+      await crearDoc('proveedores', datosLimpios);
+
+      setIsModalOpen(false);
+      setNuevoProveedor({ codigo: '', razon_social: '', rubro: '', cuit: '', telefono: '', email: '', contacto: '' });
+      // Firestore actualiza la lista en tiempo real vía onSnapshot.
     } catch (err) {
       console.error("Error:", err);
-      alert("Error de conexión al crear.");
+      alert("Error al crear proveedor: " + (err.message || ''));
     } finally {
       setIsSavingCreate(false);
     }
   };
 
-  // 🛡️ FUNCIÓN DE ACTUALIZACIÓN CON PROTECCIÓN CONTRA CLICS MÚLTIPLES
+  // 🔑 FIX: actualización directo a Firestore
   const handleActualizar = async (e) => {
     e.preventDefault();
     if (!editingProveedor || isSavingUpdate) return;
 
     setIsSavingUpdate(true);
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Proveedores',
-          action: 'update',
-          id: editingProveedor.id,
-          data: editingProveedor
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setIsEditModalOpen(false);
-        setEditingProveedor(null);
-        fetchData();
-      } else {
-        alert("Error al actualizar proveedor: " + (data.error || ''));
-      }
+      // 🔑 FIX: limpiar campos internos (_creadoEn, _actualizadoEn) y el id antes de actualizar
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = editingProveedor;
+
+      await actualizarDoc('proveedores', id, datosLimpios);
+
+      setIsEditModalOpen(false);
+      setEditingProveedor(null);
+      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error("Error:", err);
-      alert("Error de conexión al actualizar.");
+      alert("Error al actualizar proveedor: " + (err.message || ''));
     } finally {
       setIsSavingUpdate(false);
     }
   };
 
+  // 🔑 FIX: eliminación directo a Firestore
   const handleEliminar = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar este proveedor?")) return;
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Proveedores', action: 'delete', id })
-      });
-      fetchData();
+      await eliminarDoc('proveedores', id);
+      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error("Error al eliminar:", err);
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
   // Obtener lista única de rubros para el desplegable de filtro
-  const rubrosUnicos = [...new Set(proveedores.map(p => String(p.rubro || p.Rubro || '').trim()).filter(Boolean))].sort();
+  const rubrosUnicos = [...new Set(
+    proveedores.map(p => String(p.rubro || p.Rubro || '').trim()).filter(Boolean)
+  )].sort();
 
   // Filtrado combinado por texto y por rubro seleccionado
   const proveedoresFiltrados = proveedores.filter(p => {
@@ -160,14 +133,24 @@ export default function Proveedores() {
     const codigo = String(p.codigo || '').toLowerCase();
     const query = searchTerm.toLowerCase();
 
-    const matchesSearch = razonSocial.includes(query) || rubro.toLowerCase().includes(query) || codigo.includes(query);
+    const matchesSearch =
+      razonSocial.includes(query) ||
+      rubro.toLowerCase().includes(query) ||
+      codigo.includes(query);
     const matchesRubro = !selectedRubro || rubro.toLowerCase() === selectedRubro.toLowerCase();
 
     return matchesSearch && matchesRubro;
   });
 
+  const error = errorFirestore ? 'Error al conectar con Firestore.' : '';
+
   if (isLoading) {
-    return <div className="p-20 text-center"><Loader2 className="w-10 h-10 animate-spin mx-auto text-amber-500" /> <span className="text-sm text-slate-500 font-medium">Cargando proveedores...</span></div>;
+    return (
+      <div className="p-20 text-center">
+        <Loader2 className="w-10 h-10 animate-spin mx-auto text-amber-500" />
+        <span className="text-sm text-slate-500 font-medium">Cargando proveedores...</span>
+      </div>
+    );
   }
 
   return (
@@ -176,11 +159,21 @@ export default function Proveedores() {
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Gestión de Proveedores</h1>
-          <p className="text-slate-500 text-sm mt-1">Administración de proveedores, rubros y datos de contacto.</p>
+          <p className="text-slate-500 text-sm mt-1">
+            Administración de proveedores, rubros y datos de contacto. ({proveedores.length} registrados)
+          </p>
         </div>
         <button
           onClick={() => {
-            setNuevoProveedor({ codigo: generarCodigoAutomatico(proveedores), razon_social: '', rubro: '', cuit: '', telefono: '', email: '', contacto: '' });
+            setNuevoProveedor({
+              codigo: generarCodigoAutomatico(proveedores),
+              razon_social: '',
+              rubro: '',
+              cuit: '',
+              telefono: '',
+              email: '',
+              contacto: ''
+            });
             setIsModalOpen(true);
           }}
           className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm"
@@ -194,7 +187,7 @@ export default function Proveedores() {
         {/* Buscador */}
         <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border border-slate-300 shadow-sm w-full flex-1">
           <Search className="w-5 h-5 text-slate-400 shrink-0" />
-          <input 
+          <input
             type="text"
             placeholder="Buscar proveedor por código, razón social o rubro..."
             className="w-full bg-transparent outline-none text-sm text-slate-800 placeholder:text-slate-400"
@@ -219,10 +212,18 @@ export default function Proveedores() {
         </div>
       </div>
 
+      {error && (
+        <div className="p-4 bg-red-50 text-red-600 text-sm text-center border border-red-200 rounded-xl">
+          {error}
+        </div>
+      )}
+
       {/* Tabla de Proveedores */}
       <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
         {proveedoresFiltrados.length === 0 ? (
-          <div className="p-12 text-center text-slate-400 text-sm">No se encontraron proveedores registrados con los filtros aplicados.</div>
+          <div className="p-12 text-center text-slate-400 text-sm">
+            No se encontraron proveedores registrados con los filtros aplicados.
+          </div>
         ) : (
           <table className="w-full text-left text-xs">
             <thead>
@@ -260,7 +261,7 @@ export default function Proveedores() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
+                        <button
                           onClick={() => {
                             setEditingProveedor(p);
                             setIsEditModalOpen(true);
@@ -270,7 +271,7 @@ export default function Proveedores() {
                         >
                           <Edit2 className="w-4 h-4" />
                         </button>
-                        <button 
+                        <button
                           onClick={() => handleEliminar(p.id)}
                           className="p-2 text-slate-400 hover:text-red-600 bg-white border border-slate-200 hover:border-red-300 rounded-xl shadow-sm transition-all flex items-center justify-center"
                           title="Eliminar Proveedor"
@@ -293,12 +294,14 @@ export default function Proveedores() {
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">Nuevo Proveedor</h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+              <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <form onSubmit={handleCrear} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Código (Automático)</label>
-                <input 
+                <input
                   type="text"
                   required
                   readOnly
@@ -309,77 +312,88 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Razón Social *</label>
-                <input 
+                <input
                   type="text"
                   required
                   placeholder="Ej: Corralón El Constructor S.A."
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold"
                   value={nuevoProveedor.razon_social}
-                  onChange={(e) => setNuevoProveedor({...nuevoProveedor, razon_social: e.target.value})}
+                  onChange={(e) => setNuevoProveedor({ ...nuevoProveedor, razon_social: e.target.value })}
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
-                <input 
+                <input
                   type="text"
                   required
                   placeholder="Ej: Materiales de Construcción"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold"
                   value={nuevoProveedor.rubro}
-                  onChange={(e) => setNuevoProveedor({...nuevoProveedor, rubro: e.target.value})}
+                  onChange={(e) => setNuevoProveedor({ ...nuevoProveedor, rubro: e.target.value })}
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">CUIT</label>
-                <input 
+                <input
                   type="text"
                   placeholder="Ej: 30-12345678-9"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-slate-400 font-semibold"
                   value={nuevoProveedor.cuit}
-                  onChange={(e) => setNuevoProveedor({...nuevoProveedor, cuit: e.target.value})}
+                  onChange={(e) => setNuevoProveedor({ ...nuevoProveedor, cuit: e.target.value })}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Teléfono</label>
-                  <input 
+                  <input
                     type="text"
                     placeholder="Ej: 11-2345-6789"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-slate-400 font-semibold"
                     value={nuevoProveedor.telefono}
-                    onChange={(e) => setNuevoProveedor({...nuevoProveedor, telefono: e.target.value})}
+                    onChange={(e) => setNuevoProveedor({ ...nuevoProveedor, telefono: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase sm:truncate mb-1">Email</label>
-                  <input 
+                  <input
                     type="email"
                     placeholder="contacto@proveedor.com"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-slate-400 font-semibold"
                     value={nuevoProveedor.email}
-                    onChange={(e) => setNuevoProveedor({...nuevoProveedor, email: e.target.value})}
+                    onChange={(e) => setNuevoProveedor({ ...nuevoProveedor, email: e.target.value })}
                   />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contacto</label>
-                <input 
+                <input
                   type="text"
                   placeholder="Nombre de la persona de contacto"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-slate-400 font-semibold"
                   value={nuevoProveedor.contacto}
-                  onChange={(e) => setNuevoProveedor({...nuevoProveedor, contacto: e.target.value})}
+                  onChange={(e) => setNuevoProveedor({ ...nuevoProveedor, contacto: e.target.value })}
                 />
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <button type="button" onClick={() => setIsModalOpen(false)} disabled={isSavingCreate} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
-                <button type="submit" disabled={isSavingCreate} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
-                  {isSavingCreate ? <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</> : 'Guardar Proveedor'}
+                <button
+                  type="button"
+                  onClick={() => setIsModalOpen(false)}
+                  disabled={isSavingCreate}
+                  className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingCreate}
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2"
+                >
+                  {isSavingCreate ? <><Loader2 className="w-4 h-4 animate-spin" /> Guardando...</> : 'Guardar Proveedor'}
                 </button>
               </div>
             </form>
@@ -393,12 +407,14 @@ export default function Proveedores() {
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">Modificar Proveedor</h3>
-              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+              <button onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-5 h-5" />
+              </button>
             </div>
             <form onSubmit={handleActualizar} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Código</label>
-                <input 
+                <input
                   type="text"
                   readOnly
                   className="w-full bg-slate-100 border border-slate-300 text-blue-600 rounded-lg px-3 py-2 text-sm outline-none font-bold cursor-not-allowed"
@@ -408,71 +424,82 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Razón Social *</label>
-                <input 
+                <input
                   type="text"
                   required
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold"
                   value={editingProveedor.razon_social || editingProveedor.nombre || ''}
-                  onChange={(e) => setEditingProveedor({...editingProveedor, razon_social: e.target.value})}
+                  onChange={(e) => setEditingProveedor({ ...editingProveedor, razon_social: e.target.value })}
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
-                <input 
+                <input
                   type="text"
                   required
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold"
                   value={editingProveedor.rubro || editingProveedor.Rubro || ''}
-                  onChange={(e) => setEditingProveedor({...editingProveedor, rubro: e.target.value})}
+                  onChange={(e) => setEditingProveedor({ ...editingProveedor, rubro: e.target.value })}
                 />
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">CUIT</label>
-                <input 
+                <input
                   type="text"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-slate-400 font-semibold"
                   value={editingProveedor.cuit || ''}
-                  onChange={(e) => setEditingProveedor({...editingProveedor, cuit: e.target.value})}
+                  onChange={(e) => setEditingProveedor({ ...editingProveedor, cuit: e.target.value })}
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Teléfono</label>
-                  <input 
+                  <input
                     type="text"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-slate-400 font-semibold"
                     value={editingProveedor.telefono || ''}
-                    onChange={(e) => setEditingProveedor({...editingProveedor, telefono: e.target.value})}
+                    onChange={(e) => setEditingProveedor({ ...editingProveedor, telefono: e.target.value })}
                   />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase sm:truncate mb-1">Email</label>
-                  <input 
+                  <input
                     type="email"
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-slate-400 font-semibold"
                     value={editingProveedor.email || ''}
-                    onChange={(e) => setEditingProveedor({...editingProveedor, email: e.target.value})}
+                    onChange={(e) => setEditingProveedor({ ...editingProveedor, email: e.target.value })}
                   />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contacto</label>
-                <input 
+                <input
                   type="text"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-slate-400 font-semibold"
                   value={editingProveedor.contacto || ''}
-                  onChange={(e) => setEditingProveedor({...editingProveedor, contacto: e.target.value})}
+                  onChange={(e) => setEditingProveedor({ ...editingProveedor, contacto: e.target.value })}
                 />
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <button type="button" onClick={() => setIsEditModalOpen(false)} disabled={isSavingUpdate} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
-                <button type="submit" disabled={isSavingUpdate} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
-                  {isSavingUpdate ? <><Loader2 className="w-4 h-4 animate-spin"/> Actualizando...</> : 'Actualizar Proveedor'}
+                <button
+                  type="button"
+                  onClick={() => setIsEditModalOpen(false)}
+                  disabled={isSavingUpdate}
+                  className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingUpdate}
+                  className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2"
+                >
+                  {isSavingUpdate ? <><Loader2 className="w-4 h-4 animate-spin" /> Actualizando...</> : 'Actualizar Proveedor'}
                 </button>
               </div>
             </form>

@@ -1,21 +1,63 @@
-import React, { useState, useEffect } from 'react';
+// src/pages/PresupuestoDetalle.jsx
+import React, { useState, useEffect, useMemo } from 'react'; // 🔑 NUEVO: useMemo
 import { useParams, Link } from 'react-router-dom';
 import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronRight, FileText } from 'lucide-react';
 import { exportarPresupuestoExcel, exportarPresupuestoPDF } from '../utils/exportUtils';
-import { GOOGLE_SCRIPT_URL } from '@/api';
+// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc } from '@/lib/firestoreHelpers';
 
 export default function PresupuestoDetalle() {
   const { id: presupuestoId } = useParams();
 
-  const [presupuesto, setPresupuesto] = useState(null);
-  const [obra, setObra] = useState(null);
-  const [cliente, setCliente] = useState(null);
-  const [itemsDetalle, setItemsDetalle] = useState([]);
-  const [maestroTareas, setMaestroTareas] = useState([]);
-  const [certificados, setCertificados] = useState([]);
-  const [insumosList, setInsumosList] = useState([]);
-  const [rubrosList, setRubrosList] = useState([]); 
-  const [isLoading, setIsLoading] = useState(true);
+  // 🔑 NUEVO: leemos todas las colecciones necesarias en paralelo
+  const { data: presupuestos, loading: loadingPres } = useFirestoreCollection('presupuestos');
+  const { data: obras, loading: loadingObras } = useFirestoreCollection('obras');
+  const { data: clientes } = useFirestoreCollection('clientes');
+  const { data: maestroRaw } = useFirestoreCollection('maestro');
+  const { data: certificados } = useFirestoreCollection('certificados');
+  const { data: insumosList } = useFirestoreCollection('insumos');
+  const { data: rubrosList } = useFirestoreCollection('rubros');
+
+  const isLoading = loadingPres || loadingObras;
+  const errorFirestore = null;
+
+  // 🔑 NUEVO: encontrar el presupuesto actual y sus datos relacionados
+  const presupuesto = useMemo(
+    () => presupuestos.find(p => String(p.id).trim() === String(presupuestoId).trim()) || {},
+    [presupuestos, presupuestoId]
+  );
+
+  const obra = useMemo(
+    () => obras.find(o => String(o.id).trim() === String(presupuesto?.obra_id || '').trim()) || {},
+    [obras, presupuesto]
+  );
+
+  const cliente = useMemo(() => {
+    const clienteId = obra?.cliente_id || obra?.clienteId;
+    return clientes.find(c => String(c.id).trim() === String(clienteId || '').trim()) || {};
+  }, [clientes, obra]);
+
+  // 🔑 NUEVO: aplanar el maestro de tareas (misma lógica que antes)
+  const maestroTareas = useMemo(() => {
+    let tareasPlanas = [];
+    if (Array.isArray(maestroRaw)) {
+      maestroRaw.forEach(item => {
+        if (item.tareasFilas && Array.isArray(item.tareasFilas)) {
+          item.tareasFilas.forEach(t => {
+            tareasPlanas.push({
+              ...t,
+              rubro: t.rubro || item.rubro || item.nombre
+            });
+          });
+        } else if (item.tarea || item.descripcion) {
+          tareasPlanas.push(item);
+        }
+      });
+    }
+    return tareasPlanas;
+  }, [maestroRaw]);
 
   const [activeTab, setActiveTab] = useState('costos');
 
@@ -32,7 +74,7 @@ export default function PresupuestoDetalle() {
   const [isSavingTarea, setIsSavingTarea] = useState(false);
 
   const [isExportModalOpen, setIsExportModalOpen] = useState(false);
-  const [exportFormato, setExportFormato] = useState('excel'); 
+  const [exportFormato, setExportFormato] = useState('excel');
 
   const [notasPresupuesto, setNotasPresupuesto] = useState({
     impuestos: "El precio indicado en la cotización no contempla el impuesto I.V.A.",
@@ -52,8 +94,8 @@ export default function PresupuestoDetalle() {
   });
 
   const [gastosGeneralesInsumos, setGastosGeneralesInsumos] = useState([]);
-  const [porcentajeComisionVenta, setPorcentajeComisionVenta] = useState(0); 
-  const [porcentajeImprevistos, setPorcentajeImprevistos] = useState(1.5); 
+  const [porcentajeComisionVenta, setPorcentajeComisionVenta] = useState(0);
+  const [porcentajeImprevistos, setPorcentajeImprevistos] = useState(1.5);
 
   const [impuestosPorcentajes, setImpuestosPorcentajes] = useState({
     iibb: 3.5,
@@ -66,168 +108,87 @@ export default function PresupuestoDetalle() {
 
   const [rubrosColapsados, setRubrosColapsados] = useState({});
   const [rubrosConOrden, setRubrosConOrden] = useState([]);
+  const [itemsDetalle, setItemsDetalle] = useState([]);
 
-  // 🚀 CARGA EN PARALELO AISLADA (Promise.all) por cada tabla correspondiente
-  const cargarDatosDetalle = async (reintentos = 3) => {
-    setIsLoading(true);
+  // 🔑 NUEVO: cuando llega el presupuesto desde Firestore, parseamos su items_detalle y comercial
+  useEffect(() => {
+    if (!presupuesto || !presupuesto.id) return;
+
+    let itemsParseados = [];
+    let comercialParseado = null;
+
     try {
-      const [resPres, resObras, resClientes, resMt, resCert, resInsumos, resRubros] = await Promise.all([
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Presupuestos', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Obras', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Clientes', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'MaestroTareasRubros', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Certificados', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Insumos', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ tabla: 'Rubros', action: 'list' }) })
-      ]);
-
-      const presupuestosList = await resPres.json();
-      const obrasList = await resObras.json();
-      const clientesList = await resClientes.json();
-      const mtList = await resMt.json();
-      const certList = await resCert.json();
-      const insList = await resInsumos.json();
-      const rubList = await resRubros.json();
-
-      const presActual = Array.isArray(presupuestosList) ? presupuestosList.find(p => String(p.id).trim() === String(presupuestoId).trim()) : null;
-
-      if (!presActual && reintentos > 0) {
-        console.warn(`Presupuesto ${presupuestoId} no encontrado todavía. Reintentando en 1.5s... (${reintentos} intentos restantes)`);
-        setTimeout(() => cargarDatosDetalle(reintentos - 1), 1500);
-        return;
-      }
-
-      setPresupuesto(presActual || {});
-
-      let itemsParseados = [];
-      let comercialParseado = null;
-
-      if (presActual) {
-        try {
-          if (presActual.items_detalle) {
-            const parsed = typeof presActual.items_detalle === 'string' ? JSON.parse(presActual.items_detalle) : presActual.items_detalle;
-            if (parsed && !Array.isArray(parsed) && parsed.rubros) {
-              itemsParseados = parsed.rubros;
-              comercialParseado = parsed.comercial;
-            } else if (Array.isArray(parsed)) {
-              itemsParseados = parsed;
-            }
-          }
-        } catch (e) {
-          itemsParseados = [];
-        }
-
-        if (comercialParseado) {
-          if (Array.isArray(comercialParseado.gastos_generales_insumos)) {
-            setGastosGeneralesInsumos(comercialParseado.gastos_generales_insumos);
-          }
-          if (comercialParseado.porcentaje_comision_venta !== undefined) {
-            setPorcentajeComisionVenta(Number(comercialParseado.porcentaje_comision_venta));
-          }
-          if (comercialParseado.porcentaje_imprevistos !== undefined) {
-            setPorcentajeImprevistos(Number(comercialParseado.porcentaje_imprevistos));
-          }
-          if (comercialParseado.impuestos_porcentajes) {
-            setImpuestosPorcentajes(prev => ({ ...prev, ...comercialParseado.impuestos_porcentajes }));
-          }
-          if (comercialParseado.notas) {
-            setNotasPorDefecto(comercialParseado.notas);
-          }
-        } else {
-          if (presActual.gastos_generales_insumos) {
-            try {
-              const gg = typeof presActual.gastos_generales_insumos === 'string' 
-                ? JSON.parse(presActual.gastos_generales_insumos) 
-                : presActual.gastos_generales_insumos;
-              if (Array.isArray(gg)) setGastosGeneralesInsumos(gg);
-            } catch (e) {}
-          }
-          if (presActual.porcentaje_comision_venta !== undefined && presActual.porcentaje_comision_venta !== null && presActual.porcentaje_comision_venta !== '') {
-            setPorcentajeComisionVenta(Number(presActual.porcentaje_comision_venta));
-          }
-          if (presActual.porcentaje_imprevistos !== undefined && presActual.porcentaje_imprevistos !== null && presActual.porcentaje_imprevistos !== '') {
-            setPorcentajeImprevistos(Number(presActual.porcentaje_imprevistos));
-          }
-          if (presActual.impuestos_porcentajes) {
-            try {
-              const imp = typeof presActual.impuestos_porcentajes === 'string'
-                ? JSON.parse(presActual.impuestos_porcentajes)
-                : presActual.impuestos_porcentajes;
-              if (imp && typeof imp === 'object') {
-                setImpuestosPorcentajes(prev => ({ ...prev, ...imp }));
-              }
-            } catch (e) {}
-          }
-        }
-
-        if (presActual.obra_id) {
-          const obraEncontrada = Array.isArray(obrasList) ? obrasList.find(o => String(o.id).trim() === String(presActual.obra_id).trim()) : null;
-          setObra(obraEncontrada || {});
-          if (obraEncontrada) {
-            const clienteId = obraEncontrada.cliente_id || obraEncontrada.clienteId;
-            const clienteEncontrado = Array.isArray(clientesList) ? clientesList.find(c => String(c.id).trim() === String(clienteId).trim()) : null;
-            setCliente(clienteEncontrado || {});
-          }
+      if (presupuesto.items_detalle) {
+        const parsed = typeof presupuesto.items_detalle === 'string'
+          ? JSON.parse(presupuesto.items_detalle)
+          : presupuesto.items_detalle;
+        if (parsed && !Array.isArray(parsed) && parsed.rubros) {
+          itemsParseados = parsed.rubros;
+          comercialParseado = parsed.comercial;
+        } else if (Array.isArray(parsed)) {
+          itemsParseados = parsed;
         }
       }
-
-      if (!Array.isArray(itemsParseados) || itemsParseados.length === 0) {
-        itemsParseados = [
-          { rubro: 'RUBRO GENERAL / PRINCIPAL', numero: 1, tareas: [] }
-        ];
-      } else {
-        itemsParseados = itemsParseados.map((r, idx) => ({
-          ...r,
-          numero: r.numero !== undefined ? Number(r.numero) : idx + 1
-        }));
-      }
-
-      setItemsDetalle(itemsParseados);
-      
-      let tareasPlanas = [];
-      if (Array.isArray(mtList)) {
-        mtList.forEach(item => {
-          if (item.tareasFilas && Array.isArray(item.tareasFilas)) {
-            item.tareasFilas.forEach(t => {
-              tareasPlanas.push({
-                ...t,
-                rubro: t.rubro || item.rubro || item.nombre
-              });
-            });
-          } else if (item.tarea || item.descripcion) {
-            tareasPlanas.push(item);
-          }
-        });
-      }
-      setMaestroTareas(tareasPlanas);
-
-      setCertificados(Array.isArray(certList) ? certList : []);
-      setInsumosList(Array.isArray(insList) ? insList : []);
-      setRubrosList(Array.isArray(rubList) ? rubList : []);
-    } catch (err) {
-      console.error("Error al cargar detalle:", err);
-      if (reintentos > 0) {
-        setTimeout(() => cargarDatosDetalle(reintentos - 1), 1500);
-      }
-    } finally {
-      setIsLoading(false);
+    } catch (e) {
+      itemsParseados = [];
     }
-  };
 
-  const setNotasPorDefecto = (notasObj) => {
-    setNotasPresupuesto(prev => ({
-      ...prev,
-      ...notasObj
-    }));
-  };
-
-  useEffect(() => { 
-    if (presupuestoId) {
-      cargarDatosDetalle(); 
+    // Comercial embebido
+    if (comercialParseado) {
+      if (Array.isArray(comercialParseado.gastos_generales_insumos)) {
+        setGastosGeneralesInsumos(comercialParseado.gastos_generales_insumos);
+      }
+      if (comercialParseado.porcentaje_comision_venta !== undefined) {
+        setPorcentajeComisionVenta(Number(comercialParseado.porcentaje_comision_venta));
+      }
+      if (comercialParseado.porcentaje_imprevistos !== undefined) {
+        setPorcentajeImprevistos(Number(comercialParseado.porcentaje_imprevistos));
+      }
+      if (comercialParseado.impuestos_porcentajes) {
+        setImpuestosPorcentajes(prev => ({ ...prev, ...comercialParseado.impuestos_porcentajes }));
+      }
+      if (comercialParseado.notas) {
+        setNotasPresupuesto(prev => ({ ...prev, ...comercialParseado.notas }));
+      }
     } else {
-      setIsLoading(false);
+      // Fallbacks a campos planos (presupuestos viejos)
+      if (presupuesto.gastos_generales_insumos) {
+        try {
+          const gg = typeof presupuesto.gastos_generales_insumos === 'string'
+            ? JSON.parse(presupuesto.gastos_generales_insumos)
+            : presupuesto.gastos_generales_insumos;
+          if (Array.isArray(gg)) setGastosGeneralesInsumos(gg);
+        } catch (e) {}
+      }
+      if (presupuesto.porcentaje_comision_venta !== undefined && presupuesto.porcentaje_comision_venta !== null && presupuesto.porcentaje_comision_venta !== '') {
+        setPorcentajeComisionVenta(Number(presupuesto.porcentaje_comision_venta));
+      }
+      if (presupuesto.porcentaje_imprevistos !== undefined && presupuesto.porcentaje_imprevistos !== null && presupuesto.porcentaje_imprevistos !== '') {
+        setPorcentajeImprevistos(Number(presupuesto.porcentaje_imprevistos));
+      }
+      if (presupuesto.impuestos_porcentajes) {
+        try {
+          const imp = typeof presupuesto.impuestos_porcentajes === 'string'
+            ? JSON.parse(presupuesto.impuestos_porcentajes)
+            : presupuesto.impuestos_porcentajes;
+          if (imp && typeof imp === 'object') {
+            setImpuestosPorcentajes(prev => ({ ...prev, ...imp }));
+          }
+        } catch (e) {}
+      }
     }
-  }, [presupuestoId]);
+
+    if (!Array.isArray(itemsParseados) || itemsParseados.length === 0) {
+      itemsParseados = [{ rubro: 'RUBRO GENERAL / PRINCIPAL', numero: 1, tareas: [] }];
+    } else {
+      itemsParseados = itemsParseados.map((r, idx) => ({
+        ...r,
+        numero: r.numero !== undefined ? Number(r.numero) : idx + 1
+      }));
+    }
+
+    setItemsDetalle(itemsParseados);
+  }, [presupuesto]);
 
   useEffect(() => {
     if (itemsDetalle && itemsDetalle.length > 0) {
@@ -236,6 +197,8 @@ export default function PresupuestoDetalle() {
         numero: r.numero !== undefined ? Number(r.numero) : 1
       })).sort((a, b) => a.numero - b.numero);
       setRubrosConOrden(rubrosOrdenados);
+    } else {
+      setRubrosConOrden([]);
     }
   }, [itemsDetalle]);
 
@@ -256,7 +219,7 @@ export default function PresupuestoDetalle() {
       return;
     }
 
-    const nuevosItems = itemsDetalle.map(r => 
+    const nuevosItems = itemsDetalle.map(r =>
       r.rubro === nombreRubro ? { ...r, numero: nuevoNumero } : r
     );
 
@@ -270,6 +233,7 @@ export default function PresupuestoDetalle() {
   const esAprobado = estadoActual === 'aprobado';
   const esRechazado = estadoActual === 'rechazado';
 
+  // 🔑 FIX: guardado directo a Firestore
   const guardarEstructuraPresupuesto = async (nuevosItems, nuevoCoef = null) => {
     if (!esBorrador) {
       alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede ser modificado.`);
@@ -327,7 +291,6 @@ export default function PresupuestoDetalle() {
     };
 
     const datosActualizados = {
-      ...presupuesto,
       costo_directo: costoDirectoTotal,
       precio_venta: precioVentaTotal,
       coeficiente_pase: coef,
@@ -339,16 +302,11 @@ export default function PresupuestoDetalle() {
     };
 
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Presupuestos', action: 'update', id: presupuestoId, data: datosActualizados })
-      });
-      setPresupuesto(datosActualizados);
+      await actualizarDoc('presupuestos', presupuestoId, datosActualizados);
       setItemsDetalle(itemsValidados);
     } catch (err) {
-      console.error("Error al guardar en Google Sheets:", err);
-      alert("Hubo un error al guardar los cambios.");
+      console.error("Error al guardar en Firestore:", err);
+      alert("Hubo un error al guardar los cambios: " + (err.message || ''));
     }
   };
 
@@ -365,6 +323,7 @@ export default function PresupuestoDetalle() {
     return `R${String(maxNum + 1).padStart(3, '0')}`;
   };
 
+  // 🔑 FIX: crear rubro en Firestore (colección `rubros` + actualizar presupuesto)
   const handleCrearRubro = async (e) => {
     e.preventDefault();
     if (isSavingRubro) return;
@@ -378,7 +337,7 @@ export default function PresupuestoDetalle() {
     setIsSavingRubro(true);
     try {
       const nombreRubroUpper = nombreNuevoRubro.trim().toUpperCase();
-      
+
       if (itemsDetalle.some(r => r.rubro === nombreRubroUpper)) {
         alert("El rubro ya existe en este presupuesto.");
         return;
@@ -391,31 +350,18 @@ export default function PresupuestoDetalle() {
       setItemsDetalle(nuevos);
       await guardarEstructuraPresupuesto(nuevos);
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Rubros',
-          action: 'create',
-          data: {
-            codigo: codigoGenerado,
-            nombre: nombreRubroUpper,
-            descripcion: 'Creado desde presupuesto'
-          }
-        })
+      // 🔑 FIX: crear el rubro en Firestore con crearDoc
+      await crearDoc('rubros', {
+        codigo: codigoGenerado,
+        nombre: nombreRubroUpper,
+        descripcion: 'Creado desde presupuesto'
       });
-      const dataRes = await res.json();
-      
-      setRubrosList([
-        ...rubrosList, 
-        { id: dataRes.id || Date.now(), codigo: codigoGenerado, nombre: nombreRubroUpper, descripcion: 'Creado desde presupuesto' }
-      ]);
 
       setNombreNuevoRubro('');
       setIsRubroModalOpen(false);
     } catch (err) {
-      console.error("Error al guardar el rubro en la base de datos:", err);
-      alert("Error al guardar el rubro.");
+      console.error("Error al guardar el rubro en Firestore:", err);
+      alert("Error al guardar el rubro: " + (err.message || ''));
     } finally {
       setIsSavingRubro(false);
     }
@@ -534,12 +480,13 @@ export default function PresupuestoDetalle() {
     }
   };
 
+  // 🔑 FIX: crear gasto general → crearDoc en `insumos` + actualizar estado local
   const handleCrearGastoGeneral = async (e) => {
     e.preventDefault();
     if (!esBorrador) return;
     if (!nuevoGastoGeneral.concepto) return;
     setIsSavingGG(true);
-    
+
     const nuevoIns = {
       codigo: 'GG-' + Date.now().toString().slice(-4),
       nombre: nuevoGastoGeneral.concepto.toUpperCase(),
@@ -551,26 +498,23 @@ export default function PresupuestoDetalle() {
     };
 
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Insumos', action: 'create', data: nuevoIns })
-      });
-      const data = await res.json();
-      
-      const insumoCreado = { ...nuevoIns, id: data.id || Date.now() };
-      
-      setInsumosList([...insumosList, insumoCreado]);
+      await crearDoc('insumos', nuevoIns);
+
       const nuevosGG = [
         ...gastosGeneralesInsumos,
-        { id: insumoCreado.id, concepto: insumoCreado.nombre, cantidad: 1, unitario: insumoCreado.costo_unitario }
+        {
+          id: Date.now(),
+          concepto: nuevoIns.nombre,
+          cantidad: 1,
+          unitario: nuevoIns.costo_unitario
+        }
       ];
       setGastosGeneralesInsumos(nuevosGG);
 
       setIsNuevoGGModalOpen(false);
       setNuevoGastoGeneral({ concepto: '', unitario: '' });
     } catch (err) {
-      alert("Error al guardar el gasto general en la base de datos.");
+      alert("Error al guardar el gasto general en Firestore: " + (err.message || ''));
     } finally {
       setIsSavingGG(false);
     }
@@ -601,11 +545,11 @@ export default function PresupuestoDetalle() {
   const montoImprevistos = costoDirectoBase * (porcentajeImprevistos / 100);
   const totalGastosGenerales = totalInsumosGG + montoComisionVenta + montoImprevistos;
 
-  const sumaPorcentajesPV = Number(impuestosPorcentajes.iibb) + 
-                            Number(impuestosPorcentajes.gastosFinancieros) + 
-                            Number(impuestosPorcentajes.ganancias) + 
-                            Number(impuestosPorcentajes.sellados) + 
-                            Number(impuestosPorcentajes.debitosCreditos) + 
+  const sumaPorcentajesPV = Number(impuestosPorcentajes.iibb) +
+                            Number(impuestosPorcentajes.gastosFinancieros) +
+                            Number(impuestosPorcentajes.ganancias) +
+                            Number(impuestosPorcentajes.sellados) +
+                            Number(impuestosPorcentajes.debitosCreditos) +
                             Number(impuestosPorcentajes.beneficio);
 
   const factorDivisorPV = 1 - (sumaPorcentajesPV / 100);
@@ -629,7 +573,7 @@ export default function PresupuestoDetalle() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <Link 
+        <Link
           to="/presupuestos"
           className="inline-flex items-center gap-2 px-4 py-2 bg-white hover:bg-slate-50 border border-slate-300 rounded-xl text-xs font-bold text-slate-700 transition-colors shadow-sm"
         >
@@ -637,13 +581,13 @@ export default function PresupuestoDetalle() {
         </Link>
 
         <div className="flex items-center gap-2">
-          <button 
+          <button
             onClick={() => { setExportFormato('excel'); setIsExportModalOpen(true); }}
             className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm flex items-center gap-1.5"
           >
             📥 Descargar Excel
           </button>
-          <button 
+          <button
             onClick={() => { setExportFormato('pdf'); setIsExportModalOpen(true); }}
             className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors shadow-sm flex items-center gap-1.5"
           >
@@ -694,14 +638,14 @@ export default function PresupuestoDetalle() {
         </div>
 
         <div className="flex gap-2">
-          <button 
+          <button
             disabled={!esBorrador}
             onClick={() => setIsRubroModalOpen(true)}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium text-sm transition-colors shadow-sm ${!esBorrador ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-900 text-white'}`}
           >
             <FolderPlus className="w-4 h-4" /> Nuevo Rubro
           </button>
-          <button 
+          <button
             disabled={!esBorrador}
             onClick={() => {
               if (itemsDetalle.length === 0) { alert("Cree un rubro primero."); return; }
@@ -736,13 +680,13 @@ export default function PresupuestoDetalle() {
       </div>
 
       <div className="bg-slate-100 p-1.5 rounded-2xl border border-slate-300 shadow-sm inline-flex gap-1">
-        <button 
+        <button
           onClick={() => setActiveTab('costos')}
           className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all ${activeTab === 'costos' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
         >
           Presupuesto de Costos
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('multiplicador')}
           className={`px-5 py-2.5 rounded-xl font-bold text-xs transition-all ${activeTab === 'multiplicador' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}
         >
@@ -773,7 +717,7 @@ export default function PresupuestoDetalle() {
                       <div className="flex items-center gap-3">
                         <div className="flex items-center gap-1 bg-slate-900 border border-slate-700 px-2 py-1 rounded-lg">
                           <span className="text-[10px] text-amber-400 font-bold">N°</span>
-                          <input 
+                          <input
                             type="number"
                             min="1"
                             value={numeroRubro}
@@ -784,7 +728,7 @@ export default function PresupuestoDetalle() {
                           />
                         </div>
 
-                        <div 
+                        <div
                           onClick={() => toggleRubro(nombreRubro)}
                           className="flex items-center gap-2 cursor-pointer select-none"
                         >
@@ -801,8 +745,8 @@ export default function PresupuestoDetalle() {
                         <span className="text-xs text-slate-300">Costo: <strong className="text-amber-400">$ {Math.round(costoRubro).toLocaleString('es-AR')}</strong></span>
                         <span className="text-xs text-slate-300">Venta: <strong className="text-emerald-400">$ {Math.round(precioVentaRubro).toLocaleString('es-AR')}</strong></span>
                         {esBorrador && (
-                          <button 
-                            onClick={() => handleEliminarRubro(nombreRubro)} 
+                          <button
+                            onClick={() => handleEliminarRubro(nombreRubro)}
                             className="text-red-400 hover:text-red-200 p-1 rounded transition-colors flex items-center gap-1 text-xs font-semibold bg-slate-900/40 px-2 py-1 border border-red-500/30"
                             title="Eliminar Rubro Completo"
                           >
@@ -977,7 +921,7 @@ export default function PresupuestoDetalle() {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
               <h4 className="font-extrabold text-sm text-slate-800 uppercase">Gastos Generales (Insumos y Valores Fijos)</h4>
               <div className="flex items-center gap-2 w-full sm:w-auto">
-                <select 
+                <select
                   disabled={!esBorrador}
                   className="bg-white border border-slate-300 rounded-lg px-3 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 flex-1 sm:flex-none disabled:bg-slate-100 disabled:cursor-not-allowed"
                   onChange={(e) => {
@@ -1006,7 +950,7 @@ export default function PresupuestoDetalle() {
                   ))}
                 </select>
 
-                <button 
+                <button
                   disabled={!esBorrador}
                   onClick={() => setIsNuevoGGModalOpen(true)}
                   className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-800 hover:bg-slate-900 text-white rounded-lg text-xs font-bold transition-colors shrink-0 disabled:bg-slate-300 disabled:cursor-not-allowed"
@@ -1038,8 +982,8 @@ export default function PresupuestoDetalle() {
                       return (
                         <tr key={item.id} className="hover:bg-slate-50">
                           <td className="px-4 py-2.5">
-                            <input 
-                              type="text" 
+                            <input
+                              type="text"
                               disabled={!esBorrador}
                               className="w-full bg-white border border-slate-200 rounded-lg px-3 py-1.5 font-semibold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
                               value={item.concepto}
@@ -1051,8 +995,8 @@ export default function PresupuestoDetalle() {
                             />
                           </td>
                           <td className="px-4 py-2.5 text-center">
-                            <input 
-                              type="number" 
+                            <input
+                              type="number"
                               disabled={!esBorrador}
                               step="0.01"
                               className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
@@ -1065,8 +1009,8 @@ export default function PresupuestoDetalle() {
                             />
                           </td>
                           <td className="px-4 py-2.5 text-right">
-                            <input 
-                              type="number" 
+                            <input
+                              type="number"
                               disabled={!esBorrador}
                               step="0.01"
                               className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
@@ -1083,7 +1027,7 @@ export default function PresupuestoDetalle() {
                           </td>
                           <td className="px-4 py-2.5 text-center">
                             {esBorrador && (
-                              <button 
+                              <button
                                 onClick={() => {
                                   setGastosGeneralesInsumos(gastosGeneralesInsumos.filter(i => i.id !== item.id));
                                 }}
@@ -1104,8 +1048,8 @@ export default function PresupuestoDetalle() {
                     <td className="px-4 py-3 text-center text-slate-500 font-semibold">% s/ CD</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           disabled={!esBorrador}
                           step="0.01"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-amber-600 outline-none focus:border-amber-500 disabled:bg-slate-50"
@@ -1126,8 +1070,8 @@ export default function PresupuestoDetalle() {
                     <td className="px-4 py-3 text-center text-slate-500 font-semibold">% s/ CD</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           disabled={!esBorrador}
                           step="0.01"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold text-amber-600 outline-none focus:border-amber-500 disabled:bg-slate-50"
@@ -1168,8 +1112,8 @@ export default function PresupuestoDetalle() {
                     <td className="px-6 py-3 font-semibold text-slate-800">Imp. a los Ingresos Brutos (IIBB)</td>
                     <td className="px-6 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
@@ -1187,8 +1131,8 @@ export default function PresupuestoDetalle() {
                     <td className="px-6 py-3 font-semibold text-slate-800">Gastos Financieros</td>
                     <td className="px-6 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
@@ -1206,8 +1150,8 @@ export default function PresupuestoDetalle() {
                     <td className="px-6 py-3 font-semibold text-slate-800">Impuesto a las Ganancias</td>
                     <td className="px-6 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
@@ -1225,8 +1169,8 @@ export default function PresupuestoDetalle() {
                     <td className="px-6 py-3 font-semibold text-slate-800">Sellados</td>
                     <td className="px-6 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
@@ -1244,8 +1188,8 @@ export default function PresupuestoDetalle() {
                     <td className="px-6 py-3 font-semibold text-slate-800">Impuesto a los débitos y créditos</td>
                     <td className="px-6 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
@@ -1263,8 +1207,8 @@ export default function PresupuestoDetalle() {
                     <td className="px-6 py-3 font-extrabold text-emerald-800">Beneficio</td>
                     <td className="px-6 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
-                        <input 
-                          type="number" 
+                        <input
+                          type="number"
                           disabled={!esBorrador}
                           step="0.001"
                           className="w-24 bg-white border border-emerald-300 rounded-lg px-2 py-1.5 text-center font-bold text-emerald-700 outline-none focus:border-emerald-500 disabled:bg-slate-50"
@@ -1339,7 +1283,7 @@ export default function PresupuestoDetalle() {
               ¿Qué versión del presupuesto deseas exportar en formato <span className="font-bold uppercase">{exportFormato}</span>?
             </p>
             <div className="grid grid-cols-1 gap-3">
-              <button 
+              <button
                 onClick={() => {
                   if (exportFormato === 'excel') {
                     exportarPresupuestoExcel(presupuesto, itemsDetalle, false, 1, notasPresupuesto);
@@ -1353,8 +1297,8 @@ export default function PresupuestoDetalle() {
                 <span>📊 Presupuesto de Costos</span>
                 <span className="text-slate-500 font-normal">$ {Math.round(costoDirectoBase).toLocaleString('es-AR')}</span>
               </button>
-              
-              <button 
+
+              <button
                 onClick={() => {
                   if (exportFormato === 'excel') {
                     exportarPresupuestoExcel({ ...presupuesto, codigo: `${presupuesto?.codigo || 'DET'} (VENTA)` }, itemsDetalle, true, coeficientePase, notasPresupuesto);
@@ -1370,7 +1314,7 @@ export default function PresupuestoDetalle() {
               </button>
             </div>
             <div className="flex justify-end pt-2">
-              <button 
+              <button
                 onClick={() => setIsExportModalOpen(false)}
                 className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-lg"
               >
@@ -1391,7 +1335,7 @@ export default function PresupuestoDetalle() {
             <form onSubmit={handleCrearRubro} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar o Escribir Rubro *</label>
-                <select 
+                <select
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm uppercase font-semibold outline-none focus:border-amber-500 mb-2"
                   value={nombreNuevoRubro}
                   onChange={(e) => setNombreNuevoRubro(e.target.value)}
@@ -1401,8 +1345,8 @@ export default function PresupuestoDetalle() {
                     <option key={idx} value={rName}>{rName}</option>
                   ))}
                 </select>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="O escribe un nuevo rubro aquí..."
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm uppercase font-semibold outline-none focus:border-amber-500"
                   value={nombreNuevoRubro}
@@ -1430,7 +1374,7 @@ export default function PresupuestoDetalle() {
             <form onSubmit={handleGuardarTarea} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar Rubro *</label>
-                <select 
+                <select
                   required
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm font-semibold outline-none focus:border-amber-500"
                   value={nuevaTarea.rubro}
@@ -1450,7 +1394,7 @@ export default function PresupuestoDetalle() {
               {!editingTarea && (
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cargar desde el Maestro (para el rubro seleccionado)</label>
-                  <select 
+                  <select
                     className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
                     onChange={(e) => {
                       const tareaMt = maestroTareas.find(m => String(m.id) === String(e.target.value));
@@ -1493,8 +1437,8 @@ export default function PresupuestoDetalle() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de la Tarea *</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   required
                   placeholder="Descripción de la tarea"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
@@ -1505,8 +1449,8 @@ export default function PresupuestoDetalle() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Insumos / Materiales</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   placeholder="Ej: Cemento, Arena, Hierro..."
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
                   value={typeof nuevaTarea.insumos === 'string' ? nuevaTarea.insumos : (Array.isArray(nuevaTarea.insumos) ? nuevaTarea.insumos.map(i => i.nombre).join(', ') : '')}
@@ -1517,7 +1461,7 @@ export default function PresupuestoDetalle() {
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Unidad</label>
-                  <select 
+                  <select
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none"
                     value={nuevaTarea.unidad}
                     onChange={(e) => setNuevaTarea({...nuevaTarea, unidad: e.target.value})}
@@ -1532,8 +1476,8 @@ export default function PresupuestoDetalle() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cantidad / Cómputo</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     step="0.01"
                     required
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none font-bold"
@@ -1543,8 +1487,8 @@ export default function PresupuestoDetalle() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Unit. ($)</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     step="0.01"
                     required
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none font-bold"
@@ -1575,8 +1519,8 @@ export default function PresupuestoDetalle() {
             <form onSubmit={handleCrearGastoGeneral} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto / Nombre *</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   required
                   placeholder="Ej: Licencia Especial"
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
@@ -1586,8 +1530,8 @@ export default function PresupuestoDetalle() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto Unitario ($) *</label>
-                <input 
-                  type="number" 
+                <input
+                  type="number"
                   step="0.01"
                   required
                   placeholder="Costo total del gasto"

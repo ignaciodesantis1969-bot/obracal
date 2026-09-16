@@ -1,71 +1,40 @@
-import React, { useState, useEffect } from 'react';
+// src/pages/Usuarios.jsx
+import React, { useState } from 'react';
 import { UserPlus, UserX, Shield, Mail, Loader2, Edit2, Check } from 'lucide-react';
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/firebase';
-import { GOOGLE_SCRIPT_URL } from '@/api';
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function Usuarios() {
-  const [usuarios, setUsuarios] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
+  // 🔑 NUEVO: leemos usuarios en tiempo real desde Firestore
+  const { data: usuarios, loading: isLoading, error: errorFirestore } = useFirestoreCollection('usuarios');
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editandoRolId, setEditandoRolId] = useState(null);
   const [nuevoRolTemporal, setNuevoRolTemporal] = useState('');
 
-  const cargarUsuarios = async () => {
-    setIsLoading(true);
-    setError('');
-    try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Usuarios',
-          action: 'list'
-        })
-      });
-
-      const textResponse = await response.text();
-      let data;
-      try {
-        data = JSON.parse(textResponse);
-      } catch (e) {
-        throw new Error("Google devolvió un error de formato. Verifica la URL.");
-      }
-
-      if (Array.isArray(data)) {
-        setUsuarios(data);
-      } else {
-        setError(data.error || 'Error al cargar los datos.');
-      }
-    } catch (err) {
-      setError('Falla técnica: ' + err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    cargarUsuarios();
-  }, []);
-
-  const [nuevoUsuario, setNuevoUsuario] = useState({ 
-    email: '', 
-    password: '', 
-    nombre: '', 
-    role: 'operador' 
+  const [nuevoUsuario, setNuevoUsuario] = useState({
+    email: '',
+    password: '',
+    nombre: '',
+    role: 'operador'
   });
 
+  // 🔑 FIX: crear usuario → Firebase Auth + Firestore (sin Apps Script)
   const handleCrear = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
 
     setIsSubmitting(true);
     try {
+      // PASO 1: crear en Firebase Auth usando una app secundaria
+      // (para no cerrar la sesión del admin que está creando al usuario)
       const secondaryAppName = "SecondaryUserCreationApp";
       let secondaryApp = getApps().find(app => app.name === secondaryAppName);
-      
+
       if (!secondaryApp) {
         secondaryApp = initializeApp(auth.app.options, secondaryAppName);
       }
@@ -73,31 +42,17 @@ export default function Usuarios() {
 
       await createUserWithEmailAndPassword(secondaryAuth, nuevoUsuario.email, nuevoUsuario.password);
 
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Usuarios',
-          action: 'create',
-          data: {
-            nombre: nuevoUsuario.nombre,
-            email: nuevoUsuario.email,
-            role: nuevoUsuario.role,
-            obras_asignadas: ''
-          }
-        })
+      // PASO 2: guardar el perfil en Firestore (colección `usuarios`)
+      await crearDoc('usuarios', {
+        nombre: nuevoUsuario.nombre,
+        email: nuevoUsuario.email,
+        role: nuevoUsuario.role,
+        obras_asignadas: ''
       });
 
-      const text = await response.text();
-      const res = JSON.parse(text);
-
-      if (res.success) {
-        alert("Usuario creado con éxito.");
-        setNuevoUsuario({ email: '', password: '', nombre: '', role: 'operador' });
-        cargarUsuarios();
-      } else {
-        alert("El usuario se creó en Firebase pero hubo un error al guardar en la hoja: " + res.error);
-      }
+      alert("Usuario creado con éxito.");
+      setNuevoUsuario({ email: '', password: '', nombre: '', role: 'operador' });
+      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error("Detalle Firebase:", err);
       let mensajeError = err.message || "Verifica los datos.";
@@ -110,67 +65,46 @@ export default function Usuarios() {
     }
   };
 
+  // 🔑 FIX: cambiar rol → actualizarDoc en Firestore
   const handleCambiarRol = async (idUsuario, emailUsuario, nombreUsuario) => {
     if (!nuevoRolTemporal) return;
     try {
-      const response = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Usuarios',
-          action: 'update', // Asegúrate de que tu codigo.gs soporte 'update' o 'edit'
-          id: idUsuario,
-          data: {
-            email: emailUsuario,
-            nombre: nombreUsuario,
-            role: nuevoRolTemporal
-          }
-        })
+      await actualizarDoc('usuarios', idUsuario, {
+        email: emailUsuario,
+        nombre: nombreUsuario,
+        role: nuevoRolTemporal
       });
-      const text = await response.text();
-      const res = JSON.parse(text);
 
-      if (res.success || res.status === 'ok') {
-        alert("Rol actualizado con éxito.");
-        setEditandoRolId(null);
-        cargarUsuarios();
-      } else {
-        alert("Error al actualizar rol: " + (res.error || 'Desconocido'));
-      }
+      alert("Rol actualizado con éxito.");
+      setEditandoRolId(null);
+      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
-      alert("Error de red al actualizar rol.");
+      console.error(err);
+      alert("Error al actualizar rol: " + (err.message || ''));
     }
   };
 
+  // 🔑 FIX: dar de baja → eliminarDoc en Firestore
   const handleDarDeBaja = async (id, nombre) => {
-    if (window.confirm(`¿Eliminar a ${nombre}?`)) {
-      try {
-        const response = await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            tabla: 'Usuarios',
-            action: 'delete',
-            id: id
-          })
-        });
-        const text = await response.text();
-        const res = JSON.parse(text);
-        if (res.success) {
-          alert("Usuario eliminado.");
-          cargarUsuarios();
-        }
-      } catch (err) {
-        alert("Error al eliminar.");
-      }
+    if (!window.confirm(`¿Eliminar a ${nombre}?`)) return;
+
+    try {
+      await eliminarDoc('usuarios', id);
+      alert("Usuario eliminado.");
+      // Firestore actualiza la lista en tiempo real.
+    } catch (err) {
+      console.error(err);
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
+
+  const error = errorFirestore ? 'Falla técnica al conectar con Firestore.' : '';
 
   return (
     <div className="max-w-5xl mx-auto space-y-6">
       <div>
         <h1 className="text-2xl font-bold text-slate-800">Gestión de Usuarios</h1>
-        <p className="text-slate-500 text-sm">Sincronizado con Firebase Auth y Google Sheets.</p>
+        <p className="text-slate-500 text-sm">Sincronizado con Firebase Auth y Firestore.</p>
       </div>
 
       <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
@@ -217,8 +151,8 @@ export default function Usuarios() {
             <option value="operador">Operador</option>
             <option value="operador_ii">Operador II</option>
           </select>
-          <button 
-            type="submit" 
+          <button
+            type="submit"
             disabled={isSubmitting}
             className="bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white font-medium rounded-lg px-4 py-2 transition-colors flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
           >
@@ -231,7 +165,9 @@ export default function Usuarios() {
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center">
           <h2 className="text-base font-semibold">Usuarios Registrados</h2>
-          <button onClick={cargarUsuarios} className="text-xs text-amber-600 hover:underline font-medium cursor-pointer">Actualizar</button>
+          <span className="text-xs text-slate-500 font-medium">
+            {usuarios.length} usuario{usuarios.length !== 1 ? 's' : ''}
+          </span>
         </div>
 
         {error && <div className="p-4 bg-red-50 text-red-600 text-sm text-center">{error}</div>}
@@ -306,8 +242,8 @@ export default function Usuarios() {
                       </div>
                     )}
 
-                    <button 
-                      onClick={() => handleDarDeBaja(u.id, u.nombre)} 
+                    <button
+                      onClick={() => handleDarDeBaja(u.id, u.nombre)}
                       className="text-xs text-red-500 hover:text-red-700 bg-red-50 px-3 py-1.5 rounded-lg flex items-center gap-1 cursor-pointer"
                     >
                       <UserX className="w-4 h-4" /> Dar de baja

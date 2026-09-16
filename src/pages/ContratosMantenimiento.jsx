@@ -1,17 +1,23 @@
+// src/pages/ContratosMantenimiento.jsx
 import { useState, useEffect, Fragment } from 'react';
 import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload, Key } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { GOOGLE_SCRIPT_URL } from '@/api';
+// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
-export default function ContratosMantenimiento({ contratos: contratosProp = [], clientes: clientesProp = [], cargarDatos }) {
-  const [contratos, setContratos] = useState(contratosProp);
-  const [clientes, setClientes] = useState(clientesProp);
+export default function ContratosMantenimiento() {
+  // 🔑 NUEVO: leemos contratos + clientes desde Firestore
+  const { data: contratos, loading: loadingContratos } = useFirestoreCollection('contratos');
+  const { data: clientes, loading: loadingClientes } = useFirestoreCollection('clientes');
+
   const [pestanaActiva, setPestanaActiva] = useState('trabajo');
   const [busqueda, setBusqueda] = useState('');
   const [modalAbierto, setModalAbierto] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [contratoEditando, setContratoEditando] = useState(null);
-  
+
   const [contratoDetalle, setContratoDetalle] = useState(null);
   const [subTabDetalle, setSubTabDetalle] = useState('fee');
 
@@ -61,6 +67,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
   const [ajustesAplicados, setAjustesAplicados] = useState([]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
+  // 🔑 FIX: cuando cambia el contrato en detalle, parseamos el JSON embebido en `descripcion`
   useEffect(() => {
     if (contratoDetalle) {
       const desc = contratoDetalle.descripcion || '';
@@ -111,6 +118,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     }
   }, [contratoDetalle?.id]);
 
+  // 🔑 FIX: guardar firmantes directo a Firestore
   const guardarDatosFirmantesEnServidor = async (newProvKey, newCliKey, newProvCargo, newProvNom, newCliCargo, newCliNom) => {
     if (!contratoDetalle) return;
     try {
@@ -121,8 +129,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         descActual = descActual.split('---DATOS_POLINOMICA---')[0].trim();
       }
 
-      const payloadDataJson = JSON.stringify({ 
-        registros: registrosMeses, 
+      const payloadDataJson = JSON.stringify({
+        registros: registrosMeses,
         ajustes: ajustesAplicados,
         proveedorKey: newProvKey !== undefined ? newProvKey : claveProveedor,
         clienteKey: newCliKey !== undefined ? newCliKey : claveCliente,
@@ -133,26 +141,15 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
       });
       const nuevaDescripcionCompleta = `${descActual}\n---DATOS_SICE_INTEGRAL---${payloadDataJson}`;
 
-      const payload = {
-        tabla: 'ContratosMantenimiento',
-        action: 'update',
-        id: contratoDetalle.id,
-        data: {
-          ...contratoDetalle,
-          descripcion: nuevaDescripcionCompleta
-        }
-      };
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
+      await actualizarDoc('contratos', contratoDetalle.id, {
+        descripcion: nuevaDescripcionCompleta
       });
-      await refrescarDatosLocales();
     } catch (err) {
-      console.error("Error al guardar datos de firmantes en servidor:", err);
+      console.error("Error al guardar datos de firmantes en Firestore:", err);
     }
   };
 
+  // 🔑 FIX: guardar cambios polinómicos directo a Firestore
   const guardarCambiosPolinomicaEnServidor = async (nuevosRegistros, nuevosAjustes) => {
     if (!contratoDetalle) return;
     try {
@@ -163,8 +160,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         descActual = descActual.split('---DATOS_POLINOMICA---')[0].trim();
       }
 
-      const payloadDataJson = JSON.stringify({ 
-        registros: nuevosRegistros, 
+      const payloadDataJson = JSON.stringify({
+        registros: nuevosRegistros,
         ajustes: nuevosAjustes || ajustesAplicados,
         proveedorKey: claveProveedor,
         clienteKey: claveCliente,
@@ -175,24 +172,9 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
       });
       const nuevaDescripcionCompleta = `${descActual}\n---DATOS_SICE_INTEGRAL---${payloadDataJson}`;
 
-      const payload = {
-        tabla: 'ContratosMantenimiento',
-        action: 'update',
-        id: contratoDetalle.id,
-        data: {
-          ...contratoDetalle,
-          descripcion: nuevaDescripcionCompleta
-        }
-      };
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
+      await actualizarDoc('contratos', contratoDetalle.id, {
+        descripcion: nuevaDescripcionCompleta
       });
-      const data = await res.json();
-      if (data.success) {
-        await refrescarDatosLocales();
-      }
     } catch (err) {
       console.error("Error al guardar cambios polinómicos:", err);
     }
@@ -266,37 +248,6 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     clienteCargo: 'Supervisor de Planta',
     clienteNombre: 'Carlos Gómez'
   });
-
-  const refrescarDatosLocales = async () => {
-    try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ action: 'cargarDetalleCompleto' })
-      });
-      const data = await res.json();
-      if (data.success) {
-        if (data.contratos_mantenimiento) {
-          setContratos(data.contratos_mantenimiento);
-          if (contratoDetalle) {
-            const actualizado = data.contratos_mantenimiento.find(c => c.id === contratoDetalle.id);
-            if (actualizado) setContratoDetalle(actualizado);
-          }
-        }
-        if (data.clientes) setClientes(data.clientes);
-      }
-    } catch (err) {
-      console.error("Error al refrescar datos:", err);
-    }
-  };
-
-  useEffect(() => {
-    if (contratosProp.length > 0) setContratos(contratosProp);
-    if (clientesProp.length > 0) setClientes(clientesProp);
-    if (contratosProp.length === 0 || clientesProp.length === 0) {
-      refrescarDatosLocales();
-    }
-  }, [contratosProp, clientesProp]);
 
   const totalBorrador = contratos.filter(c => String(c.estado || '').toLowerCase() === 'borrador').length;
   const totalEntregado = contratos.filter(c => String(c.estado || '').toLowerCase() === 'entregado').length;
@@ -387,12 +338,11 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     setModalAbierto(true);
   };
 
+  // 🔑 FIX: guardar contrato directo a Firestore
   const guardarContrato = async (e) => {
     e.preventDefault();
     setCargando(true);
     try {
-      const action = contratoEditando ? 'update' : 'create';
-      
       let descClean = formData.descripcion || '';
       const payloadDataJson = JSON.stringify({
         registros: contratoEditando ? registrosMeses : [
@@ -411,74 +361,43 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
       const descripcionFinal = `${descClean}\n---DATOS_SICE_INTEGRAL---\n${payloadDataJson}`;
 
-      const payload = {
-        tabla: 'ContratosMantenimiento',
-        action: action,
-        id: contratoEditando ? contratoEditando.id : undefined,
-        data: {
-          ...formData,
-          descripcion: descripcionFinal
-        }
+      const datosAGuardar = {
+        ...formData,
+        descripcion: descripcionFinal
       };
+      // 🔑 FIX: limpiar campos internos de Firestore
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosAGuardar;
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
-      });
-      const data = await res.json();
-
-      if (data.success) {
-        setModalAbierto(false);
-        await refrescarDatosLocales();
-        if (cargarDatos) cargarDatos();
+      if (contratoEditando) {
+        await actualizarDoc('contratos', contratoEditando.id, datosLimpios);
       } else {
-        alert("Error al guardar: " + (data.error || 'Desconocido'));
+        await crearDoc('contratos', datosLimpios);
       }
+
+      setModalAbierto(false);
     } catch (err) {
       console.error(err);
-      alert("Error de conexión con el servidor.");
+      alert("Error al guardar: " + (err.message || ''));
     } finally {
       setCargando(false);
     }
   };
 
+  // 🔑 FIX: eliminar contrato directo a Firestore
   const eliminarContrato = async (id) => {
     if (!confirm("¿Estás seguro de eliminar este contrato?")) return;
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'ContratosMantenimiento', action: 'delete', id })
-      });
-      const data = await res.json();
-      if (data.success) {
-        await refrescarDatosLocales();
-        if (cargarDatos) cargarDatos();
-      }
+      await eliminarDoc('contratos', id);
     } catch (err) {
       console.error(err);
-      alert("Error de conexión.");
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
+  // 🔑 FIX: cambiar estado rápido directo a Firestore
   const cambiarEstadoRapido = async (id, nuevoEstado) => {
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'ContratosMantenimiento',
-          action: 'update',
-          id: id,
-          data: { estado: nuevoEstado }
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        await refrescarDatosLocales();
-        if (cargarDatos) cargarDatos();
-      }
+      await actualizarDoc('contratos', id, { estado: nuevoEstado });
     } catch (err) {
       console.error(err);
     }
@@ -486,7 +405,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
   const contratosFiltrados = contratos.filter(c => {
     const estado = String(c.estado || '').toLowerCase();
-    const matchBusqueda = 
+    const matchBusqueda =
       String(c.codigo || '').toLowerCase().includes(busqueda.toLowerCase()) ||
       String(c.nro_contrato_cliente || '').toLowerCase().includes(busqueda.toLowerCase()) ||
       String(c.nombre_contrato || '').toLowerCase().includes(busqueda.toLowerCase()) ||
@@ -558,7 +477,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
   const mesesProcesados = procesarMesesPolinomica();
   const polinomioAcumuladoTotal = mesesProcesados.length > 0 ? mesesProcesados[mesesProcesados.length - 1].acumuladoTotal : 0;
-  
+
   const mesPendienteAplicar = mesesProcesados.find(m => m.reajusteAplicado && !ajustesAplicados.some(a => a.mes === m.mes));
 
   const aplicarAjustePendiente = (mesObj) => {
@@ -577,9 +496,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
     const nuevosAjustes = ajustesAplicados.filter((_, i) => i !== indexAjuste);
     setAjustesAplicados(nuevosAjustes);
     guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes);
-  };
-
-  if (contratoDetalle) {
+  };  if (contratoDetalle) {
     const manoDeObraBase = [
       { codigo: '4000011125', topico: 'Valor HH SUPERVISOR', ars: 34157.25 },
       { codigo: '4000001424', topico: 'Valor HH TECNICO EHS', ars: 19369.70 },
@@ -605,7 +522,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
       <div className="space-y-6">
         <div className="flex items-center justify-between bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
           <div className="flex items-center gap-4">
-            <button 
+            <button
               onClick={() => setContratoDetalle(null)}
               className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition-colors cursor-pointer"
               title="Volver a Contratos"
@@ -648,7 +565,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
         </div>
 
         <div className="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2 overflow-x-auto">
-          <button 
+          <button
             onClick={() => setSubTabDetalle('fee')}
             className={cn(
               'px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2',
@@ -657,7 +574,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           >
             <DollarSign className="w-4 h-4" /> Cálculo de Fee y Materiales
           </button>
-          <button 
+          <button
             onClick={() => setSubTabDetalle('horas')}
             className={cn(
               'px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2',
@@ -666,7 +583,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           >
             <Calculator className="w-4 h-4" /> Cálculo de Horas (HH)
           </button>
-          <button 
+          <button
             onClick={() => setSubTabDetalle('polinomica')}
             className={cn(
               'px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2',
@@ -675,7 +592,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           >
             <TrendingUp className="w-4 h-4" /> Determinacion de Polinomica o Indice
           </button>
-          <button 
+          <button
             onClick={() => setSubTabDetalle('general')}
             className={cn(
               'px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-2',
@@ -697,8 +614,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Costo Material Base ($)</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     value={costoMaterialBase}
                     onChange={(e) => setCostoMaterialBase(Number(e.target.value))}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm font-bold focus:outline-none focus:border-amber-500"
@@ -706,8 +623,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Porcentaje de Beneficio Deseado (%)</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     step="0.01"
                     value={porcentajeBeneficioDeseado}
                     onChange={(e) => setPorcentajeBeneficioDeseado(Number(e.target.value))}
@@ -868,7 +785,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                       <p className="text-xs text-slate-600 mt-0.5">El ciclo acumulado alcanzó <strong>+{mesPendienteAplicar.cicloAcumulado.toFixed(2)}%</strong>. Haga clic en aplicar para actualizar las horas hombre del certificado.</p>
                     </div>
                   </div>
-                  <button 
+                  <button
                     onClick={() => aplicarAjustePendiente(mesPendienteAplicar)}
                     className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-black rounded-xl text-xs transition-all shadow-md cursor-pointer flex items-center gap-2 whitespace-nowrap"
                   >
@@ -902,7 +819,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                             <span className="text-xs text-slate-500 ml-2">(Índice de reajuste: <strong className="text-amber-600 font-mono">+{aj.cicloAcumulado.toFixed(2)}%</strong>)</span>
                           </div>
                         </div>
-                        <button 
+                        <button
                           onClick={() => eliminarAjusteAplicado(aIdx)}
                           className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                           title="Eliminar Ajuste Aplicado"
@@ -938,9 +855,9 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <form onSubmit={agregarMesPolinomica} className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Periodo / Mes</label>
-                  <input 
-                    type="text" 
-                    placeholder="Ej: Mes 4 - Octubre 2026" 
+                  <input
+                    type="text"
+                    placeholder="Ej: Mes 4 - Octubre 2026"
                     required
                     value={nuevoMes.mes}
                     onChange={(e) => setNuevoMes({...nuevoMes, mes: e.target.value})}
@@ -949,8 +866,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">U.O.C.R.A. (Salario $)</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     step="0.01"
                     value={nuevoMes.uocra}
                     onChange={(e) => setNuevoMes({...nuevoMes, uocra: Number(e.target.value)})}
@@ -959,8 +876,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">IPC Nac. (%)</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     step="0.01"
                     value={nuevoMes.ipc}
                     onChange={(e) => setNuevoMes({...nuevoMes, ipc: Number(e.target.value)})}
@@ -969,15 +886,15 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Dólar BNA ($/u$s)</label>
-                  <input 
-                    type="number" 
+                  <input
+                    type="number"
                     step="0.01"
                     value={nuevoMes.dolar}
                     onChange={(e) => setNuevoMes({...nuevoMes, dolar: Number(e.target.value)})}
                     className="w-full bg-white border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
-                <button 
+                <button
                   type="submit"
                   className="bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-4 py-2 rounded-xl text-sm transition-colors cursor-pointer flex items-center justify-center gap-1.5 h-10"
                 >
@@ -1008,7 +925,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                             <td className="p-4 font-bold text-slate-700">
                               <div className="flex items-center gap-2">
                                 <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-                                <input 
+                                <input
                                   type="text"
                                   value={reg.mes}
                                   onChange={(e) => actualizarCeldaMes(idx, 'mes', e.target.value)}
@@ -1019,7 +936,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                               </div>
                             </td>
                             <td className="p-4 text-center">
-                              <input 
+                              <input
                                 type="number"
                                 step="0.01"
                                 value={reg.uocra}
@@ -1033,7 +950,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                               )}
                             </td>
                             <td className="p-4 text-center">
-                              <input 
+                              <input
                                 type="number"
                                 step="0.01"
                                 value={reg.ipc}
@@ -1047,7 +964,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                               )}
                             </td>
                             <td className="p-4 text-center">
-                              <input 
+                              <input
                                 type="number"
                                 step="0.01"
                                 value={reg.dolar}
@@ -1068,7 +985,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                             </td>
                             <td className="p-4 text-center">
                               {!esBase && (
-                                <button 
+                                <button
                                   onClick={() => eliminarMesPolinomica(idx)}
                                   className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg transition-colors cursor-pointer"
                                   title="Eliminar Mes"
@@ -1103,19 +1020,19 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 <p className="text-xs text-slate-500">Guarde el contrato oficial en PDF, JPG o PNG.</p>
               </div>
               <div className="flex items-center gap-2">
-                <button 
+                <button
                   onClick={() => window.print()}
                   className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-extrabold rounded-xl text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-2"
                 >
                   <FileText className="w-4 h-4" /> Guardar como PDF
                 </button>
-                <button 
+                <button
                   onClick={() => descargarImagen('jpg')}
                   className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white font-extrabold rounded-xl text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-2"
                 >
                   <DollarSign className="w-4 h-4" /> Descargar JPG
                 </button>
-                <button 
+                <button
                   onClick={() => descargarImagen('png')}
                   className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 font-extrabold rounded-xl text-xs transition-colors shadow-sm cursor-pointer flex items-center gap-2"
                 >
@@ -1129,7 +1046,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 <Key className="w-4 h-4 text-amber-500" /> Configuración de Firmantes y Claves para Reportes Diarios
               </h3>
               <p className="text-xs text-slate-500">Modifique los datos por defecto (Cargos, Nombres y Claves) que se precargarán al redactar un parte diario con este contrato.</p>
-              
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 pt-2">
                 <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
                   <h4 className="text-xs font-bold uppercase text-slate-700 bg-slate-200/60 p-1.5 rounded">Responsable Proveedor</h4>
@@ -1161,8 +1078,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Clave Alfanumérica (Ej: JP4829):</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       maxLength={6}
                       value={claveProveedor}
                       onChange={(e) => {
@@ -1206,8 +1123,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-slate-600 mb-1">Clave Alfanumérica (Ej: CG9012):</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       maxLength={6}
                       value={claveCliente}
                       onChange={(e) => {
@@ -1274,9 +1191,9 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   </p>
                   <label className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer inline-flex items-center gap-2 shadow-sm">
                     <Upload className="w-4 h-4" /> Subir contrato general
-                    <input 
-                      type="file" 
-                      className="hidden" 
+                    <input
+                      type="file"
+                      className="hidden"
                       onChange={(e) => setContratoGeneralFile(e.target.files[0])}
                     />
                   </label>
@@ -1289,9 +1206,9 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                   </p>
                   <label className="px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors cursor-pointer inline-flex items-center gap-2 shadow-sm">
                     <Upload className="w-4 h-4" /> Subir el acuerdo económico
-                    <input 
-                      type="file" 
-                      className="hidden" 
+                    <input
+                      type="file"
+                      className="hidden"
                       onChange={(e) => setAcuerdoEconomicoFile(e.target.files[0])}
                     />
                   </label>
@@ -1313,7 +1230,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           </h1>
           <p className="text-slate-500 text-sm">Gestión y control de contratos de servicios de mantenimiento para empresas.</p>
         </div>
-        <button 
+        <button
           onClick={abrirModalNuevo}
           className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-colors shadow-md cursor-pointer text-sm"
         >
@@ -1346,7 +1263,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
       <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
         <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto">
-          <button 
+          <button
             onClick={() => setPestanaActiva('trabajo')}
             className={cn(
               'px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
@@ -1355,7 +1272,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           >
             Espacio de Trabajo (Borrador / Entregado)
           </button>
-          <button 
+          <button
             onClick={() => setPestanaActiva('activos')}
             className={cn(
               'px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
@@ -1364,7 +1281,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
           >
             Activos
           </button>
-          <button 
+          <button
             onClick={() => setPestanaActiva('archivados')}
             className={cn(
               'px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap',
@@ -1377,9 +1294,9 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
         <div className="relative w-full sm:w-72">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-          <input 
-            type="text" 
-            placeholder="Buscar contrato, cliente..." 
+          <input
+            type="text"
+            placeholder="Buscar contrato, cliente..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             className="w-full bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-4 py-2 text-sm focus:outline-none focus:border-amber-500"
@@ -1427,7 +1344,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                     <td className="p-4 text-slate-600">{formatearMesBase(c.mes_base)}</td>
                     <td className="p-4 text-slate-600">{c.actualizacion || 'Polinómica'}</td>
                     <td className="p-4">
-                      <select 
+                      <select
                         value={c.estado || 'Borrador'}
                         onChange={(e) => cambiarEstadoRapido(c.id, e.target.value)}
                         className={cn(
@@ -1447,21 +1364,21 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                       </select>
                     </td>
                     <td className="p-4 text-right space-x-1">
-                      <button 
+                      <button
                         onClick={() => setContratoDetalle(c)}
                         className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-600 rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
                         title="Ver Detalles y Cálculos"
                       >
                         <Eye className="w-4 h-4" />
                       </button>
-                      <button 
+                      <button
                         onClick={() => abrirModalEditar(c)}
                         className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
                         title="Editar"
                       >
                         <Edit2 className="w-4 h-4" />
                       </button>
-                      <button 
+                      <button
                         onClick={() => eliminarContrato(c.id)}
                         className="p-1.5 bg-red-50 hover:bg-red-100 text-red-500 rounded-lg transition-colors cursor-pointer inline-flex items-center justify-center"
                         title="Eliminar"
@@ -1493,8 +1410,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Código (Automático)</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     disabled
                     value={formData.codigo}
                     className="w-full bg-slate-100 border border-slate-300 rounded-xl px-3 py-2 text-sm text-slate-500 font-bold"
@@ -1502,8 +1419,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Nº de Contrato (Cliente)</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     placeholder="Ej: CTR-2026-99"
                     value={formData.nro_contrato_cliente}
                     onChange={(e) => setFormData({...formData, nro_contrato_cliente: e.target.value})}
@@ -1512,7 +1429,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Estado Inicial</label>
-                  <select 
+                  <select
                     value={formData.estado}
                     onChange={(e) => setFormData({...formData, estado: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-semibold"
@@ -1528,8 +1445,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Nombre del Contrato</label>
-                <input 
-                  type="text" 
+                <input
+                  type="text"
                   required
                   placeholder="Ej: Mantenimiento Preventivo de Planta..."
                   value={formData.nombre_contrato}
@@ -1541,7 +1458,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Cliente</label>
-                  <select 
+                  <select
                     value={formData.cliente}
                     onChange={(e) => setFormData({...formData, cliente: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
@@ -1558,8 +1475,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Ubicación / Planta Industrial</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     required
                     placeholder="Ej: Planta Benavidez / Sector A..."
                     value={formData.ubicacion}
@@ -1571,7 +1488,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
 
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Descripción del Servicio (Detalles)</label>
-                <textarea 
+                <textarea
                   rows="2"
                   value={formData.descripcion}
                   onChange={(e) => setFormData({...formData, descripcion: e.target.value})}
@@ -1583,8 +1500,8 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Mes Base (MM/AAAA)</label>
-                  <input 
-                    type="text" 
+                  <input
+                    type="text"
                     value={formData.mes_base}
                     onChange={(e) => setFormData({...formData, mes_base: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500 font-mono"
@@ -1593,7 +1510,7 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-slate-600 mb-1">Actualización</label>
-                  <select 
+                  <select
                     value={formData.actualizacion}
                     onChange={(e) => setFormData({...formData, actualizacion: e.target.value})}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
@@ -1687,15 +1604,15 @@ export default function ContratosMantenimiento({ contratos: contratosProp = [], 
               </div>
 
               <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setModalAbierto(false)}
                   className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold rounded-xl text-sm cursor-pointer"
                 >
                   Cancelar
                 </button>
-                <button 
-                  type="submit" 
+                <button
+                  type="submit"
                   disabled={cargando}
                   className="flex items-center justify-center gap-2 px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-500/50 text-slate-950 font-bold rounded-xl text-sm shadow-md cursor-pointer"
                 >

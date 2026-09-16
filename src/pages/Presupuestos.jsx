@@ -1,21 +1,31 @@
+// src/pages/Presupuestos.jsx
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import { Plus, Trash2, Search, Loader2, Eye, X, RefreshCw, FileText, CheckCircle2, Archive, Clock } from 'lucide-react';
-import { GOOGLE_SCRIPT_URL } from '@/api'; 
+import { Link, useSearchParams } from 'react-router-dom';
+import { Plus, Trash2, Search, Loader2, Eye, X, RefreshCw, FileText, CheckCircle2, Archive, Clock, Filter } from 'lucide-react';
+// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function Presupuestos() {
-  const [presupuestos, setPresupuestos] = useState([]);
-  const [obras, setObras] = useState([]);
-  const [clientes, setClientes] = useState([]);
-  const [insumosActuales, setInsumosActuales] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+  // 🔑 NUEVO: leemos las 4 colecciones que necesita el listado
+  const { data: presupuestos, loading: loadingPres, error: errorPres } = useFirestoreCollection('presupuestos');
+  const { data: obras, loading: loadingObras } = useFirestoreCollection('obras');
+  const { data: clientes, loading: loadingClientes } = useFirestoreCollection('clientes');
+  const { data: insumosActuales, loading: loadingInsumos } = useFirestoreCollection('insumos');
+
+  const isLoading = loadingPres || loadingObras || loadingClientes || loadingInsumos;
+  const errorFirestore = errorPres;
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
-
-  // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSaving, setIsSaving] = useState(false);
 
-  // 📋 ESTADOS PARA EL MODAL DE APROBACIÓN (Orden de Compra y Responsables)
+  // 🔑 NUEVO: searchParams + setSearchParams para leer y limpiar el ?obra=
+  const [searchParams, setSearchParams] = useSearchParams();
+  const obraIdDesdeUrl = searchParams.get('obra') || '';
+
+  // 📋 Modal de aprobación
   const [isAprobacionModalOpen, setIsAprobacionModalOpen] = useState(false);
   const [presupuestoAprobarId, setPresupuestoAprobarId] = useState(null);
   const [datosAprobacion, setDatosAprobacion] = useState({
@@ -24,7 +34,6 @@ export default function Presupuestos() {
     responsable_proveedor: ''
   });
 
-  // Vistas de Pestañas: 'workspace' (Borrador + Entregado) | 'aprobados' (Aprobado) | 'archivados' (Rechazado + Versiones viejas)
   const [activeTab, setActiveTab] = useState('workspace');
 
   const [nuevoPresupuesto, setNuevoPresupuesto] = useState({
@@ -36,46 +45,19 @@ export default function Presupuestos() {
     version: 'v1'
   });
 
-  // 🚀 CARGA RÁPIDA OPTIMIZADA CON PETICIONES EN PARALELO
-  const fetchData = async (reintentos = 3) => {
-    setIsLoading(true);
-    try {
-      const [resPres, resObras, resClientes, resInsumos] = await Promise.all([
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Presupuestos', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Obras', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Clientes', action: 'list' }) }),
-        fetch(GOOGLE_SCRIPT_URL, { method: 'POST', body: JSON.stringify({ tabla: 'Insumos', action: 'list' }) })
-      ]);
-
-      const presList = await resPres.json();
-      const obrasList = await resObras.json();
-      const clientesList = await resClientes.json();
-      const insumosList = await resInsumos.json();
-
-      if ((!presList || presList.length === 0) && reintentos > 0) {
-        console.warn(`Presupuestos vacíos temporalmente. Reintentando en 1s... (${reintentos} intentos restantes)`);
-        setTimeout(() => fetchData(reintentos - 1), 1000);
-        return;
-      }
-
-      setPresupuestos(Array.isArray(presList) ? presList : []);
-      setObras(Array.isArray(obrasList) ? obrasList : []);
-      setClientes(Array.isArray(clientesList) ? clientesList : []);
-      setInsumosActuales(Array.isArray(insumosList) ? insumosList : []);
-    } catch (err) {
-      console.error("Error al cargar presupuestos:", err);
-      if (reintentos > 0) {
-        setTimeout(() => fetchData(reintentos - 1), 1000);
-      }
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
+  // 🔑 NUEVO: si viene ?obra= desde el listado de Obras, precargamos ese obra_id en el modal
   useEffect(() => {
-    fetchData();
-  }, []);
+    if (obraIdDesdeUrl && !isModalOpen) {
+      setNuevoPresupuesto(prev => ({
+        ...prev,
+        obra_id: obraIdDesdeUrl,
+        codigo: generarCodigoPresupuestoAutomatico(obraIdDesdeUrl)
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [obraIdDesdeUrl]);
 
+  // 🔑 NUEVO: autogenera código con formato CL###-OB###-PR###
   const generarCodigoPresupuestoAutomatico = (obraIdSeleccionada) => {
     if (!obraIdSeleccionada) return '';
 
@@ -84,7 +66,7 @@ export default function Presupuestos() {
 
     const clienteEncontrado = clientes.find(c => String(c.id).trim() === String(obraEncontrada.cliente_id).trim());
     const codigoCliente = clienteEncontrado && clienteEncontrado.codigo ? clienteEncontrado.codigo : 'CL00X';
-    
+
     let codigoObra = obraEncontrada.codigo || 'OB001';
     if (codigoObra.includes('-')) {
       codigoObra = codigoObra.split('-').pop();
@@ -96,15 +78,11 @@ export default function Presupuestos() {
       if (cod.includes('PR')) {
         const partes = cod.split('PR');
         const numParte = parseInt(partes[partes.length - 1], 10);
-        if (!isNaN(numParte) && numParte > maxNum) {
-          maxNum = numParte;
-        }
+        if (!isNaN(numParte) && numParte > maxNum) maxNum = numParte;
       }
     });
 
-    const siguienteNum = maxNum + 1;
-    const codigoPresupuesto = `PR${String(siguienteNum).padStart(3, '0')}`;
-
+    const codigoPresupuesto = `PR${String(maxNum + 1).padStart(3, '0')}`;
     return `${codigoCliente}-${codigoObra}-${codigoPresupuesto}`;
   };
 
@@ -119,66 +97,42 @@ export default function Presupuestos() {
     });
   };
 
+  // 🔑 FIX: creación directo a Firestore
   const handleCrear = async (e) => {
     e.preventDefault();
     if (isSaving) return;
 
     setIsSaving(true);
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Presupuestos',
-          action: 'create',
-          data: {
-            ...nuevoPresupuesto,
-            version: 'v1',
-            estado_presupuesto: 'borrador',
-            items_detalle: JSON.stringify([{ rubro: 'RUBRO GENERAL / PRINCIPAL', tareas: [] }])
-          }
-        })
-      });
-      const data = await res.json();
-      if (data.success || data.id) {
-        setIsModalOpen(false);
-        setNuevoPresupuesto({ codigo: '', nombre: '', obra_id: '', coeficiente_pase: 1.30, estado_presupuesto: 'borrador', version: 'v1' });
-        await fetchData();
-      } else {
-        alert("Error al crear presupuesto: " + (data.error || ''));
-      }
+      const datosNuevo = {
+        ...nuevoPresupuesto,
+        version: 'v1',
+        estado_presupuesto: 'borrador',
+        items_detalle: JSON.stringify([{ rubro: 'RUBRO GENERAL / PRINCIPAL', tareas: [] }])
+      };
+      // 🔑 FIX: limpiar campos internos de Firestore
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevo;
+
+      await crearDoc('presupuestos', datosLimpios);
+
+      setIsModalOpen(false);
+      setNuevoPresupuesto({ codigo: '', nombre: '', obra_id: '', coeficiente_pase: 1.30, estado_presupuesto: 'borrador', version: 'v1' });
     } catch (err) {
       console.error("Error:", err);
-      alert("Error de conexión al crear.");
+      alert("Error al crear presupuesto: " + (err.message || ''));
     } finally {
       setIsSaving(false);
     }
   };
 
+  // 🔑 FIX: actualización directo a Firestore
   const ejecutarActualizacionEstado = async (id, datosActualizacion) => {
-    setIsLoading(true);
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Presupuestos',
-          action: 'update',
-          id: id,
-          data: datosActualizacion
-        })
-      });
-      const data = await res.json();
-      if (data.success || data.id) {
-        await fetchData();
-      } else {
-        alert("Error al actualizar estado: " + (data.error || ''));
-      }
+      await actualizarDoc('presupuestos', id, datosActualizacion);
     } catch (err) {
       console.error("Error al cambiar estado:", err);
-      alert("Error de conexión al cambiar el estado.");
-    } finally {
-      setIsLoading(false);
+      alert("Error al cambiar el estado: " + (err.message || ''));
+      throw err;
     }
   };
 
@@ -229,6 +183,7 @@ export default function Presupuestos() {
     }
   };
 
+  // 🔑 FIX: crear nueva versión → ahora usa crearDoc
   const handleActualizarPresupuestoVersion = async (presupuestoActual) => {
     if (!window.confirm(`¿Desea actualizar los precios de este presupuesto y generar una nueva versión basada en los costos actuales de los insumos?`)) return;
 
@@ -239,7 +194,7 @@ export default function Presupuestos() {
         const matchNombre = (presupuestoActual.nombre || '').match(/\(v(\d+)\)/i);
         versionActualStr = matchNombre ? `v${matchNombre[1]}` : 'v1';
       }
-      
+
       const numVersionMatch = versionActualStr.replace('v', '');
       const siguienteNumVersion = (parseInt(numVersionMatch, 10) || 1) + 1;
       const nuevaVersionStr = `v${siguienteNumVersion}`;
@@ -262,16 +217,16 @@ export default function Presupuestos() {
       const itemsActualizados = itemsDetalleParseado.map(rubro => {
         const tareasActualizadas = (rubro.tareas || []).map(tarea => {
           let costoUnitarioTarea = 0;
-          
+
           let insumosAsociadosActualizados = (tarea.insumos || []).map(ins => {
-            const insumoReal = insumosActuales.find(i => 
-              String(i.id).trim() === String(ins.id).trim() || 
+            const insumoReal = insumosActuales.find(i =>
+              String(i.id).trim() === String(ins.id).trim() ||
               String(i.nombre || '').trim().toLowerCase() === String(ins.nombre || '').trim().toLowerCase()
             );
 
             const precioVigente = insumoReal ? Number(insumoReal.costo_unitario || insumoReal.precio || insumoReal.costo || 0) : Number(ins.costo_unitario || ins.precio || 0);
             const cantidadInsumo = Number(ins.cantidad) || 0;
-            
+
             costoUnitarioTarea += (cantidadInsumo * precioVigente);
 
             return {
@@ -297,10 +252,7 @@ export default function Presupuestos() {
           };
         });
 
-        return {
-          ...rubro,
-          tareas: tareasActualizadas
-        };
+        return { ...rubro, tareas: tareasActualizadas };
       });
 
       const coeficientePase = Number(presupuestoActual.coeficiente_pase || 1.30);
@@ -310,9 +262,7 @@ export default function Presupuestos() {
       try {
         const rawItems = presupuestoActual.items_detalle;
         const parsed = typeof rawItems === 'string' ? JSON.parse(rawItems) : rawItems;
-        if (parsed && parsed.comercial) {
-          comercialObj = parsed.comercial;
-        }
+        if (parsed && parsed.comercial) comercialObj = parsed.comercial;
       } catch (e) {}
 
       const estructuraCompletaNueva = {
@@ -328,30 +278,17 @@ export default function Presupuestos() {
         nombre: nombreNuevaVersion,
         obra_id: presupuestoActual.obra_id,
         coeficiente_pase: coeficientePase,
-        estado_presupuesto: 'borrador', 
+        estado_presupuesto: 'borrador',
         version: nuevaVersionStr,
         costo_directo: nuevoCostoDirecto,
         precio_venta: nuevoPrecioVenta,
         items_detalle: JSON.stringify(estructuraCompletaNueva)
       };
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Presupuestos',
-          action: 'create',
-          data: datosNuevaVersion
-        })
-      });
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVersion;
+      await crearDoc('presupuestos', datosLimpios);
 
-      const data = await res.json();
-      if (data.success || data.id) {
-        alert(`¡Se ha generado la versión ${nuevaVersionStr} exitosamente con los precios actualizados!`);
-        await fetchData();
-      } else {
-        alert("Error al generar la nueva versión: " + (data.error || ''));
-      }
+      alert(`¡Se ha generado la versión ${nuevaVersionStr} exitosamente con los precios actualizados!`);
     } catch (err) {
       console.error("Error al actualizar versión del presupuesto:", err);
       alert("Ocurrió un error al procesar la actualización.");
@@ -360,6 +297,7 @@ export default function Presupuestos() {
     }
   };
 
+  // 🔑 FIX: eliminación directo a Firestore
   const handleEliminar = async (id, estadoActual) => {
     const est = String(estadoActual || '').toLowerCase();
     if (est === 'aprobado' || est === 'entregado') {
@@ -368,18 +306,11 @@ export default function Presupuestos() {
     }
 
     if (!window.confirm("¿Estás seguro de eliminar este presupuesto?")) return;
-    setIsLoading(true);
     try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Presupuestos', action: 'delete', id })
-      });
-      await fetchData();
+      await eliminarDoc('presupuestos', id);
     } catch (err) {
       console.error("Error al eliminar:", err);
-    } finally {
-      setIsLoading(false);
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
@@ -388,9 +319,14 @@ export default function Presupuestos() {
   const totalAprobado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'aprobado').length;
   const totalRechazado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'rechazado').length;
 
+  // 🔑 FIX: filtro por ?obra= (ya viene validado por el <select>)
   const presupuestosFiltradosPorTab = presupuestos.filter(p => {
+    if (obraIdDesdeUrl && String(p.obra_id || '').trim() !== String(obraIdDesdeUrl).trim()) {
+      return false;
+    }
+
     const est = String(p.estado_presupuesto || p.estado || 'borrador').toLowerCase();
-    
+
     if (activeTab === 'workspace') {
       return est === 'borrador' || est === 'entregado' || est === 'en revision';
     } else if (activeTab === 'aprobados') {
@@ -401,10 +337,12 @@ export default function Presupuestos() {
     return true;
   });
 
-  const presupuestosFinales = presupuestosFiltradosPorTab.filter(p => 
+  const presupuestosFinales = presupuestosFiltradosPorTab.filter(p =>
     String(p.nombre || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
     String(p.codigo || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const error = errorFirestore ? 'Error al conectar con Firestore.' : '';
 
   if (isLoading) {
     return <div className="p-20 text-center"><Loader2 className="w-10 h-10 animate-spin mx-auto text-amber-500" /> <span className="text-sm text-slate-500 font-medium">Cargando presupuestos...</span></div>;
@@ -415,15 +353,29 @@ export default function Presupuestos() {
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Presupuestos de Obra</h1>
-          <p className="text-slate-500 text-sm mt-1">Gestión integral, cómputo de costos, control de versiones y precios de venta.</p>
+          <p className="text-slate-500 text-sm mt-1">
+            Gestión integral, cómputo de costos, control de versiones y precios de venta.
+          </p>
         </div>
         <button
-          onClick={() => setIsModalOpen(true)}
+          onClick={() => {
+            setNuevoPresupuesto({
+              codigo: obraIdDesdeUrl ? generarCodigoPresupuestoAutomatico(obraIdDesdeUrl) : '',
+              nombre: '',
+              obra_id: obraIdDesdeUrl || '',
+              coeficiente_pase: 1.30,
+              estado_presupuesto: 'borrador',
+              version: 'v1'
+            });
+            setIsModalOpen(true);
+          }}
           className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm"
         >
           <Plus className="w-4 h-4" /> Nuevo Presupuesto
         </button>
       </div>
+
+      {error && <div className="p-4 bg-red-50 text-red-600 text-sm text-center border border-red-200 rounded-xl">{error}</div>}
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
@@ -449,8 +401,8 @@ export default function Presupuestos() {
           <button
             onClick={() => setActiveTab('workspace')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'workspace' 
-                ? 'bg-amber-500 text-white shadow-sm' 
+              activeTab === 'workspace'
+                ? 'bg-amber-500 text-white shadow-sm'
                 : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
             }`}
           >
@@ -459,8 +411,8 @@ export default function Presupuestos() {
           <button
             onClick={() => setActiveTab('aprobados')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'aprobados' 
-                ? 'bg-amber-500 text-white shadow-sm' 
+              activeTab === 'aprobados'
+                ? 'bg-amber-500 text-white shadow-sm'
                 : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
             }`}
           >
@@ -469,8 +421,8 @@ export default function Presupuestos() {
           <button
             onClick={() => setActiveTab('archivados')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-              activeTab === 'archivados' 
-                ? 'bg-amber-500 text-white shadow-sm' 
+              activeTab === 'archivados'
+                ? 'bg-amber-500 text-white shadow-sm'
                 : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
             }`}
           >
@@ -478,15 +430,44 @@ export default function Presupuestos() {
           </button>
         </div>
 
-        <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 w-full md:w-72">
-          <Search className="w-4 h-4 text-slate-400" />
-          <input 
-            type="text"
-            placeholder="Buscar presupuesto..."
-            className="w-full bg-transparent outline-none text-xs text-slate-800 placeholder:text-slate-400"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
+        <div className="flex items-center gap-2 w-full md:w-auto">
+          {/* 🔑 NUEVO: selector de obra. '' = Todas las obras */}
+          <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 w-full md:w-72">
+            <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+            <select
+              value={obraIdDesdeUrl}
+              onChange={(e) => {
+                const nuevoId = e.target.value;
+                // 🔑 FIX: actualizamos el ?obra= en la URL. Si es '', lo sacamos.
+                const params = new URLSearchParams(searchParams);
+                if (nuevoId) {
+                  params.set('obra', nuevoId);
+                } else {
+                  params.delete('obra');
+                }
+                setSearchParams(params);
+              }}
+              className="w-full bg-transparent outline-none text-xs font-semibold text-slate-700 cursor-pointer"
+            >
+              <option value="">Todas las obras</option>
+              {obras.map(o => (
+                <option key={o.id} value={o.id}>
+                  {o.nombre || o.nombre_obra || 'Sin nombre'}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 w-full md:w-72">
+            <Search className="w-4 h-4 text-slate-400 shrink-0" />
+            <input
+              type="text"
+              placeholder="Buscar presupuesto..."
+              className="w-full bg-transparent outline-none text-xs text-slate-800 placeholder:text-slate-400"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+            />
+          </div>
         </div>
       </div>
 
@@ -512,7 +493,7 @@ export default function Presupuestos() {
                 const obraAsociada = obras.find(o => String(o.id).trim() === String(p.obra_id).trim());
                 const costoDir = Math.round(Number(p.costo_directo) || 0);
                 const precioVta = Math.round(Number(p.precio_venta) || 0);
-                
+
                 let versionVisual = p.version;
                 if (!versionVisual || versionVisual === 'undefined') {
                   const match = (p.nombre || '').match(/\(v(\d+)\)/i);
@@ -541,9 +522,9 @@ export default function Presupuestos() {
                         disabled={estadoActual === 'aprobado' || estadoActual === 'rechazado'}
                         onChange={(e) => handleCambiarEstado(p.id, e.target.value)}
                         className={`w-full px-2 py-1 rounded-full font-bold text-[10px] uppercase border outline-none transition-colors ${
-                          estadoActual === 'entregado' 
-                            ? 'bg-purple-100 text-purple-800 border-purple-300 cursor-pointer' 
-                            : estadoActual === 'aprobado' 
+                          estadoActual === 'entregado'
+                            ? 'bg-purple-100 text-purple-800 border-purple-300 cursor-pointer'
+                            : estadoActual === 'aprobado'
                             ? 'bg-emerald-100 text-emerald-800 border-emerald-300 cursor-not-allowed opacity-75'
                             : estadoActual === 'rechazado'
                             ? 'bg-red-100 text-red-800 border-red-300 cursor-not-allowed opacity-75'
@@ -559,25 +540,25 @@ export default function Presupuestos() {
                     </td>
                     <td className="w-[9%] px-2 py-4 text-right">
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button 
+                        <button
                           onClick={() => handleActualizarPresupuestoVersion(p)}
                           className="p-1.5 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 hover:border-blue-300 rounded-lg shadow-sm transition-all flex items-center justify-center"
                           title="Actualizar Precios y Generar Nueva Versión"
                         >
                           <RefreshCw className="w-3.5 h-3.5" />
                         </button>
-                        <Link 
+                        <Link
                           to={`/presupuestos/${p.id}`}
                           className="p-1.5 text-slate-600 hover:text-amber-600 bg-white border border-slate-200 hover:border-amber-300 rounded-lg shadow-sm transition-all flex items-center justify-center"
                           title="Ver Detalle del Presupuesto"
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </Link>
-                        <button 
+                        <button
                           onClick={() => handleEliminar(p.id, p.estado_presupuesto || p.estado)}
                           className={`p-1.5 bg-white border rounded-lg shadow-sm transition-all ${
                             estadoActual === 'aprobado' || estadoActual === 'entregado'
-                              ? 'text-slate-300 border-slate-100 cursor-not-allowed' 
+                              ? 'text-slate-300 border-slate-100 cursor-not-allowed'
                               : 'text-slate-400 hover:text-red-600 border-slate-200 hover:border-red-300'
                           }`}
                           title={estadoActual === 'aprobado' || estadoActual === 'entregado' ? "Bloqueado" : "Eliminar Presupuesto"}
@@ -604,7 +585,7 @@ export default function Presupuestos() {
             <form onSubmit={handleCrear} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra Asociada *</label>
-                <select 
+                <select
                   required
                   disabled={isSaving}
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold disabled:bg-slate-100"
@@ -620,7 +601,7 @@ export default function Presupuestos() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Código del Presupuesto (Automático)</label>
-                <input 
+                <input
                   type="text"
                   required
                   readOnly
@@ -632,7 +613,7 @@ export default function Presupuestos() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre del Presupuesto *</label>
-                <input 
+                <input
                   type="text"
                   required
                   disabled={isSaving}
@@ -645,7 +626,7 @@ export default function Presupuestos() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Coeficiente de Pase</label>
-                <input 
+                <input
                   type="number"
                   step="0.0001"
                   required
@@ -679,7 +660,7 @@ export default function Presupuestos() {
             <form onSubmit={handleConfirmarAprobacion} className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Orden de Compra *</label>
-                <input 
+                <input
                   type="text"
                   required
                   disabled={isSaving}
@@ -692,7 +673,7 @@ export default function Presupuestos() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Responsable de Cliente *</label>
-                <input 
+                <input
                   type="text"
                   required
                   disabled={isSaving}
@@ -705,7 +686,7 @@ export default function Presupuestos() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Responsable de Proveedor *</label>
-                <input 
+                <input
                   type="text"
                   required
                   disabled={isSaving}

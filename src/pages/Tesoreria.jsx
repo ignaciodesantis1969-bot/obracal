@@ -1,40 +1,40 @@
+// src/pages/Tesoreria.jsx
 import React, { useState } from 'react';
 import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip } from 'lucide-react';
+// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+// 🔑 FIX: Apps Script se usa SOLO para OCR y subir archivos a Drive
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
-export default function Tesoreria({  
-  GOOGLE_SCRIPT_URL, 
-  movimientos = [], 
-  facturas = [], 
-  facturasVenta = [], 
-  proveedores = [], 
-  clientes = [], 
-  obras = [], 
-  presupuestos = [],
-  rubros = [],
-  contratos = [],
-  cargarDatos 
-}) {
+export default function Tesoreria() {
+  // 🔑 NUEVO: leemos las 9 colecciones necesarias en paralelo
+  const { data: movimientos } = useFirestoreCollection('tesoreria');
+  const { data: facturas } = useFirestoreCollection('facturas_compras');
+  const { data: facturasVenta } = useFirestoreCollection('facturas_ventas');
+  const { data: proveedores } = useFirestoreCollection('proveedores');
+  const { data: clientes } = useFirestoreCollection('clientes');
+  const { data: obras } = useFirestoreCollection('obras');
+  const { data: presupuestos } = useFirestoreCollection('presupuestos');
+  const { data: rubros } = useFirestoreCollection('rubros');
+  const { data: contratos } = useFirestoreCollection('contratos');
+
   const [activeTab, setActiveTab] = useState('movimientos');
   const [searchTerm, setSearchTerm] = useState('');
-  
-  // 🔍 FILTROS POR PROVEEDOR
+
   const [filtroProveedorMovimientos, setFiltroProveedorMovimientos] = useState('');
   const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
 
-  // Modal Nuevo/Editar Movimiento
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
 
-  // Modal Nueva Factura de Venta y su Paso (subir vs formulario)
   const [isFacturaVentaModalOpen, setIsFacturaVentaModalOpen] = useState(false);
-  const [pasoFacturaVenta, setPasoFacturaVenta] = useState('subir'); // 'subir' | 'formulario'
+  const [pasoFacturaVenta, setPasoFacturaVenta] = useState('subir');
   const [leyendoFactura, setLeyendoFactura] = useState(false);
-  
-  // Estados para manejar el archivo adjunto en Base64 para Google Drive
+
   const [archivoBase64Venta, setArchivoBase64Venta] = useState('');
   const [nombreArchivoVenta, setNombreArchivoVenta] = useState('');
 
-  // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingVenta, setIsSavingVenta] = useState(false);
 
@@ -60,7 +60,6 @@ export default function Tesoreria({
     ]
   });
 
-  // Formulario Factura de Venta ampliado
   const [formDataVenta, setFormDataVenta] = useState({
     tipo_comprobante: 'FACTURA A',
     punto_venta: '00001',
@@ -80,7 +79,6 @@ export default function Tesoreria({
     estado_pago: 'pendiente'
   });
 
-  // Filtrar presupuestos aprobados para la obra seleccionada
   const presupuestosDisponibles = presupuestos.filter(p => {
     if (!formData.obra_id) return false;
     const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
@@ -88,7 +86,6 @@ export default function Tesoreria({
     return pObraId === String(formData.obra_id) && (estado === 'aprobado' || estado === 'activo' || estado === '');
   });
 
-  // 🛠️ EXTRACCIÓN DE RUBROS DESDE "items_detalle" DEL PRESUPUESTO SELECCIONADO
   const obtenerRubrosDelPresupuesto = () => {
     if (!formData.presupuesto_id) return [];
     const presuSel = presupuestos.find(p => String(p.id || p.ID) === String(formData.presupuesto_id));
@@ -102,9 +99,7 @@ export default function Tesoreria({
       const listaRubrosJson = parsed.rubros || parsed.Rubros || [];
       const extraidos = listaRubrosJson.map(r => r.rubro || r.Rubro || r.nombre || r.Nombre).filter(Boolean);
       if (extraidos.length > 0) return extraidos;
-    } catch (e) {
-      // Ignorar si falla el parseo de JSON
-    }
+    } catch (e) {}
 
     return [];
   };
@@ -146,6 +141,30 @@ export default function Tesoreria({
     return str;
   };
 
+  // 🔑 NUEVO: sube un base64 a Drive vía Apps Script y devuelve la URL pública
+  const subirArchivoADrive = async (base64, tabla) => {
+    if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'subirArchivoDrive',
+          base64,
+          tabla,
+          subseccion: ''
+        })
+      });
+      const data = await res.json();
+      if (data.success && data.archivo_url) return data.archivo_url;
+      console.warn("No se pudo subir archivo a Drive:", data.error);
+      return '';
+    } catch (err) {
+      console.error("Error subiendo archivo a Drive:", err);
+      return '';
+    }
+  };
+
   const handleEditarMovimiento = (m) => {
     const mId = m.id || m.ID || m.Id;
     setEditingId(mId);
@@ -158,16 +177,14 @@ export default function Tesoreria({
         if (!Array.isArray(facturasAplicadasParsed) || facturasAplicadasParsed.length === 0) {
           facturasAplicadasParsed = [{ id: Date.now(), factura_id: '', monto: 0 }];
         }
-      } catch (e) {
-        // Fallback si falla el parseo
-      }
+      } catch (e) {}
     }
 
-    const brutoOriginal = Number(m.monto || m.Monto || 0) + 
-                          Number(m.retencion_suss || m.Retencion_suss || 0) + 
-                          Number(m.retencion_iva || m.Retencion_iva || 0) + 
-                          Number(m.retencion_ganancias || m.Retencion_ganancias || 0) + 
-                          Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0) + 
+    const brutoOriginal = Number(m.monto || m.Monto || 0) +
+                          Number(m.retencion_suss || m.Retencion_suss || 0) +
+                          Number(m.retencion_iva || m.Retencion_iva || 0) +
+                          Number(m.retencion_ganancias || m.Retencion_ganancias || 0) +
+                          Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0) +
                           Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0);
 
     setFormData({
@@ -296,10 +313,10 @@ export default function Tesoreria({
     }));
   };
 
-  const totalRetenciones = Number(formData.retencion_suss || 0) + 
-                         Number(formData.retencion_iva || 0) + 
-                         Number(formData.retencion_ganancias || 0) + 
-                         Number(formData.retencion_iibb_pba || 0) + 
+  const totalRetenciones = Number(formData.retencion_suss || 0) +
+                         Number(formData.retencion_iva || 0) +
+                         Number(formData.retencion_ganancias || 0) +
+                         Number(formData.retencion_iibb_pba || 0) +
                          Number(formData.retencion_iibb_caba || 0);
 
   const montoBrutoFacturas = Number(formData.monto || 0);
@@ -357,6 +374,7 @@ export default function Tesoreria({
     }));
   };
 
+  // ⚠️ OCR sigue usando Apps Script
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -368,15 +386,15 @@ export default function Tesoreria({
 
     setLeyendoFactura(true);
     setNombreArchivoVenta(archivo.name);
-    
+
     try {
       const reader = new FileReader();
       reader.readAsDataURL(archivo);
-      
+
       reader.onload = async () => {
         const base64Data = reader.result;
         setArchivoBase64Venta(base64Data);
-        
+
         try {
           const res = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
@@ -396,12 +414,12 @@ export default function Tesoreria({
           } catch (parseErr) {
             throw new Error("El servidor no devolvió un formato JSON válido.");
           }
-          
+
           if (data.success && !data.error) {
             let clienteEncontradoId = '';
             const nombreClienteBusqueda = data.cliente || data.proveedor || '';
             if (nombreClienteBusqueda && clientes.length > 0) {
-              const cliMatch = clientes.find(c => 
+              const cliMatch = clientes.find(c =>
                 (c.razon_social && c.razon_social.toLowerCase().includes(nombreClienteBusqueda.toLowerCase())) ||
                 (c.nombre && c.nombre.toLowerCase().includes(nombreClienteBusqueda.toLowerCase()))
               );
@@ -423,7 +441,7 @@ export default function Tesoreria({
             const netoVal = Number(data.subtotal || data.neto) || 0;
             const ivaVal = Number(data.iva_21 || data.iva) || (netoVal * 0.21);
             const totalVal = Number(data.total) || (netoVal + ivaVal);
-            
+
             let descItem = `Factura N° ${nCompLimpio || '---'}`;
             if (data.items && Array.isArray(data.items) && data.items.length > 0 && data.items[0].descripcion) {
               descItem = data.items[0].descripcion;
@@ -480,153 +498,112 @@ export default function Tesoreria({
     }
   };
 
+  // 🔑 FIX: guardar movimiento directo a Firestore + actualizar estado de facturas asociadas
   const handleGuardarMovimiento = async (e) => {
     e.preventDefault();
     if (isSaving) return;
 
     setIsSaving(true);
     try {
-      const action = editingId ? 'update' : 'create';
       const payloadData = {
         ...formData,
         monto: montoNetoEfectivo,
         facturas_aplicadas: JSON.stringify(formData.facturas_aplicadas)
       };
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'Tesoreria',
-          action: action,
-          id: editingId,
-          data: payloadData
-        })
-      });
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
 
-      const textoRespuesta = await res.text();
-      let data;
-      try {
-        data = JSON.parse(textoRespuesta);
-      } catch (parseErr) {
-        alert("Error del servidor: " + textoRespuesta.substring(0, 150));
-        return;
+      if (editingId) {
+        await actualizarDoc('tesoreria', editingId, datosLimpios);
+      } else {
+        await crearDoc('tesoreria', datosLimpios);
       }
 
-      if (data.success || data.id) {
-        if (Array.isArray(formData.facturas_aplicadas)) {
-          for (const item of formData.facturas_aplicadas) {
-            if (!item.factura_id) continue;
-            
-            const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
-            const listaObjetivo = esIngreso ? facturasVenta : facturas;
-            const tablaObjetivo = esIngreso ? 'FacturasVenta' : 'Facturas';
-            
-            const facturaObj = listaObjetivo.find(f => String(f.id || f.ID) === String(item.factura_id));
-            if (facturaObj) {
-              const totalFactura = Number(facturaObj.total || facturaObj.Total || 0);
-              const montoAplicado = Number(item.monto || 0);
-              
-              let nuevoEstado = 'pendiente';
-              if (montoAplicado >= totalFactura) {
-                nuevoEstado = 'pagado';
-              } else if (montoAplicado > 0) {
-                nuevoEstado = 'pagado parcial';
-              }
+      if (Array.isArray(formData.facturas_aplicadas)) {
+        for (const item of formData.facturas_aplicadas) {
+          if (!item.factura_id) continue;
 
-              await fetch(GOOGLE_SCRIPT_URL, {
-                method: 'POST',
-                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                body: JSON.stringify({
-                  tabla: tablaObjetivo,
-                  action: 'update',
-                  id: facturaObj.id || facturaObj.ID,
-                  data: {
-                    ...facturaObj,
-                    estado_pago: nuevoEstado
-                  }
-                })
-              });
+          const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
+          const listaObjetivo = esIngreso ? facturasVenta : facturas;
+          const coleccionObjetivo = esIngreso ? 'facturas_ventas' : 'facturas_compras';
+
+          const facturaObj = listaObjetivo.find(f => String(f.id || f.ID) === String(item.factura_id));
+          if (facturaObj) {
+            const totalFactura = Number(facturaObj.total || facturaObj.Total || 0);
+            const montoAplicado = Number(item.monto || 0);
+
+            let nuevoEstado = 'pendiente';
+            if (montoAplicado >= totalFactura) {
+              nuevoEstado = 'pagado';
+            } else if (montoAplicado > 0) {
+              nuevoEstado = 'pagado parcial';
+            }
+
+            const facturaIdReal = facturaObj.id || facturaObj.ID;
+            try {
+              await actualizarDoc(coleccionObjetivo, facturaIdReal, { estado_pago: nuevoEstado });
+            } catch (err) {
+              console.error("Error al actualizar estado_pago de factura:", err);
             }
           }
         }
-
-        setIsModalOpen(false);
-        cargarDatos();
-      } else {
-        alert("Error al guardar movimiento: " + (data.error || "Desconocido"));
       }
+
+      setIsModalOpen(false);
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al guardar el movimiento.");
+      alert("Error al guardar movimiento: " + (err.message || ''));
     } finally {
       setIsSaving(false);
     }
   };
 
+  // 🔑 FIX: guardar factura de venta directo a Firestore (con subida a Drive si hay base64)
   const handleGuardarFacturaVenta = async (e) => {
     e.preventDefault();
     if (isSavingVenta) return;
 
     setIsSavingVenta(true);
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          tabla: 'FacturasVenta',
-          action: 'create',
-          data: {
-            ...formDataVenta,
-            archivo_url: archivoBase64Venta ? archivoBase64Venta : formDataVenta.archivo_url,
-            estado_pago: 'pendiente',
-            items: JSON.stringify(formDataVenta.items)
-          }
-        })
-      });
-
-      const textoRespuesta = await res.text();
-      let data;
-      try {
-        data = JSON.parse(textoRespuesta);
-      } catch (parseErr) {
-        alert("Error del servidor: " + textoRespuesta.substring(0, 150));
-        return;
+      // 🔑 NUEVO: subir el archivo a Drive si todavía es base64
+      let archivoUrlFinal = formDataVenta.archivo_url || '';
+      if (archivoBase64Venta && archivoBase64Venta.indexOf('data:') === 0) {
+        archivoUrlFinal = await subirArchivoADrive(archivoBase64Venta, 'FacturasVenta');
       }
 
-      if (data.success || data.id) {
-        setIsFacturaVentaModalOpen(false);
-        alert("Factura de Venta registrada correctamente.");
-        cargarDatos();
-      } else {
-        alert("Error al guardar factura de venta: " + (data.error || "Desconocido"));
-      }
+      const datosNuevaVenta = {
+        ...formDataVenta,
+        archivo_url: archivoUrlFinal,
+        estado_pago: 'pendiente',
+        items: JSON.stringify(formDataVenta.items)
+      };
+
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVenta;
+
+      await crearDoc('facturas_ventas', datosLimpios);
+
+      setIsFacturaVentaModalOpen(false);
+      setArchivoBase64Venta('');
+      setNombreArchivoVenta('');
+      alert("Factura de Venta registrada correctamente.");
     } catch (err) {
       console.error(err);
-      alert("Error de conexión al registrar la factura de venta.");
+      alert("Error al registrar la factura de venta: " + (err.message || ''));
     } finally {
       setIsSavingVenta(false);
     }
   };
 
+  // 🔑 FIX: eliminar movimiento directo a Firestore
   const handleEliminarMovimiento = async (m) => {
     const mId = m.id || m.ID || m.Id;
     if (!mId) return;
     if (!window.confirm("¿Estás seguro de eliminar este movimiento?")) return;
     try {
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ tabla: 'Tesoreria', action: 'delete', id: mId })
-      });
-      const data = await res.json().catch(() => ({ success: true }));
-      if (data.success !== false) {
-        cargarDatos();
-      } else {
-        alert("No se pudo eliminar el movimiento.");
-      }
+      await eliminarDoc('tesoreria', mId);
     } catch (err) {
       console.error(err);
+      alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
@@ -640,12 +617,11 @@ export default function Tesoreria({
 
   const balance = totalIngresos - totalEgresos;
 
-  // 🔍 FILTRADO DE MOVIMIENTOS
   const movimientosFiltrados = movimientos.filter(m => {
     const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
     const ref = String(m.referencia || m.Referencia || '').toLowerCase();
     const matchTexto = concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
-    
+
     let matchProveedor = true;
     if (filtroProveedorMovimientos) {
       const provObj = proveedores.find(p => String(p.id || p.ID) === String(filtroProveedorMovimientos));
@@ -656,11 +632,10 @@ export default function Tesoreria({
     return matchTexto && matchProveedor;
   });
 
-  // 🔍 FILTRADO DE FACTURAS A PAGAR
   const facturasAPagar = facturas.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
     const esPendiente = estado === 'pendiente' || estado === 'pagado parcial';
-    
+
     const provId = String(f.proveedor_id || f.Proveedor_id || '');
     const matchProveedor = !filtroProveedorPagar || provId === String(filtroProveedorPagar);
 
@@ -678,8 +653,8 @@ export default function Tesoreria({
   movimientos.forEach(m => {
     const fecha = m.fecha || m.Fecha;
     if (!fecha) return;
-    const mesAnio = fecha.substring(0, 7); 
-    const anio = fecha.substring(0, 4);    
+    const mesAnio = String(fecha).substring(0, 7);
+    const anio = String(fecha).substring(0, 4);
     const tipo = String(m.tipo || m.Tipo).toLowerCase();
     const monto = Number(m.monto || m.Monto) || 0;
 
@@ -711,9 +686,7 @@ export default function Tesoreria({
     return acc + Number(m.retencion_iva || m.Retencion_iva || 0);
   }, 0);
 
-  const posicionIva = totalIvaVentas - totalIvaCompras - totalRetencionesIvaMovimientos;
-
-  return (
+  const posicionIva = totalIvaVentas - totalIvaCompras - totalRetencionesIvaMovimientos;  return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -808,8 +781,8 @@ export default function Tesoreria({
 
         {activeTab === 'movimientos' && (
           <div className="flex items-center gap-3 w-full sm:w-auto">
-            <select 
-              value={filtroProveedorMovimientos} 
+            <select
+              value={filtroProveedorMovimientos}
               onChange={(e) => setFiltroProveedorMovimientos(e.target.value)}
               className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500"
             >
@@ -820,7 +793,7 @@ export default function Tesoreria({
             </select>
             <div className="relative flex-1 sm:w-60">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <input 
+              <input
                 type="text"
                 placeholder="Buscar movimiento..."
                 value={searchTerm}
@@ -833,8 +806,8 @@ export default function Tesoreria({
 
         {activeTab === 'facturas_pagar' && (
           <div className="flex items-center gap-3 w-full sm:w-auto">
-            <select 
-              value={filtroProveedorPagar} 
+            <select
+              value={filtroProveedorPagar}
               onChange={(e) => setFiltroProveedorPagar(e.target.value)}
               className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 w-full sm:w-72"
             >
@@ -949,7 +922,7 @@ export default function Tesoreria({
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button 
+                        <button
                           onClick={() => handlePagarFacturaCompra(f)}
                           className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
                         >
@@ -994,7 +967,7 @@ export default function Tesoreria({
                   const tipoComp = f.tipo_comprobante || f.Tipo_comprobante || 'FACTURA A';
                   const nComp = f.numero_comp || f.Numero_comp || '---';
                   const estadoPago = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
-                  
+
                   const urlArchivo = f.archivo_url || f.Archivo_url || f.archivo || f.Archivo || '';
 
                   return (
@@ -1004,13 +977,13 @@ export default function Tesoreria({
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha_emision || f.Fecha_emision || f.fecha || f.Fecha)}</td>
                       <td className="px-4 py-4 font-semibold text-rose-600">{formatearFechaDisplay(f.fecha_vencimiento || f.Fecha_vencimiento || f.vencimiento || f.Vencimiento)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      
+
                       <td className="px-4 py-4 text-center">
                         {urlArchivo && String(urlArchivo).startsWith('http') ? (
-                          <a 
-                            href={urlArchivo} 
-                            target="_blank" 
-                            rel="noopener noreferrer" 
+                          <a
+                            href={urlArchivo}
+                            target="_blank"
+                            rel="noopener noreferrer"
                             className="inline-flex items-center justify-center p-1.5 bg-sky-50 text-sky-600 hover:bg-sky-100 rounded-lg transition-colors border border-sky-200 shadow-sm"
                             title="Ver comprobante en Google Drive"
                           >
@@ -1027,7 +1000,7 @@ export default function Tesoreria({
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button 
+                        <button
                           onClick={() => handleCobrarFacturaVenta(f)}
                           className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
                         >
@@ -1159,7 +1132,7 @@ export default function Tesoreria({
               <h3 className="font-bold text-slate-900">{editingId ? 'Editar Movimiento' : 'Nuevo Movimiento con Retenciones'}</h3>
               <button onClick={() => setIsModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
-            
+
             <form onSubmit={handleGuardarMovimiento} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -1178,13 +1151,12 @@ export default function Tesoreria({
                   <input type="text" required disabled={isSaving} placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
                 </div>
 
-                {/* IMPUTACIÓN EN CASCADA */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
-                  <select 
-                    disabled={isSaving} 
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
-                    value={formData.obra_id} 
+                  <select
+                    disabled={isSaving}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                    value={formData.obra_id}
                     onChange={(e) => setFormData({...formData, obra_id: e.target.value, presupuesto_id: '', rubro_imputacion: ''})}
                   >
                     <option value="">Seleccione obra...</option>
@@ -1194,10 +1166,10 @@ export default function Tesoreria({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado</label>
-                  <select 
-                    disabled={isSaving || !formData.obra_id} 
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
-                    value={formData.presupuesto_id} 
+                  <select
+                    disabled={isSaving || !formData.obra_id}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                    value={formData.presupuesto_id}
                     onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value, rubro_imputacion: ''})}
                   >
                     <option value="">{formData.obra_id ? 'Seleccione presupuesto...' : 'Primero seleccione obra...'}</option>
@@ -1211,10 +1183,10 @@ export default function Tesoreria({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contrato (Opcional)</label>
-                  <select 
-                    disabled={isSaving} 
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
-                    value={formData.contrato_id} 
+                  <select
+                    disabled={isSaving}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                    value={formData.contrato_id}
                     onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}
                   >
                     <option value="">Seleccione contrato...</option>
@@ -1228,10 +1200,10 @@ export default function Tesoreria({
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
-                  <select 
-                    disabled={isSaving} 
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
-                    value={formData.tipo_insumo} 
+                  <select
+                    disabled={isSaving}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                    value={formData.tipo_insumo}
                     onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value, rubro_imputacion: ''})}
                   >
                     <option value="Materiales">Materiales</option>
@@ -1245,20 +1217,20 @@ export default function Tesoreria({
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
                   {String(formData.tipo_insumo).toLowerCase() === 'gastos generales' ? (
-                    <select 
-                      disabled={isSaving} 
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
-                      value={formData.rubro_imputacion} 
+                    <select
+                      disabled={isSaving}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                      value={formData.rubro_imputacion}
                       onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
                     >
                       <option value="">Seleccione gasto general...</option>
                       {gastosGeneralesConceptos.map((g, idx) => <option key={idx} value={g}>{g}</option>)}
                     </select>
                   ) : (
-                    <select 
-                      disabled={isSaving || !formData.presupuesto_id} 
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100" 
-                      value={formData.rubro_imputacion} 
+                    <select
+                      disabled={isSaving || !formData.presupuesto_id}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                      value={formData.rubro_imputacion}
                       onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
                     >
                       <option value="">{formData.presupuesto_id ? 'Seleccione rubro del presupuesto...' : 'Primero seleccione presupuesto...'}</option>
@@ -1288,7 +1260,6 @@ export default function Tesoreria({
                 </div>
               </div>
 
-              {/* SECCIÓN DE RETENCIONES */}
               <div className="space-y-3 pt-4 border-t">
                 <h4 className="font-extrabold text-xs uppercase text-slate-800">Retenciones Sufridas (Descuentos)</h4>
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -1345,7 +1316,7 @@ export default function Tesoreria({
                       {Array.isArray(formData.facturas_aplicadas) && formData.facturas_aplicadas.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-50">
                           <td className="px-3 py-2">
-                            <select 
+                            <select
                               disabled={isSaving}
                               className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100"
                               value={item.factura_id}
@@ -1376,13 +1347,13 @@ export default function Tesoreria({
                             </select>
                           </td>
                           <td className="px-3 py-2 text-right">
-                            <input 
-                              type="number" 
-                              step="0.01" 
+                            <input
+                              type="number"
+                              step="0.01"
                               disabled={isSaving}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500 disabled:bg-slate-100" 
-                              value={item.monto} 
-                              onChange={(e) => handleCambiarFacturaFila(item.id, 'monto', e.target.value)} 
+                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500 disabled:bg-slate-100"
+                              value={item.monto}
+                              onChange={(e) => handleCambiarFacturaFila(item.id, 'monto', e.target.value)}
                             />
                           </td>
                           <td className="px-3 py-2 text-center">
@@ -1415,7 +1386,7 @@ export default function Tesoreria({
               <h3 className="font-bold text-sky-950">+ Nueva Factura de Venta</h3>
               <button onClick={() => setIsFacturaVentaModalOpen(false)} disabled={isSavingVenta} className="text-sky-400 hover:text-sky-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
-            
+
             {pasoFacturaVenta === 'subir' ? (
               <div className="p-8 space-y-6 text-center">
                 {leyendoFactura ? (
@@ -1443,8 +1414,8 @@ export default function Tesoreria({
                         <Upload className="w-10 h-10 text-sky-500 mb-1" />
                         <span className="text-xs font-bold text-sky-900">Haz clic para seleccionar el comprobante</span>
                         <span className="text-[10px] text-slate-400">Soporta PDF, PNG, JPG (Procesamiento con IA del servidor)</span>
-                        <input 
-                          type="file" 
+                        <input
+                          type="file"
                           accept=".pdf,.png,.jpg,.jpeg"
                           className="hidden"
                           onChange={procesarArchivoFacturaVenta}
@@ -1455,9 +1426,9 @@ export default function Tesoreria({
 
                     <div className="flex justify-between items-center pt-4 border-t">
                       <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-                      <button 
-                        type="button" 
-                        onClick={() => setPasoFacturaVenta('formulario')} 
+                      <button
+                        type="button"
+                        onClick={() => setPasoFacturaVenta('formulario')}
                         className="text-xs text-sky-600 font-bold hover:underline"
                       >
                         O completar manualmente &rarr;
@@ -1475,9 +1446,9 @@ export default function Tesoreria({
                       {archivoBase64Venta ? `Factura analizada (${nombreArchivoVenta || 'Adjunta'})` : 'Formulario completado manualmente'}
                     </span>
                   </div>
-                  <button 
-                    type="button" 
-                    onClick={() => setPasoFacturaVenta('subir')} 
+                  <button
+                    type="button"
+                    onClick={() => setPasoFacturaVenta('subir')}
                     disabled={isSavingVenta}
                     className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-800 disabled:opacity-50"
                   >
@@ -1551,19 +1522,19 @@ export default function Tesoreria({
                         {formDataVenta.items.map((item) => (
                           <tr key={item.id} className="hover:bg-slate-50">
                             <td className="px-3 py-2">
-                              <input 
-                                type="text" 
+                              <input
+                                type="text"
                                 disabled={isSavingVenta}
-                                placeholder="Detalle del concepto..." 
+                                placeholder="Detalle del concepto..."
                                 className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100"
                                 value={item.descripcion}
                                 onChange={(e) => handleCambiarItemVenta(item.id, 'descripcion', e.target.value)}
                               />
                             </td>
                             <td className="px-3 py-2">
-                              <input 
-                                type="number" 
-                                step="0.01" 
+                              <input
+                                type="number"
+                                step="0.01"
                                 disabled={isSavingVenta}
                                 className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-sky-500 disabled:bg-slate-100"
                                 value={item.cantidad}
@@ -1571,9 +1542,9 @@ export default function Tesoreria({
                               />
                             </td>
                             <td className="px-3 py-2 text-right">
-                              <input 
-                                type="number" 
-                                step="0.01" 
+                              <input
+                                type="number"
+                                step="0.01"
                                 disabled={isSavingVenta}
                                 className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-sky-500 disabled:bg-slate-100"
                                 value={item.precio_unitario}

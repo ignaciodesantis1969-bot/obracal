@@ -4,6 +4,7 @@ import { Printer, Plus, Trash2, ShieldCheck, ExternalLink, Eye, X, Users, Calend
 import { GOOGLE_SCRIPT_URL } from '../../api';
 import { useObraData } from '../../hooks/useObraData';
 import { OBRAS_CONFIG } from '../../config/constants';
+import { crearDoc, eliminarDoc } from '../../lib/firestoreHelpers';
 
 const MAX_ENTRADAS_LOCALSTORAGE = 300;
 
@@ -38,16 +39,14 @@ export default function ReportesDiariosTab({
   const { data: reportesSheet, refetch: refetchReportes } = useObraData(OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice');
   const { data: personalSheet } = useObraData('Personal');
 
-  // 🔑 FIX: persistir en localStorage los partes recién modificados, para que
-// sobrevivan a un refresh cuando el refetch de React Query falla (rate limit).
-const [partesRecienModificados, setPartesRecienModificados] = useState(() => {
-  try {
-    const raw = localStorage.getItem('sice_partes_recien_modificados_v1');
-    return raw ? JSON.parse(raw) : [];
-  } catch {
-    return [];
-  }
-});
+  const [partesRecienModificados, setPartesRecienModificados] = useState(() => {
+    try {
+      const raw = localStorage.getItem('sice_partes_recien_modificados_v1');
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  });
 
   const [idsEliminadosLocales, setIdsEliminadosLocales] = useState(() => {
     try {
@@ -77,23 +76,20 @@ const [partesRecienModificados, setPartesRecienModificados] = useState(() => {
   }, [propContratos, contratosSheet]);
 
   const allReportesSice = useMemo(() => {
-  const s = extraerArrayDatos(reportesSheet);
-  const p = extraerArrayDatos(propReportes);
-  
-  // 🔑 FIX: filtrar partesRecienModificados para excluir los que ya están
-  // en reportesSheet. Así evitamos duplicados permanentes cuando el refetch
-  // SÍ funciona y trae el item desde el Sheet.
-  const nrosEnSheet = new Set([
-    ...s.map(item => String(item?.nro || '').replace(/\D/g, '')),
-    ...p.map(item => String(item?.nro || '').replace(/\D/g, ''))
-  ].filter(Boolean));
+    const s = extraerArrayDatos(reportesSheet);
+    const p = extraerArrayDatos(propReportes);
 
-  const prFiltrados = extraerArrayDatos(partesRecienModificados).filter(item => {
-    const nroItem = String(item?.nro || '').replace(/\D/g, '');
-    return nroItem && !nrosEnSheet.has(nroItem);
-  });
-  
-  const base = [...s, ...p, ...prFiltrados];
+    const nrosEnSheet = new Set([
+      ...s.map(item => String(item?.nro || '').replace(/\D/g, '')),
+      ...p.map(item => String(item?.nro || '').replace(/\D/g, ''))
+    ].filter(Boolean));
+
+    const prFiltrados = extraerArrayDatos(partesRecienModificados).filter(item => {
+      const nroItem = String(item?.nro || '').replace(/\D/g, '');
+      return nroItem && !nrosEnSheet.has(nroItem);
+    });
+
+    const base = [...s, ...p, ...prFiltrados];
 
     const unicosMap = new Map();
 
@@ -167,12 +163,11 @@ const [partesRecienModificados, setPartesRecienModificados] = useState(() => {
     }
   }, [contratoSeleccionadoId]);
 
-  // 🔑 FIX: persistir partesRecienModificados en localStorage cada vez que cambia
-useEffect(() => {
-  try {
-    localStorage.setItem('sice_partes_recien_modificados_v1', JSON.stringify(partesRecienModificados));
-  } catch (e) {}
-}, [partesRecienModificados]);
+  useEffect(() => {
+    try {
+      localStorage.setItem('sice_partes_recien_modificados_v1', JSON.stringify(partesRecienModificados));
+    } catch (e) {}
+  }, [partesRecienModificados]);
 
   const contratoActivoObj = useMemo(() => {
     if (!contratoSeleccionadoId) return null;
@@ -186,7 +181,7 @@ useEffect(() => {
     if (!contratoActivoObj) return '---';
     return buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'nro_contrato', 'contratoCliente']) || '---';
   }, [contratoActivoObj, buscarValorEnObjeto]);
-  
+
   const siceParteNro = useMemo(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
@@ -198,7 +193,7 @@ useEffect(() => {
   }, [allReportesSice, buscarValorEnObjeto]);
 
   const [operariosSeleccionados, setOperariosSeleccionados] = useState([]);
-  
+
   const [siceItems, setSiceItems] = useState([
     { id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', operariosIds: [], terminoTarea: 'SI' }
   ]);
@@ -212,7 +207,7 @@ useEffect(() => {
     const fuenteDatos = listaEmpleadosActivos.length > 0 ? listaEmpleadosActivos : personal;
     const arrayFuente = extraerArrayDatos(fuenteDatos);
     if (arrayFuente.length === 0) return [];
-    
+
     return arrayFuente.filter(emp => {
       const estadoEmp = String(emp?.estado || emp?.Estado || buscarValorEnObjeto(emp, ['estado', 'Estado']) || '').toLowerCase().trim();
       return estadoEmp === 'activo' || estadoEmp === '' || estadoEmp === 'alta';
@@ -389,7 +384,7 @@ useEffect(() => {
       const rawGeneradoPor = String(buscarValorEnObjeto(r, ['generadopor', 'generadoPor', 'usuario', 'Usuario']) || '').trim();
       let generadoPorFinal = rawGeneradoPor;
       const rolUserLower = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
-      
+
       if (!generadoPorFinal || generadoPorFinal.toLowerCase() === 'sistema') {
         generadoPorFinal = (rolUserLower === 'administrador' || rolUserLower === 'admin') ? 'Administrador' : 'Operario';
       }
@@ -427,8 +422,8 @@ useEffect(() => {
     if (actualizados[index]) {
       actualizados[index][campo] = valor;
       if (campo === 'nombre') {
-        actualizados[index]['abreviacion'] = OBRAS_CONFIG?.determinarCategoriaEmpleado 
-          ? OBRAS_CONFIG.determinarCategoriaEmpleado(valor) 
+        actualizados[index]['abreviacion'] = OBRAS_CONFIG?.determinarCategoriaEmpleado
+          ? OBRAS_CONFIG.determinarCategoriaEmpleado(valor)
           : 'OE';
       }
       setOperariosSeleccionados(actualizados);
@@ -446,6 +441,7 @@ useEffect(() => {
     }
   };
 
+  // 🔑 MIGRACIÓN A FIRESTORE: eliminar directo de la colección `reportes_diarios`
   const eliminarParteServidor = async (idParte, nroParte) => {
     const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
     const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
@@ -455,21 +451,27 @@ useEffect(() => {
     }
 
     if (!window.confirm("¿Está seguro de eliminar este parte diario del sistema?")) return;
-    const toastId = toast.loading('Eliminando parte diario...');
-    
-    try {
-      await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ 
-          tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice', 
-          action: 'delete', 
-          id: idParte,
-          nro: nroParte 
-        })
-      });
 
-      const idLimpio = String(idParte).trim();
+    // 🔑 Buscar el doc real en Firestore por nro (por si el id que llega es el viejo de Sheets)
+    const nroBuscado = String(nroParte || '').replace(/\D/g, '');
+    const docEncontrado = (reportesSheet || []).find(item =>
+      String(item.nro || '').replace(/\D/g, '') === nroBuscado
+    );
+    const idFinal = docEncontrado?.id || idParte;
+
+    if (!idFinal) {
+      toast.error('No se pudo identificar el documento a eliminar.');
+      return;
+    }
+
+    const toastId = toast.loading('Eliminando parte diario...');
+
+    try {
+      // 🔑 Eliminar de Firestore
+      await eliminarDoc('reportes_diarios', idFinal);
+
+      // Registrar en localStorage para evitar que reaparezca por cachés locales
+      const idLimpio = String(idFinal).trim();
       const nroOriginal = String(nroParte || '').trim();
       const nroNum = nroOriginal ? parseInt(nroOriginal.replace(/\D/g, ''), 10).toString() : '';
       const nroPadded = nroNum ? nroNum.padStart(5, '0') : '';
@@ -497,6 +499,7 @@ useEffect(() => {
 
       toast.success('Parte diario eliminado correctamente', { id: toastId });
     } catch (err) {
+      console.error('[ReportesDiarios] Error eliminando parte:', err);
       toast.error('Ocurrió un error al intentar eliminar el parte', { id: toastId });
     }
   };
@@ -533,6 +536,7 @@ useEffect(() => {
     }
   };
 
+  // 🔑 MIGRACIÓN A FIRESTORE: el .gs genera el PDF, el frontend guarda en Firestore
   const aprobarYArchivarParteSice = async (e) => {
     e.preventDefault();
     if (!contratoSeleccionadoId) {
@@ -560,11 +564,12 @@ useEffect(() => {
     }
 
     setIsSavingSice(true);
-    const toastId = toast.loading('Generando PDF en Google Drive y guardando...');
+    const toastId = toast.loading('Generando PDF en Google Drive...');
     const rolActualUsuario = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
     const nombreUsuarioGenerador = (rolActualUsuario === 'administrador' || rolActualUsuario === 'admin') ? 'Administrador' : 'Operario';
 
     try {
+      // PASO 1: pedirle al .gs que genere el PDF en Drive
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
         tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice',
@@ -601,35 +606,7 @@ useEffect(() => {
       }
 
       if (!resultado) {
-        console.info('[ReportesDiarios] Sin respuesta JSON. Reintentando refetch para confirmar...');
-        
-        await new Promise(resolve => {
-          if (typeof refetchReportes === 'function') {
-            refetchReportes().then(() => resolve()).catch(() => resolve());
-          } else {
-            resolve();
-          }
-        });
-
-        await new Promise(r => setTimeout(r, 1500));
-
-        const parteConfirmado = allReportesSice.find(p => 
-          String(p?.nro || '').replace(/\D/g, '') === String(siceParteNro).replace(/\D/g, '')
-        );
-
-        if (parteConfirmado) {
-          console.info('[ReportesDiarios] Parte confirmado en el Sheet tras refetch:', parteConfirmado.nro);
-          toast.success('¡Parte guardado! (confirmado en el Sheet)', { id: toastId });
-        } else {
-          toast('El parte puede haberse guardado, pero no lo pudimos confirmar todavía. Recargá la página en unos segundos.', { icon: '⚠️', duration: 6000, id: toastId });
-        }
-
-        setSiceItems([{ id: 1, descripcion: '', horaComienzo: '08:00', horaFin: '17:00', observaciones: '', operariosIds: [], terminoTarea: 'SI' }]);
-        setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
-        setSiceRespCliente(prev => ({ ...prev, clave: '' }));
-        setOperariosSeleccionados([]);
-        setSiceFecha(new Date().toISOString().slice(0, 10));
-
+        toast.error('El servidor no devolvió una respuesta válida al generar el PDF.', { id: toastId });
         setIsSavingSice(false);
         return;
       }
@@ -646,20 +623,33 @@ useEffect(() => {
         toast('El número de parte asignado fue el ' + resultado.nro + ' (otro usuario generó un parte mientras completabas este formulario).', { icon: 'ℹ️' });
       }
 
-      const nuevoParte = {
-        id: resultado?.id || `sice-${Date.now()}`,
+      // PASO 2: guardar el parte en Firestore
+      const payloadFirestore = {
         nro: nroFinalAsignado,
         fecha: String(siceFecha),
         contratoid: String(contratoSeleccionadoId),
         nroContratoCliente: String(nroContratoClienteDinamico),
-        items: [...siceItems],
-        operarios: [...operariosSeleccionados],
-        desgloseCategorias: [...horasPorCategoria],
-        proveedor: { cargo: String(siceRespProveedor.cargo), nombre: String(siceRespProveedor.nombre) },
-        cliente: { cargo: String(siceRespCliente.cargo), nombre: String(siceRespCliente.nombre) },
+        items: siceItems,
+        operarios: operariosSeleccionados,
+        desgloseCategorias: horasPorCategoria,
+        proveedor: {
+          cargo: String(siceRespProveedor.cargo || ''),
+          nombre: String(siceRespProveedor.nombre || '')
+        },
+        cliente: {
+          cargo: String(siceRespCliente.cargo || ''),
+          nombre: String(siceRespCliente.nombre || '')
+        },
         totalHorasSuma: Number(granTotalHorasHombre).toFixed(2),
         generadoPor: nombreUsuarioGenerador,
         pdfUrl: pdfUrlFinal
+      };
+
+      const nuevoIdFirestore = await crearDoc('reportes_diarios', payloadFirestore);
+
+      const nuevoParte = {
+        id: nuevoIdFirestore,
+        ...payloadFirestore
       };
 
       setPartesRecienModificados(prev => [nuevoParte, ...prev]);
@@ -670,37 +660,18 @@ useEffect(() => {
           await refetchReportes({ throwOnError: false });
           console.info('[ReportesDiarios] Refetch completado tras guardar');
         } catch (e) {
-          console.warn('[ReportesDiarios] refetch falló, usando cache local:', e);
+          console.warn('[ReportesDiarios] refetch falló:', e);
         }
       }
 
-      try {
-        const cacheKey = `obraData:${OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice'}:get`;
-        const cacheRaw = sessionStorage.getItem(cacheKey);
-        if (cacheRaw) {
-          const cacheParsed = JSON.parse(cacheRaw);
-          if (Array.isArray(cacheParsed.data)) {
-            const yaEsta = cacheParsed.data.some(p => 
-              String(p?.nro || '').replace(/\D/g, '') === String(nroFinalAsignado).replace(/\D/g, '')
-            );
-            if (!yaEsta) {
-              cacheParsed.data.push(nuevoParte);
-              cacheParsed.ts = Date.now();
-              sessionStorage.setItem(cacheKey, JSON.stringify(cacheParsed));
-              console.info('[ReportesDiarios] Cache actualizado con el nuevo parte');
-            }
-          }
-        }
-      } catch (e) {}
-
-      setSiceItems([{ 
-        id: 1, 
-        descripcion: '', 
-        horaComienzo: '08:00', 
-        horaFin: '17:00', 
-        observaciones: '', 
-        operariosIds: [], 
-        terminoTarea: 'SI' 
+      setSiceItems([{
+        id: 1,
+        descripcion: '',
+        horaComienzo: '08:00',
+        horaFin: '17:00',
+        observaciones: '',
+        operariosIds: [],
+        terminoTarea: 'SI'
       }]);
       setSiceRespProveedor(prev => ({ ...prev, clave: '' }));
       setSiceRespCliente(prev => ({ ...prev, clave: '' }));
@@ -709,7 +680,8 @@ useEffect(() => {
 
       toast.success('¡Parte Diario aprobado, PDF en Drive y guardado con éxito!', { id: toastId });
     } catch (err) {
-      toast.error('Ocurrió un error de conexión al generar el PDF.', { id: toastId });
+      console.error('[ReportesDiarios] Error:', err);
+      toast.error('Ocurrió un error al generar el PDF o guardar el parte.', { id: toastId });
     } finally {
       setIsSavingSice(false);
     }
@@ -741,7 +713,7 @@ useEffect(() => {
                 );
               })}
             </select>
-            <button 
+            <button
               onClick={() => window.print()}
               className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white font-extrabold rounded-xl text-xs transition-colors flex items-center gap-2 shadow-sm cursor-pointer whitespace-nowrap"
             >
@@ -765,9 +737,9 @@ useEffect(() => {
               <div><span className="text-slate-500 font-semibold">Cliente:</span> <span className="font-bold">{contratoActivoObj?.cliente || 'LDC Argentina S.A.'}</span></div>
               <div>
                 <span className="text-slate-500 font-semibold">Fecha:</span>{' '}
-                <input 
-                  type="date" 
-                  value={siceFecha} 
+                <input
+                  type="date"
+                  value={siceFecha}
                   onChange={(e) => setSiceFecha(e.target.value)}
                   className="bg-slate-50 border border-slate-300 rounded px-2 py-0.5 font-bold text-xs outline-none focus:border-amber-500"
                 />
@@ -817,7 +789,7 @@ useEffect(() => {
                           const empNom = String(
                             emp?.nombre || emp?.Nombre || emp?.empleado || emp?.apellido || emp?.razon_social || `Operario ${eIdx + 1}`
                           ).trim();
-                          
+
                           const isSelectedElsewhere = operariosSeleccionados.some(
                             (oItem, oIdx) => oIdx !== idx && String(oItem?.nombre || '').trim() === empNom
                           );
@@ -879,8 +851,8 @@ useEffect(() => {
                     <tr key={`sice-item-${index}`} className="bg-amber-50/60 hover:bg-amber-50 transition-colors">
                       <td className="py-2 px-2 text-center font-bold border-r border-slate-300 text-slate-700">{row?.id}</td>
                       <td className="py-1.5 px-2 border-r border-slate-300">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={row?.descripcion}
                           onChange={(e) => actualizarItemSice(index, 'descripcion', e.target.value)}
                           placeholder="Descripción de labores..."
@@ -888,16 +860,16 @@ useEffect(() => {
                         />
                       </td>
                       <td className="py-1.5 px-2 border-r border-slate-300 text-center">
-                        <input 
-                          type="time" 
+                        <input
+                          type="time"
                           value={row?.horaComienzo}
                           onChange={(e) => actualizarItemSice(index, 'horaComienzo', e.target.value)}
                           className="bg-amber-100/50 border border-slate-300 rounded px-1.5 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
                         />
                       </td>
                       <td className="py-1.5 px-2 border-r border-slate-300 text-center">
-                        <input 
-                          type="time" 
+                        <input
+                          type="time"
                           value={row?.horaFin}
                           onChange={(e) => actualizarItemSice(index, 'horaFin', e.target.value)}
                           className="bg-amber-100/50 border border-slate-300 rounded px-1.5 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500 text-center"
@@ -907,8 +879,8 @@ useEffect(() => {
                         {totalHs} hs
                       </td>
                       <td className="py-1.5 px-2 border-r border-slate-300">
-                        <input 
-                          type="text" 
+                        <input
+                          type="text"
                           value={row?.observaciones}
                           onChange={(e) => actualizarItemSice(index, 'observaciones', e.target.value)}
                           placeholder="Observaciones..."
@@ -924,7 +896,7 @@ useEffect(() => {
                               const isChecked = (row?.operariosIds || []).includes(String(op.id));
                               return (
                                 <label key={`chk-op-${row.id}-${op.id}`} className="flex items-center gap-1.5 text-[11px] font-bold text-slate-800 cursor-pointer hover:text-amber-700">
-                                  <input 
+                                  <input
                                     type="checkbox"
                                     checked={isChecked}
                                     onChange={() => toggleOperarioEnItem(index, String(op.id))}
@@ -964,8 +936,8 @@ useEffect(() => {
           </div>
 
           <div className="flex justify-between items-center print:hidden">
-            <button 
-              type="button" 
+            <button
+              type="button"
               onClick={agregarFilaSice}
               className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
             >
@@ -1005,8 +977,8 @@ useEffect(() => {
                 <div className="space-y-2 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-600 mb-0.5">CARGO:</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       required
                       value={siceRespProveedor.cargo}
                       onChange={(e) => setSiceRespProveedor({...siceRespProveedor, cargo: e.target.value})}
@@ -1015,8 +987,8 @@ useEffect(() => {
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO:</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       required
                       value={siceRespProveedor.nombre}
                       onChange={(e) => setSiceRespProveedor({...siceRespProveedor, nombre: e.target.value})}
@@ -1025,8 +997,8 @@ useEffect(() => {
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres):</label>
-                    <input 
-                      type="password" 
+                    <input
+                      type="password"
                       required
                       maxLength={6}
                       placeholder="Ej: FF9912"
@@ -1043,8 +1015,8 @@ useEffect(() => {
                 <div className="space-y-2 text-xs">
                   <div>
                     <label className="block font-semibold text-slate-600 mb-0.5">CARGO:</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       required
                       value={siceRespCliente.cargo}
                       onChange={(e) => setSiceRespCliente({...siceRespCliente, cargo: e.target.value})}
@@ -1053,8 +1025,8 @@ useEffect(() => {
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-600 mb-0.5">NOMBRE Y APELLIDO:</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
                       required
                       value={siceRespCliente.nombre}
                       onChange={(e) => setSiceRespCliente({...siceRespCliente, nombre: e.target.value})}
@@ -1063,8 +1035,8 @@ useEffect(() => {
                   </div>
                   <div>
                     <label className="block font-semibold text-slate-600 mb-0.5">FIRMA (Clave de 6 caracteres):</label>
-                    <input 
-                      type="password" 
+                    <input
+                      type="password"
                       required
                       maxLength={6}
                       placeholder="Ej: TR2291"
@@ -1079,7 +1051,7 @@ useEffect(() => {
 
             <div className="p-4 bg-slate-100 border-t border-slate-800 flex flex-col sm:flex-row justify-between items-center gap-4 print:hidden">
               <p className="text-xs text-slate-500">Ingrese sus claves para firmar y validar el parte diario.</p>
-              <button 
+              <button
                 type="submit"
                 disabled={isSavingSice}
                 className={`px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2 ${isSavingSice ? 'opacity-70 cursor-not-allowed' : ''}`}
@@ -1104,9 +1076,6 @@ useEffect(() => {
         ) : (
           <div className="space-y-3">
             {sicePartesAprobados.map((parte, idx) => {
-              // 🔑 FIX: key ESTABLE y ÚNICA. Sin idx, sin Math.random, sin timestamps.
-              // Usamos solo `nro` + `id` que son únicos por parte y estables entre renders.
-              // Esto evita que React duplique componentes cuando el array se re-renderiza.
               const uniqueKey = `parte-nro-${parte?.nro || 'x'}-id-${parte?.id || parte?.ID || 'x'}`;
 
               const parteId = parte?.id || parte?.nro || `parte-${idx}`;
@@ -1148,25 +1117,25 @@ useEffect(() => {
                   </div>
                   <div className="flex items-center gap-2">
                     {parte?.pdfUrl ? (
-                      <a 
+                      <a
                         href={parte.pdfUrl}
-                        target="_blank" 
+                        target="_blank"
                         rel="noopener noreferrer"
                         className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
                       >
                         <ExternalLink className="w-4 h-4" /> Ver PDF en Drive
                       </a>
                     ) : (
-                      <button 
+                      <button
                         onClick={() => setParteVisualizando(parte)}
                         className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold rounded-xl text-xs transition-colors flex items-center gap-1.5 shadow-sm cursor-pointer"
                       >
                         <Eye className="w-4 h-4" /> Visualizar
                       </button>
                     )}
-                    
+
                     {!esRolOperadorRestringido && (
-                      <button 
+                      <button
                         onClick={() => eliminarParteServidor(parteId, parte?.nro)}
                         className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold rounded-xl text-xs transition-colors flex items-center gap-1 shadow-sm cursor-pointer"
                         title="Eliminar reporte"
