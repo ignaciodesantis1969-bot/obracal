@@ -1,7 +1,11 @@
 // src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyD3S4VdxIiFypVHWm1vzLCMu-DAipN29js",
@@ -16,7 +20,18 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 
 // Servicios de Firebase
-export const auth = getAuth(app);          // Authentication (ya lo usabas)
-export const db = getFirestore(app);       // 🔑 NUEVO: Firestore
+export const auth = getAuth(app);          // Authentication
+
+// 🔑 NUEVO: Firestore con cache persistente en IndexedDB.
+// Beneficios:
+//   - La primera visita a cada módulo descarga del server y guarda en IndexedDB.
+//   - Las siguientes visitas (incluso después de recargar la página o cerrar el navegador)
+//     leen directo de IndexedDB → ~50ms en lugar de ~500ms-2s.
+//   - persistentMultipleTabManager permite que varias pestañas compartan la cache.
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
+});
 
 export default app;
