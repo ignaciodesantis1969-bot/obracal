@@ -1,18 +1,18 @@
 // src/components/reportes/CertificadoHorasHombreTab.jsx
 import React, { useState, useMemo, useEffect } from 'react';
+import toast from 'react-hot-toast'; // 🔑 NUEVO
 import { Clock, Trash2, ShieldCheck, Loader2, FileText, ExternalLink } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-// 🔑 FIX: lectura de Firestore (en vez de useObraData)
+// 🔑 FIX: lectura de Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
-// 🔑 FIX: escritura directa a Firestore
-import { crearDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+// 🔑 FIX: escritura directa a Firestore (agrego actualizarDoc)
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function CertificadoHorasHombreTab({ 
   contratosList: propContratos = [], 
   allReportesSice: propReportes = [],
   currentUser
 }) {
-  // 🔑 FIX: lectura directa de Firestore
   const { data: contratosFs } = useFirestoreCollection('contratos');
   const { data: reportesFs } = useFirestoreCollection('reportes_diarios');
   const { data: certificacionesRealizadas } = useFirestoreCollection('certificaciones_horas');
@@ -32,7 +32,6 @@ export default function CertificadoHorasHombreTab({
     return [];
   };
 
-  // 🔑 FIX: sin window.globalData
   const contratosList = useMemo(() => {
     const c1 = extraerArrayDatos(propContratos);
     const c2 = extraerArrayDatos(contratosFs);
@@ -46,7 +45,6 @@ export default function CertificadoHorasHombreTab({
     return Array.from(unicosMap.values());
   }, [propContratos, contratosFs]);
 
-  // 🔑 FIX: sin localStorage de eliminados ni window.globalData
   const allReportesSice = useMemo(() => {
     const p1 = extraerArrayDatos(propReportes);
     const p2 = extraerArrayDatos(reportesFs);
@@ -109,7 +107,6 @@ export default function CertificadoHorasHombreTab({
     return { proveedorKey: String(pKey), clienteKey: String(cKey) };
   }, [contratoActual]);
 
-  // 🔑 FIX: numeración correlativa desde Firestore (solo para preview; el .gs reasigna)
   useEffect(() => {
     if (contratoActual) {
       const idContratoStr = String(contratoActual.id || '').trim();
@@ -141,15 +138,12 @@ export default function CertificadoHorasHombreTab({
     }
   }, [contratoActual, historialCertificados, codigoSICEReal]);
 
-  // 🔑 FIX: doble chequeo (partes_usados + detalle_filas) para evitar reusar partes
   const partesUsadosEnHistorial = useMemo(() => {
     const usados = new Set();
     historialCertificados.forEach(cert => {
-      // (A) array plano partes_usados (nuevo)
       if (Array.isArray(cert.partes_usados)) {
         cert.partes_usados.forEach(n => n && usados.add(String(n)));
       }
-      // (B) fallback: parsear detalle_filas (viejo)
       const rawFilas = cert.detalle_filas ?? cert.detalleFilas ?? cert.filas ?? cert.detallefilas;
       let filas = [];
       if (typeof rawFilas === 'string') {
@@ -326,68 +320,37 @@ export default function CertificadoHorasHombreTab({
     return partesSeleccionados.reduce((acc, curr) => acc + (Number(curr.valorTotal) || 0), 0);
   }, [partesSeleccionados]);
 
-  // 🔑 FIX: guardar certificado → (a) .gs solo PDF + correlativo, (b) Firestore doc
+  // 🔑 FIX CRÍTICO: Firestore PRIMERO, PDF después. Nunca se pierde el certificado.
   const guardarCertificadoHoras = async (e) => {
     e.preventDefault();
-    if (!contratoActual) return alert("Seleccione un contrato válido.");
-    if (partesSeleccionados.length === 0) return alert("Agregue al menos un parte diario al certificado.");
+    if (!contratoActual) return toast.error("Seleccione un contrato válido.");
+    if (partesSeleccionados.length === 0) return toast.error("Agregue al menos un parte diario al certificado.");
     
     const regexClave = /^[A-Za-z]{2}\d{4}$/;
-    if (!regexClave.test(respProveedor.firma)) return alert("La clave del Responsable Proveedor debe tener 2 letras y 4 números (Ej: AB1234).");
-    if (!regexClave.test(respCliente.firma)) return alert("La clave del Responsable Cliente debe tener 2 letras y 4 números (Ej: CD5678).");
+    if (!regexClave.test(respProveedor.firma)) return toast.error("La clave del Responsable Proveedor debe tener 2 letras y 4 números (Ej: AB1234).");
+    if (!regexClave.test(respCliente.firma)) return toast.error("La clave del Responsable Cliente debe tener 2 letras y 4 números (Ej: CD5678).");
 
     if (respProveedor.firma.toUpperCase() !== clavesContratoActual.proveedorKey.toUpperCase()) {
-      return alert("La clave del Responsable Proveedor no coincide con el contrato.");
+      return toast.error("La clave del Responsable Proveedor no coincide con el contrato.");
     }
     if (respCliente.firma.toUpperCase() !== clavesContratoActual.clienteKey.toUpperCase()) {
-      return alert("La clave del Responsable Cliente no coincide con el contrato.");
+      return toast.error("La clave del Responsable Cliente no coincide con el contrato.");
     }
 
     setIsSaving(true);
+    const toastId = toast.loading('Guardando certificado...');
+
     try {
-      // (a) fetch al .gs SOLO para generar PDF + obtener correlativo real
-      const payloadGs = {
-        tabla: 'CertificacionesHoras',
-        action: 'guardar_certificado_horas',
+      // ═══════════════════════════════════════════════════════════
+      // PASO 1: Guardar en Firestore PRIMERO (sin PDF todavía)
+      // ═══════════════════════════════════════════════════════════
+      const partesUsados = Array.from(new Set(partesSeleccionados.map(f => String(f.nroParte))));
+
+      const payloadFirestore = {
         contrato_id: String(contratoIdSeleccionado),
         contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
         nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
         certificado_nro: certificadoNro,
-        fecha_emision: formatearFecha(fechaEmision),
-        periodo_desde: formatearFecha(periodoDesde),
-        periodo_hasta: formatearFecha(periodoHasta),
-        cliente: contratoActual?.cliente || contratoActual?.Cliente || 'Cliente',
-        filas: partesSeleccionados,
-        total_general: totalGeneralMonto,
-        responsable_proveedor: respProveedor,
-        responsable_cliente: respCliente,
-        generarPDF: true,
-        carpetaDestino: 'Certificados Horas'
-      };
-
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payloadGs)
-      });
-      const resultado = await res.json();
-
-      if (resultado?.success === false) {
-        alert("Error del servidor: " + (resultado.error || 'Desconocido'));
-        return;
-      }
-
-      const pdfUrlFinal = resultado?.pdf_url || resultado?.pdfUrl || resultado?.url || '';
-      const certificadoNroFinal = resultado?.certificado_nro || certificadoNro;
-
-      // (b) crear doc en Firestore
-      const partesUsados = Array.from(new Set(partesSeleccionados.map(f => String(f.nroParte))));
-
-      await crearDoc('certificaciones_horas', {
-        contrato_id: String(contratoIdSeleccionado),
-        contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
-        nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
-        certificado_nro: certificadoNroFinal,
         fecha_emision: formatearFecha(fechaEmision),
         periodo_desde: formatearFecha(periodoDesde),
         periodo_hasta: formatearFecha(periodoHasta),
@@ -397,38 +360,135 @@ export default function CertificadoHorasHombreTab({
         total_general: totalGeneralMonto,
         responsable_proveedor: respProveedor,
         responsable_cliente: respCliente,
-        pdf_url: pdfUrlFinal
-      });
+        pdf_url: ''
+      };
 
-      if (String(certificadoNroFinal) !== String(certificadoNro)) {
-        alert("¡Certificado guardado con éxito! Nro. asignado: " + certificadoNroFinal + " (otro usuario generó uno mientras completabas el formulario). Se generó el PDF en Drive.");
-      } else {
-        alert("¡Certificado guardado con éxito! Se ha generado el PDF en Google Drive.");
+      const docId = await crearDoc('certificaciones_horas', payloadFirestore);
+      console.info('[CertificadoHH] ✅ Doc creado en Firestore:', docId);
+
+      // ═══════════════════════════════════════════════════════════
+      // PASO 2: Generar PDF vía Apps Script (puede fallar sin romper nada)
+      // ═══════════════════════════════════════════════════════════
+      let pdfUrlFinal = '';
+      let certificadoNroFinal = certificadoNro;
+      let pdfFallo = false;
+      let errorPdfMsg = '';
+
+      try {
+        const payloadGs = {
+          tabla: 'CertificacionesHoras',
+          action: 'guardar_certificado_horas',
+          contrato_id: String(contratoIdSeleccionado),
+          contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
+          nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
+          certificado_nro: certificadoNro,
+          fecha_emision: formatearFecha(fechaEmision),
+          periodo_desde: formatearFecha(periodoDesde),
+          periodo_hasta: formatearFecha(periodoHasta),
+          cliente: contratoActual?.cliente || contratoActual?.Cliente || 'Cliente',
+          filas: partesSeleccionados,
+          total_general: totalGeneralMonto,
+          responsable_proveedor: respProveedor,
+          responsable_cliente: respCliente,
+          generarPDF: true,
+          carpetaDestino: 'Certificados Horas'
+        };
+
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payloadGs)
+        });
+
+        // 🔑 FIX: leer como TEXTO primero para detectar HTML
+        const textoCrudo = await res.text();
+        const primerosChars = textoCrudo.trim().slice(0, 50);
+        console.info('[CertificadoHH] Status:', res.status, '| Primeros chars:', primerosChars);
+
+        if (!res.ok) {
+          throw new Error(`Apps Script devolvió status ${res.status}`);
+        }
+
+        if (textoCrudo.trim().startsWith('<')) {
+          // El .gs devolvió HTML de error (no JSON)
+          const snippet = textoCrudo.slice(0, 300);
+          console.error('[CertificadoHH] ❌ Apps Script devolvió HTML, no JSON. Snippet:', snippet);
+          throw new Error('El servidor devolvió HTML en vez de JSON (revisar Apps Script > Ejecuciones)');
+        }
+
+        let resultado;
+        try {
+          resultado = JSON.parse(textoCrudo);
+        } catch (parseErr) {
+          console.error('[CertificadoHH] ❌ No se pudo parsear JSON:', parseErr, 'Texto:', textoCrudo.slice(0, 300));
+          throw new Error('Respuesta inválida del servidor (JSON malformado)');
+        }
+
+        if (resultado?.success === false) {
+          throw new Error(resultado.error || 'Error desconocido del servidor');
+        }
+
+        pdfUrlFinal = resultado?.pdf_url || resultado?.pdfUrl || resultado?.url || '';
+        certificadoNroFinal = resultado?.certificado_nro || certificadoNro;
+
+        // 🔑 Actualizar el doc con el PDF y el nro final (si cambió)
+        if (pdfUrlFinal || String(certificadoNroFinal) !== String(certificadoNro)) {
+          await actualizarDoc('certificaciones_horas', docId, {
+            pdf_url: pdfUrlFinal,
+            certificado_nro: certificadoNroFinal
+          });
+          console.info('[CertificadoHH] ✅ Doc actualizado con PDF:', pdfUrlFinal);
+        }
+      } catch (pdfErr) {
+        console.warn('[CertificadoHH] ⚠️ Falló la generación de PDF:', pdfErr);
+        pdfFallo = true;
+        errorPdfMsg = pdfErr?.message || 'Error desconocido';
       }
 
+      // ═══════════════════════════════════════════════════════════
+      // PASO 3: Feedback al usuario
+      // ═══════════════════════════════════════════════════════════
+      if (pdfFallo) {
+        toast.error(
+          `Certificado Nro ${certificadoNroFinal} guardado en el historial, pero el PDF no se pudo generar (${errorPdfMsg}). Podés regenerarlo después.`,
+          { id: toastId, duration: 7000 }
+        );
+      } else if (String(certificadoNroFinal) !== String(certificadoNro)) {
+        toast.success(
+          `¡Certificado guardado! Nro. asignado: ${certificadoNroFinal} (otro usuario generó uno mientras completabas el formulario). PDF en Drive.`,
+          { id: toastId }
+        );
+      } else {
+        toast.success(`¡Certificado Nro ${certificadoNroFinal} guardado con PDF en Drive!`, { id: toastId });
+      }
+
+      // Reset del form (solo si llegamos acá sin excepción grave)
       setPartesSeleccionados([]);
       setRespCliente(prev => ({...prev, firma: ''}));
       setRespProveedor(prev => ({...prev, firma: ''}));
     } catch (err) {
-      console.error(err);
-      alert("Error al conectar con el servidor.");
+      console.error('[CertificadoHH] ❌ Error crítico:', err);
+      toast.error('Error al guardar el certificado: ' + (err.message || 'Desconocido'), { id: toastId, duration: 6000 });
     } finally {
       setIsSaving(false);
     }
   };
 
-  // 🔑 FIX: eliminar certificado directo de Firestore
+  // 🔑 FIX: eliminar directo de Firestore
   const handleEliminarCertificado = async (idCertificado) => {
     if (!idCertificado) {
-      alert("No se puede eliminar: falta el ID del certificado.");
+      toast.error("No se puede eliminar: falta el ID del certificado.");
       return;
     }
     if (!window.confirm("¿Estás seguro de que deseas eliminar este certificado del historial?")) return;
+    
+    const toastId = toast.loading('Eliminando certificado...');
     try {
       await eliminarDoc('certificaciones_horas', idCertificado);
+      toast.success('Certificado eliminado correctamente', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar el certificado: " + (err.message || ''));
+      toast.error('Error al eliminar: ' + (err.message || ''), { id: toastId });
     }
   };
 
@@ -840,7 +900,7 @@ export default function CertificadoHorasHombreTab({
                             <ExternalLink className="w-3 h-3" /> Ver PDF
                           </a>
                         ) : (
-                          <span className="text-slate-400 italic">No disponible</span>
+                          <span className="text-[10px] text-amber-600 italic font-semibold">PDF pendiente</span>
                         )}
                       </td>
                       {esAdminOGerencia && (
