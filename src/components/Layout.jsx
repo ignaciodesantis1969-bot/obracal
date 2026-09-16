@@ -4,18 +4,16 @@ import {
   LayoutDashboard, Users, Truck, Building2,
   Calculator, CalendarDays, ShoppingCart, Wallet,
   BarChart3, ChevronLeft, ChevronRight, Menu,
-  ClipboardList, UserCog, LogOut, BookOpen, Loader2, ShieldCheck
+  ClipboardList, UserCog, LogOut, BookOpen, ShieldCheck
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
 import { tienePermiso } from '@/lib/permissions';
 
 import logoSidebar from '@/assets/LogoSolo.png';
-import logoLogin from '@/assets/LogoSICESA.jpg';
 
 import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
-import { GOOGLE_SCRIPT_URL } from '@/api';
 
 const allNavItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/', key: null },
@@ -34,11 +32,8 @@ const allNavItems = [
 ];
 
 // 🔑 FIX: SidebarContent ahora es un componente ESTABLE, declarado FUERA del Layout.
-// Antes estaba adentro y cada render del Layout creaba uno nuevo,
-// lo que desmontaba/montaba el sidebar entero y rompía los <Link>.
 function SidebarContent({
   collapsed,
-  mobileOpen,
   setMobileOpen,
   navItems,
   location,
@@ -129,129 +124,21 @@ export default function Layout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
 
-  const [loginEmail, setLoginEmail] = useState('');
-  const [loginPassword, setLoginPassword] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [errorMensaje, setErrorMensaje] = useState('');
-
   const location = useLocation();
-  const { user, logout, login } = useAuth();
+  const { user } = useAuth();
 
-  // Detección robusta de roles
   const rawRoleValue = user?.role || user?.rol || user?.reloadUserInfo?.rol || user?.reloadUserInfo?.role || '';
   const rolUsuario = String(rawRoleValue).trim().toLowerCase().replace(/-/g, '_');
 
   const esOperadorEstandar = rolUsuario === 'operador' || rolUsuario === 'operator';
   const esOperadorII = rolUsuario === 'operador_ii' || rolUsuario === 'operadorii' || rolUsuario === 'operador2' || rolUsuario === 'operador ii' || rolUsuario.includes('operador_ii');
 
+  // 🔑 El caso "!user" lo maneja App.jsx (muestra el <Login />).
+  // Acá simplemente no renderizamos nada.
   if (!user) {
-    const handleLogin = async (e) => {
-      e.preventDefault();
-      setIsLoading(true);
-      setErrorMensaje('');
-
-      try {
-        const response = await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-            tabla: 'Usuarios',
-            action: 'login',
-            data: { email: loginEmail, password: loginPassword }
-          })
-        });
-
-        const rawText = await response.text();
-        let data;
-        try {
-          data = JSON.parse(rawText);
-        } catch (err) {
-          throw new Error("Respuesta no válida de Google. Revisa el despliegue del script.");
-        }
-
-        if (data.success) {
-          login({
-            id: Date.now().toString(),
-            nombre: data.user.nombre,
-            email: data.user.email,
-            role: data.user.role || data.user.rol || 'gestor',
-            rol: data.user.role || data.user.rol || 'gestor'
-          });
-        } else {
-          setErrorMensaje(data.message || data.error || 'Credenciales incorrectas');
-        }
-      } catch (error) {
-        console.error("Error conectando con Google Sheets:", error);
-        setErrorMensaje(error.message || 'Error de conexión con la planilla.');
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    return (
-      <div className="flex flex-col items-center justify-center h-screen bg-[#070e1b] text-white p-4">
-        <div className="w-24 h-24 bg-white p-2.5 rounded-2xl flex items-center justify-center mb-4 shadow-xl shadow-amber-500/20 overflow-hidden">
-          <img src={logoLogin} alt="SICE S.A. Logo" className="w-full h-full object-contain" />
-        </div>
-        <h1 className="text-2xl font-black tracking-widest mb-1">GI-MO</h1>
-        <p className="text-slate-400 text-xs tracking-wider mb-8">Gestión Integral de Obras</p>
-
-        <form onSubmit={handleLogin} className="bg-[#0f1932] p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-800">
-          <h2 className="text-xl font-semibold text-white mb-1">Iniciar sesión</h2>
-          <p className="text-slate-400 text-sm mb-6">Ingresa tus credenciales para acceder al sistema.</p>
-
-          {errorMensaje && (
-            <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm text-center">
-              {errorMensaje}
-            </div>
-          )}
-
-          <div className="space-y-4">
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Correo electrónico</label>
-              <input
-                type="email"
-                value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                className="w-full bg-[#162242] border border-slate-700/60 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                placeholder="ejemplo@correo.com"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Contraseña</label>
-              <input
-                type="password"
-                value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                className="w-full bg-[#162242] border border-slate-700/60 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-                placeholder="••••••••"
-                required
-              />
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-500/50 text-slate-950 font-bold py-3 rounded-xl transition-colors mt-2 text-sm shadow-lg cursor-pointer"
-            >
-              {isLoading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" /> Ingresando...
-                </>
-              ) : (
-                'Ingresar'
-              )}
-            </button>
-          </div>
-        </form>
-        <p className="text-slate-500 text-xs mt-6">v1.0.0 © 2026 ObrasManager</p>
-      </div>
-    );
+    return null;
   }
 
-  // Filtrar menú adaptado para Operador II (excluyendo Insumos, mostrando solo Reportes)
   const navItems = (esOperadorEstandar || esOperadorII)
     ? allNavItems.filter(item => item.path === '/reportes')
     : allNavItems.filter(item => item.key === null || tienePermiso(user, item.key));
@@ -264,7 +151,6 @@ export default function Layout() {
       )}>
         <SidebarContent
           collapsed={collapsed}
-          mobileOpen={mobileOpen}
           setMobileOpen={setMobileOpen}
           navItems={navItems}
           location={location}
@@ -286,7 +172,6 @@ export default function Layout() {
           <div className="w-64 bg-slate-800 flex flex-col">
             <SidebarContent
               collapsed={collapsed}
-              mobileOpen={mobileOpen}
               setMobileOpen={setMobileOpen}
               navItems={navItems}
               location={location}
