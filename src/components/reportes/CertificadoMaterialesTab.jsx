@@ -255,11 +255,11 @@ export default function CertificadoMaterialesTab({
         nFactura: String(f?.n_factura || 'S/N'),
         fecha: f?.fecha || '',
         proveedor: proveedorNombre || '---',
-        monto_sin_iva: montoSinIva,      // 🔑 FIX: campo renombrado
+        monto_sin_iva: montoSinIva,
         factor: factor,
-        monto_con_factor: montoConFactor, // 🔑 FIX: campo renombrado
-        total: montoConFactor,            // 🔑 FIX: total = monto_con_factor (sin IVA)
-        _raw: f
+        monto_con_factor: montoConFactor,
+        total: montoConFactor,
+        _raw: f // se limpia antes de guardar
       };
     });
   }, [contratoActual, codigoSICEReal, facturasList, proveedoresList, periodoDesde, periodoHasta, feeDelContrato, facturasUsadasEnHistorial, facturasEnTablaActual]);
@@ -349,6 +349,14 @@ export default function CertificadoMaterialesTab({
     try {
       const facturasUsadas = Array.from(new Set(facturasSeleccionadas.map(f => String(f.nFactura))));
 
+      // 🔑 FIX CRÍTICO: limpiar `_raw` de cada fila
+      // Firestore no acepta campos con `undefined`, y `_raw` trae la factura completa
+      // que puede tener campos vacíos/undefined. La sacamos antes de guardar.
+      const facturasLimpias = facturasSeleccionadas.map(f => {
+        const { _raw, ...resto } = f;
+        return resto;
+      });
+
       const payload = {
         contrato_id: String(contratoIdSeleccionado),
         contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
@@ -359,11 +367,11 @@ export default function CertificadoMaterialesTab({
         periodo_hasta: formatearFecha(periodoHasta),
         cliente: contratoActual?.cliente || contratoActual?.Cliente || 'Cliente',
         fee_materiales: Number(feeDelContrato),
-        detalle_filas: facturasSeleccionadas,
+        detalle_filas: facturasLimpias, // 🔑 FIX: sin _raw
         facturas_usadas: facturasUsadas,
         total_sin_iva: totalGeneralSinIva,
         total_con_factor: totalGeneralConFactor,
-        total_general: totalGeneralMonto, // 🔑 FIX: sin IVA = total_con_factor
+        total_general: totalGeneralMonto, // = total_con_factor (sin IVA)
         responsable_proveedor: respProveedor,
         responsable_cliente: respCliente,
         pdf_url: '' // 🔑 Sin PDF por ahora (Fase 3)
