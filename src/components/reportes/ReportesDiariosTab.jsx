@@ -46,7 +46,7 @@ export default function ReportesDiariosTab({
     return extraerArrayDatos(contratosFs);
   }, [propContratos, contratosFs]);
 
-  // 🔑 FIX: combinamos Firestore + propReportes (sin localStorage ni window.globalData)
+  // 🔑 Combinamos Firestore + propReportes (sin localStorage ni window.globalData)
   const allReportesSice = useMemo(() => {
     const s = extraerArrayDatos(reportesFs);
     const p = extraerArrayDatos(propReportes);
@@ -62,10 +62,8 @@ export default function ReportesDiariosTab({
       const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
       const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
 
-      // Key ÚNICA por nro (si no hay nro, por id)
       const key = nroNormalizado ? `nro-${nroPadded}` : (idItem || `rand-${Math.random()}`);
 
-      // Priorizar el que tenga `pdfUrl`
       const previo = unicosMap.get(key);
       const previoTieneMasInfo = previo && previo.pdfUrl && !item.pdfUrl;
       if (!previo || (!previoTieneMasInfo && item.pdfUrl && !previo.pdfUrl)) {
@@ -114,7 +112,6 @@ export default function ReportesDiariosTab({
     return buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'nro_contrato', 'contratoCliente']) || '---';
   }, [contratoActivoObj, buscarValorEnObjeto]);
 
-  // 🔑 Cálculo de próximo nro desde Firestore (fuente de verdad)
   const calcularProximoNro = useCallback(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
@@ -474,7 +471,6 @@ export default function ReportesDiariosTab({
     const nombreUsuarioGenerador = (rolActualUsuario === 'administrador' || rolActualUsuario === 'admin') ? 'Administrador' : 'Operario';
 
     try {
-      // 🔑 Recalcular nro JUSTO ANTES de guardar (evita stale state)
       const nroNuevo = calcularProximoNro();
       console.info('[ReportesDiarios] Nro calculado para nuevo parte:', nroNuevo);
 
@@ -506,7 +502,7 @@ export default function ReportesDiariosTab({
         try {
           resultado = JSON.parse(textoCrudo);
         } catch (jsonErr) {
-          console.warn('[ReportesDiarios] Respuesta no-JSON del backend (posible 404 en redirect). Status:', res.status);
+          console.warn('[ReportesDiarios] Respuesta no-JSON del backend. Status:', res.status);
           console.warn('[ReportesDiarios] Primeros 200 chars:', textoCrudo.slice(0, 200));
         }
       } catch (readErr) {
@@ -526,7 +522,6 @@ export default function ReportesDiariosTab({
         return;
       }
 
-      // 🔑 Solo loguear si el .gs devolvió un nro distinto
       if (resultado?.nro && String(resultado.nro) !== String(nroNuevo)) {
         console.warn('[ReportesDiarios] El .gs devolvió nro distinto:', resultado.nro, 'vs calculado:', nroNuevo, '(se ignora el del .gs)');
       }
@@ -554,12 +549,10 @@ export default function ReportesDiariosTab({
 
       await crearDoc('reportes_diarios', payloadFirestore);
 
-      // 🔑 No-op para el padre (onSnapshot refresca solo)
       if (typeof setFetchedReportesSice === 'function') {
         setFetchedReportesSice(prev => [...(Array.isArray(prev) ? prev : []), { nro: nroNuevo }]);
       }
 
-      // Reset form
       setSiceItems([{
         id: 1,
         descripcion: '',
@@ -706,6 +699,7 @@ export default function ReportesDiariosTab({
                         value={op?.abreviacion}
                         onChange={(e) => actualizarOperarioFila(idx, 'abreviacion', e.target.value.toUpperCase())}
                         title="Abreviación de categoría"
+                        autoComplete="off"
                         className="w-full bg-amber-100/70 border border-slate-300 rounded px-2 py-1.5 text-xs font-black text-amber-950 text-center uppercase focus:bg-white focus:outline-none focus:border-amber-500"
                       />
                     </div>
@@ -752,6 +746,7 @@ export default function ReportesDiariosTab({
                           value={row?.descripcion}
                           onChange={(e) => actualizarItemSice(index, 'descripcion', e.target.value)}
                           placeholder="Descripción de labores..."
+                          autoComplete="off"
                           className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
                         />
                       </td>
@@ -780,6 +775,7 @@ export default function ReportesDiariosTab({
                           value={row?.observaciones}
                           onChange={(e) => actualizarItemSice(index, 'observaciones', e.target.value)}
                           placeholder="Observaciones..."
+                          autoComplete="off"
                           className="w-full bg-amber-100/50 border border-slate-300 rounded px-2 py-1 text-xs font-semibold focus:bg-white focus:outline-none focus:border-amber-500"
                         />
                       </td>
@@ -866,6 +862,7 @@ export default function ReportesDiariosTab({
             </div>
           </div>
 
+          {/* 🔑 FIX: un único <form> que envuelve las firmas Y el botón. Sin forms anidados. */}
           <form onSubmit={aprobarYArchivarParteSice} className="border-2 border-slate-800 rounded-xl overflow-hidden mt-6 bg-slate-50">
             <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-slate-800">
               <div className="p-4 space-y-3">
@@ -876,6 +873,7 @@ export default function ReportesDiariosTab({
                     <input
                       type="text"
                       required
+                      autoComplete="off"
                       value={siceRespProveedor.cargo}
                       onChange={(e) => setSiceRespProveedor({...siceRespProveedor, cargo: e.target.value})}
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
@@ -886,6 +884,7 @@ export default function ReportesDiariosTab({
                     <input
                       type="text"
                       required
+                      autoComplete="off"
                       value={siceRespProveedor.nombre}
                       onChange={(e) => setSiceRespProveedor({...siceRespProveedor, nombre: e.target.value})}
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
@@ -897,6 +896,7 @@ export default function ReportesDiariosTab({
                       type="password"
                       required
                       maxLength={6}
+                      autoComplete="new-password"
                       placeholder="Ej: FF9912"
                       value={siceRespProveedor.clave}
                       onChange={(e) => setSiceRespProveedor({...siceRespProveedor, clave: e.target.value.toUpperCase()})}
@@ -914,6 +914,7 @@ export default function ReportesDiariosTab({
                     <input
                       type="text"
                       required
+                      autoComplete="off"
                       value={siceRespCliente.cargo}
                       onChange={(e) => setSiceRespCliente({...siceRespCliente, cargo: e.target.value})}
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
@@ -924,6 +925,7 @@ export default function ReportesDiariosTab({
                     <input
                       type="text"
                       required
+                      autoComplete="off"
                       value={siceRespCliente.nombre}
                       onChange={(e) => setSiceRespCliente({...siceRespCliente, nombre: e.target.value})}
                       className="w-full bg-white border border-slate-300 rounded px-3 py-1.5 font-semibold text-slate-800 focus:outline-none focus:border-amber-500"
@@ -935,6 +937,7 @@ export default function ReportesDiariosTab({
                       type="password"
                       required
                       maxLength={6}
+                      autoComplete="new-password"
                       placeholder="Ej: TR2291"
                       value={siceRespCliente.clave}
                       onChange={(e) => setSiceRespCliente({...siceRespCliente, clave: e.target.value.toUpperCase()})}
