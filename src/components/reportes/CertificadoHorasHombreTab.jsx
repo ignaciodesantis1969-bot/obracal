@@ -1,15 +1,13 @@
 // src/components/reportes/CertificadoHorasHombreTab.jsx
 import React, { useState, useMemo, useEffect } from 'react';
-import toast from 'react-hot-toast'; // 🔑 NUEVO
+import toast from 'react-hot-toast';
 import { Clock, Trash2, ShieldCheck, Loader2, FileText, ExternalLink } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-// 🔑 FIX: lectura de Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
-// 🔑 FIX: escritura directa a Firestore (agrego actualizarDoc)
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
-export default function CertificadoHorasHombreTab({ 
-  contratosList: propContratos = [], 
+export default function CertificadoHorasHombreTab({
+  contratosList: propContratos = [],
   allReportesSice: propReportes = [],
   currentUser
 }) {
@@ -66,7 +64,7 @@ export default function CertificadoHorasHombreTab({
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('');
   const [fechaEmision, setFechaEmision] = useState(new Date().toISOString().slice(0, 10));
-  
+
   const [periodoDesde, setPeriodoDesde] = useState('');
   const [periodoHasta, setPeriodoHasta] = useState('');
 
@@ -88,10 +86,10 @@ export default function CertificadoHorasHombreTab({
 
   const nroContratoClienteReal = useMemo(() => {
     if (!contratoActual) return '---';
-    return contratoActual.nro_contrato_cliente || 
-           contratoActual.contrato_nro_cliente || 
-           contratoActual.nrocontratocliente || 
-           contratoActual.contratocliente || 
+    return contratoActual.nro_contrato_cliente ||
+           contratoActual.contrato_nro_cliente ||
+           contratoActual.nrocontratocliente ||
+           contratoActual.contratocliente ||
            '---';
   }, [contratoActual]);
 
@@ -117,7 +115,7 @@ export default function CertificadoHorasHombreTab({
         const cCodRef = String(c.contrato_codigo || c.contratocodigo || '').trim();
         return (idContratoStr && cIdRef === idContratoStr) || (codContratoStr !== '---' && cCodRef === codContratoStr);
       });
-      
+
       const nuevoNumero = certificadosDelContrato.length + 1;
       const numeroFormateado = nuevoNumero.toString().padStart(4, '0');
       setCertificadoNro(numeroFormateado);
@@ -168,8 +166,8 @@ export default function CertificadoHorasHombreTab({
 
     return allReportesSice.filter(p => {
       const idNro = String(p?.nro || p?.id || '').trim();
-      if (!idNro || idNro === 'undefined' || idNro === 'null') return false; 
-      if (partesUsadosEnHistorial.has(idNro)) return false; 
+      if (!idNro || idNro === 'undefined' || idNro === 'null') return false;
+      if (partesUsadosEnHistorial.has(idNro)) return false;
       if (seleccionadosActuales.includes(idNro)) return false;
 
       const pContratoId = String(
@@ -190,15 +188,15 @@ export default function CertificadoHorasHombreTab({
   const formatearFecha = (fechaISO) => {
     if (!fechaISO) return '';
     const str = String(fechaISO).trim();
-    if (str.includes('/')) return str; 
-    
+    if (str.includes('/')) return str;
+
     let cleanStr = str;
     if (cleanStr.includes('T')) cleanStr = cleanStr.split('T')[0];
-    
+
     const parts = cleanStr.split('-');
     if (parts.length === 3) {
       if (parts[0].length === 4) {
-        return `${parts[2]}/${parts[1]}/${parts[0]}`; 
+        return `${parts[2]}/${parts[1]}/${parts[0]}`;
       }
       return `${parts[0]}/${parts[1]}/${parts[2]}`;
     }
@@ -237,8 +235,8 @@ export default function CertificadoHorasHombreTab({
       try { desgloseArray = JSON.parse(desgloseArray); } catch(e) { desgloseArray = []; }
     }
 
-    let detalleCategorias = typeof parteObj?.categorias_hh === 'string' 
-      ? JSON.parse(parteObj.categorias_hh || '{}') 
+    let detalleCategorias = typeof parteObj?.categorias_hh === 'string'
+      ? JSON.parse(parteObj.categorias_hh || '{}')
       : (parteObj?.categorias_hh || {});
 
     categoriasBase.forEach(cat => {
@@ -320,12 +318,12 @@ export default function CertificadoHorasHombreTab({
     return partesSeleccionados.reduce((acc, curr) => acc + (Number(curr.valorTotal) || 0), 0);
   }, [partesSeleccionados]);
 
-  // 🔑 FIX CRÍTICO: Firestore PRIMERO, PDF después. Nunca se pierde el certificado.
+  // 🔑 Guardar certificado → Firestore PRIMERO → PDF después → update doc
   const guardarCertificadoHoras = async (e) => {
     e.preventDefault();
     if (!contratoActual) return toast.error("Seleccione un contrato válido.");
     if (partesSeleccionados.length === 0) return toast.error("Agregue al menos un parte diario al certificado.");
-    
+
     const regexClave = /^[A-Za-z]{2}\d{4}$/;
     if (!regexClave.test(respProveedor.firma)) return toast.error("La clave del Responsable Proveedor debe tener 2 letras y 4 números (Ej: AB1234).");
     if (!regexClave.test(respCliente.firma)) return toast.error("La clave del Responsable Cliente debe tener 2 letras y 4 números (Ej: CD5678).");
@@ -341,9 +339,6 @@ export default function CertificadoHorasHombreTab({
     const toastId = toast.loading('Guardando certificado...');
 
     try {
-      // ═══════════════════════════════════════════════════════════
-      // PASO 1: Guardar en Firestore PRIMERO (sin PDF todavía)
-      // ═══════════════════════════════════════════════════════════
       const partesUsados = Array.from(new Set(partesSeleccionados.map(f => String(f.nroParte))));
 
       const payloadFirestore = {
@@ -366,9 +361,6 @@ export default function CertificadoHorasHombreTab({
       const docId = await crearDoc('certificaciones_horas', payloadFirestore);
       console.info('[CertificadoHH] ✅ Doc creado en Firestore:', docId);
 
-      // ═══════════════════════════════════════════════════════════
-      // PASO 2: Generar PDF vía Apps Script (puede fallar sin romper nada)
-      // ═══════════════════════════════════════════════════════════
       let pdfUrlFinal = '';
       let certificadoNroFinal = certificadoNro;
       let pdfFallo = false;
@@ -400,27 +392,20 @@ export default function CertificadoHorasHombreTab({
           body: JSON.stringify(payloadGs)
         });
 
-        // 🔑 FIX: leer como TEXTO primero para detectar HTML
         const textoCrudo = await res.text();
         const primerosChars = textoCrudo.trim().slice(0, 50);
         console.info('[CertificadoHH] Status:', res.status, '| Primeros chars:', primerosChars);
 
-        if (!res.ok) {
-          throw new Error(`Apps Script devolvió status ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Apps Script devolvió status ${res.status}`);
 
         if (textoCrudo.trim().startsWith('<')) {
-          // El .gs devolvió HTML de error (no JSON)
-          const snippet = textoCrudo.slice(0, 300);
-          console.error('[CertificadoHH] ❌ Apps Script devolvió HTML, no JSON. Snippet:', snippet);
-          throw new Error('El servidor devolvió HTML en vez de JSON (revisar Apps Script > Ejecuciones)');
+          throw new Error('El servidor devolvió HTML en vez de JSON');
         }
 
         let resultado;
         try {
           resultado = JSON.parse(textoCrudo);
         } catch (parseErr) {
-          console.error('[CertificadoHH] ❌ No se pudo parsear JSON:', parseErr, 'Texto:', textoCrudo.slice(0, 300));
           throw new Error('Respuesta inválida del servidor (JSON malformado)');
         }
 
@@ -431,7 +416,6 @@ export default function CertificadoHorasHombreTab({
         pdfUrlFinal = resultado?.pdf_url || resultado?.pdfUrl || resultado?.url || '';
         certificadoNroFinal = resultado?.certificado_nro || certificadoNro;
 
-        // 🔑 Actualizar el doc con el PDF y el nro final (si cambió)
         if (pdfUrlFinal || String(certificadoNroFinal) !== String(certificadoNro)) {
           await actualizarDoc('certificaciones_horas', docId, {
             pdf_url: pdfUrlFinal,
@@ -445,24 +429,15 @@ export default function CertificadoHorasHombreTab({
         errorPdfMsg = pdfErr?.message || 'Error desconocido';
       }
 
-      // ═══════════════════════════════════════════════════════════
-      // PASO 3: Feedback al usuario
-      // ═══════════════════════════════════════════════════════════
       if (pdfFallo) {
         toast.error(
-          `Certificado Nro ${certificadoNroFinal} guardado en el historial, pero el PDF no se pudo generar (${errorPdfMsg}). Podés regenerarlo después.`,
+          `Certificado Nro ${certificadoNroFinal} guardado, pero el PDF no se pudo generar (${errorPdfMsg}).`,
           { id: toastId, duration: 7000 }
-        );
-      } else if (String(certificadoNroFinal) !== String(certificadoNro)) {
-        toast.success(
-          `¡Certificado guardado! Nro. asignado: ${certificadoNroFinal} (otro usuario generó uno mientras completabas el formulario). PDF en Drive.`,
-          { id: toastId }
         );
       } else {
         toast.success(`¡Certificado Nro ${certificadoNroFinal} guardado con PDF en Drive!`, { id: toastId });
       }
 
-      // Reset del form (solo si llegamos acá sin excepción grave)
       setPartesSeleccionados([]);
       setRespCliente(prev => ({...prev, firma: ''}));
       setRespProveedor(prev => ({...prev, firma: ''}));
@@ -474,14 +449,13 @@ export default function CertificadoHorasHombreTab({
     }
   };
 
-  // 🔑 FIX: eliminar directo de Firestore
   const handleEliminarCertificado = async (idCertificado) => {
     if (!idCertificado) {
       toast.error("No se puede eliminar: falta el ID del certificado.");
       return;
     }
     if (!window.confirm("¿Estás seguro de que deseas eliminar este certificado del historial?")) return;
-    
+
     const toastId = toast.loading('Eliminando certificado...');
     try {
       await eliminarDoc('certificaciones_horas', idCertificado);
@@ -663,7 +637,7 @@ export default function CertificadoHorasHombreTab({
                       Parte #{item.nroParte}
                     </td>
                     <td className="py-2.5 px-3 border-r border-slate-300 font-mono font-bold text-center">
-                      <select 
+                      <select
                         value={item.clasificacion}
                         onChange={(e) => {
                           const newCat = e.target.value;
@@ -730,96 +704,104 @@ export default function CertificadoHorasHombreTab({
           </table>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
-            <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
-              RESPONSABLE PROVEEDOR
+        {/* 🔑 FIX: un único <form> que envuelve firmas + botón (evita warnings de password) */}
+        <form onSubmit={guardarCertificadoHoras} className="space-y-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
+              <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
+                RESPONSABLE PROVEEDOR
+              </div>
+              <div className="p-4 space-y-3 text-xs font-bold">
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={respProveedor.cargo}
+                    onChange={(e) => setRespProveedor({...respProveedor, cargo: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800"
+                  />
+                </div>
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={respProveedor.nombre}
+                    onChange={(e) => setRespProveedor({...respProveedor, nombre: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black"
+                  />
+                </div>
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
+                  <input
+                    type="password"
+                    maxLength={6}
+                    autoComplete="new-password"
+                    value={respProveedor.firma}
+                    onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value.toUpperCase()})}
+                    placeholder="••••••"
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]"
+                  />
+                </div>
+              </div>
             </div>
-            <div className="p-4 space-y-3 text-xs font-bold">
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
-                <input 
-                  type="text" 
-                  value={respProveedor.cargo} 
-                  onChange={(e) => setRespProveedor({...respProveedor, cargo: e.target.value})} 
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800" 
-                />
+
+            <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
+              <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
+                RESPONSABLE CLIENTE
               </div>
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
-                <input 
-                  type="text" 
-                  value={respProveedor.nombre} 
-                  onChange={(e) => setRespProveedor({...respProveedor, nombre: e.target.value})} 
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black" 
-                />
-              </div>
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
-                <input 
-                  type="password"
-                  maxLength={6}
-                  value={respProveedor.firma} 
-                  onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value.toUpperCase()})} 
-                  placeholder="••••••"
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]" 
-                />
+              <div className="p-4 space-y-3 text-xs font-bold">
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={respCliente.cargo}
+                    onChange={(e) => setRespCliente({...respCliente, cargo: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800"
+                  />
+                </div>
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={respCliente.nombre}
+                    onChange={(e) => setRespCliente({...respCliente, nombre: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black"
+                  />
+                </div>
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
+                  <input
+                    type="password"
+                    maxLength={6}
+                    autoComplete="new-password"
+                    value={respCliente.firma}
+                    onChange={(e) => setRespCliente({...respCliente, firma: e.target.value.toUpperCase()})}
+                    placeholder="••••••"
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
-            <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
-              RESPONSABLE CLIENTE
-            </div>
-            <div className="p-4 space-y-3 text-xs font-bold">
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
-                <input 
-                  type="text" 
-                  value={respCliente.cargo} 
-                  onChange={(e) => setRespCliente({...respCliente, cargo: e.target.value})} 
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800" 
-                />
-              </div>
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
-                <input 
-                  type="text" 
-                  value={respCliente.nombre} 
-                  onChange={(e) => setRespCliente({...respCliente, nombre: e.target.value})} 
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black" 
-                />
-              </div>
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
-                <input 
-                  type="password"
-                  maxLength={6}
-                  value={respCliente.firma} 
-                  onChange={(e) => setRespCliente({...respCliente, firma: e.target.value.toUpperCase()})} 
-                  placeholder="••••••"
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]" 
-                />
-              </div>
-            </div>
+          <div className="flex flex-col sm:flex-row justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-300 gap-4">
+            <span className="text-xs text-slate-500 font-medium">
+              Ingrese sus claves para firmar y validar el certificado de horas hombre.
+            </span>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-500/50 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-colors shadow-md cursor-pointer text-sm"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              {isSaving ? 'Guardando Certificado...' : 'Aprobar, Firmar y Guardar Certificado'}
+            </button>
           </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-300 gap-4">
-          <span className="text-xs text-slate-500 font-medium">
-            Ingrese sus claves para firmar y validar el certificado de horas hombre.
-          </span>
-          <button
-            type="button"
-            onClick={guardarCertificadoHoras}
-            disabled={isSaving}
-            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-500/50 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-colors shadow-md cursor-pointer text-sm"
-          >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-            {isSaving ? 'Guardando Certificado...' : 'Aprobar, Firmar y Guardar Certificado'}
-          </button>
-        </div>
+        </form>
       </div>
 
       {/* HISTORIAL */}
@@ -858,10 +840,10 @@ export default function CertificadoHorasHombreTab({
                   const certId = cert.id || `fallback-${idx}`;
                   const certNro = cert.certificado_nro || cert.certificadonro || 'S/N';
                   const clienteText = cert.cliente || '---';
-                  
+
                   const codigoSice = cert.contrato_codigo || cert.contratocodigo || '---';
                   const codigoCliente = cert.nro_contrato_cliente || cert.nrocontratocliente || '---';
-                  
+
                   const fechaEm = formatearFecha(cert.fecha_emision || cert.fechaemision);
                   const pDesde = formatearFecha(cert.periodo_desde || cert.periododesde);
                   const pHasta = formatearFecha(cert.periodo_hasta || cert.periodohasta);
