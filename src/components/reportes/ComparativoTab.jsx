@@ -527,7 +527,6 @@ export default function ComparativoTab({
 
   const hasSeleccion = (tipoProyecto === 'obra' && presupuestoSeleccionado) || (tipoProyecto === 'contrato' && contratoSeleccionado);
 
-  // 🔑 Datos para el header del PDF
   const nombreProyecto = useMemo(() => {
     if (tipoProyecto === 'obra' && presupuestoSeleccionado) {
       return `[${presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.id || ''}] ${presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || 'Presupuesto'}`;
@@ -557,7 +556,7 @@ export default function ComparativoTab({
       {/* 🔑 ESTILOS DE IMPRESIÓN */}
       <style>{`
         @media print {
-          @page { size: A4 portrait; margin: 15mm 5mm 5mm 5mm; }
+          @page { size: A4 portrait; margin: 15mm 10mm 10mm 10mm; }
 
           body * { visibility: hidden; }
           #comparativo-printable, #comparativo-printable * { visibility: visible; }
@@ -799,9 +798,8 @@ export default function ComparativoTab({
                       </tr>
                     </>
                   )}
-                </tbody>
 
-                <tfoot>
+                  {/* 🔑 FIX: el TOTAL GENERAL ahora está en tbody (no en tfoot) para que NO se repita en cada página */}
                   <tr className="bg-slate-900 text-white font-black uppercase text-xs print:bg-slate-900 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                     <td className="px-4 py-4">TOTAL GENERAL</td>
                     <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
@@ -810,7 +808,7 @@ export default function ComparativoTab({
                       {renderDesvioConFlecha(((granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0))) - ((granTotalRealFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0))))}
                     </td>
                   </tr>
-                </tfoot>
+                </tbody>
               </table>
             </div>
           </div>
