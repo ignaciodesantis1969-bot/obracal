@@ -556,25 +556,22 @@ export default function ComparativoTab({
       {/* 🔑 ESTILOS DE IMPRESIÓN */}
       <style>{`
         @media print {
-          @page { size: A4 portrait; margin: 15mm 10mm 10mm 10mm; }
+          @page { size: A4 portrait; margin: 10mm 5mm 5mm 5mm; }
 
           body * { visibility: hidden; }
           #comparativo-printable, #comparativo-printable * { visibility: visible; }
           #comparativo-printable {
-            position: absolute;
-            left: 0;
-            top: 0;
             width: 100%;
+            padding: 0;
+            margin: 0;
           }
 
           .comparativo-no-print { display: none !important; }
 
-          /* Evitar cortar filas por la mitad */
           #comparativo-printable table tr {
             page-break-inside: avoid;
           }
 
-          /* Header del PDF */
           #comparativo-pdf-header {
             display: block !important;
           }
@@ -587,7 +584,7 @@ export default function ComparativoTab({
         }
       `}</style>
 
-      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
+      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6 print:p-0 print:border-0 print:shadow-none print:rounded-none">
         {/* HEADER DE LA PANTALLA (no se imprime) */}
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-200 comparativo-no-print">
           <div>
