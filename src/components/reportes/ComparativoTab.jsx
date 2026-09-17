@@ -165,13 +165,10 @@ export default function ComparativoTab({
     return total;
   };
 
-  // 🔑 FASE 1 (FIX): El tipo explícito SIEMPRE gana sobre el match por nombre.
-  // Solo si el tipo viene vacío o desconocido, se cae al match por texto.
   const resolverTipoInsumoOficial = (tipoExplicito = '', textoCompleto = '') => {
     const tipoExp = limpiarTexto(tipoExplicito);
     const tc = limpiarTexto(textoCompleto);
 
-    // 1) PRIORIDAD: match por tipo explícito
     if (tipoExp) {
       if (tipoExp.includes('material')) return 'Materiales';
       if (tipoExp.includes('mano de obra') || tipoExp === 'mo' || tipoExp.includes('m.o')) return 'Mano de Obra';
@@ -183,7 +180,6 @@ export default function ComparativoTab({
       if (tipoExp === 'subcontratos') return 'Subcontratos';
     }
 
-    // 2) FALLBACK: match por nombre del insumo/descripción
     if (
       tc.includes('mano de obra') ||
       tc.includes('rrhh') ||
@@ -234,7 +230,6 @@ export default function ComparativoTab({
     return 'Materiales';
   };
 
-  // 🔑 FASE 2: helper para matchear rubro de factura/carga con rubro del presupuesto
   const rubroMatches = (rubroFactura, rubroPresupuesto) => {
     if (!rubroFactura || !rubroPresupuesto) return false;
     const a = limpiarTexto(rubroFactura);
@@ -344,8 +339,6 @@ export default function ComparativoTab({
 
     let costoDirectoTotal = 0;
 
-    // 🔑 FASE 1 (FIX): calcular el presupuestado usando el monto REAL de cada insumo
-    // sin prorratear contra el total de la tarea. Solo se prorratea el remanente.
     const rubrosIntermedios = rubrosList.map((r, rIdx) => {
       const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
       let tareasList = r?.tareas || r?.items || [];
@@ -373,7 +366,6 @@ export default function ComparativoTab({
           }
 
           if (insumosList.length > 0) {
-            // 1) Calcular el monto real de cada insumo (si tiene)
             const montosReales = insumosList.map(ins => {
               const insTotal = parsearMonto(ins?.total);
               if (insTotal > 0) return insTotal;
@@ -384,12 +376,10 @@ export default function ComparativoTab({
 
             const sumaInsumosBase = montosReales.reduce((a, b) => a + b, 0);
 
-            // 2) Si la tarea tiene más monto que la suma de sus insumos, ese "extra" es remanente
             const remanenteTarea = montoAsignadoTarea > sumaInsumosBase
               ? (montoAsignadoTarea - sumaInsumosBase)
               : 0;
 
-            // 3) Sumar el monto REAL de cada insumo + la parte proporcional del remanente
             insumosList.forEach((ins, iIdx) => {
               const insTotalReal = montosReales[iIdx];
               const proporcion = sumaInsumosBase > 0 ? insTotalReal / sumaInsumosBase : (1 / insumosList.length);
@@ -401,7 +391,6 @@ export default function ComparativoTab({
               totalRubroPresupuestado += insTotalFinal;
             });
           } else if (montoAsignadoTarea > 0) {
-            // Tarea sin insumos: se categoriza por el tipo/nombre de la tarea
             const cat = resolverTipoInsumoOficial(t?.tipo, t?.descripcion || t?.tarea);
             categoriasMap[cat].presupuestado += montoAsignadoTarea;
             totalRubroPresupuestado += montoAsignadoTarea;
@@ -414,7 +403,6 @@ export default function ComparativoTab({
       return { id: r?.id || rIdx, nombreRubro, categoriasMap, montoRubroBase: montoBase };
     });
 
-    // 🔑 Imprevistos: si hay % definido, se calcula y se agrega como concepto en GG
     const pctImprevisto = parsearMonto(comercialObj?.porcentaje_imprevistos || comercialObj?.porcentaje_imprevisto || 0);
     let montoImprevistosFijo = parsearMonto(comercialObj?.imprevistos_monto || comercialObj?.imprevisto || parsedItemsDetalle?.imprevistos || 0);
     if (pctImprevisto > 0 && montoImprevistosFijo === 0) {
@@ -424,7 +412,6 @@ export default function ComparativoTab({
       ggList.push({ id: 'gg_imprevisto_calc', concepto: 'Imprevistos', presupuestado_calc: montoImprevistosFijo });
     }
 
-    // 🔑 FASE 2: filtros de facturas y cargas del proyecto
     const pIdReal = String(presupuestoSeleccionado?.id || presupuestoSeleccionado?.ID || '').trim();
     const pCodReal = String(presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.Codigo || '').trim();
 
@@ -443,7 +430,6 @@ export default function ComparativoTab({
       return pIdReal && (csPto === pIdReal || Number(csPto) === Number(pIdReal));
     });
 
-    // 🔑 FASE 2.1: GASTOS GENERALES — match exacto por nombre
     const resultadosGG = [];
     ggList.forEach((gg, idx) => {
       const nombreGG = gg?.concepto || gg?.nombre || gg?.descripcion || `Gasto General ${idx + 1}`;
@@ -456,10 +442,6 @@ export default function ComparativoTab({
         const tipoIns = limpiarTexto(f?.tipo_insumo || f?.categoria || '');
         const conceptoFactura = limpiarTexto(f?.concepto || f?.detalle_gasto || '');
 
-        // 🔑 Match exacto por nombre del concepto:
-        // - rubro_imputacion == nombre GG
-        // - tipo_insumo == nombre GG
-        // - concepto_factura contiene el nombre completo del GG
         const matchRubro = rubroImp && normGG && rubroImp === normGG;
         const matchTipo = tipoIns && normGG && tipoIns === normGG;
         const matchConcepto = conceptoFactura && normGG && conceptoFactura.includes(normGG);
@@ -472,11 +454,7 @@ export default function ComparativoTab({
       resultadosGG.push({ id: gg?.id || idx, concepto: nombreGG, presupuestado: presupuestadoGG, real: realGG, desvio: presupuestadoGG - realGG });
     });
 
-    // 🔑 FASE 2.2: RUBROS DE OBRA — imputación por rubro y categoría
     const resultadosRubros = rubrosIntermedios.map(ri => {
-      const normRubro = limpiarTexto(ri.nombreRubro);
-
-      // 1) Mano de obra desde cargas semanales (distribución por rubros)
       cargasSemanalesProyecto.forEach(cs => {
         let distribucion = cs?.distribucion_rubros || cs?.distribucionRubros || [];
         if (typeof distribucion === 'string') {
@@ -497,7 +475,6 @@ export default function ComparativoTab({
         });
       });
 
-      // 2) Facturas de compra: imputar por rubro_imputacion
       facturasProyecto.forEach(f => {
         const rubroImp = f?.rubro_imputacion || f?.rubro || '';
         const esGastoGeneral = limpiarTexto(rubroImp).includes('gastos generales') || limpiarTexto(rubroImp).includes('gasto general');
@@ -511,7 +488,6 @@ export default function ComparativoTab({
         }
       });
 
-      // 3) Calcular desvíos por categoría
       ordenCategorias.forEach(cat => {
         ri.categoriasMap[cat].desvio = ri.categoriasMap[cat].presupuestado - ri.categoriasMap[cat].real;
       });
@@ -550,201 +526,296 @@ export default function ComparativoTab({
   const totalGGReal = useMemo(() => gastosGeneralesDetalle.reduce((acc, g) => acc + g.real, 0), [gastosGeneralesDetalle]);
 
   const hasSeleccion = (tipoProyecto === 'obra' && presupuestoSeleccionado) || (tipoProyecto === 'contrato' && contratoSeleccionado);
+
+  // 🔑 Datos para el header del PDF
+  const nombreProyecto = useMemo(() => {
+    if (tipoProyecto === 'obra' && presupuestoSeleccionado) {
+      return `[${presupuestoSeleccionado?.codigo || presupuestoSeleccionado?.id || ''}] ${presupuestoSeleccionado?.nombre || presupuestoSeleccionado?.nombre_obra || 'Presupuesto'}`;
+    }
+    if (tipoProyecto === 'contrato' && contratoSeleccionado) {
+      const cCod = contratoSeleccionado?.codigo || contratoSeleccionado?.nro_contrato || 'S/C';
+      const cNom = contratoSeleccionado?.nombre || contratoSeleccionado?.cliente || 'Contrato';
+      return `[${cCod}] ${cNom}`;
+    }
+    return '---';
+  }, [tipoProyecto, presupuestoSeleccionado, contratoSeleccionado]);
+
+  const clienteProyecto = useMemo(() => {
+    if (tipoProyecto === 'obra' && presupuestoSeleccionado) {
+      return presupuestoSeleccionado?.cliente || presupuestoSeleccionado?.razon_social || '---';
+    }
+    if (tipoProyecto === 'contrato' && contratoSeleccionado) {
+      return contratoSeleccionado?.cliente || '---';
+    }
+    return '---';
+  }, [tipoProyecto, presupuestoSeleccionado, contratoSeleccionado]);
+
+  const fechaHoy = new Date().toLocaleDateString('es-AR');
+
   return (
-    <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
-      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-200 print:hidden">
-        <div>
-          <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
-            <TrendingUp className="w-4 h-4 text-amber-500" /> Análisis Comparativo Económico
-          </h3>
-          <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales (Mano de obra de Cargas Semanales y Facturas netas sin IVA).</p>
-        </div>
+    <>
+      {/* 🔑 ESTILOS DE IMPRESIÓN */}
+      <style>{`
+        @media print {
+          @page { size: A4 portrait; margin: 12mm 10mm; }
 
-        <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
-          <div className="flex gap-3 px-2">
-            <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-slate-800">
-              <input
-                type="radio"
-                checked={tipoProyecto === 'obra'}
-                onChange={() => { setTipoProyecto('obra'); setProyectoId(''); setTipoInsumoFiltro('TODOS'); }}
-                className="accent-amber-500"
-              />
-              Presupuestos
-            </label>
-            <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-slate-800">
-              <input
-                type="radio"
-                checked={tipoProyecto === 'contrato'}
-                onChange={() => { setProyectoId(''); setTipoProyecto('contrato'); setTipoInsumoFiltro('TODOS'); }}
-                className="accent-amber-500"
-              />
-              Contratos
-            </label>
+          body * { visibility: hidden; }
+          #comparativo-printable, #comparativo-printable * { visibility: visible; }
+          #comparativo-printable {
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 100%;
+          }
+
+          .comparativo-no-print { display: none !important; }
+
+          /* Evitar cortar filas por la mitad */
+          #comparativo-printable table tr {
+            page-break-inside: avoid;
+          }
+
+          /* Header del PDF */
+          #comparativo-pdf-header {
+            display: block !important;
+          }
+        }
+
+        @media screen {
+          #comparativo-pdf-header {
+            display: none;
+          }
+        }
+      `}</style>
+
+      <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-6">
+        {/* HEADER DE LA PANTALLA (no se imprime) */}
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4 pb-4 border-b border-slate-200 comparativo-no-print">
+          <div>
+            <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-amber-500" /> Análisis Comparativo Económico
+            </h3>
+            <p className="text-xs text-slate-500 mt-0.5">Discriminado por rubros, subcategorías imputadas y gastos generales (Mano de obra de Cargas Semanales y Facturas netas sin IVA).</p>
           </div>
 
-          <select
-            value={proyectoId}
-            onChange={(e) => { setProyectoId(e.target.value); setTipoInsumoFiltro('TODOS'); }}
-            className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer max-w-[280px]"
-          >
-            {tipoProyecto === 'obra' ? (
-              <>
-                <option value="">-- Seleccionar Presupuesto --</option>
-                {presupuestosAprobados.map(p => {
-                  const pId = p?.id || p?.ID || p?.codigo;
-                  return <option key={pId} value={pId}>[{p?.codigo || pId}] {p?.nombre || p?.nombre_obra || 'Presupuesto'}</option>;
-                })}
-              </>
-            ) : (
-              <>
-                <option value="">-- Seleccionar Contrato --</option>
-                {contratosActivos.map(c => {
-                  const cId = c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id || c?.nro_contrato;
-                  const cCod = c?.codigo || c?.Codigo || c?.nro_contrato || 'S/C';
-                  const cNom = c?.nombre || c?.nombre_contrato || c?.Nombre_contrato || c?.cliente || 'Contrato';
-                  return <option key={cId} value={cId}>[{cCod}] {cNom}</option>;
-                })}
-              </>
-            )}
-          </select>
+          <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto justify-end">
+            <div className="flex gap-3 px-2">
+              <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-slate-800">
+                <input
+                  type="radio"
+                  checked={tipoProyecto === 'obra'}
+                  onChange={() => { setTipoProyecto('obra'); setProyectoId(''); setTipoInsumoFiltro('TODOS'); }}
+                  className="accent-amber-500"
+                />
+                Presupuestos
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer text-xs font-bold text-slate-800">
+                <input
+                  type="radio"
+                  checked={tipoProyecto === 'contrato'}
+                  onChange={() => { setProyectoId(''); setTipoProyecto('contrato'); setTipoInsumoFiltro('TODOS'); }}
+                  className="accent-amber-500"
+                />
+                Contratos
+              </label>
+            </div>
 
-          <select
-            value={tipoInsumoFiltro}
-            onChange={(e) => setTipoInsumoFiltro(e.target.value)}
-            className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
-          >
-            <option value="TODOS">Todos los Tipos de Insumo</option>
-            {ordenCategorias.map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
-            ))}
-          </select>
+            <select
+              value={proyectoId}
+              onChange={(e) => { setProyectoId(e.target.value); setTipoInsumoFiltro('TODOS'); }}
+              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer max-w-[280px]"
+            >
+              {tipoProyecto === 'obra' ? (
+                <>
+                  <option value="">-- Seleccionar Presupuesto --</option>
+                  {presupuestosAprobados.map(p => {
+                    const pId = p?.id || p?.ID || p?.codigo;
+                    return <option key={pId} value={pId}>[{p?.codigo || pId}] {p?.nombre || p?.nombre_obra || 'Presupuesto'}</option>;
+                  })}
+                </>
+              ) : (
+                <>
+                  <option value="">-- Seleccionar Contrato --</option>
+                  {contratosActivos.map(c => {
+                    const cId = c?.id || c?.ID || c?.codigo || c?.Codigo || c?.contrato_id || c?.nro_contrato;
+                    const cCod = c?.codigo || c?.Codigo || c?.nro_contrato || 'S/C';
+                    const cNom = c?.nombre || c?.nombre_contrato || c?.Nombre_contrato || c?.cliente || 'Contrato';
+                    return <option key={cId} value={cId}>[{cCod}] {cNom}</option>;
+                  })}
+                </>
+              )}
+            </select>
 
-          <button
-            onClick={() => window.print()}
-            disabled={!hasSeleccion}
-            className={`px-3.5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-colors ${!hasSeleccion ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-600 cursor-pointer'}`}
-          >
-            <Printer className="w-4 h-4" /> Exportar PDF
-          </button>
+            <select
+              value={tipoInsumoFiltro}
+              onChange={(e) => setTipoInsumoFiltro(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+            >
+              <option value="TODOS">Todos los Tipos de Insumo</option>
+              {ordenCategorias.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+
+            <button
+              onClick={() => window.print()}
+              disabled={!hasSeleccion}
+              className={`px-3.5 py-2 bg-amber-500 text-slate-950 font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-colors ${!hasSeleccion ? 'opacity-50 cursor-not-allowed' : 'hover:bg-amber-600 cursor-pointer'}`}
+            >
+              <Printer className="w-4 h-4" /> Exportar PDF
+            </button>
+          </div>
         </div>
+
+        {!hasSeleccion ? (
+          <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl comparativo-no-print">
+            Por favor, seleccione un documento aprobado para visualizar el análisis comparativo detallado.
+          </div>
+        ) : (
+          <div id="comparativo-printable" className="space-y-6">
+            {/* 🔑 HEADER SOLO PARA EL PDF */}
+            <div id="comparativo-pdf-header" className="mb-4 pb-4 border-b-2 border-slate-800">
+              <div className="flex items-center justify-between mb-3">
+                <img src="/logo-07.png" alt="SICE S.A." style={{ height: '50px' }} />
+                <div className="text-right">
+                  <h1 className="text-base font-black text-slate-900 uppercase">Análisis Comparativo Económico</h1>
+                  <p className="text-[10px] text-slate-600 mt-1">Emitido: {fechaHoy}</p>
+                </div>
+              </div>
+              <p className="text-[10px] font-extrabold text-blue-900 uppercase mb-2">SOLVENCIAS INTEGRALES Y CONSTRUCTIVOS EMPRESARIOS S.A.</p>
+              <table className="w-full text-[10px]">
+                <tbody>
+                  <tr>
+                    <td className="py-1" style={{ width: '60%' }}>
+                      <strong>Proyecto:</strong> {nombreProyecto}
+                    </td>
+                    <td className="py-1">
+                      <strong>Tipo:</strong> {tipoProyecto === 'obra' ? 'Presupuesto de Obra' : 'Contrato de Mantenimiento'}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="py-1">
+                      <strong>Cliente:</strong> {clienteProyecto}
+                    </td>
+                    <td className="py-1">
+                      <strong>Filtro:</strong> {tipoInsumoFiltro === 'TODOS' ? 'Todos los Tipos de Insumo' : tipoInsumoFiltro}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div className="border border-slate-300 rounded-xl overflow-hidden shadow-sm">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-slate-100 text-slate-600 font-bold uppercase border-b border-slate-300 text-[10px]">
+                    <th className="px-4 py-3">Concepto / Rubro / Subcategoría</th>
+                    <th className="px-4 py-3 text-right">Monto Presupuestado</th>
+                    <th className="px-4 py-3 text-right">Monto Real Imputado (Neto sin IVA)</th>
+                    <th className="px-4 py-3 text-right">Desvío por Categoría</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-200 bg-white">
+                  {analisisRubrosDetallado.map((rubro) => {
+                    const categoriasFiltradas = ordenCategorias.filter(cat => {
+                      const catData = rubro.categorias[cat];
+                      if (catData.presupuestado === 0 && catData.real === 0) return false;
+                      if (tipoInsumoFiltro !== 'TODOS' && cat !== tipoInsumoFiltro) return false;
+                      return true;
+                    });
+
+                    if (tipoInsumoFiltro !== 'TODOS' && categoriasFiltradas.length === 0) return null;
+
+                    const rubroPresupuestadoFiltrado = categoriasFiltradas.reduce((acc, cat) => acc + rubro.categorias[cat].presupuestado, 0);
+                    const rubroRealFiltrado = categoriasFiltradas.reduce((acc, cat) => acc + rubro.categorias[cat].real, 0);
+                    const rubroDesvioFiltrado = rubroPresupuestadoFiltrado - rubroRealFiltrado;
+
+                    return (
+                      <React.Fragment key={rubro.id}>
+                        <tr className="bg-slate-800 text-white font-extrabold uppercase text-[11px] print:bg-slate-800 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                          <td className="px-4 py-2.5">{rubro.nombre}</td>
+                          <td className="px-4 py-2.5 text-right">$ {rubroPresupuestadoFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-4 py-2.5 text-right text-amber-400">$ {rubroRealFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-4 py-2.5 text-right">
+                            {renderDesvioConFlecha(rubroDesvioFiltrado)}
+                          </td>
+                        </tr>
+
+                        {categoriasFiltradas.map(cat => {
+                          const catData = rubro.categorias[cat];
+                          return (
+                            <tr key={`${rubro.id}-${cat}`} className="hover:bg-slate-50 font-medium text-[11px]">
+                              <td className="px-8 py-2 text-slate-600 flex items-center gap-2">
+                                <span className="w-1 h-1 rounded-full bg-slate-400"></span> {cat}
+                              </td>
+                              <td className="px-4 py-2 text-right font-bold text-slate-800">
+                                $ {catData.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                              </td>
+                              <td className="px-4 py-2 text-right text-amber-700 font-bold">
+                                $ {catData.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+                              </td>
+                              <td className="px-4 py-2 text-right font-bold">
+                                {renderDesvioConFlecha(catData.desvio)}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </React.Fragment>
+                    );
+                  })}
+
+                  <tr className="bg-amber-100 font-black text-slate-900 uppercase text-[11px] border-t-2 border-slate-300 print:bg-amber-100" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                    <td className="px-4 py-3">SUBTOTAL {tipoProyecto === 'obra' ? 'RUBROS DE OBRA' : 'CONTRATO'}</td>
+                    <td className="px-4 py-3 text-right">$ {granTotalPresupuestadoFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-4 py-3 text-right text-amber-800">$ {granTotalRealFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-4 py-3 text-right">
+                      {renderDesvioConFlecha(granTotalPresupuestadoFiltrado - granTotalRealFiltrado)}
+                    </td>
+                  </tr>
+
+                  {gastosGeneralesDetalle.length > 0 && tipoInsumoFiltro === 'TODOS' && (
+                    <>
+                      <tr className="bg-slate-800 text-white font-extrabold uppercase text-[11px] border-t-4 border-white print:bg-slate-800 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                        <td colSpan="4" className="px-4 py-2.5">GASTOS GENERALES E IMPREVISTOS</td>
+                      </tr>
+                      {gastosGeneralesDetalle.map((gg) => (
+                        <tr key={`gg-${gg.id}`} className="hover:bg-slate-50 font-medium text-[11px]">
+                          <td className="px-8 py-2 text-slate-700">{gg.concepto}</td>
+                          <td className="px-4 py-2 text-right font-bold text-slate-800">$ {gg.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-4 py-2 text-right text-amber-700 font-bold">$ {gg.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                          <td className="px-4 py-2 text-right font-bold">
+                            {renderDesvioConFlecha(gg.desvio)}
+                          </td>
+                        </tr>
+                      ))}
+
+                      <tr className="bg-amber-100 font-black text-slate-900 uppercase text-[11px] border-t-2 border-slate-300 print:bg-amber-100" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                        <td className="px-4 py-3">SUBTOTAL GASTOS GENERALES</td>
+                        <td className="px-4 py-3 text-right">$ {totalGGPresupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                        <td className="px-4 py-3 text-right text-amber-800">$ {totalGGReal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                        <td className="px-4 py-3 text-right">
+                          {renderDesvioConFlecha(totalGGPresupuestado - totalGGReal)}
+                        </td>
+                      </tr>
+                    </>
+                  )}
+                </tbody>
+
+                <tfoot>
+                  <tr className="bg-slate-900 text-white font-black uppercase text-xs print:bg-slate-900 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
+                    <td className="px-4 py-4">TOTAL GENERAL</td>
+                    <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-4 py-4 text-right text-amber-400">$ {(granTotalRealFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
+                    <td className="px-4 py-4 text-right">
+                      {renderDesvioConFlecha(((granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0))) - ((granTotalRealFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0))))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
-
-      {!hasSeleccion ? (
-        <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-2xl print:hidden">
-          Por favor, seleccione un documento aprobado para visualizar el análisis comparativo detallado.
-        </div>
-      ) : (
-        <div className="space-y-6 print:m-0 print:p-0">
-          <div className="border border-slate-300 rounded-xl overflow-hidden shadow-sm">
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-100 text-slate-600 font-bold uppercase border-b border-slate-300 text-[10px]">
-                  <th className="px-4 py-3">Concepto / Rubro / Subcategoría</th>
-                  <th className="px-4 py-3 text-right">Monto Presupuestado</th>
-                  <th className="px-4 py-3 text-right">Monto Real Imputado (Neto sin IVA)</th>
-                  <th className="px-4 py-3 text-right">Desvío por Categoría</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-200 bg-white">
-                {analisisRubrosDetallado.map((rubro) => {
-                  const categoriasFiltradas = ordenCategorias.filter(cat => {
-                    const catData = rubro.categorias[cat];
-                    if (catData.presupuestado === 0 && catData.real === 0) return false;
-                    if (tipoInsumoFiltro !== 'TODOS' && cat !== tipoInsumoFiltro) return false;
-                    return true;
-                  });
-
-                  if (tipoInsumoFiltro !== 'TODOS' && categoriasFiltradas.length === 0) return null;
-
-                  const rubroPresupuestadoFiltrado = categoriasFiltradas.reduce((acc, cat) => acc + rubro.categorias[cat].presupuestado, 0);
-                  const rubroRealFiltrado = categoriasFiltradas.reduce((acc, cat) => acc + rubro.categorias[cat].real, 0);
-                  const rubroDesvioFiltrado = rubroPresupuestadoFiltrado - rubroRealFiltrado;
-
-                  return (
-                    <React.Fragment key={rubro.id}>
-                      <tr className="bg-slate-800 text-white font-extrabold uppercase text-[11px] print:bg-slate-800 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                        <td className="px-4 py-2.5">{rubro.nombre}</td>
-                        <td className="px-4 py-2.5 text-right">$ {rubroPresupuestadoFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-4 py-2.5 text-right text-amber-400">$ {rubroRealFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-4 py-2.5 text-right">
-                          {renderDesvioConFlecha(rubroDesvioFiltrado)}
-                        </td>
-                      </tr>
-
-                      {categoriasFiltradas.map(cat => {
-                        const catData = rubro.categorias[cat];
-                        return (
-                          <tr key={`${rubro.id}-${cat}`} className="hover:bg-slate-50 font-medium text-[11px]">
-                            <td className="px-8 py-2 text-slate-600 flex items-center gap-2">
-                              <span className="w-1 h-1 rounded-full bg-slate-400"></span> {cat}
-                            </td>
-                            <td className="px-4 py-2 text-right font-bold text-slate-800">
-                              $ {catData.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-                            </td>
-                            <td className="px-4 py-2 text-right text-amber-700 font-bold">
-                              $ {catData.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-                            </td>
-                            <td className="px-4 py-2 text-right font-bold">
-                              {renderDesvioConFlecha(catData.desvio)}
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </React.Fragment>
-                  );
-                })}
-
-                <tr className="bg-amber-100 font-black text-slate-900 uppercase text-[11px] border-t-2 border-slate-300 print:bg-amber-100" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                  <td className="px-4 py-3">SUBTOTAL {tipoProyecto === 'obra' ? 'RUBROS DE OBRA' : 'CONTRATO'}</td>
-                  <td className="px-4 py-3 text-right">$ {granTotalPresupuestadoFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-3 text-right text-amber-800">$ {granTotalRealFiltrado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-3 text-right">
-                    {renderDesvioConFlecha(granTotalPresupuestadoFiltrado - granTotalRealFiltrado)}
-                  </td>
-                </tr>
-
-                {gastosGeneralesDetalle.length > 0 && tipoInsumoFiltro === 'TODOS' && (
-                  <>
-                    <tr className="bg-slate-800 text-white font-extrabold uppercase text-[11px] border-t-4 border-white print:bg-slate-800 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                      <td colSpan="4" className="px-4 py-2.5">GASTOS GENERALES E IMPREVISTOS</td>
-                    </tr>
-                    {gastosGeneralesDetalle.map((gg) => (
-                      <tr key={`gg-${gg.id}`} className="hover:bg-slate-50 font-medium text-[11px]">
-                        <td className="px-8 py-2 text-slate-700">{gg.concepto}</td>
-                        <td className="px-4 py-2 text-right font-bold text-slate-800">$ {gg.presupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-4 py-2 text-right text-amber-700 font-bold">$ {gg.real.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                        <td className="px-4 py-2 text-right font-bold">
-                          {renderDesvioConFlecha(gg.desvio)}
-                        </td>
-                      </tr>
-                    ))}
-
-                    <tr className="bg-amber-100 font-black text-slate-900 uppercase text-[11px] border-t-2 border-slate-300 print:bg-amber-100" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                      <td className="px-4 py-3">SUBTOTAL GASTOS GENERALES</td>
-                      <td className="px-4 py-3 text-right">$ {totalGGPresupuestado.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                      <td className="px-4 py-3 text-right text-amber-800">$ {totalGGReal.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                      <td className="px-4 py-3 text-right">
-                        {renderDesvioConFlecha(totalGGPresupuestado - totalGGReal)}
-                      </td>
-                    </tr>
-                  </>
-                )}
-              </tbody>
-
-              <tfoot>
-                <tr className="bg-slate-900 text-white font-black uppercase text-xs print:bg-slate-900 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
-                  <td className="px-4 py-4">TOTAL GENERAL</td>
-                  <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-4 text-right text-amber-400">$ {(granTotalRealFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  <td className="px-4 py-4 text-right">
-                    {renderDesvioConFlecha(((granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0))) - ((granTotalRealFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGReal : 0))))}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </div>
-      )}
-    </div>
+    </>
   );
 }
