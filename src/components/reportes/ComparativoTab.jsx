@@ -559,17 +559,39 @@ export default function ComparativoTab({
           @page { size: A4 portrait; margin: 10mm 5mm 5mm 5mm; }
 
           body * { visibility: hidden; }
+
           #comparativo-printable, #comparativo-printable * { visibility: visible; }
+
           #comparativo-printable {
+            position: absolute;
+            left: 0;
+            top: 0;
             width: 100%;
             padding: 0;
             margin: 0;
+            overflow: visible !important;
+            max-height: none !important;
+            height: auto !important;
+          }
+
+          #comparativo-printable * {
+            max-height: none !important;
+            overflow: visible !important;
           }
 
           .comparativo-no-print { display: none !important; }
 
-          #comparativo-printable table tr {
+          #comparativo-printable table {
+            page-break-inside: auto;
+          }
+
+          #comparativo-printable tr {
             page-break-inside: avoid;
+            page-break-after: auto;
+          }
+
+          #comparativo-printable thead {
+            display: table-header-group;
           }
 
           #comparativo-pdf-header {
@@ -796,7 +818,7 @@ export default function ComparativoTab({
                     </>
                   )}
 
-                  {/* 🔑 FIX: el TOTAL GENERAL ahora está en tbody (no en tfoot) para que NO se repita en cada página */}
+                  {/* 🔑 FIX: el TOTAL GENERAL está en tbody (no en tfoot) para que NO se repita en cada página */}
                   <tr className="bg-slate-900 text-white font-black uppercase text-xs print:bg-slate-900 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                     <td className="px-4 py-4">TOTAL GENERAL</td>
                     <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
