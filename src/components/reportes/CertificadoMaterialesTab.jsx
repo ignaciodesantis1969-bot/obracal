@@ -263,7 +263,7 @@ export default function CertificadoMaterialesTab({
       montoConFactor: factura.montoConFactor,
       total: factura.total
     };
-    setFacturasSeleccionadas(prev => [...prev, ...nuevaFila ? [nuevaFila] : []]);
+    setFacturasSeleccionadas(prev => [...prev, nuevaFila]);
   };
 
   const eliminarFila = (id) => {

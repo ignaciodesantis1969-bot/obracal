@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2, Loader2, Pencil, Lock } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
+import CertificadoMaterialesTab from './CertificadoMaterialesTab'; // 🔑 NUEVO
 import { crearDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function CertificacionesTab({
@@ -59,10 +60,6 @@ export default function CertificacionesTab({
     }
     return arr;
   };
-
-  // 🔑 MIGRACIÓN A FIRESTORE: ya NO fetcheamos certificados desde Sheets.
-  // Los certificados llegan por props desde Reportes.jsx (que lee de Firestore).
-  // (Se eliminó el useEffect que llamaba a cargarCertificadosOptimizados.)
 
   const allCertificados = useMemo(() => {
     const combinados = [
@@ -301,7 +298,6 @@ export default function CertificacionesTab({
     adelantoMonto, adelantoPct, adicionalesMonto, redeterminacionMonto, redeterminacionPct
   ]);
 
-  // 🔑 MIGRACIÓN A FIRESTORE: el .gs genera el PDF, el frontend crea el doc en Firestore
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
 
@@ -345,7 +341,6 @@ export default function CertificacionesTab({
         cliente_cargo: certRespCliente.cargo
       };
 
-      // PASO 1: pedirle al .gs que genere el PDF en Drive
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -359,7 +354,6 @@ export default function CertificacionesTab({
 
       const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
 
-      // PASO 2: crear el doc en Firestore
       const payloadFirestore = {
         presupuesto_id: idLimpio,
         presupuestoId: idLimpio,
@@ -387,7 +381,6 @@ export default function CertificacionesTab({
 
       toast.success("¡Certificado guardado con éxito en Firestore y PDF generado en Drive!", { id: toastId });
 
-      // Reset opcional: limpiar avance actual y montos
       setAvanceActualMap({});
       setAdicionalesMonto(0);
       setRedeterminacionPct(0);
@@ -402,7 +395,6 @@ export default function CertificacionesTab({
     }
   };
 
-  // 🔑 MIGRACIÓN A FIRESTORE: eliminar certificado directo de la colección
   const eliminarCertificadoServidor = async (certId) => {
     if (!esAdminOGerencia) {
       toast.error("Solo administradores pueden eliminar certificados.");
@@ -938,35 +930,12 @@ export default function CertificacionesTab({
         />
       )}
 
+      {/* 🔑 NUEVO: Certificado de Materiales (Contratos de Mantenimiento) */}
       {tipoCertificadoSubTab === 'compra_materiales' && (
-        <div className="space-y-4 pt-2">
-          <div className="bg-slate-50 p-4 rounded-xl border border-slate-200">
-            <h4 className="text-xs font-black text-slate-900 uppercase">Certificación Materiales (Contrato Mantenimiento)</h4>
-            <p className="text-[11px] text-slate-500">Auditoría y certificación de insumos imputados a contratos.</p>
-          </div>
-          {facturas.length === 0 ? (
-            <div className="p-12 text-center text-slate-400 text-xs border-2 border-dashed rounded-2xl">No hay facturas registradas.</div>
-          ) : (
-            <table className="w-full text-left text-xs border rounded-xl overflow-hidden">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200 text-[10px]">
-                  <th className="px-4 py-3">Factura</th>
-                  <th className="px-4 py-3">Proveedor</th>
-                  <th className="px-4 py-3 text-right">Monto</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {facturas.map((fac, idx) => (
-                  <tr key={idx} className="hover:bg-slate-50">
-                    <td className="px-4 py-3 font-bold">{fac?.n_factura || fac?.nro_factura || `Factura #${idx + 1}`}</td>
-                    <td className="px-4 py-3 text-slate-600">{fac?.proveedor}</td>
-                    <td className="px-4 py-3 text-right font-black font-mono">$ {Number(fac?.total || fac?.subtotal || 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <CertificadoMaterialesTab
+          contratosList={contratosList}
+          currentUser={currentUser}
+        />
       )}
     </div>
   );
