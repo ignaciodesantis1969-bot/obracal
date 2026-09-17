@@ -3,7 +3,9 @@ import React, { useState, useMemo, useEffect } from 'react';
 import toast from 'react-hot-toast';
 import { Package, Trash2, ShieldCheck, Loader2, FileText, ExternalLink, DollarSign, Calendar } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
-import { crearDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+// 🔑 NUEVO: import para llamar al Apps Script
+import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function CertificadoMaterialesTab({
   contratosList: propContratos = [],
@@ -58,7 +60,7 @@ export default function CertificadoMaterialesTab({
   const [periodoDesde, setPeriodoDesde] = useState('');
   const [periodoHasta, setPeriodoHasta] = useState('');
 
-  // 🔑 FIX: el fee NO es editable. Se lee del contrato (read-only).
+  // 🔑 El fee NO es editable. Se lee del contrato (read-only).
   const [feeDelContrato, setFeeDelContrato] = useState(0);
 
   const [facturasSeleccionadas, setFacturasSeleccionadas] = useState([]);
@@ -116,19 +118,19 @@ export default function CertificadoMaterialesTab({
     return { proveedorKey: String(pKey), clienteKey: String(cKey) };
   }, [contratoActual]);
 
-  // 🔑 Fee viene del contrato, read-only en este tab
+  // 🔑 Fee viene del contrato, read-only
   useEffect(() => {
     if (contratoActual) {
       const fee = contratoActual.fee_materiales != null
         ? Number(contratoActual.fee_materiales)
-        : 49.49; // default del ejemplo
+        : 49.49;
       setFeeDelContrato(fee);
     } else {
       setFeeDelContrato(0);
     }
   }, [contratoActual]);
 
-  // ─── Numeración correlativa (independiente de HH) ─────────────
+  // ─── Numeración correlativa ───────────────────────────────────
   useEffect(() => {
     if (contratoActual) {
       const idContratoStr = String(contratoActual.id || '').trim();
@@ -160,7 +162,7 @@ export default function CertificadoMaterialesTab({
     }
   }, [contratoActual, historialCertificados, codigoSICEReal]);
 
-  // 🔑 Facturas ya certificadas (array plano facturas_usadas + fallback)
+  // 🔑 Facturas ya certificadas
   const facturasUsadasEnHistorial = useMemo(() => {
     const usadas = new Set();
     historialCertificados.forEach(cert => {
@@ -181,14 +183,14 @@ export default function CertificadoMaterialesTab({
     return usadas;
   }, [historialCertificados]);
 
-  // 🔑 FIX: facturas ya agregadas a la tabla actual (evita re-seleccionarlas)
+  // 🔑 Facturas en tabla actual
   const facturasEnTablaActual = useMemo(() => {
     const set = new Set();
     facturasSeleccionadas.forEach(f => f.nFactura && set.add(String(f.nFactura)));
     return set;
   }, [facturasSeleccionadas]);
 
-  // 🔑 Facturas disponibles: del contrato, en rango, no certificadas, no en tabla
+  // 🔑 Facturas disponibles
   const facturasDisponibles = useMemo(() => {
     if (!contratoActual) return [];
     if (!periodoDesde || !periodoHasta) return [];
@@ -200,7 +202,6 @@ export default function CertificadoMaterialesTab({
     const hasta = new Date(periodoHasta + 'T23:59:59');
 
     return facturasList.filter(f => {
-      // Filtro por contrato
       const fContratoId = String(f?.contrato_id || '').trim();
       if (!fContratoId) return false;
 
@@ -211,7 +212,6 @@ export default function CertificadoMaterialesTab({
 
       if (!matchPorId && !matchPorCodigo && !matchParcial) return false;
 
-      // Filtro por rango de fecha
       const fFecha = f?.fecha;
       if (!fFecha) return false;
 
@@ -226,22 +226,15 @@ export default function CertificadoMaterialesTab({
       if (fFechaDate < desde || fFechaDate > hasta) return false;
 
       const fNro = String(f?.n_factura || '').trim();
-
-      // Excluir ya certificadas en historial
       if (fNro && facturasUsadasEnHistorial.has(fNro)) return false;
-
-      // 🔑 FIX: excluir las que ya están en la tabla actual
       if (fNro && facturasEnTablaActual.has(fNro)) return false;
 
       return true;
     }).map(f => {
-      // 🔑 FIX: leo `monto_sin_iva` o `subtotal` (fallback)
       const montoSinIva = Number(f?.monto_sin_iva || f?.subtotal || 0);
       const factor = 1 + (feeDelContrato / 100);
-      // 🔑 FIX: sin IVA — el total es directamente el monto con factor
       const montoConFactor = montoSinIva * factor;
 
-      // Nombre del proveedor (joineamos si hay proveedor_id)
       let proveedorNombre = f?.proveedor || '';
       if (!proveedorNombre && f?.proveedor_id) {
         const prov = proveedoresList.find(p =>
@@ -259,12 +252,11 @@ export default function CertificadoMaterialesTab({
         factor: factor,
         monto_con_factor: montoConFactor,
         total: montoConFactor,
-        _raw: f // se limpia antes de guardar
+        _raw: f
       };
     });
   }, [contratoActual, codigoSICEReal, facturasList, proveedoresList, periodoDesde, periodoHasta, feeDelContrato, facturasUsadasEnHistorial, facturasEnTablaActual]);
 
-  // ─── Agregar factura a la tabla del certificado ───────────────
   const agregarFacturaFila = (factura) => {
     const nuevaFila = {
       id: `fact-${factura.nFactura}-${Date.now()}`,
@@ -289,7 +281,6 @@ export default function CertificadoMaterialesTab({
       const actualizado = { ...item, [campo]: valor };
       if (campo === 'monto_sin_iva') {
         const s = Number(valor) || 0;
-        // 🔑 FIX: sin IVA — el total es directamente el monto con factor
         actualizado.monto_con_factor = s * actualizado.factor;
         actualizado.total = actualizado.monto_con_factor;
       }
@@ -309,7 +300,6 @@ export default function CertificadoMaterialesTab({
     return facturasSeleccionadas.reduce((acc, curr) => acc + (Number(curr.monto_con_factor) || 0), 0);
   }, [facturasSeleccionadas]);
 
-  // 🔑 FIX: recálculo dinámico si cambia el fee del contrato
   useEffect(() => {
     if (feeDelContrato >= 0) {
       const factor = 1 + (feeDelContrato / 100);
@@ -320,13 +310,15 @@ export default function CertificadoMaterialesTab({
           ...f,
           factor,
           monto_con_factor: mcf,
-          total: mcf // 🔑 FIX: sin IVA
+          total: mcf
         };
       }));
     }
   }, [feeDelContrato]);
 
-  // ─── Guardar certificado de materiales ────────────────────────
+  // ═══════════════════════════════════════════════════════════════════════
+  // GUARDAR: Firestore PRIMERO → PDF después → update doc
+  // ═══════════════════════════════════════════════════════════════════════
   const guardarCertificadoMateriales = async (e) => {
     e.preventDefault();
     if (!contratoActual) return toast.error("Seleccione un contrato válido.");
@@ -347,17 +339,17 @@ export default function CertificadoMaterialesTab({
     const toastId = toast.loading('Guardando certificado de materiales...');
 
     try {
+      // ═══════════════════════════════════════════════════════════════════
+      // PASO 1: Guardar en Firestore PRIMERO (sin PDF todavía)
+      // ═══════════════════════════════════════════════════════════════════
       const facturasUsadas = Array.from(new Set(facturasSeleccionadas.map(f => String(f.nFactura))));
 
-      // 🔑 FIX CRÍTICO: limpiar `_raw` de cada fila
-      // Firestore no acepta campos con `undefined`, y `_raw` trae la factura completa
-      // que puede tener campos vacíos/undefined. La sacamos antes de guardar.
       const facturasLimpias = facturasSeleccionadas.map(f => {
         const { _raw, ...resto } = f;
         return resto;
       });
 
-      const payload = {
+      const payloadFirestore = {
         contrato_id: String(contratoIdSeleccionado),
         contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
         nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
@@ -367,27 +359,99 @@ export default function CertificadoMaterialesTab({
         periodo_hasta: formatearFecha(periodoHasta),
         cliente: contratoActual?.cliente || contratoActual?.Cliente || 'Cliente',
         fee_materiales: Number(feeDelContrato),
-        detalle_filas: facturasLimpias, // 🔑 FIX: sin _raw
+        detalle_filas: facturasLimpias,
         facturas_usadas: facturasUsadas,
         total_sin_iva: totalGeneralSinIva,
         total_con_factor: totalGeneralConFactor,
-        total_general: totalGeneralMonto, // = total_con_factor (sin IVA)
+        total_general: totalGeneralMonto,
         responsable_proveedor: respProveedor,
         responsable_cliente: respCliente,
-        pdf_url: '' // 🔑 Sin PDF por ahora (Fase 3)
+        pdf_url: ''
       };
 
-      await crearDoc('certificaciones_materiales', payload);
-      console.info('[CertificadoMateriales] ✅ Doc creado en Firestore');
+      const docId = await crearDoc('certificaciones_materiales', payloadFirestore);
+      console.info('[CertificadoMateriales] ✅ Doc creado en Firestore:', docId);
 
-      toast.success(`¡Certificado de Materiales Nro ${certificadoNro} guardado con éxito!`, { id: toastId });
+      // ═══════════════════════════════════════════════════════════════════
+      // PASO 2: Generar PDF vía Apps Script
+      // ═══════════════════════════════════════════════════════════════════
+      let pdfUrlFinal = '';
+      let pdfFallo = false;
+      let errorPdfMsg = '';
 
-      // Reset
+      try {
+        const payloadGs = {
+          action: 'guardar_certificado_materiales',
+          contrato_id: String(contratoIdSeleccionado),
+          contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
+          nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
+          certificado_nro: certificadoNro,
+          fecha_emision: formatearFecha(fechaEmision),
+          periodo_desde: formatearFecha(periodoDesde),
+          periodo_hasta: formatearFecha(periodoHasta),
+          cliente: contratoActual?.cliente || contratoActual?.Cliente || 'Cliente',
+          fee_materiales: Number(feeDelContrato),
+          detalle_filas: facturasLimpias,
+          total_general: totalGeneralMonto,
+          responsable_proveedor: respProveedor,
+          responsable_cliente: respCliente,
+          carpetaDestino: 'Certificados Materiales'
+        };
+
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payloadGs)
+        });
+
+        const textoCrudo = await res.text();
+        console.info('[CertificadoMateriales] Status:', res.status, '| Primeros chars:', textoCrudo.trim().slice(0, 60));
+
+        if (!res.ok) throw new Error(`Apps Script devolvió status ${res.status}`);
+        if (textoCrudo.trim().startsWith('<')) {
+          throw new Error('El servidor devolvió HTML en vez de JSON');
+        }
+
+        const resultado = JSON.parse(textoCrudo);
+        if (resultado?.success === false) {
+          throw new Error(resultado.error || 'Error desconocido del servidor');
+        }
+
+        pdfUrlFinal = resultado?.pdf_url || resultado?.pdfUrl || resultado?.url || '';
+        console.info('[CertificadoMateriales] ✅ PDF generado:', pdfUrlFinal);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // PASO 3: Actualizar el doc con el PDF
+        // ═══════════════════════════════════════════════════════════════════
+        if (pdfUrlFinal) {
+          await actualizarDoc('certificaciones_materiales', docId, {
+            pdf_url: pdfUrlFinal
+          });
+          console.info('[CertificadoMateriales] ✅ Doc actualizado con PDF');
+        }
+      } catch (pdfErr) {
+        console.error('[CertificadoMateriales] ⚠️ Falló generación de PDF:', pdfErr);
+        pdfFallo = true;
+        errorPdfMsg = pdfErr?.message || 'Error desconocido';
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // PASO 4: Feedback
+      // ═══════════════════════════════════════════════════════════════════
+      if (pdfFallo) {
+        toast.error(
+          `Certificado Nro ${certificadoNro} guardado, pero el PDF no se pudo generar (${errorPdfMsg}).`,
+          { id: toastId, duration: 7000 }
+        );
+      } else {
+        toast.success(`¡Certificado Nro ${certificadoNro} guardado con PDF en Drive!`, { id: toastId });
+      }
+
       setFacturasSeleccionadas([]);
       setRespCliente(prev => ({...prev, firma: ''}));
       setRespProveedor(prev => ({...prev, firma: ''}));
     } catch (err) {
-      console.error('[CertificadoMateriales] ❌ Error:', err);
+      console.error('[CertificadoMateriales] ❌ Error crítico:', err);
       toast.error('Error al guardar: ' + (err.message || 'Desconocido'), { id: toastId, duration: 6000 });
     } finally {
       setIsSaving(false);
@@ -411,9 +475,9 @@ export default function CertificadoMaterialesTab({
     }
   };
 
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════
   // RENDER
-  // ═══════════════════════════════════════════════════════════════
+  // ═══════════════════════════════════════════════════════════════════════
   return (
     <div className="space-y-8">
       {/* FORMULARIO PRINCIPAL */}
@@ -523,7 +587,6 @@ export default function CertificadoMaterialesTab({
             <span className="text-[10px] text-slate-500 font-mono">{formatearFecha(periodoHasta)}</span>
           </div>
 
-          {/* 🔑 FIX: Fee read-only (viene del contrato) */}
           <div className="flex items-center gap-2 ml-auto">
             <label className="text-xs font-black text-slate-800 flex items-center gap-1">
               <DollarSign className="w-4 h-4 text-emerald-600" /> FEE MATERIALES:
