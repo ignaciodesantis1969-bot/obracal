@@ -116,7 +116,7 @@ export default function CertificadoMaterialesTab({
     return { proveedorKey: String(pKey), clienteKey: String(cKey) };
   }, [contratoActual]);
 
-  // 🔑 FIX: Fee viene del contrato, read-only en este tab
+  // 🔑 Fee viene del contrato, read-only en este tab
   useEffect(() => {
     if (contratoActual) {
       const fee = contratoActual.fee_materiales != null
@@ -235,10 +235,11 @@ export default function CertificadoMaterialesTab({
 
       return true;
     }).map(f => {
-      const subtotal = Number(f?.subtotal) || 0;
+      // 🔑 FIX: leo `monto_sin_iva` o `subtotal` (fallback)
+      const montoSinIva = Number(f?.monto_sin_iva || f?.subtotal || 0);
       const factor = 1 + (feeDelContrato / 100);
-      const montoConFactor = subtotal * factor;
-      const totalConIva = montoConFactor * 1.21;
+      // 🔑 FIX: sin IVA — el total es directamente el monto con factor
+      const montoConFactor = montoSinIva * factor;
 
       // Nombre del proveedor (joineamos si hay proveedor_id)
       let proveedorNombre = f?.proveedor || '';
@@ -254,10 +255,10 @@ export default function CertificadoMaterialesTab({
         nFactura: String(f?.n_factura || 'S/N'),
         fecha: f?.fecha || '',
         proveedor: proveedorNombre || '---',
-        montoSinIva: subtotal,
+        monto_sin_iva: montoSinIva,      // 🔑 FIX: campo renombrado
         factor: factor,
-        montoConFactor: montoConFactor,
-        total: totalConIva,
+        monto_con_factor: montoConFactor, // 🔑 FIX: campo renombrado
+        total: montoConFactor,            // 🔑 FIX: total = monto_con_factor (sin IVA)
         _raw: f
       };
     });
@@ -270,12 +271,11 @@ export default function CertificadoMaterialesTab({
       nFactura: factura.nFactura,
       fecha: factura.fecha,
       proveedor: factura.proveedor,
-      montoSinIva: factura.montoSinIva,
+      monto_sin_iva: factura.monto_sin_iva,
       factor: factura.factor,
-      montoConFactor: factura.montoConFactor,
+      monto_con_factor: factura.monto_con_factor,
       total: factura.total
     };
-    // 🔑 FIX: ya no tiene el bug de precedencia
     setFacturasSeleccionadas(prev => [...prev, nuevaFila]);
   };
 
@@ -287,10 +287,11 @@ export default function CertificadoMaterialesTab({
     setFacturasSeleccionadas(prev => prev.map(item => {
       if (item.id !== id) return item;
       const actualizado = { ...item, [campo]: valor };
-      if (campo === 'montoSinIva') {
+      if (campo === 'monto_sin_iva') {
         const s = Number(valor) || 0;
-        actualizado.montoConFactor = s * actualizado.factor;
-        actualizado.total = actualizado.montoConFactor * 1.21;
+        // 🔑 FIX: sin IVA — el total es directamente el monto con factor
+        actualizado.monto_con_factor = s * actualizado.factor;
+        actualizado.total = actualizado.monto_con_factor;
       }
       return actualizado;
     }));
@@ -301,25 +302,25 @@ export default function CertificadoMaterialesTab({
   }, [facturasSeleccionadas]);
 
   const totalGeneralSinIva = useMemo(() => {
-    return facturasSeleccionadas.reduce((acc, curr) => acc + (Number(curr.montoSinIva) || 0), 0);
+    return facturasSeleccionadas.reduce((acc, curr) => acc + (Number(curr.monto_sin_iva) || 0), 0);
   }, [facturasSeleccionadas]);
 
   const totalGeneralConFactor = useMemo(() => {
-    return facturasSeleccionadas.reduce((acc, curr) => acc + (Number(curr.montoConFactor) || 0), 0);
+    return facturasSeleccionadas.reduce((acc, curr) => acc + (Number(curr.monto_con_factor) || 0), 0);
   }, [facturasSeleccionadas]);
 
-  // 🔑 FIX: recálculo dinámico SOLO si cambia el fee del contrato (read-only)
+  // 🔑 FIX: recálculo dinámico si cambia el fee del contrato
   useEffect(() => {
     if (feeDelContrato >= 0) {
       const factor = 1 + (feeDelContrato / 100);
       setFacturasSeleccionadas(prev => prev.map(f => {
-        const s = Number(f.montoSinIva) || 0;
+        const s = Number(f.monto_sin_iva) || 0;
         const mcf = s * factor;
         return {
           ...f,
           factor,
-          montoConFactor: mcf,
-          total: mcf * 1.21
+          monto_con_factor: mcf,
+          total: mcf // 🔑 FIX: sin IVA
         };
       }));
     }
@@ -357,12 +358,12 @@ export default function CertificadoMaterialesTab({
         periodo_desde: formatearFecha(periodoDesde),
         periodo_hasta: formatearFecha(periodoHasta),
         cliente: contratoActual?.cliente || contratoActual?.Cliente || 'Cliente',
-        fee_materiales: Number(feeDelContrato), // 🔑 FIX: viene del contrato
+        fee_materiales: Number(feeDelContrato),
         detalle_filas: facturasSeleccionadas,
         facturas_usadas: facturasUsadas,
         total_sin_iva: totalGeneralSinIva,
         total_con_factor: totalGeneralConFactor,
-        total_general: totalGeneralMonto,
+        total_general: totalGeneralMonto, // 🔑 FIX: sin IVA = total_con_factor
         responsable_proveedor: respProveedor,
         responsable_cliente: respCliente,
         pdf_url: '' // 🔑 Sin PDF por ahora (Fase 3)
@@ -556,7 +557,7 @@ export default function CertificadoMaterialesTab({
             </option>
             {facturasDisponibles.map((f, idx) => (
               <option key={f.id || idx} value={f.id || f.nFactura}>
-                FC #{f.nFactura} ({formatearFecha(f.fecha)}) - {f.proveedor} - $ {Number(f.montoSinIva).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                FC #{f.nFactura} ({formatearFecha(f.fecha)}) - {f.proveedor} - $ {Number(f.monto_sin_iva).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
               </option>
             ))}
           </select>
@@ -572,15 +573,14 @@ export default function CertificadoMaterialesTab({
                 <th className="py-3 px-3 border-r border-slate-700">PROVEEDOR</th>
                 <th className="py-3 px-3 text-right border-r border-slate-700">MONTO SIN IVA</th>
                 <th className="py-3 px-3 text-center border-r border-slate-700">FACTOR</th>
-                <th className="py-3 px-3 text-right border-r border-slate-700">MONTO CON FACTOR</th>
-                <th className="py-3 px-3 text-right border-r border-slate-700">TOTAL (C/IVA)</th>
+                <th className="py-3 px-3 text-right border-r border-slate-700">MONTO CON FACTOR (= TOTAL)</th>
                 <th className="py-3 px-3 text-center w-16">ACCIONES</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-300 bg-white">
               {facturasSeleccionadas.length === 0 ? (
                 <tr>
-                  <td colSpan="9" className="py-12 text-center text-slate-400 italic">
+                  <td colSpan="8" className="py-12 text-center text-slate-400 italic">
                     No hay facturas incorporadas en este certificado. Seleccione una arriba para comenzar.
                   </td>
                 </tr>
@@ -603,19 +603,16 @@ export default function CertificadoMaterialesTab({
                       <input
                         type="number"
                         step="0.01"
-                        value={item.montoSinIva}
-                        onChange={(e) => actualizarFila(item.id, 'montoSinIva', e.target.value)}
+                        value={item.monto_sin_iva}
+                        onChange={(e) => actualizarFila(item.id, 'monto_sin_iva', e.target.value)}
                         className="w-28 bg-slate-50 border border-slate-300 rounded px-1 py-1 text-right font-bold text-xs font-mono"
                       />
                     </td>
                     <td className="py-2.5 px-3 text-center border-r border-slate-300 font-mono font-bold text-emerald-700">
                       {Number(item.factor).toFixed(4)}
                     </td>
-                    <td className="py-2.5 px-3 text-right border-r border-slate-300 font-bold text-slate-800 font-mono">
-                      $ {Number(item.montoConFactor).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
-                    </td>
                     <td className="py-2.5 px-3 text-right border-r border-slate-300 font-black text-slate-900 font-mono">
-                      $ {Number(item.total).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                      $ {Number(item.monto_con_factor).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
                     </td>
                     <td className="py-2.5 px-3 text-center">
                       <button
@@ -642,12 +639,12 @@ export default function CertificadoMaterialesTab({
                   <td className="py-2 px-3 text-right font-mono text-slate-700">
                     $ {totalGeneralConFactor.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
                   </td>
-                  <td className="py-2 px-3 text-right font-mono text-slate-700" colSpan="2">
+                  <td className="py-2 px-3 text-right font-mono text-slate-700">
                     (con factor)
                   </td>
                 </tr>
                 <tr className="bg-slate-900 text-white font-black">
-                  <td colSpan="7" className="py-3 px-4 text-right uppercase text-xs">TOTAL GENERAL A CERTIFICAR (C/IVA):</td>
+                  <td colSpan="6" className="py-3 px-4 text-right uppercase text-xs">TOTAL GENERAL A CERTIFICAR:</td>
                   <td className="py-3 px-4 text-right text-amber-400 font-mono text-sm" colSpan="2">
                     $ {totalGeneralMonto.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
                   </td>
