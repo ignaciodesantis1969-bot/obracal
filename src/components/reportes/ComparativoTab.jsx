@@ -557,7 +557,7 @@ export default function ComparativoTab({
       {/* 🔑 ESTILOS DE IMPRESIÓN */}
       <style>{`
         @media print {
-          @page { size: A4 portrait; margin: 12mm 10mm; }
+          @page { size: A4 portrait; margin: 15mm 5mm 5mm 5mm; }
 
           body * { visibility: hidden; }
           #comparativo-printable, #comparativo-printable * { visibility: visible; }
