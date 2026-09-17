@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+// src/components/Reportes.jsx
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { OBRAS_CONFIG } from '@/config/constants';
@@ -156,54 +157,12 @@ function ReportesContent({
     return Array.from(unicosMap.values());
   }, [certificadosList, certificadosSheet]);
 
-  const [reportesLocalesExtra, setReportesLocalesExtra] = useState([]);
-  const [idsEliminadosLocales, setIdsEliminadosLocales] = useState([]);
-
-  const MAX_ENTRADAS_LOCALSTORAGE = 300;
-
-  useEffect(() => {
-    try {
-      const cached = localStorage.getItem('sice_partes_local_cache_v3');
-      if (cached) {
-        setReportesLocalesExtra(JSON.parse(cached));
-      }
-    } catch (e) {}
-
-    try {
-      const eliminados = localStorage.getItem('sice_partes_eliminados_global_v5');
-      if (eliminados) {
-        setIdsEliminadosLocales(JSON.parse(eliminados));
-      }
-    } catch (e) {}
-  }, []);
-
-  const handleAgregarReporteLocal = useCallback((updater) => {
-    setFetchedReportesSice(prev => {
-      const actualizados = typeof updater === 'function' ? updater(prev) : updater;
-      try {
-        const limitados = Array.isArray(actualizados) ? actualizados.slice(-MAX_ENTRADAS_LOCALSTORAGE) : actualizados;
-        localStorage.setItem('sice_partes_local_cache_v3', JSON.stringify(limitados));
-        setReportesLocalesExtra(limitados);
-        return limitados;
-      } catch (e) {
-        setReportesLocalesExtra(actualizados);
-      }
-      return actualizados;
-    });
-  }, [setFetchedReportesSice]);
-
-  const handleEliminadosChange = useCallback((nuevaLista) => {
-    setIdsEliminadosLocales(Array.isArray(nuevaLista) ? nuevaLista : []);
-    try {
-      queryClient.invalidateQueries({ queryKey: ['obraData', OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice'] });
-      queryClient.invalidateQueries({ queryKey: ['obraData', 'CertificacionesHoras'] });
-    } catch (e) {}
-  }, [queryClient]);
-
+  // 🔑 FIX: se eliminó la lista negra de localStorage.
+  // Ahora los partes se guardan/eliminan en Firestore y onSnapshot refresca solo.
   const allReportesSice = useMemo(() => {
     const p = extraerArrayDatos(propReportes);
     const s = extraerArrayDatos(reportesSheet);
-    const combinados = [...p, ...s, ...reportesLocalesExtra];
+    const combinados = [...p, ...s];
 
     const unicosMap = new Map();
     combinados.forEach(item => {
@@ -212,11 +171,6 @@ function ReportesContent({
       const idItem = String(item?.id || item?.ID || '').trim();
       const nroCrud = String(item?.nro || item?.Nro || '').trim();
       const nroNormalizado = nroCrud ? parseInt(nroCrud.replace(/\D/g, ''), 10).toString() : '';
-      const nroPadded = nroNormalizado ? nroNormalizado.padStart(5, '0') : '';
-
-      const estaEliminado = (idItem && idsEliminadosLocales.includes(idItem)) ||
-        (nroCrud && (idsEliminadosLocales.includes(nroCrud) || idsEliminadosLocales.includes(nroNormalizado) || idsEliminadosLocales.includes(nroPadded)));
-      if (estaEliminado) return;
 
       const key = String(item.id || item.ID || item.nro || item.Nro || Math.random());
       if (!unicosMap.has(key)) {
@@ -225,7 +179,7 @@ function ReportesContent({
     });
 
     return Array.from(unicosMap.values());
-  }, [propReportes, reportesSheet, reportesLocalesExtra, idsEliminadosLocales]);
+  }, [propReportes, reportesSheet]);
 
   const [activeTab, setActiveTab] = useState(isOp2 ? 'Reportes Diarios' : 'Certificaciones');
 
@@ -305,8 +259,7 @@ function ReportesContent({
         <ReportesDiariosTab
           contratosList={contratosList}
           allReportesSice={allReportesSice}
-          setFetchedReportesSice={handleAgregarReporteLocal}
-          onEliminadosChange={handleEliminadosChange}
+          setFetchedReportesSice={setFetchedReportesSice}
           listaEmpleadosActivos={listaEmpleadosActivos}
           esOperador={esOperadorEstandar}
           buscarValorEnObjeto={buscarValorEnObjeto}
