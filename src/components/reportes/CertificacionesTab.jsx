@@ -3,8 +3,9 @@ import toast from 'react-hot-toast';
 import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2, Loader2, Pencil, Lock } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
-import CertificadoMaterialesTab from './CertificadoMaterialesTab'; // 🔑 NUEVO
-import { crearDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+import CertificadoMaterialesTab from './CertificadoMaterialesTab';
+// 🔑 FIX: agregado actualizarDoc
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function CertificacionesTab({
   presupuestos = [],
@@ -298,6 +299,7 @@ export default function CertificacionesTab({
     adelantoMonto, adelantoPct, adicionalesMonto, redeterminacionMonto, redeterminacionPct
   ]);
 
+  // 🔑 FIX CRÍTICO: Firestore PRIMERO, PDF después. Nunca se pierde el certificado.
   const aprobarYGuardarCertificado = async (e) => {
     e.preventDefault();
 
@@ -312,70 +314,15 @@ export default function CertificacionesTab({
     }
 
     setIsSavingCert(true);
-    const toastId = toast.loading('Generando PDF en Google Drive...');
+    const toastId = toast.loading('Guardando certificado...');
 
     try {
       const idLimpio = String(certPresupuestoId).trim();
       const r = resumenFinanciero;
 
-      const payloadCert = {
-        action: 'guardarCertificado',
-        tabla: 'Certificados',
-        presupuesto_id: idLimpio,
-        presupuestoId: idLimpio,
-        certificado_nro: String(certificadoNro),
-        certificadoNro: String(certificadoNro),
-        fecha: String(certFecha),
-        cliente: certClienteNombre,
-        obra: String(certificadoPresupuestoObj?.nombre || 'Obra'),
-        orden_compra: obtenerOrdenDeCompraLocal(certificadoPresupuestoObj),
-        filas: JSON.stringify(certificadoCalculos.filasRender),
-        total_periodo: r.totalPeriodo,
-        adelanto_descuento: r.descuentoDesacopio,
-        adicionales: Number(adicionalesMonto),
-        redeterminacion: r.redeterminacion,
-        total_general: r.totalFinalLiquidacion,
-        proveedor_nombre: certRespProveedor.nombre,
-        proveedor_cargo: certRespProveedor.cargo,
-        cliente_nombre: certRespCliente.nombre,
-        cliente_cargo: certRespCliente.cargo
-      };
-
-            const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payloadCert)
-      });
-
-      // 🔑 FIX: leer como texto primero para detectar HTML vs JSON
-      const textoCrudo = await res.text();
-      const primerosChars = textoCrudo.trim().slice(0, 60);
-      console.info('[Certificaciones AO] Status:', res.status, '| Primeros chars:', primerosChars);
-
-      if (!res.ok) {
-        throw new Error(`Apps Script devolvió status ${res.status}`);
-      }
-
-      if (textoCrudo.trim().startsWith('<')) {
-        const snippet = textoCrudo.slice(0, 500);
-        console.error('[Certificaciones AO] ❌ Apps Script devolvió HTML, no JSON. Snippet:', snippet);
-        throw new Error('El servidor devolvió HTML en vez de JSON. Revisá Apps Script > Ejecuciones.');
-      }
-
-      let resultado;
-      try {
-        resultado = JSON.parse(textoCrudo);
-      } catch (parseErr) {
-        console.error('[Certificaciones AO] ❌ No se pudo parsear JSON:', parseErr, 'Texto:', textoCrudo.slice(0, 500));
-        throw new Error('Respuesta inválida del servidor (JSON malformado)');
-      }
-
-      if (!resultado || resultado.success === false) {
-        throw new Error(resultado?.error || "Error desconocido devuelto por el servidor.");
-      }
-
-      const pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
-
+      // ═══════════════════════════════════════════════════════════════════
+      // PASO 1: Guardar en Firestore PRIMERO (sin PDF todavía)
+      // ═══════════════════════════════════════════════════════════════════
       const payloadFirestore = {
         presupuesto_id: idLimpio,
         presupuestoId: idLimpio,
@@ -395,14 +342,109 @@ export default function CertificacionesTab({
         proveedor_cargo: certRespProveedor.cargo,
         cliente_nombre: certRespCliente.nombre,
         cliente_cargo: certRespCliente.cargo,
-        pdf_url: pdfUrlFinal,
-        pdfUrl: pdfUrlFinal
+        pdf_url: '',
+        pdfUrl: ''
       };
 
-      await crearDoc('certificados', payloadFirestore);
+      const docId = await crearDoc('certificados', payloadFirestore);
+      console.info('[Certificaciones AO] ✅ Doc creado en Firestore:', docId);
 
-      toast.success("¡Certificado guardado con éxito en Firestore y PDF generado en Drive!", { id: toastId });
+      // ═══════════════════════════════════════════════════════════════════
+      // PASO 2: Intentar generar el PDF (puede fallar sin romper nada)
+      // ═══════════════════════════════════════════════════════════════════
+      let pdfUrlFinal = '';
+      let pdfFallo = false;
+      let errorPdfMsg = '';
 
+      try {
+        const payloadCert = {
+          action: 'guardarCertificado',
+          tabla: 'Certificados',
+          presupuesto_id: idLimpio,
+          presupuestoId: idLimpio,
+          certificado_nro: String(certificadoNro),
+          certificadoNro: String(certificadoNro),
+          fecha: String(certFecha),
+          cliente: certClienteNombre,
+          obra: String(certificadoPresupuestoObj?.nombre || 'Obra'),
+          orden_compra: obtenerOrdenDeCompraLocal(certificadoPresupuestoObj),
+          filas: JSON.stringify(certificadoCalculos.filasRender),
+          total_periodo: r.totalPeriodo,
+          adelanto_descuento: r.descuentoDesacopio,
+          adicionales: Number(adicionalesMonto),
+          redeterminacion: r.redeterminacion,
+          total_general: r.totalFinalLiquidacion,
+          proveedor_nombre: certRespProveedor.nombre,
+          proveedor_cargo: certRespProveedor.cargo,
+          cliente_nombre: certRespCliente.nombre,
+          cliente_cargo: certRespCliente.cargo
+        };
+
+        const res = await fetch(GOOGLE_SCRIPT_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify(payloadCert)
+        });
+
+        // 🔑 FIX: leer como texto primero para detectar HTML
+        const textoCrudo = await res.text();
+        const primerosChars = textoCrudo.trim().slice(0, 60);
+        console.info('[Certificaciones AO] Status:', res.status, '| Primeros chars:', primerosChars);
+
+        if (!res.ok) {
+          throw new Error(`Apps Script devolvió status ${res.status}`);
+        }
+
+        if (textoCrudo.trim().startsWith('<')) {
+          const snippet = textoCrudo.slice(0, 500);
+          console.error('[Certificaciones AO] ❌ Apps Script devolvió HTML, no JSON. Snippet:', snippet);
+          throw new Error('El servidor devolvió HTML en vez de JSON. Revisá Apps Script > Ejecuciones.');
+        }
+
+        let resultado;
+        try {
+          resultado = JSON.parse(textoCrudo);
+        } catch (parseErr) {
+          console.error('[Certificaciones AO] ❌ No se pudo parsear JSON:', parseErr, 'Texto:', textoCrudo.slice(0, 500));
+          throw new Error('Respuesta inválida del servidor (JSON malformado)');
+        }
+
+        if (!resultado || resultado.success === false) {
+          throw new Error(resultado?.error || "Error desconocido devuelto por el servidor.");
+        }
+
+        pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
+        console.info('[Certificaciones AO] ✅ PDF generado:', pdfUrlFinal);
+
+        // ═══════════════════════════════════════════════════════════════════
+        // PASO 3: Actualizar el doc con el PDF
+        // ═══════════════════════════════════════════════════════════════════
+        if (pdfUrlFinal) {
+          await actualizarDoc('certificados', docId, {
+            pdf_url: pdfUrlFinal,
+            pdfUrl: pdfUrlFinal
+          });
+          console.info('[Certificaciones AO] ✅ Doc actualizado con PDF');
+        }
+      } catch (pdfErr) {
+        console.error('[Certificaciones AO] ⚠️ Falló generación de PDF:', pdfErr);
+        pdfFallo = true;
+        errorPdfMsg = pdfErr?.message || 'Error desconocido';
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // PASO 4: Feedback al usuario
+      // ═══════════════════════════════════════════════════════════════════
+      if (pdfFallo) {
+        toast.error(
+          `Certificado Nro ${certificadoNro} guardado en el historial, pero el PDF no se pudo generar (${errorPdfMsg}). Podés regenerarlo después.`,
+          { id: toastId, duration: 7000 }
+        );
+      } else {
+        toast.success(`¡Certificado Nro ${certificadoNro} guardado con PDF en Drive!`, { id: toastId });
+      }
+
+      // Reset del formulario
       setAvanceActualMap({});
       setAdicionalesMonto(0);
       setRedeterminacionPct(0);
@@ -410,8 +452,8 @@ export default function CertificacionesTab({
       setAjusteManualDescuento(false);
       setDescuentoManualMonto(0);
     } catch (err) {
-      console.error('[Certificaciones] Error al guardar:', err);
-      toast.error(err.message || "Error al guardar certificado.", { id: toastId });
+      console.error('[Certificaciones AO] ❌ Error crítico:', err);
+      toast.error('Error al guardar certificado: ' + (err.message || 'Desconocido'), { id: toastId, duration: 6000 });
     } finally {
       setIsSavingCert(false);
     }
@@ -923,10 +965,12 @@ export default function CertificacionesTab({
                           </td>
                           {esAdminOGerencia && (
                             <td className="px-4 py-3 text-center flex items-center justify-center gap-2">
-                              {pdfLink && (
+                              {pdfLink ? (
                                 <a href={pdfLink} target="_blank" rel="noopener noreferrer" className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] inline-flex items-center gap-1">
                                   <ExternalLink className="w-3 h-3" /> Ver PDF
                                 </a>
+                              ) : (
+                                <span className="text-[10px] text-amber-600 italic font-semibold">PDF pendiente</span>
                               )}
                               <button onClick={() => eliminarCertificadoServidor(certKeyId)} className="p-1.5 bg-rose-600 text-white rounded-lg cursor-pointer">
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -952,7 +996,6 @@ export default function CertificacionesTab({
         />
       )}
 
-      {/* 🔑 NUEVO: Certificado de Materiales (Contratos de Mantenimiento) */}
       {tipoCertificadoSubTab === 'compra_materiales' && (
         <CertificadoMaterialesTab
           contratosList={contratosList}
