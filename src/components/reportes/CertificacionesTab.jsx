@@ -341,14 +341,36 @@ export default function CertificacionesTab({
         cliente_cargo: certRespCliente.cargo
       };
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
+            const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payloadCert)
       });
-      const resultado = await res.json();
 
-      if (!resultado || (resultado.success === false && !resultado.ok && resultado.status !== 'success')) {
+      // 🔑 FIX: leer como texto primero para detectar HTML vs JSON
+      const textoCrudo = await res.text();
+      const primerosChars = textoCrudo.trim().slice(0, 60);
+      console.info('[Certificaciones AO] Status:', res.status, '| Primeros chars:', primerosChars);
+
+      if (!res.ok) {
+        throw new Error(`Apps Script devolvió status ${res.status}`);
+      }
+
+      if (textoCrudo.trim().startsWith('<')) {
+        const snippet = textoCrudo.slice(0, 500);
+        console.error('[Certificaciones AO] ❌ Apps Script devolvió HTML, no JSON. Snippet:', snippet);
+        throw new Error('El servidor devolvió HTML en vez de JSON. Revisá Apps Script > Ejecuciones.');
+      }
+
+      let resultado;
+      try {
+        resultado = JSON.parse(textoCrudo);
+      } catch (parseErr) {
+        console.error('[Certificaciones AO] ❌ No se pudo parsear JSON:', parseErr, 'Texto:', textoCrudo.slice(0, 500));
+        throw new Error('Respuesta inválida del servidor (JSON malformado)');
+      }
+
+      if (!resultado || resultado.success === false) {
         throw new Error(resultado?.error || "Error desconocido devuelto por el servidor.");
       }
 
