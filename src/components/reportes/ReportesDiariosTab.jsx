@@ -3,10 +3,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { Printer, Plus, Trash2, ShieldCheck, ExternalLink, Eye, X, Users, Calendar, Calculator } from 'lucide-react';
 import { GOOGLE_SCRIPT_URL } from '../../api';
-// 🔑 FIX: lectura directa de Firestore (en vez de useObraData)
 import { useFirestoreCollection } from '../../hooks/useFirestoreCollection';
 import { OBRAS_CONFIG } from '../../config/constants';
-// 🔑 FIX: escritura directa a Firestore
 import { crearDoc, eliminarDoc } from '../../lib/firestoreHelpers';
 
 export default function ReportesDiariosTab({
@@ -17,7 +15,6 @@ export default function ReportesDiariosTab({
   personal: propPersonal = [],
   esOperador = false,
   currentUser = null,
-  onEliminadosChange = () => {},
   buscarValorEnObjeto = (obj, keys) => {
     if (!obj) return '';
     for (const key of keys) {
@@ -26,7 +23,7 @@ export default function ReportesDiariosTab({
     return '';
   }
 }) {
-  // 🔑 FIX: lectura directa de Firestore
+  // 🔑 Lectura directa de Firestore
   const { data: contratosFs } = useFirestoreCollection('contratos');
   const { data: reportesFs } = useFirestoreCollection('reportes_diarios');
   const { data: personalFs } = useFirestoreCollection('personal');
@@ -117,7 +114,7 @@ export default function ReportesDiariosTab({
     return buscarValorEnObjeto(contratoActivoObj, ['nro_contrato_cliente', 'nroContratoCliente', 'nro_contrato', 'contratoCliente']) || '---';
   }, [contratoActivoObj, buscarValorEnObjeto]);
 
-  // 🔑 FIX: cálculo de próximo nro desde Firestore (fuente de verdad)
+  // 🔑 Cálculo de próximo nro desde Firestore (fuente de verdad)
   const calcularProximoNro = useCallback(() => {
     if (!allReportesSice || allReportesSice.length === 0) return '00001';
     const numeros = allReportesSice.map(item => {
@@ -379,7 +376,7 @@ export default function ReportesDiariosTab({
     }
   };
 
-  // 🔑 FIX: eliminar directo de Firestore (sin localStorage de eliminados)
+  // 🔑 Eliminar directo de Firestore
   const eliminarParteServidor = async (idParte, nroParte) => {
     const rolActual = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
     const esRolOperadorRestringido = esOperador || rolActual === 'operador' || rolActual === 'operador_ii' || rolActual === 'operador2';
@@ -390,7 +387,6 @@ export default function ReportesDiariosTab({
 
     if (!window.confirm("¿Está seguro de eliminar este parte diario del sistema?")) return;
 
-    // Buscar el doc por nro (para tener el id correcto)
     const nroBuscado = String(nroParte || '').replace(/\D/g, '');
     const docEncontrado = (reportesFs || []).find(item =>
       String(item.nro || '').replace(/\D/g, '') === nroBuscado
@@ -445,7 +441,7 @@ export default function ReportesDiariosTab({
     }
   };
 
-  // 🔑 FIX: el nro lo calcula el FRONTEND (no el .gs) y se guarda en Firestore
+  // 🔑 Guardar: el nro lo calcula el FRONTEND y se guarda en Firestore
   const aprobarYArchivarParteSice = async (e) => {
     e.preventDefault();
     if (!contratoSeleccionadoId) {
@@ -478,7 +474,7 @@ export default function ReportesDiariosTab({
     const nombreUsuarioGenerador = (rolActualUsuario === 'administrador' || rolActualUsuario === 'admin') ? 'Administrador' : 'Operario';
 
     try {
-      // 🔑 FIX: recalcular nro JUSTO ANTES de guardar (evita stale state)
+      // 🔑 Recalcular nro JUSTO ANTES de guardar (evita stale state)
       const nroNuevo = calcularProximoNro();
       console.info('[ReportesDiarios] Nro calculado para nuevo parte:', nroNuevo);
 
@@ -530,13 +526,13 @@ export default function ReportesDiariosTab({
         return;
       }
 
-      // 🔑 FIX: solo loguear si el .gs devolvió un nro distinto, pero NO usarlo
+      // 🔑 Solo loguear si el .gs devolvió un nro distinto
       if (resultado?.nro && String(resultado.nro) !== String(nroNuevo)) {
         console.warn('[ReportesDiarios] El .gs devolvió nro distinto:', resultado.nro, 'vs calculado:', nroNuevo, '(se ignora el del .gs)');
       }
 
       const payloadFirestore = {
-        nro: String(nroNuevo), // 🔑 FIX: el nro del frontend, no el del .gs
+        nro: String(nroNuevo),
         fecha: String(siceFecha),
         contratoid: String(contratoSeleccionadoId),
         nroContratoCliente: String(nroContratoClienteDinamico),
@@ -558,7 +554,7 @@ export default function ReportesDiariosTab({
 
       await crearDoc('reportes_diarios', payloadFirestore);
 
-      // 🔑 FIX: no-op por compatibilidad con el padre (onSnapshot refresca solo)
+      // 🔑 No-op para el padre (onSnapshot refresca solo)
       if (typeof setFetchedReportesSice === 'function') {
         setFetchedReportesSice(prev => [...(Array.isArray(prev) ? prev : []), { nro: nroNuevo }]);
       }
