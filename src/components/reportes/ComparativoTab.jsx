@@ -556,7 +556,7 @@ export default function ComparativoTab({
       {/* 🔑 ESTILOS DE IMPRESIÓN */}
       <style>{`
         @media print {
-          @page { size: A4 portrait; margin: 10mm 5mm 5mm 5mm; }
+          @page { size: A4 portrait; margin: 0; }
 
           body * { visibility: hidden; }
 
@@ -567,8 +567,10 @@ export default function ComparativoTab({
             left: 0;
             top: 0;
             width: 100%;
-            padding: 0;
+            /* 🔑 Márgenes por padding (más confiable que @page en Chrome) */
+            padding: 10mm 5mm 5mm 5mm;
             margin: 0;
+            box-sizing: border-box;
             overflow: visible !important;
             max-height: none !important;
             height: auto !important;
