@@ -4,7 +4,6 @@ import { Building2, Clock, Package, ShieldCheck, ExternalLink, Trash2, Loader2, 
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
 import CertificadoMaterialesTab from './CertificadoMaterialesTab';
-// 🔑 FIX: agregado actualizarDoc
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function CertificacionesTab({
@@ -299,9 +298,9 @@ export default function CertificacionesTab({
     adelantoMonto, adelantoPct, adicionalesMonto, redeterminacionMonto, redeterminacionPct
   ]);
 
-  // 🔑 FIX CRÍTICO: Firestore PRIMERO, PDF después. Nunca se pierde el certificado.
+  // 🔑 Firestore PRIMERO, PDF después
   const aprobarYGuardarCertificado = async (e) => {
-    e.preventDefault();
+    if (e && e.preventDefault) e.preventDefault();
 
     if (!certPresupuestoId || String(certPresupuestoId).trim() === '') {
       toast.error("Debe seleccionar un presupuesto válido antes de guardar.");
@@ -320,9 +319,7 @@ export default function CertificacionesTab({
       const idLimpio = String(certPresupuestoId).trim();
       const r = resumenFinanciero;
 
-      // ═══════════════════════════════════════════════════════════════════
-      // PASO 1: Guardar en Firestore PRIMERO (sin PDF todavía)
-      // ═══════════════════════════════════════════════════════════════════
+      // PASO 1: Guardar en Firestore PRIMERO
       const payloadFirestore = {
         presupuesto_id: idLimpio,
         presupuestoId: idLimpio,
@@ -349,9 +346,7 @@ export default function CertificacionesTab({
       const docId = await crearDoc('certificados', payloadFirestore);
       console.info('[Certificaciones AO] ✅ Doc creado en Firestore:', docId);
 
-      // ═══════════════════════════════════════════════════════════════════
-      // PASO 2: Intentar generar el PDF (puede fallar sin romper nada)
-      // ═══════════════════════════════════════════════════════════════════
+      // PASO 2: Generar PDF vía Apps Script
       let pdfUrlFinal = '';
       let pdfFallo = false;
       let errorPdfMsg = '';
@@ -386,26 +381,20 @@ export default function CertificacionesTab({
           body: JSON.stringify(payloadCert)
         });
 
-        // 🔑 FIX: leer como texto primero para detectar HTML
         const textoCrudo = await res.text();
         const primerosChars = textoCrudo.trim().slice(0, 60);
         console.info('[Certificaciones AO] Status:', res.status, '| Primeros chars:', primerosChars);
 
-        if (!res.ok) {
-          throw new Error(`Apps Script devolvió status ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Apps Script devolvió status ${res.status}`);
 
         if (textoCrudo.trim().startsWith('<')) {
-          const snippet = textoCrudo.slice(0, 500);
-          console.error('[Certificaciones AO] ❌ Apps Script devolvió HTML, no JSON. Snippet:', snippet);
-          throw new Error('El servidor devolvió HTML en vez de JSON. Revisá Apps Script > Ejecuciones.');
+          throw new Error('El servidor devolvió HTML en vez de JSON');
         }
 
         let resultado;
         try {
           resultado = JSON.parse(textoCrudo);
         } catch (parseErr) {
-          console.error('[Certificaciones AO] ❌ No se pudo parsear JSON:', parseErr, 'Texto:', textoCrudo.slice(0, 500));
           throw new Error('Respuesta inválida del servidor (JSON malformado)');
         }
 
@@ -416,9 +405,7 @@ export default function CertificacionesTab({
         pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
         console.info('[Certificaciones AO] ✅ PDF generado:', pdfUrlFinal);
 
-        // ═══════════════════════════════════════════════════════════════════
         // PASO 3: Actualizar el doc con el PDF
-        // ═══════════════════════════════════════════════════════════════════
         if (pdfUrlFinal) {
           await actualizarDoc('certificados', docId, {
             pdf_url: pdfUrlFinal,
@@ -432,19 +419,17 @@ export default function CertificacionesTab({
         errorPdfMsg = pdfErr?.message || 'Error desconocido';
       }
 
-      // ═══════════════════════════════════════════════════════════════════
-      // PASO 4: Feedback al usuario
-      // ═══════════════════════════════════════════════════════════════════
+      // PASO 4: Feedback
       if (pdfFallo) {
         toast.error(
-          `Certificado Nro ${certificadoNro} guardado en el historial, pero el PDF no se pudo generar (${errorPdfMsg}). Podés regenerarlo después.`,
+          `Certificado Nro ${certificadoNro} guardado, pero el PDF no se pudo generar (${errorPdfMsg}).`,
           { id: toastId, duration: 7000 }
         );
       } else {
         toast.success(`¡Certificado Nro ${certificadoNro} guardado con PDF en Drive!`, { id: toastId });
       }
 
-      // Reset del formulario
+      // Reset
       setAvanceActualMap({});
       setAdicionalesMonto(0);
       setRedeterminacionPct(0);
@@ -606,6 +591,7 @@ export default function CertificacionesTab({
                   <span className="text-slate-500 font-semibold block">Cliente (Razón Social):</span>
                   <input
                     type="text"
+                    autoComplete="off"
                     value={certClienteNombre}
                     onChange={(e) => setCertClienteNombre(e.target.value)}
                     placeholder="Razón social del cliente"
@@ -724,6 +710,7 @@ export default function CertificacionesTab({
                             <input
                               type="number"
                               step="any"
+                              autoComplete="off"
                               value={adelantoPct}
                               onChange={(e) => {
                                 const pct = parseFloat(e.target.value) || 0;
@@ -739,6 +726,7 @@ export default function CertificacionesTab({
                               <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
                               <input
                                 type="text"
+                                autoComplete="off"
                                 value={adelantoMonto ? Math.round(adelantoMonto).toLocaleString('es-AR') : Math.round(resumenFinanciero.presupuestoTotalVenta * (adelantoPct / 100)).toLocaleString('es-AR')}
                                 onChange={(e) => {
                                   const raw = e.target.value.replace(/\D/g, '');
@@ -783,6 +771,7 @@ export default function CertificacionesTab({
                             {ajusteManualDescuento && (
                               <input
                                 type="number"
+                                autoComplete="off"
                                 value={descuentoManualMonto}
                                 onChange={(e) => setDescuentoManualMonto(Number(e.target.value) || 0)}
                                 className="w-full bg-amber-50 border border-amber-300 rounded px-2 py-1 text-right font-bold text-rose-700 outline-none focus:border-amber-500 font-mono text-xs"
@@ -801,6 +790,7 @@ export default function CertificacionesTab({
                           <span className="font-bold text-slate-700">Adicionales Aprobados:</span>
                           <input
                             type="number"
+                            autoComplete="off"
                             value={adicionalesMonto}
                             onChange={(e) => setAdicionalesMonto(e.target.value)}
                             className="w-32 bg-slate-50 border border-slate-300 rounded px-2 py-1 text-right font-bold text-emerald-700 outline-none focus:border-amber-500 font-mono"
@@ -824,6 +814,7 @@ export default function CertificacionesTab({
                           <input
                             type="number"
                             step="any"
+                            autoComplete="off"
                             value={redeterminacionPct}
                             onChange={(e) => {
                               const pct = parseFloat(e.target.value) || 0;
@@ -839,6 +830,7 @@ export default function CertificacionesTab({
                             <span className="absolute left-2.5 text-xs font-bold text-slate-500">$</span>
                             <input
                               type="text"
+                              autoComplete="off"
                               value={redeterminacionMonto ? Math.round(redeterminacionMonto).toLocaleString('es-AR') : '0'}
                               onChange={(e) => {
                                 const raw = e.target.value.replace(/\D/g, '');
@@ -869,11 +861,11 @@ export default function CertificacionesTab({
                   <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
-                      <input type="text" value={certRespProveedor.cargo} onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" placeholder="Ingrese cargo..." />
+                      <input type="text" autoComplete="off" value={certRespProveedor.cargo} onChange={(e) => setCertRespProveedor({...certRespProveedor, cargo: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" placeholder="Ingrese cargo..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
-                      <input type="text" value={certRespProveedor.nombre} onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" placeholder="Ingrese nombre..." />
+                      <input type="text" autoComplete="off" value={certRespProveedor.nombre} onChange={(e) => setCertRespProveedor({...certRespProveedor, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" placeholder="Ingrese nombre..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
@@ -890,11 +882,11 @@ export default function CertificacionesTab({
                   <div className="p-4 space-y-4 text-xs font-bold">
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">CARGO:</span>
-                      <input type="text" value={certRespCliente.cargo} onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" placeholder="Ingrese cargo..." />
+                      <input type="text" autoComplete="off" value={certRespCliente.cargo} onChange={(e) => setCertRespCliente({...certRespCliente, cargo: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-800 uppercase font-semibold outline-none focus:border-amber-500" placeholder="Ingrese cargo..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-0.5 text-[10px] tracking-wide">NOMBRE Y APELLIDO:</span>
-                      <input type="text" value={certRespCliente.nombre} onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" placeholder="Ingrese nombre..." />
+                      <input type="text" autoComplete="off" value={certRespCliente.nombre} onChange={(e) => setCertRespCliente({...certRespCliente, nombre: e.target.value})} className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 text-slate-950 uppercase font-black outline-none focus:border-amber-500" placeholder="Ingrese nombre..." />
                     </div>
                     <div>
                       <span className="block text-slate-500 mb-1 text-[10px] tracking-wide">FIRMA:</span>
@@ -907,12 +899,14 @@ export default function CertificacionesTab({
             </div>
           )}
 
+          {/* 🔑 FIX: <div> en lugar de <form> para evitar anidamiento */}
           {certificadoPresupuestoObj && !isOp2 && (
-            <form onSubmit={aprobarYGuardarCertificado} className="border border-slate-300 rounded-xl overflow-hidden mt-6 bg-white p-4 space-y-4 shadow-sm print:hidden">
+            <div className="border border-slate-300 rounded-xl overflow-hidden mt-6 bg-white p-4 space-y-4 shadow-sm print:hidden">
               <h4 className="font-black text-xs text-slate-900 uppercase">Aprobación y Firma del Certificado</h4>
               <div className="flex justify-end pt-2">
                 <button
-                  type="submit"
+                  type="button"
+                  onClick={aprobarYGuardarCertificado}
                   disabled={isSavingCert}
                   className="px-6 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-xl text-xs transition-colors shadow-md cursor-pointer flex items-center gap-2"
                 >
@@ -920,7 +914,7 @@ export default function CertificacionesTab({
                   {isSavingCert ? 'Generando PDF y Guardando...' : 'Guardar Certificado'}
                 </button>
               </div>
-            </form>
+            </div>
           )}
 
           <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4 mt-6 print:hidden">
