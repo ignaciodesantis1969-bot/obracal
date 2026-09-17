@@ -58,7 +58,8 @@ export default function CertificadoMaterialesTab({
   const [periodoDesde, setPeriodoDesde] = useState('');
   const [periodoHasta, setPeriodoHasta] = useState('');
 
-  const [feeEditable, setFeeEditable] = useState(0);
+  // 🔑 FIX: el fee NO es editable. Se lee del contrato (read-only).
+  const [feeDelContrato, setFeeDelContrato] = useState(0);
 
   const [facturasSeleccionadas, setFacturasSeleccionadas] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -115,15 +116,15 @@ export default function CertificadoMaterialesTab({
     return { proveedorKey: String(pKey), clienteKey: String(cKey) };
   }, [contratoActual]);
 
-  // 🔑 Fee: al seleccionar contrato, cargar `fee_materiales` del doc
+  // 🔑 FIX: Fee viene del contrato, read-only en este tab
   useEffect(() => {
     if (contratoActual) {
-      const feeDelContrato = contratoActual.fee_materiales != null
+      const fee = contratoActual.fee_materiales != null
         ? Number(contratoActual.fee_materiales)
         : 49.49; // default del ejemplo
-      setFeeEditable(feeDelContrato);
+      setFeeDelContrato(fee);
     } else {
-      setFeeEditable(0);
+      setFeeDelContrato(0);
     }
   }, [contratoActual]);
 
@@ -180,7 +181,14 @@ export default function CertificadoMaterialesTab({
     return usadas;
   }, [historialCertificados]);
 
-  // 🔑 Facturas disponibles: del contrato, en rango, no certificadas
+  // 🔑 FIX: facturas ya agregadas a la tabla actual (evita re-seleccionarlas)
+  const facturasEnTablaActual = useMemo(() => {
+    const set = new Set();
+    facturasSeleccionadas.forEach(f => f.nFactura && set.add(String(f.nFactura)));
+    return set;
+  }, [facturasSeleccionadas]);
+
+  // 🔑 Facturas disponibles: del contrato, en rango, no certificadas, no en tabla
   const facturasDisponibles = useMemo(() => {
     if (!contratoActual) return [];
     if (!periodoDesde || !periodoHasta) return [];
@@ -217,14 +225,18 @@ export default function CertificadoMaterialesTab({
       if (isNaN(fFechaDate.getTime())) return false;
       if (fFechaDate < desde || fFechaDate > hasta) return false;
 
-      // Excluir ya certificadas
       const fNro = String(f?.n_factura || '').trim();
+
+      // Excluir ya certificadas en historial
       if (fNro && facturasUsadasEnHistorial.has(fNro)) return false;
+
+      // 🔑 FIX: excluir las que ya están en la tabla actual
+      if (fNro && facturasEnTablaActual.has(fNro)) return false;
 
       return true;
     }).map(f => {
       const subtotal = Number(f?.subtotal) || 0;
-      const factor = 1 + (feeEditable / 100);
+      const factor = 1 + (feeDelContrato / 100);
       const montoConFactor = subtotal * factor;
       const totalConIva = montoConFactor * 1.21;
 
@@ -249,7 +261,7 @@ export default function CertificadoMaterialesTab({
         _raw: f
       };
     });
-  }, [contratoActual, codigoSICEReal, facturasList, proveedoresList, periodoDesde, periodoHasta, feeEditable, facturasUsadasEnHistorial]);
+  }, [contratoActual, codigoSICEReal, facturasList, proveedoresList, periodoDesde, periodoHasta, feeDelContrato, facturasUsadasEnHistorial, facturasEnTablaActual]);
 
   // ─── Agregar factura a la tabla del certificado ───────────────
   const agregarFacturaFila = (factura) => {
@@ -263,6 +275,7 @@ export default function CertificadoMaterialesTab({
       montoConFactor: factura.montoConFactor,
       total: factura.total
     };
+    // 🔑 FIX: ya no tiene el bug de precedencia
     setFacturasSeleccionadas(prev => [...prev, nuevaFila]);
   };
 
@@ -295,10 +308,10 @@ export default function CertificadoMaterialesTab({
     return facturasSeleccionadas.reduce((acc, curr) => acc + (Number(curr.montoConFactor) || 0), 0);
   }, [facturasSeleccionadas]);
 
-  // 🔑 Recálculo dinámico si cambia el fee
+  // 🔑 FIX: recálculo dinámico SOLO si cambia el fee del contrato (read-only)
   useEffect(() => {
-    if (feeEditable >= 0) {
-      const factor = 1 + (feeEditable / 100);
+    if (feeDelContrato >= 0) {
+      const factor = 1 + (feeDelContrato / 100);
       setFacturasSeleccionadas(prev => prev.map(f => {
         const s = Number(f.montoSinIva) || 0;
         const mcf = s * factor;
@@ -310,7 +323,7 @@ export default function CertificadoMaterialesTab({
         };
       }));
     }
-  }, [feeEditable]);
+  }, [feeDelContrato]);
 
   // ─── Guardar certificado de materiales ────────────────────────
   const guardarCertificadoMateriales = async (e) => {
@@ -344,7 +357,7 @@ export default function CertificadoMaterialesTab({
         periodo_desde: formatearFecha(periodoDesde),
         periodo_hasta: formatearFecha(periodoHasta),
         cliente: contratoActual?.cliente || contratoActual?.Cliente || 'Cliente',
-        fee_materiales: Number(feeEditable),
+        fee_materiales: Number(feeDelContrato), // 🔑 FIX: viene del contrato
         detalle_filas: facturasSeleccionadas,
         facturas_usadas: facturasUsadas,
         total_sin_iva: totalGeneralSinIva,
@@ -387,7 +400,9 @@ export default function CertificadoMaterialesTab({
       console.error(err);
       toast.error('Error al eliminar: ' + (err.message || ''), { id: toastId });
     }
-  };  // ═══════════════════════════════════════════════════════════════
+  };
+
+  // ═══════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════
   return (
@@ -499,22 +514,20 @@ export default function CertificadoMaterialesTab({
             <span className="text-[10px] text-slate-500 font-mono">{formatearFecha(periodoHasta)}</span>
           </div>
 
+          {/* 🔑 FIX: Fee read-only (viene del contrato) */}
           <div className="flex items-center gap-2 ml-auto">
             <label className="text-xs font-black text-slate-800 flex items-center gap-1">
               <DollarSign className="w-4 h-4 text-emerald-600" /> FEE MATERIALES:
             </label>
-            <div className="flex items-center gap-1">
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                value={feeEditable}
-                onChange={(e) => setFeeEditable(Number(e.target.value) || 0)}
-                className="w-20 bg-white border border-emerald-300 rounded px-2 py-1 text-xs font-black text-emerald-700 text-right outline-none focus:border-emerald-500"
-              />
+            <div className="flex items-center gap-1 bg-emerald-50 border border-emerald-300 rounded px-3 py-1">
+              <span className="text-sm font-black text-emerald-700 font-mono">
+                {Number(feeDelContrato).toFixed(2)}
+              </span>
               <span className="text-xs font-bold text-emerald-700">%</span>
             </div>
-            <span className="text-[10px] text-slate-400 italic ml-1">(editable)</span>
+            <span className="text-[10px] text-slate-400 italic ml-1">
+              {contratoIdSeleccionado ? '(definido en el contrato)' : '(seleccione un contrato)'}
+            </span>
           </div>
         </div>
 
