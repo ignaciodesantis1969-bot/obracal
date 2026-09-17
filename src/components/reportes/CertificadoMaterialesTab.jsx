@@ -4,14 +4,12 @@ import toast from 'react-hot-toast';
 import { Package, Trash2, ShieldCheck, Loader2, FileText, ExternalLink, DollarSign, Calendar } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
-// 🔑 NUEVO: import para llamar al Apps Script
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
 export default function CertificadoMaterialesTab({
   contratosList: propContratos = [],
   currentUser
 }) {
-  // 🔑 Lectura directa de Firestore
   const { data: contratosFs } = useFirestoreCollection('contratos');
   const { data: facturasFs } = useFirestoreCollection('facturas_compras');
   const { data: proveedoresFs } = useFirestoreCollection('proveedores');
@@ -53,14 +51,12 @@ export default function CertificadoMaterialesTab({
     return raw.filter(c => c && typeof c === 'object' && Object.keys(c).length > 2);
   }, [certificacionesMatRealizadas]);
 
-  // ─── Estado del formulario ────────────────────────────────────
   const [contratoIdSeleccionado, setContratoIdSeleccionado] = useState('');
   const [certificadoNro, setCertificadoNro] = useState('');
   const [fechaEmision, setFechaEmision] = useState(new Date().toISOString().slice(0, 10));
   const [periodoDesde, setPeriodoDesde] = useState('');
   const [periodoHasta, setPeriodoHasta] = useState('');
 
-  // 🔑 El fee NO es editable. Se lee del contrato (read-only).
   const [feeDelContrato, setFeeDelContrato] = useState(0);
 
   const [facturasSeleccionadas, setFacturasSeleccionadas] = useState([]);
@@ -69,7 +65,6 @@ export default function CertificadoMaterialesTab({
   const [respProveedor, setRespProveedor] = useState({ cargo: '', nombre: '', firma: '' });
   const [respCliente, setRespCliente] = useState({ cargo: '', nombre: '', firma: '' });
 
-  // ─── Helpers ──────────────────────────────────────────────────
   const formatearFecha = (fechaISO) => {
     if (!fechaISO) return '';
     const str = String(fechaISO).trim();
@@ -88,7 +83,6 @@ export default function CertificadoMaterialesTab({
     return str;
   };
 
-  // ─── Contrato activo ──────────────────────────────────────────
   const contratoActual = useMemo(() => {
     if (!contratoIdSeleccionado) return null;
     return contratosList.find(c => {
@@ -118,7 +112,6 @@ export default function CertificadoMaterialesTab({
     return { proveedorKey: String(pKey), clienteKey: String(cKey) };
   }, [contratoActual]);
 
-  // 🔑 Fee viene del contrato, read-only
   useEffect(() => {
     if (contratoActual) {
       const fee = contratoActual.fee_materiales != null
@@ -130,7 +123,6 @@ export default function CertificadoMaterialesTab({
     }
   }, [contratoActual]);
 
-  // ─── Numeración correlativa ───────────────────────────────────
   useEffect(() => {
     if (contratoActual) {
       const idContratoStr = String(contratoActual.id || '').trim();
@@ -162,7 +154,6 @@ export default function CertificadoMaterialesTab({
     }
   }, [contratoActual, historialCertificados, codigoSICEReal]);
 
-  // 🔑 Facturas ya certificadas
   const facturasUsadasEnHistorial = useMemo(() => {
     const usadas = new Set();
     historialCertificados.forEach(cert => {
@@ -183,14 +174,12 @@ export default function CertificadoMaterialesTab({
     return usadas;
   }, [historialCertificados]);
 
-  // 🔑 Facturas en tabla actual
   const facturasEnTablaActual = useMemo(() => {
     const set = new Set();
     facturasSeleccionadas.forEach(f => f.nFactura && set.add(String(f.nFactura)));
     return set;
   }, [facturasSeleccionadas]);
 
-  // 🔑 Facturas disponibles
   const facturasDisponibles = useMemo(() => {
     if (!contratoActual) return [];
     if (!periodoDesde || !periodoHasta) return [];
@@ -316,9 +305,6 @@ export default function CertificadoMaterialesTab({
     }
   }, [feeDelContrato]);
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // GUARDAR: Firestore PRIMERO → PDF después → update doc
-  // ═══════════════════════════════════════════════════════════════════════
   const guardarCertificadoMateriales = async (e) => {
     e.preventDefault();
     if (!contratoActual) return toast.error("Seleccione un contrato válido.");
@@ -339,9 +325,6 @@ export default function CertificadoMaterialesTab({
     const toastId = toast.loading('Guardando certificado de materiales...');
 
     try {
-      // ═══════════════════════════════════════════════════════════════════
-      // PASO 1: Guardar en Firestore PRIMERO (sin PDF todavía)
-      // ═══════════════════════════════════════════════════════════════════
       const facturasUsadas = Array.from(new Set(facturasSeleccionadas.map(f => String(f.nFactura))));
 
       const facturasLimpias = facturasSeleccionadas.map(f => {
@@ -372,9 +355,6 @@ export default function CertificadoMaterialesTab({
       const docId = await crearDoc('certificaciones_materiales', payloadFirestore);
       console.info('[CertificadoMateriales] ✅ Doc creado en Firestore:', docId);
 
-      // ═══════════════════════════════════════════════════════════════════
-      // PASO 2: Generar PDF vía Apps Script
-      // ═══════════════════════════════════════════════════════════════════
       let pdfUrlFinal = '';
       let pdfFallo = false;
       let errorPdfMsg = '';
@@ -420,9 +400,6 @@ export default function CertificadoMaterialesTab({
         pdfUrlFinal = resultado?.pdf_url || resultado?.pdfUrl || resultado?.url || '';
         console.info('[CertificadoMateriales] ✅ PDF generado:', pdfUrlFinal);
 
-        // ═══════════════════════════════════════════════════════════════════
-        // PASO 3: Actualizar el doc con el PDF
-        // ═══════════════════════════════════════════════════════════════════
         if (pdfUrlFinal) {
           await actualizarDoc('certificaciones_materiales', docId, {
             pdf_url: pdfUrlFinal
@@ -435,9 +412,6 @@ export default function CertificadoMaterialesTab({
         errorPdfMsg = pdfErr?.message || 'Error desconocido';
       }
 
-      // ═══════════════════════════════════════════════════════════════════
-      // PASO 4: Feedback
-      // ═══════════════════════════════════════════════════════════════════
       if (pdfFallo) {
         toast.error(
           `Certificado Nro ${certificadoNro} guardado, pero el PDF no se pudo generar (${errorPdfMsg}).`,
@@ -475,12 +449,8 @@ export default function CertificadoMaterialesTab({
     }
   };
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════════════════
   return (
     <div className="space-y-8">
-      {/* FORMULARIO PRINCIPAL */}
       <div className="bg-white p-6 sm:p-8 rounded-2xl border-2 border-slate-800 space-y-6 text-slate-900 shadow-sm">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-end border-b-2 border-slate-800 pb-4 gap-4">
           <div>
@@ -674,6 +644,7 @@ export default function CertificadoMaterialesTab({
                       <input
                         type="number"
                         step="0.01"
+                        autoComplete="off"
                         value={item.monto_sin_iva}
                         onChange={(e) => actualizarFila(item.id, 'monto_sin_iva', e.target.value)}
                         className="w-28 bg-slate-50 border border-slate-300 rounded px-1 py-1 text-right font-bold text-xs font-mono"
@@ -725,96 +696,104 @@ export default function CertificadoMaterialesTab({
           </table>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
-          <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
-            <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
-              RESPONSABLE PROVEEDOR
+        {/* 🔑 FIX: un único <form> que envuelve firmas + botón */}
+        <form onSubmit={guardarCertificadoMateriales} className="space-y-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
+              <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
+                RESPONSABLE PROVEEDOR
+              </div>
+              <div className="p-4 space-y-3 text-xs font-bold">
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={respProveedor.cargo}
+                    onChange={(e) => setRespProveedor({...respProveedor, cargo: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800"
+                  />
+                </div>
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={respProveedor.nombre}
+                    onChange={(e) => setRespProveedor({...respProveedor, nombre: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black"
+                  />
+                </div>
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
+                  <input
+                    type="password"
+                    maxLength={6}
+                    autoComplete="new-password"
+                    value={respProveedor.firma}
+                    onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value.toUpperCase()})}
+                    placeholder="••••••"
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]"
+                  />
+                </div>
+              </div>
             </div>
-            <div className="p-4 space-y-3 text-xs font-bold">
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
-                <input
-                  type="text"
-                  value={respProveedor.cargo}
-                  onChange={(e) => setRespProveedor({...respProveedor, cargo: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800"
-                />
+
+            <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
+              <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
+                RESPONSABLE CLIENTE
               </div>
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
-                <input
-                  type="text"
-                  value={respProveedor.nombre}
-                  onChange={(e) => setRespProveedor({...respProveedor, nombre: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black"
-                />
-              </div>
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
-                <input
-                  type="password"
-                  maxLength={6}
-                  value={respProveedor.firma}
-                  onChange={(e) => setRespProveedor({...respProveedor, firma: e.target.value.toUpperCase()})}
-                  placeholder="••••••"
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]"
-                />
+              <div className="p-4 space-y-3 text-xs font-bold">
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={respCliente.cargo}
+                    onChange={(e) => setRespCliente({...respCliente, cargo: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800"
+                  />
+                </div>
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    value={respCliente.nombre}
+                    onChange={(e) => setRespCliente({...respCliente, nombre: e.target.value})}
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black"
+                  />
+                </div>
+                <div>
+                  <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
+                  <input
+                    type="password"
+                    maxLength={6}
+                    autoComplete="new-password"
+                    value={respCliente.firma}
+                    onChange={(e) => setRespCliente({...respCliente, firma: e.target.value.toUpperCase()})}
+                    placeholder="••••••"
+                    className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          <div className="border border-slate-400 rounded-xl overflow-hidden bg-white">
-            <div className="bg-slate-200 border-b border-slate-400 px-4 py-2 font-black text-slate-800 text-xs uppercase tracking-wider">
-              RESPONSABLE CLIENTE
-            </div>
-            <div className="p-4 space-y-3 text-xs font-bold">
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">CARGO:</span>
-                <input
-                  type="text"
-                  value={respCliente.cargo}
-                  onChange={(e) => setRespCliente({...respCliente, cargo: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-800"
-                />
-              </div>
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">NOMBRE Y APELLIDO:</span>
-                <input
-                  type="text"
-                  value={respCliente.nombre}
-                  onChange={(e) => setRespCliente({...respCliente, nombre: e.target.value})}
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 uppercase text-slate-950 font-black"
-                />
-              </div>
-              <div>
-                <span className="block text-slate-500 mb-1 text-[10px]">FIRMA (Clave de 6 caracteres):</span>
-                <input
-                  type="password"
-                  maxLength={6}
-                  value={respCliente.firma}
-                  onChange={(e) => setRespCliente({...respCliente, firma: e.target.value.toUpperCase()})}
-                  placeholder="••••••"
-                  className="w-full bg-slate-50 border border-slate-300 rounded px-2 py-1 font-mono uppercase text-emerald-700 font-bold tracking-[0.3em]"
-                />
-              </div>
-            </div>
+          <div className="flex flex-col sm:flex-row justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-300 gap-4">
+            <span className="text-xs text-slate-500 font-medium">
+              Ingrese sus claves para firmar y validar el certificado de materiales.
+            </span>
+            <button
+              type="submit"
+              disabled={isSaving}
+              className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-500/50 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-colors shadow-md cursor-pointer text-sm"
+            >
+              {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
+              {isSaving ? 'Guardando Certificado...' : 'Aprobar, Firmar y Guardar Certificado'}
+            </button>
           </div>
-        </div>
-
-        <div className="flex flex-col sm:flex-row justify-between items-center bg-slate-50 p-4 rounded-xl border border-slate-300 gap-4">
-          <span className="text-xs text-slate-500 font-medium">
-            Ingrese sus claves para firmar y validar el certificado de materiales.
-          </span>
-          <button
-            type="button"
-            onClick={guardarCertificadoMateriales}
-            disabled={isSaving}
-            className="flex items-center gap-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-500/50 text-slate-950 font-bold px-4 py-2.5 rounded-xl transition-colors shadow-md cursor-pointer text-sm"
-          >
-            {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <ShieldCheck className="w-4 h-4" />}
-            {isSaving ? 'Guardando Certificado...' : 'Aprobar, Firmar y Guardar Certificado'}
-          </button>
-        </div>
+        </form>
       </div>
 
       {/* HISTORIAL */}
