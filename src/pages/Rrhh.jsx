@@ -1,6 +1,6 @@
 // src/pages/Rrhh.jsx
 import React, { useState } from 'react';
-import { Users, Plus, Search, Trash2, Edit2, X, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2, Send } from 'lucide-react';
+import { Users, Plus, Search, Trash2, Edit2, X, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2, Send, AlertCircle } from 'lucide-react';
 // 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc, eliminarDocsFiltrados } from '@/lib/firestoreHelpers';
@@ -80,6 +80,8 @@ export default function Rrhh() {
   const [porcentajeCargas, setPorcentajeCargas] = useState(76.00);
   const [cuadrillaItems, setCuadrillaItems] = useState([]);
   const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 0 });
+  // 🔑 NUEVO: detectar si la cuadrilla editada no tiene composición guardada
+  const [cuadrillaSinComposicion, setCuadrillaSinComposicion] = useState(false);
 
   const [editingCargaId, setEditingCargaId] = useState(null);
   const [tipoProyectoCarga, setTipoProyectoCarga] = useState('obra');
@@ -177,15 +179,12 @@ export default function Rrhh() {
   }, [tipoProyectoCarga, presupuestoSeleccionadoCarga, safePresupuestos, safeRubros]);
 
   // 🔑 FIX: sincroniza personal ↔ detalle de carga.
-  // - Actualiza el `costoDiario` de los que ya están en el detalle.
-  // - AGREGA los personales nuevos que todavía no estaban (esto era lo que fallaba).
   React.useEffect(() => {
     if (safePersonal.length > 0) {
       const procesados = procesarPersonalInicial(safePersonal);
       setPersonalSalarios(procesados);
 
       setDetalleCargaPersonal(prev => {
-        // Si es la primera vez, armar todo desde cero
         if (prev.length === 0) {
           return procesados.map(p => ({
             id: p.id || p.ID || Math.random(),
@@ -200,13 +199,11 @@ export default function Rrhh() {
           }));
         }
 
-        // 1) Actualizar los existentes (por si cambió el costo diario)
         const actualizados = prev.map(item => {
           const match = procesados.find(p => String(p.id || p.ID) === String(item.id || item.empleado_id));
           return match ? { ...item, costoDiario: Number(match.costo_en_mano || 0) } : item;
         });
 
-        // 2) Detectar los nuevos que NO están en `prev` y agregarlos
         const idsExistentes = new Set(actualizados.map(i => String(i.id || i.empleado_id)));
         const nuevos = procesados
           .filter(p => !idsExistentes.has(String(p.id || p.ID)))
@@ -222,7 +219,6 @@ export default function Rrhh() {
             incluirCargas: true
           }));
 
-        // 3) Combinar
         return [...actualizados, ...nuevos];
       });
     }
@@ -248,7 +244,6 @@ export default function Rrhh() {
     estado: 'activo'
   });
 
-  // 🔑 NUEVO: helper para subir base64 a Drive vía Apps Script
   const subirArchivoADrive = async (base64, tabla, subseccion = '') => {
     if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
     try {
@@ -293,7 +288,6 @@ export default function Rrhh() {
     setIsModalOpen(true);
   };
 
-  // 🔑 FIX: guardar personal directo a Firestore
   const handleGuardarPersonal = async (e) => {
     e.preventDefault();
     try {
@@ -312,13 +306,11 @@ export default function Rrhh() {
     }
   };
 
-  // 🔑 FIX: eliminar personal directo a Firestore + sacarlo del detalle de carga
   const handleEliminarPersonal = async (id) => {
     if (!id || !window.confirm("¿Estás seguro de eliminar este registro?")) return;
     try {
       await eliminarDoc('personal', id);
 
-      // 🔑 NUEVO: sacarlo también del detalle de carga
       setDetalleCargaPersonal(prev => prev.filter(item =>
         String(item.id || item.empleado_id) !== String(id)
       ));
@@ -328,7 +320,6 @@ export default function Rrhh() {
     }
   };
 
-  // 🔑 FIX: actualizar una celda de la fila → actualizarDoc en Firestore
   const handleActualizarPersonalFila = async (id, campo, valor) => {
     setPersonalSalarios(prev => prev.map(p => {
       const pId = p.id || p.ID;
@@ -345,7 +336,6 @@ export default function Rrhh() {
     }
   };
 
-  // 🔑 FIX: paritaria masiva → actualizarDoc en loop por cada persona
   const handleAplicarParitariaMasiva = async () => {
     const mult = Number(multiplicadorParitaria);
     if (!mult || mult <= 0) {
@@ -413,6 +403,16 @@ export default function Rrhh() {
       return;
     }
 
+    // 🔑 NUEVO: si no tiene operarios, avisar y confirmar
+    if (cuadrillaItems.length === 0) {
+      const ok = window.confirm(
+        "⚠️ La cuadrilla no tiene operarios cargados.\n\n" +
+        "Si guardás así, la cuadrilla va a tener costo $0.\n\n" +
+        "¿Querés continuar igual?"
+      );
+      if (!ok) return;
+    }
+
     try {
       const payloadInsumo = {
         nombre_del_articulo: nombreCuadrilla,
@@ -442,21 +442,34 @@ export default function Rrhh() {
     }
   };
 
+  // 🔑 FIX: reconstruir composición si el insumo viejo no tiene items
   const handleEditarCuadrilla = (cuadrillaIns) => {
     const cId = cuadrillaIns.id || cuadrillaIns.ID;
     const cNombre = cuadrillaIns.nombre_del_articulo || cuadrillaIns.nombre || '';
     setCuadrillaIdEditando(cId);
     setNombreCuadrilla(cNombre);
 
+    let tieneComposicion = false;
+
     try {
       const descParsed = JSON.parse(cuadrillaIns.descripcion || '{}');
       if (descParsed.porcentajeCargas !== undefined) setPorcentajeCargas(descParsed.porcentajeCargas);
-      if (Array.isArray(descParsed.items)) setCuadrillaItems(descParsed.items);
+      if (Array.isArray(descParsed.items) && descParsed.items.length > 0) {
+        setCuadrillaItems(descParsed.items);
+        tieneComposicion = true;
+      } else {
+        // 🔑 La cuadrilla vieja NO tiene composición → dejar vacío + avisar
+        setCuadrillaItems([]);
+        tieneComposicion = false;
+      }
       if (descParsed.viaticos) setViaticosCuadrilla(descParsed.viaticos);
     } catch {
-      // Si la descripción es texto plano
+      // Si la descripción es texto plano (formato viejo)
+      setCuadrillaItems([]);
+      tieneComposicion = false;
     }
 
+    setCuadrillaSinComposicion(!tieneComposicion);
     setVistaCuadrilla('editor');
   };
 
@@ -466,10 +479,10 @@ export default function Rrhh() {
     setPorcentajeCargas(76.00);
     setCuadrillaItems([]);
     setViaticosCuadrilla({ cantidad: 1, costo: 0 });
+    setCuadrillaSinComposicion(false); // 🔑 NUEVO: es nueva, no marcar como "sin composición"
     setVistaCuadrilla('editor');
   };
 
-  // 🔑 FIX: eliminar cuadrilla directo a Firestore
   const handleEliminarCuadrilla = async (cId) => {
     if (!cId || !window.confirm("¿Estás seguro de eliminar esta cuadrilla del maestro de insumos?")) return;
     try {
@@ -480,7 +493,6 @@ export default function Rrhh() {
     }
   };
 
-  // 🔑 FIX: subir documento → subir a Drive primero, luego crearDoc en `legajos`
   const handleSubirDocumentoFijo = async (docTitulo, file) => {
     if (!file) return;
     if (!legajoEmpleadoSeleccionado) {
@@ -515,7 +527,6 @@ export default function Rrhh() {
     reader.readAsDataURL(file);
   };
 
-  // 🔑 FIX: subir foto → Drive con subseccion 'foto_perfil', luego crearDoc
   const handleSubirFotoTrabajador = async (file) => {
     if (!file) return;
     if (!legajoEmpleadoSeleccionado) {
@@ -563,7 +574,6 @@ export default function Rrhh() {
     reader.readAsDataURL(file);
   };
 
-  // 🔑 FIX: subir legajo libre → Drive + crearDoc
   const handleSubirLegajoLibre = async (e) => {
     e.preventDefault();
     if (!legajoEmpleadoSeleccionado) {
@@ -603,7 +613,6 @@ export default function Rrhh() {
     }
   };
 
-  // 🔑 FIX: eliminar legajo directo a Firestore
   const handleEliminarLegajo = async (id) => {
     if (!id || !window.confirm("¿Estás seguro de eliminar este documento del legajo?")) return;
     try {
@@ -675,7 +684,6 @@ export default function Rrhh() {
     return true;
   };
 
-  // 🔑 FIX: guardar carga salarial directo a Firestore (`cargas_semanales`)
   const handleGuardarCargaSalarial = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -714,7 +722,6 @@ export default function Rrhh() {
         fecha_volcado: cargaOriginal?.fecha_volcado || ''
       };
 
-      // 🔑 FIX: limpiar campos internos antes de guardar
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadCargaHistorial;
 
       if (editingCargaId) {
@@ -739,7 +746,6 @@ export default function Rrhh() {
     }
   };
 
-  // 🔑 FIX: registrar cargas sociales directo a Firestore
   const handleRegistrarCargasSociales = async () => {
     if (!validarDistribucionRubros()) return;
 
@@ -785,8 +791,6 @@ export default function Rrhh() {
     }
   };
 
-  // 🔑 FIX: volcado a Tesorería DIRECTO a Firestore (Opción A)
-  // Usa eliminarDocsFiltrados con la firma (coleccion, filtroFn) que ya existe en el helper.
   const handleVolcarCargaATesoreria = async (carga) => {
     const cargaId = carga.id || carga.ID;
     if (!cargaId) {
@@ -819,10 +823,8 @@ export default function Rrhh() {
 
     setVolcandoCargaId(cargaId);
     try {
-      // PASO 1: si es re-volcado, borrar los egresos anteriores vinculados a esta carga
       if (esReVolcado) {
         try {
-          // 🔑 FIX: usar la firma correcta (coleccion, filtroFn)
           await eliminarDocsFiltrados('tesoreria', (docData) =>
             String(docData.carga_id || '').trim() === String(cargaId).trim()
           );
@@ -833,7 +835,6 @@ export default function Rrhh() {
         }
       }
 
-      // PASO 2: crear los nuevos movimientos en Tesorería
       const esCargasSociales = String(carga.tipo_registro || '').toLowerCase().indexOf('social') !== -1;
       const estadoTesoreria = esCargasSociales ? 'Pendiente' : 'Pagado';
       const proveedorTesoreria = esCargasSociales ? 'AFIP / Cargas Sociales' : 'Personal / Sueldos';
@@ -876,7 +877,6 @@ export default function Rrhh() {
         creados++;
       }
 
-      // PASO 3: marcar la carga como volcada
       const { _creadoEn, _actualizadoEn, id, ...resto } = carga;
       await actualizarDoc('cargas_semanales', cargaId, {
         ...resto,
@@ -920,8 +920,6 @@ export default function Rrhh() {
     setActiveTab('carga');
   };
 
-  // 🔑 FIX: al eliminar una carga volcada, también borrar sus egresos en Tesorería
-  // Usa la firma correcta (coleccion, filtroFn).
   const handleEliminarCargaHistorial = async (cId) => {
     const carga = cargasHorasLista.find(c => String(c.id || c.ID) === String(cId));
     const estaVolcada = String(carga?.estado_volcado || '').toLowerCase() === 'volcado';
@@ -954,7 +952,9 @@ export default function Rrhh() {
   });
 
   const personalActivo = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'activo');
-  const personalDeBaja = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'baja');  return (
+  const personalDeBaja = personalFiltrado.filter(p => String(p.estado || '').toLowerCase() === 'baja');
+
+  return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -1622,6 +1622,24 @@ export default function Rrhh() {
                   {cuadrillaIdEditando ? 'Actualizar Cuadrilla e Insumo' : 'Guardar y Crear Insumo'}
                 </button>
               </div>
+
+              {/* 🔑 NUEVO: banner si la cuadrilla no tiene composición */}
+              {cuadrillaSinComposicion && (
+                <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
+                  <div className="bg-amber-100 p-2 rounded-lg shrink-0">
+                    <AlertCircle className="w-5 h-5 text-amber-700" />
+                  </div>
+                  <div className="flex-1">
+                    <h4 className="text-xs font-black text-amber-900 uppercase mb-1">
+                      Esta cuadrilla no tiene composición guardada
+                    </h4>
+                    <p className="text-xs text-amber-800 leading-relaxed">
+                      Es una cuadrilla creada antes del refactor, así que no tiene el detalle de operarios.
+                      Para arreglarla, agregá los operarios desde la lista <strong>"Personal Disponible"</strong> que está más abajo.
+                    </p>
+                  </div>
+                </div>
+              )}
 
               <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div className="w-full max-w-md">
