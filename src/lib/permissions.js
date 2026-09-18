@@ -16,6 +16,7 @@ export const MODULOS = [
 
 // Matriz de permisos por rol
 const ROLES_PERMISOS = {
+  // 🔑 Admin — acceso total
   admin: [
     'dashboard', 'clientes', 'obras', 'insumos', 'presupuestos', 'planificacion',
     'contratos_mantenimiento', 'proveedores', 'compras', 'tesoreria', 'usuarios', 'reportes'
@@ -24,25 +25,54 @@ const ROLES_PERMISOS = {
     'dashboard', 'clientes', 'obras', 'insumos', 'presupuestos', 'planificacion',
     'contratos_mantenimiento', 'proveedores', 'compras', 'tesoreria', 'usuarios', 'reportes'
   ],
+
+  // 🔑 Gestor — sin usuarios/tesorería
   gestor: [
     'dashboard', 'clientes', 'obras', 'insumos', 'presupuestos', 'planificacion',
     'contratos_mantenimiento', 'proveedores', 'compras', 'reportes'
   ],
+
+  // 🔑 NUEVO: Finanzas — financiero/administrativo
+  finanzas: [
+    'dashboard', 'planificacion', 'clientes', 'proveedores', 'presupuestos',
+    'compras', 'tesoreria', 'contratos_mantenimiento', 'reportes'
+  ],
+
+  // 🔑 NUEVO: Jefe de Obra — operativo/técnico
+  jefe_obra: [
+    'dashboard', 'planificacion', 'obras', 'insumos', 'presupuestos',
+    'contratos_mantenimiento', 'reportes'
+  ],
+
+  // Operador estándar — módulos mínimos
   operador: [
     'dashboard', 'obras', 'insumos', 'compras'
+  ],
+
+  // 🔑 NUEVO: Operador II — solo reportes
+  // (en la práctica tiene sus propias rutas en App.jsx, pero por consistencia)
+  operador_ii: [
+    'reportes'
   ]
 };
 
 /**
  * Valida si el usuario tiene permiso para ver un módulo.
+ *
+ * @param {Object} user - Objeto del usuario (con .role o .rol)
+ * @param {String} moduloId - ID del módulo a verificar (ej: 'planificacion')
+ * @returns {Boolean}
  */
 export function tienePermiso(user, moduloId) {
   if (!user) return false;
-  
-  const rolUsuario = String(user.role || user.rol || '').trim().toLowerCase();
-  
+
+  const rolUsuario = String(user.role || user.rol || '')
+    .trim()
+    .toLowerCase()
+    .replace(/-/g, '_');
+
   if (rolUsuario === 'admin' || rolUsuario === 'administrador') return true;
-  
+
   const modulosPermitidos = ROLES_PERMISOS[rolUsuario] || [];
   return modulosPermitidos.includes(moduloId);
 }
