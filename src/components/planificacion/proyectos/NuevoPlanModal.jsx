@@ -3,7 +3,7 @@ import toast from 'react-hot-toast';
 import { FolderKanban, Calendar, Palette, Loader2, CheckCircle2 } from 'lucide-react';
 import Modal from '../shared/Modal';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
-import { crearDoc } from '@/lib/firestoreHelpers';
+import { crearDoc, actualizarDoc } from '@/lib/firestoreHelpers';
 import {
   COLORES_PLAN,
   ESTADOS_PLAN,
@@ -12,11 +12,15 @@ import {
   getFeriadosDelAnio
 } from '@/lib/planificacionHelpers';
 
-export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
+export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId = null }) {
+  // 🔑 planId param: null = crear, valor = editar
+  const esModoEdicion = !!planId;
+
   const { data: presupuestosFs } = useFirestoreCollection('presupuestos');
   const { data: insumosFs } = useFirestoreCollection('insumos');
   const { data: clientesFs } = useFirestoreCollection('clientes');
   const { data: feriadosFs } = useFirestoreCollection('feriados');
+  const { data: planesFs } = useFirestoreCollection('planificacion_planes');
 
   const presupuestos = useMemo(
     () => (Array.isArray(presupuestosFs) ? presupuestosFs : []),
@@ -34,6 +38,10 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
     () => (Array.isArray(feriadosFs) ? feriadosFs : []),
     [feriadosFs]
   );
+  const planes = useMemo(
+    () => (Array.isArray(planesFs) ? planesFs : []),
+    [planesFs]
+  );
 
   const [formData, setFormData] = useState({
     presupuesto_id: '',
@@ -46,20 +54,38 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
 
   const [isSaving, setIsSaving] = useState(false);
 
-  // Resetear al abrir
+  // 🔑 Resetear o cargar datos del plan al abrir
   useEffect(() => {
-    if (isOpen) {
-      setFormData({
-        presupuesto_id: '',
-        nombre: '',
-        descripcion: '',
-        fecha_inicio: new Date().toISOString().slice(0, 10),
-        color: COLORES_PLAN[0].hex,
-        estado: 'activo'
-      });
-      setIsSaving(false);
+    if (!isOpen) return;
+
+    // MODO EDICIÓN: buscar el plan existente y precargar
+    if (esModoEdicion && planId) {
+      const planExistente = planes.find(p => p.id === planId);
+      if (planExistente) {
+        setFormData({
+          presupuesto_id: String(planExistente.presupuesto_id || ''),
+          nombre: planExistente.nombre || '',
+          descripcion: planExistente.descripcion || '',
+          fecha_inicio: planExistente.fecha_inicio || new Date().toISOString().slice(0, 10),
+          color: planExistente.color || COLORES_PLAN[0].hex,
+          estado: planExistente.estado || 'activo'
+        });
+        setIsSaving(false);
+        return;
+      }
     }
-  }, [isOpen]);
+
+    // MODO CREACIÓN: resetear a defaults
+    setFormData({
+      presupuesto_id: '',
+      nombre: '',
+      descripcion: '',
+      fecha_inicio: new Date().toISOString().slice(0, 10),
+      color: COLORES_PLAN[0].hex,
+      estado: 'activo'
+    });
+    setIsSaving(false);
+  }, [isOpen, esModoEdicion, planId, planes]);
 
   // Presupuesto seleccionado
   const presupuestoActual = useMemo(() => {
@@ -70,7 +96,7 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
     });
   }, [presupuestos, formData.presupuesto_id]);
 
-  // Cliente resuelto a partir del código del presupuesto (CL002-OB001-PR001 → CL002)
+  // Cliente resuelto a partir del código del presupuesto
   const clienteNombre = useMemo(() => {
     if (!presupuestoActual) return '';
     const codigo = String(presupuestoActual.codigo || '').trim();
@@ -83,32 +109,37 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
     return cliente?.razon_social || cliente?.nombre || presupuestoActual.cliente || '';
   }, [presupuestoActual, clientes]);
 
-  // Tareas que se van a copiar (preview)
+  // Tareas que se van a copiar (preview) — solo en modo creación
   const tareasPreview = useMemo(() => {
     if (!presupuestoActual) return [];
+    if (esModoEdicion) return []; // no recalcula en edición
     return extraerTareasDelPresupuesto(presupuestoActual, insumos);
-  }, [presupuestoActual, insumos]);
+  }, [presupuestoActual, insumos, esModoEdicion]);
 
-  // Total de días-hombre del plan (para preview)
+  // Total de días-hombre del plan
   const totalDiasHombre = useMemo(() => {
     return tareasPreview.reduce((acc, t) => acc + (t.dias_hombre || 0), 0);
   }, [tareasPreview]);
 
-  // Al elegir presupuesto, autocompletar nombre
+  // Autocompletar nombre cuando se selecciona presupuesto (solo en creación)
   useEffect(() => {
-    if (presupuestoActual && !formData.nombre) {
+    if (!esModoEdicion && presupuestoActual && !formData.nombre) {
       const cod = presupuestoActual.codigo || presupuestoActual.id || '';
       const nom = presupuestoActual.nombre || 'Presupuesto';
       setFormData(prev => ({ ...prev, nombre: `[${cod}] ${nom}` }));
     }
-  }, [presupuestoActual, formData.nombre]);
+  }, [presupuestoActual, formData.nombre, esModoEdicion]);
 
-  // Guardar plan + tareas
+  // Guardar plan (crear o editar)
   const handleGuardar = async (e) => {
     e.preventDefault();
-    if (!presupuestoActual) {
-      toast.error('Seleccione un presupuesto');
-      return;
+
+    if (!esModoEdicion) {
+      // MODO CREACIÓN: requiere presupuesto
+      if (!presupuestoActual) {
+        toast.error('Seleccione un presupuesto');
+        return;
+      }
     }
     if (!formData.nombre.trim()) {
       toast.error('Ingrese un nombre para el plan');
@@ -116,9 +147,31 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
     }
 
     setIsSaving(true);
-    const toastId = toast.loading('Creando plan de trabajo...');
+    const toastId = toast.loading(esModoEdicion ? 'Actualizando plan...' : 'Creando plan de trabajo...');
 
     try {
+      // ═══════════════════════════════════════════════════════════════
+      // MODO EDICIÓN: solo actualiza campos del plan (NO recrea tareas)
+      // ═══════════════════════════════════════════════════════════════
+      if (esModoEdicion) {
+        await actualizarDoc('planificacion_planes', planId, {
+          nombre: formData.nombre.trim(),
+          descripcion: formData.descripcion.trim(),
+          fecha_inicio: formData.fecha_inicio,
+          color: formData.color,
+          estado: formData.estado
+        });
+
+        toast.success('¡Plan actualizado con éxito!', { id: toastId });
+        if (typeof onPlanCreado === 'function') onPlanCreado(planId);
+        onClose();
+        return;
+      }
+
+      // ═══════════════════════════════════════════════════════════════
+      // MODO CREACIÓN: crea plan + copia todas las tareas
+      // ═══════════════════════════════════════════════════════════════
+
       // PASO 1: crear el plan
       const payloadPlan = {
         nombre: formData.nombre.trim(),
@@ -128,14 +181,14 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
         cliente_codigo: String(presupuestoActual.codigo || '').split('-')[0] || '',
         cliente_nombre: clienteNombre,
         fecha_inicio: formData.fecha_inicio,
-        fecha_fin: '', // se calcula después con las tareas
+        fecha_fin: '',
         color: formData.color,
         estado: formData.estado,
         total_tareas: tareasPreview.length,
         total_dias_hombre: totalDiasHombre
       };
 
-      const planId = await crearDoc('planificacion_planes', payloadPlan);
+      const nuevoPlanId = await crearDoc('planificacion_planes', payloadPlan);
 
       // PASO 2: crear todas las tareas del plan
       const feriadosSet = getFeriadosDelAnio(
@@ -152,7 +205,7 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
         if (fechaFin > fechaFinMax) fechaFinMax = fechaFin;
 
         await crearDoc('planificacion_tareas', {
-          plan_id: planId,
+          plan_id: nuevoPlanId,
           rubro_nombre: t.rubro_nombre,
           rubro_idx: t.rubro_idx,
           tarea_nombre: t.tarea_nombre,
@@ -178,8 +231,7 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
       }
 
       // PASO 3: actualizar el plan con la fecha fin real
-      const { actualizarDoc } = await import('@/lib/firestoreHelpers');
-      await actualizarDoc('planificacion_planes', planId, {
+      await actualizarDoc('planificacion_planes', nuevoPlanId, {
         fecha_fin: fechaFinMax
       });
 
@@ -188,47 +240,66 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
         { id: toastId }
       );
 
-      if (typeof onPlanCreado === 'function') onPlanCreado(planId);
+      if (typeof onPlanCreado === 'function') onPlanCreado(nuevoPlanId);
       onClose();
     } catch (err) {
       console.error('[NuevoPlanModal] Error:', err);
-      toast.error('Error al crear el plan: ' + (err.message || ''), { id: toastId });
+      toast.error(
+        'Error al ' + (esModoEdicion ? 'actualizar' : 'crear') + ' el plan: ' + (err.message || ''),
+        { id: toastId }
+      );
     } finally {
       setIsSaving(false);
     }
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Nuevo Plan de Trabajo" maxWidth="max-w-3xl">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      title={esModoEdicion ? 'Editar Plan de Trabajo' : 'Nuevo Plan de Trabajo'}
+      maxWidth="max-w-3xl"
+    >
       <form onSubmit={handleGuardar} className="space-y-5">
 
-        {/* Presupuesto */}
+        {/* Presupuesto (solo lectura en edición) */}
         <div>
           <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
             Presupuesto vinculado *
           </label>
-          <select
-            value={formData.presupuesto_id}
-            onChange={(e) => setFormData(prev => ({ ...prev, presupuesto_id: e.target.value, nombre: '' }))}
-            className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-amber-500 cursor-pointer"
-            required
-          >
-            <option value="">-- Seleccionar presupuesto --</option>
-            {presupuestos.map(p => {
-              const pId = String(p.id || p.ID || p.codigo || '');
-              const label = `[${p.codigo || pId}] ${p.nombre || 'Presupuesto'}`;
-              return <option key={pId} value={pId}>{label}</option>;
-            })}
-          </select>
-          {presupuestos.length === 0 && (
+          {esModoEdicion ? (
+            <div className="bg-slate-100 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700">
+              {presupuestoActual?.codigo || formData.presupuesto_id || '---'}
+              {presupuestoActual?.nombre && (
+                <span className="block text-xs font-medium text-slate-500 mt-0.5">
+                  {presupuestoActual.nombre}
+                </span>
+              )}
+            </div>
+          ) : (
+            <select
+              value={formData.presupuesto_id}
+              onChange={(e) => setFormData(prev => ({ ...prev, presupuesto_id: e.target.value, nombre: '' }))}
+              className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-amber-500 cursor-pointer"
+              required
+            >
+              <option value="">-- Seleccionar presupuesto --</option>
+              {presupuestos.map(p => {
+                const pId = String(p.id || p.ID || p.codigo || '');
+                const label = `[${p.codigo || pId}] ${p.nombre || 'Presupuesto'}`;
+                return <option key={pId} value={pId}>{label}</option>;
+              })}
+            </select>
+          )}
+          {!esModoEdicion && presupuestos.length === 0 && (
             <p className="text-[10px] text-amber-700 mt-1">
               No hay presupuestos cargados. Creá uno primero desde el módulo Presupuestos.
             </p>
           )}
         </div>
 
-        {/* Preview del presupuesto seleccionado */}
-        {presupuestoActual && (
+        {/* Preview del presupuesto seleccionado (solo en creación) */}
+        {!esModoEdicion && presupuestoActual && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-slate-600">Cliente:</span>
@@ -325,6 +396,13 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
           </div>
         </div>
 
+        {/* Info en modo edición */}
+        {esModoEdicion && (
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
+            <strong>Modo edición:</strong> se van a actualizar solo los campos del plan (nombre, fechas, color, estado). Las tareas ya copiadas NO se modifican.
+          </div>
+        )}
+
         {/* Botones */}
         <div className="flex justify-end gap-3 pt-4 border-t border-slate-200">
           <button
@@ -337,16 +415,16 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
           </button>
           <button
             type="submit"
-            disabled={isSaving || !presupuestoActual}
+            disabled={isSaving || (!esModoEdicion && !presupuestoActual)}
             className="px-5 py-2.5 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-xl text-sm font-black cursor-pointer disabled:opacity-50 flex items-center gap-2 shadow-md"
           >
             {isSaving ? (
               <>
-                <Loader2 className="w-4 h-4 animate-spin" /> Creando...
+                <Loader2 className="w-4 h-4 animate-spin" /> {esModoEdicion ? 'Guardando...' : 'Creando...'}
               </>
             ) : (
               <>
-                <CheckCircle2 className="w-4 h-4" /> Crear Plan
+                <CheckCircle2 className="w-4 h-4" /> {esModoEdicion ? 'Guardar Cambios' : 'Crear Plan'}
               </>
             )}
           </button>
