@@ -284,3 +284,48 @@ export const ESTADOS_TAREA = [
   { id: 'completada',  label: 'Completada',  color: 'bg-emerald-100 text-emerald-800' },
   { id: 'bloqueada',   label: 'Bloqueada',   color: 'bg-rose-100 text-rose-800' }
 ];
+// ═══════════════════════════════════════════════════════════════════════════
+// ELIMINACIÓN DE PLANES (con cascada a tareas)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Elimina un plan + todas sus tareas asociadas.
+ * Devuelve { ok, tareasEliminadas } o lanza error.
+ *
+ * @param {String} planId - ID del plan a eliminar
+ * @param {Object} colecciones - { tareas, eliminarDoc, eliminarDocsFiltrados }
+ */
+export async function eliminarPlanConTareas(planId, colecciones) {
+  const { tareas, eliminarDoc, eliminarDocsFiltrados } = colecciones;
+
+  if (!planId) throw new Error('planId requerido');
+
+  let tareasEliminadas = 0;
+
+  // 1) Borrar las tareas del plan
+  if (typeof eliminarDocsFiltrados === 'function') {
+    try {
+      const resultado = await eliminarDocsFiltrados('planificacion_tareas', (docData) => {
+        return String(docData.plan_id || '').trim() === String(planId).trim();
+      });
+      // eliminarDocsFiltrados puede devolver cantidad o void
+      tareasEliminadas = typeof resultado === 'number' ? resultado : 0;
+    } catch (err) {
+      console.warn('[planificacionHelpers] eliminarDocsFiltrados falló, usando fallback:', err);
+    }
+  }
+
+  // Fallback: si no se eliminó nada por el helper, hacer loop manual
+  if (tareasEliminadas === 0 && Array.isArray(tareas)) {
+    const tareasDelPlan = tareas.filter(t => String(t.plan_id || '') === String(planId));
+    for (const t of tareasDelPlan) {
+      await eliminarDoc('planificacion_tareas', t.id);
+      tareasEliminadas++;
+    }
+  }
+
+  // 2) Borrar el plan
+  await eliminarDoc('planificacion_planes', planId);
+
+  return { ok: true, tareasEliminadas };
+}

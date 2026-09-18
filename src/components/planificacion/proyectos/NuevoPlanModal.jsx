@@ -188,7 +188,7 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado }) {
         { id: toastId }
       );
 
-      if (typeof onPlanCreado === 'function') onPlanCreado();
+      if (typeof onPlanCreado === 'function') onPlanCreado(planId);
       onClose();
     } catch (err) {
       console.error('[NuevoPlanModal] Error:', err);
