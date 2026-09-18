@@ -223,7 +223,7 @@ const AuthenticatedApp = () => {
               />
               <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
               <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
-              <Route path="/planificacion" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
+              <Route path="/planificacion/*" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
               <Route
                 path="/rrhh"
                 element={
