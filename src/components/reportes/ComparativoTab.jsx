@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { TrendingUp, Printer, TrendingUp as ArrowUpRight, TrendingDown as ArrowDownRight } from 'lucide-react';
 import { useObraData } from '@/hooks/useObraData';
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { OBRAS_CONFIG } from '@/config/constants';
 
 export default function ComparativoTab({
@@ -20,6 +21,9 @@ export default function ComparativoTab({
   const { data: cargasSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CARGAS_SEMANALES || 'CargasSemanales');
   const { data: contratosSheet } = useObraData(OBRAS_CONFIG?.TABLAS?.CONTRATOS || 'ContratosMantenimiento');
 
+  // 🔑 NUEVO: leemos clientes desde Firestore para resolver el nombre a partir del código
+  const { data: clientesFs } = useFirestoreCollection('clientes');
+
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
   const extraerArrayDatos = (fuente) => {
@@ -38,6 +42,9 @@ export default function ComparativoTab({
     }
     return [];
   };
+
+  // 🔑 NUEVO: lista de clientes
+  const clientesList = useMemo(() => extraerArrayDatos(clientesFs), [clientesFs]);
 
   const listaContratosUnificada = useMemo(() => {
     const c1 = extraerArrayDatos(contratos);
@@ -539,15 +546,43 @@ export default function ComparativoTab({
     return '---';
   }, [tipoProyecto, presupuestoSeleccionado, contratoSeleccionado]);
 
+  // 🔑 FIX: el cliente se obtiene parseando el código del presupuesto (CL002-OB001-PR001 → CL002)
   const clienteProyecto = useMemo(() => {
     if (tipoProyecto === 'obra' && presupuestoSeleccionado) {
-      return presupuestoSeleccionado?.cliente || presupuestoSeleccionado?.razon_social || '---';
+      // 1) Si el presupuesto tiene el cliente explícito, usarlo
+      const clienteDirecto = presupuestoSeleccionado?.cliente || presupuestoSeleccionado?.razon_social;
+      if (clienteDirecto && String(clienteDirecto).trim() !== '') {
+        return clienteDirecto;
+      }
+
+      // 2) Si no, extraer el código de cliente del código del presupuesto
+      //    Ej: "CL002-OB001-PR001" → "CL002"
+      const codigoPresupuesto = String(presupuestoSeleccionado?.codigo || '').trim();
+      if (codigoPresupuesto && codigoPresupuesto.includes('-')) {
+        const codigoCliente = codigoPresupuesto.split('-')[0].trim();
+
+        const clienteEncontrado = clientesList.find(c => {
+          const cCod = String(c?.codigo || c?.Codigo || '').trim();
+          return cCod === codigoCliente;
+        });
+
+        if (clienteEncontrado) {
+          return clienteEncontrado.razon_social
+            || clienteEncontrado.nombre
+            || clienteEncontrado.razonSocial
+            || codigoCliente;
+        }
+      }
+
+      return '---';
     }
+
     if (tipoProyecto === 'contrato' && contratoSeleccionado) {
-      return contratoSeleccionado?.cliente || '---';
+      return contratoSeleccionado?.cliente || contratoSeleccionado?.razon_social || '---';
     }
+
     return '---';
-  }, [tipoProyecto, presupuestoSeleccionado, contratoSeleccionado]);
+  }, [tipoProyecto, presupuestoSeleccionado, contratoSeleccionado, clientesList]);
 
   const fechaHoy = new Date().toLocaleDateString('es-AR');
 
@@ -567,7 +602,6 @@ export default function ComparativoTab({
             left: 0;
             top: 0;
             width: 100%;
-            /* 🔑 Márgenes por padding (más confiable que @page en Chrome) */
             padding: 10mm 5mm 5mm 5mm;
             margin: 0;
             box-sizing: border-box;
@@ -820,7 +854,6 @@ export default function ComparativoTab({
                     </>
                   )}
 
-                  {/* 🔑 FIX: el TOTAL GENERAL está en tbody (no en tfoot) para que NO se repita en cada página */}
                   <tr className="bg-slate-900 text-white font-black uppercase text-xs print:bg-slate-900 print:text-white" style={{ WebkitPrintColorAdjust: 'exact', printColorAdjust: 'exact' }}>
                     <td className="px-4 py-4">TOTAL GENERAL</td>
                     <td className="px-4 py-4 text-right">$ {(granTotalPresupuestadoFiltrado + (tipoInsumoFiltro === 'TODOS' ? totalGGPresupuestado : 0)).toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
