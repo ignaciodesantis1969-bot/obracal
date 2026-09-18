@@ -6,6 +6,7 @@ import InicioPulsoProyecto from './InicioPulsoProyecto';
 import InicioListaTareas from './InicioListaTareas';
 import InicioProximasReuniones from './InicioProximasReuniones';
 import Modal from '../shared/Modal';
+import NuevoPlanModal from '../proyectos/NuevoPlanModal';
 
 export default function InicioTab() {
   // 🔑 Lectura de Firestore (se crean vacías automáticamente)
@@ -18,7 +19,7 @@ export default function InicioTab() {
   const tareas = useMemo(() => extraerArray(tareasFs), [tareasFs]);
   const reuniones = useMemo(() => extraerArray(reunionesFs), [reunionesFs]);
 
-  // 🔑 Modales (por ahora vacíos con placeholder)
+  // 🔑 Modales
   const [modalNuevaTarea, setModalNuevaTarea] = useState(false);
   const [modalNuevaReunion, setModalNuevaReunion] = useState(false);
   const [modalNuevoPlan, setModalNuevoPlan] = useState(false);
@@ -76,7 +77,7 @@ export default function InicioTab() {
       {/* Fila 3: Próximas reuniones */}
       <InicioProximasReuniones reuniones={reuniones} />
 
-      {/* Modales (placeholder por ahora) */}
+      {/* Modal Nueva Tarea (placeholder por ahora) */}
       <Modal
         isOpen={modalNuevaTarea}
         onClose={() => setModalNuevaTarea(false)}
@@ -85,6 +86,7 @@ export default function InicioTab() {
         <p className="text-sm text-slate-500">Próximamente: formulario de nueva tarea.</p>
       </Modal>
 
+      {/* Modal Nueva Reunión (placeholder por ahora) */}
       <Modal
         isOpen={modalNuevaReunion}
         onClose={() => setModalNuevaReunion(false)}
@@ -93,13 +95,16 @@ export default function InicioTab() {
         <p className="text-sm text-slate-500">Próximamente: formulario de nueva reunión.</p>
       </Modal>
 
-      <Modal
+      {/* 🔑 FIX: Modal real de Nuevo Plan */}
+      <NuevoPlanModal
         isOpen={modalNuevoPlan}
         onClose={() => setModalNuevoPlan(false)}
-        title="Nuevo Plan de Trabajo"
-      >
-        <p className="text-sm text-slate-500">Próximamente: formulario para crear un plan vinculado a un presupuesto.</p>
-      </Modal>
+        onPlanCreado={() => {
+          // El hook useFirestoreCollection refresca automáticamente,
+          // así que el dashboard se actualiza solo.
+          console.info('[InicioTab] Plan de trabajo creado, el dashboard se actualizará automáticamente');
+        }}
+      />
     </div>
   );
 }
