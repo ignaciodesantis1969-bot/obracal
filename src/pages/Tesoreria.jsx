@@ -647,6 +647,17 @@ export default function Tesoreria() {
     return estado === 'pendiente' || estado === 'pagado parcial';
   });
 
+  // 🔑 NUEVO: totales de facturas pendientes para los cuadros de arriba
+  const totalFacturasAPagar = facturasAPagar.reduce((acc, f) => {
+    return acc + (Number(f.total || f.Total || f.TOTAL || 0) || 0);
+  }, 0);
+
+  const totalFacturasACobrar = facturasACobrar.reduce((acc, f) => {
+    return acc + (Number(f.total || f.Total || f.TOTAL || 0) || 0);
+  }, 0);
+
+  const flujoNetoPendiente = totalFacturasACobrar - totalFacturasAPagar;
+
   const cashFlowMensualMap = {};
   const cashFlowAnualMap = {};
 
@@ -765,6 +776,34 @@ export default function Tesoreria() {
           <div>
             <p className="text-xs font-bold text-slate-500 uppercase">Balance</p>
             <h3 className={`text-2xl font-black mt-1 ${balance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+          </div>
+          <div className="p-3 bg-slate-100 text-slate-700 rounded-xl"><Wallet className="w-6 h-6" /></div>
+        </div>
+      </div>
+
+      {/* 🔑 NUEVO: Cuadros de Facturas Pendientes (Pagar / Cobrar / Neto) */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="bg-white p-5 rounded-2xl border border-rose-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-rose-600 uppercase">Facturas a Pagar</p>
+            <h3 className="text-2xl font-black text-rose-600 mt-1">$ {totalFacturasAPagar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+            <p className="text-[11px] text-slate-500 mt-1">{facturasAPagar.length} comprobante{facturasAPagar.length === 1 ? '' : 's'} pendiente{facturasAPagar.length === 1 ? '' : 's'}</p>
+          </div>
+          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl"><ArrowDownLeft className="w-6 h-6" /></div>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-emerald-600 uppercase">Facturas a Cobrar</p>
+            <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {totalFacturasACobrar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+            <p className="text-[11px] text-slate-500 mt-1">{facturasACobrar.length} comprobante{facturasACobrar.length === 1 ? '' : 's'} pendiente{facturasACobrar.length === 1 ? '' : 's'}</p>
+          </div>
+          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><ArrowUpRight className="w-6 h-6" /></div>
+        </div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
+          <div>
+            <p className="text-xs font-bold text-slate-500 uppercase">Flujo Neto Pendiente</p>
+            <h3 className={`text-2xl font-black mt-1 ${flujoNetoPendiente >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>$ {flujoNetoPendiente.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+            <p className="text-[11px] text-slate-500 mt-1">{flujoNetoPendiente >= 0 ? 'A favor' : 'A financiar'}</p>
           </div>
           <div className="p-3 bg-slate-100 text-slate-700 rounded-xl"><Wallet className="w-6 h-6" /></div>
         </div>
