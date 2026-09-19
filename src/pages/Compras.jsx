@@ -302,7 +302,16 @@ export default function Compras() {
           });
           const textoRespuesta = await res.text();
           let data;
-          try { data = JSON.parse(textoRespuesta); } catch (parseErr) { data = { success: false }; }
+          try { data = JSON.parse(textoRespuesta); } catch (parseErr) { data = { success: false, error: "Respuesta no-JSON del servidor." }; }
+
+          // 🔑 FIX: si el OCR devolvió error, avisar al usuario y NO abrir el modal vacío
+          if (!data || data.success === false) {
+            const errMsg = (data && data.error) || "El OCR no pudo procesar el archivo.";
+            alert("⚠️ Error al leer la factura:\n\n" + errMsg + "\n\nPodés cargar los datos manualmente.");
+            setLocalLoading(false);
+            e.target.value = "";
+            return;
+          }
 
           let proveedorEncontradoId = '';
           if (data && data.proveedor && proveedores.length > 0) {
@@ -339,9 +348,9 @@ export default function Compras() {
           setIsUploadModalOpen(false);
           setIsFacturaModalOpen(true);
         } catch (fetchErr) {
-          setFormData(prev => ({ ...prev, archivo_url: base64Data }));
-          setIsUploadModalOpen(false);
-          setIsFacturaModalOpen(true);
+          // 🔑 FIX: mostrar el error de red en vez de abrir el modal vacío silenciosamente
+          console.error("Error en fetch OCR:", fetchErr);
+          alert("⚠️ Error de conexión con el servidor OCR:\n\n" + (fetchErr.message || fetchErr.toString()) + "\n\nPodés cargar los datos manualmente.");
         } finally {
           setLocalLoading(false);
           e.target.value = "";
