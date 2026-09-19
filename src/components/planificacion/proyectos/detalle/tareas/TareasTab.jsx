@@ -1,9 +1,28 @@
 import React, { useMemo, useState } from 'react';
-import { CheckSquare, AlertCircle } from 'lucide-react';
+import { CheckSquare } from 'lucide-react';
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import TareaGrupoRubro from './TareaGrupoRubro';
+import TareaAsignarRecursosModal from './TareaAsignarRecursosModal';
 
 export default function TareasTab({ plan, tareas = [], personal = [], insumos = [] }) {
-  // Agrupar por rubro
+  // 🔑 Leer presupuesto para obtener subcontratos de cada tarea
+  const { data: presupuestosFs } = useFirestoreCollection('presupuestos');
+  const presupuestos = useMemo(
+    () => (Array.isArray(presupuestosFs) ? presupuestosFs : []),
+    [presupuestosFs]
+  );
+
+  const presupuesto = useMemo(() => {
+    if (!plan?.presupuesto_id) return null;
+    return presupuestos.find(p =>
+      String(p.id || p.ID || p.codigo || '') === String(plan.presupuesto_id)
+    ) || null;
+  }, [presupuestos, plan]);
+
+  // 🔑 Modal de asignación
+  const [tareaEditando, setTareaEditando] = useState(null);
+
+  // 🔑 Agrupar por rubro
   const rubrosAgrupados = useMemo(() => {
     const map = new Map();
 
@@ -20,11 +39,9 @@ export default function TareasTab({ plan, tareas = [], personal = [], insumos = 
       map.get(key).tareas.push(t);
     });
 
-    // Ordenar por rubro_idx
     const arr = Array.from(map.values());
     arr.sort((a, b) => (a.rubro_idx ?? 0) - (b.rubro_idx ?? 0));
 
-    // Ordenar tareas dentro de cada rubro por tarea_idx
     arr.forEach(r => {
       r.tareas.sort((a, b) => (a.tarea_idx ?? 0) - (b.tarea_idx ?? 0));
     });
@@ -46,14 +63,6 @@ export default function TareasTab({ plan, tareas = [], personal = [], insumos = 
 
   return (
     <div className="space-y-4">
-      {/* Info banner */}
-      <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 flex items-start gap-2">
-        <AlertCircle className="w-4 h-4 text-blue-700 shrink-0 mt-0.5" />
-        <p className="text-xs text-blue-800">
-          <strong>Paso 5A:</strong> por ahora podés ver las tareas agrupadas por rubro. La asignación de recursos y la edición de fechas se habilitan en el <strong>Paso 5B</strong>.
-        </p>
-      </div>
-
       {/* Tabla */}
       <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
         {/* Header de la tabla */}
@@ -63,7 +72,7 @@ export default function TareasTab({ plan, tareas = [], personal = [], insumos = 
           <div className="col-span-2 text-center">Comienzo</div>
           <div className="col-span-2 text-center">Fin</div>
           <div className="col-span-1 text-center">%</div>
-          <div className="col-span-2 text-right">Costo</div>
+          <div className="col-span-2 text-right">Costo / Recursos</div>
         </div>
 
         {/* Grupos por rubro */}
@@ -74,10 +83,26 @@ export default function TareasTab({ plan, tareas = [], personal = [], insumos = 
               rubro={rubro}
               personal={personal}
               insumos={insumos}
+              onEditarTarea={(t) => setTareaEditando(t)}
             />
           ))}
         </div>
       </div>
+
+      {/* Modal de asignación */}
+      <TareaAsignarRecursosModal
+        isOpen={!!tareaEditando}
+        onClose={() => setTareaEditando(null)}
+        tarea={tareaEditando}
+        plan={plan}
+        personal={personal}
+        insumos={insumos}
+        presupuesto={presupuesto}
+        tareasDelPlan={tareas}
+        onGuardado={() => {
+          console.info('[TareasTab] Recursos guardados — onSnapshot refresca solo');
+        }}
+      />
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import TareaFila from './TareaFila';
 
-export default function TareaGrupoRubro({ rubro, personal = [], insumos = [] }) {
+export default function TareaGrupoRubro({ rubro, personal = [], insumos = [], onEditarTarea }) {
   const [abierto, setAbierto] = useState(true);
 
   // Calcular stats del rubro (duración + rango fechas)
@@ -82,6 +82,7 @@ export default function TareaGrupoRubro({ rubro, personal = [], insumos = [] }) 
               tarea={t}
               personal={personal}
               insumos={insumos}
+              onEditar={onEditarTarea}
             />
           ))}
         </div>

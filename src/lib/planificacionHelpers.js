@@ -329,3 +329,134 @@ export async function eliminarPlanConTareas(planId, colecciones) {
 
   return { ok: true, tareasEliminadas };
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPERS DE RECURSOS Y VALIDACIÓN (Paso 5B)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Obtiene el porcentaje de cargas sociales de una tarea,
+ * leyendo la composición de su cuadrilla.
+ */
+export function obtenerPorcentajeCargasDeTarea(tarea, insumos) {
+  if (!tarea?.insumo_mo_nombre || !Array.isArray(insumos)) return 76;
+
+  const cuadrilla = insumos.find(i =>
+    normalizarTexto(i?.nombre || i?.nombre_del_articulo || '') === normalizarTexto(tarea.insumo_mo_nombre)
+  );
+
+  if (!cuadrilla) return 76;
+
+  try {
+    const desc = typeof cuadrilla.descripcion === 'string'
+      ? JSON.parse(cuadrilla.descripcion || '{}')
+      : (cuadrilla.descripcion || {});
+    return Number(desc.porcentajeCargas) || 76;
+  } catch {
+    return 76;
+  }
+}
+
+/**
+ * Calcula el costo diario real de un operario (sueldo + cargas).
+ */
+export function calcularCostoDiarioOperario(operario, porcentajeCargas = 76) {
+  const sueldoBase = Number(operario?.costo_en_mano || operario?.Costo_en_mano || operario?.salario || 0);
+  const factor = 1 + (porcentajeCargas / 100);
+  return Math.round(sueldoBase * factor * 100) / 100;
+}
+
+/**
+ * Obtiene los subcontratos disponibles en una tarea específica.
+ * Busca en los insumos del presupuesto dentro de la tarea.
+ * Devuelve array de: { nombre, montoTotal, unidad, cantidad }
+ */
+export function obtenerSubcontratosDeTarea(tarea, presupuesto) {
+  if (!tarea || !presupuesto) return [];
+
+  // Buscar la tarea en items_detalle del presupuesto
+  let itemsDetalle = presupuesto.items_detalle || presupuesto.itemsDetalle || {};
+  if (typeof itemsDetalle === 'string') {
+    try { itemsDetalle = JSON.parse(itemsDetalle); } catch { return []; }
+  }
+
+  const rubros = itemsDetalle?.rubros || [];
+  const rubroIdx = Number(tarea.rubro_idx);
+  const tareaIdx = Number(tarea.tarea_idx);
+
+  if (!rubros[rubroIdx]) return [];
+  const rubro = rubros[rubroIdx];
+  const tareasRubro = rubro?.tareas || [];
+  if (!tareasRubro[tareaIdx]) return [];
+
+  const tareaOriginal = tareasRubro[tareaIdx];
+  const insumosTarea = tareaOriginal?.insumos || [];
+
+  return insumosTarea
+    .filter(ins => normalizarTexto(ins?.tipo || '').includes('subcontrato'))
+    .map((ins, idx) => ({
+      id: `sub-${rubroIdx}-${tareaIdx}-${idx}`,
+      nombre: ins.nombre || ins.descripcion || 'Subcontrato',
+      montoTotal: Number(ins.total || (Number(ins.cantidad || 0) * Number(ins.costo_unitario || 0))) || 0,
+      unidad: ins.unidad || 'gl',
+      cantidad: Number(ins.cantidad) || 1,
+    }));
+}
+
+/**
+ * Valida que un operario no esté asignado a otra tarea
+ * con rango de fechas solapado en el mismo plan.
+ */
+export function validarSolapamientoOperario(operarioId, fechaInicio, fechaFin, tareasDelPlan, tareaActualId) {
+  if (!operarioId || !fechaInicio || !fechaFin) {
+    return { ok: true, conflicto: null };
+  }
+
+  const inicio = new Date(fechaInicio + 'T00:00:00');
+  const fin = new Date(fechaFin + 'T00:00:00');
+
+  for (const t of tareasDelPlan) {
+    if (String(t.id) === String(tareaActualId)) continue;
+
+    const recursos = Array.isArray(t.recursos) ? t.recursos : [];
+    const estaAsignado = recursos.some(r =>
+      r.tipo === 'operario' && String(r.id) === String(operarioId)
+    );
+    if (!estaAsignado) continue;
+
+    if (!t.fecha_inicio || !t.fecha_fin) continue;
+
+    const tInicio = new Date(t.fecha_inicio + 'T00:00:00');
+    const tFin = new Date(t.fecha_fin + 'T00:00:00');
+
+    // Detectar solapamiento
+    const solapa = !(fin < tInicio || inicio > tFin);
+    if (solapa) {
+      return {
+        ok: false,
+        conflicto: {
+          tarea_id: t.id,
+          tarea_nombre: t.tarea_nombre,
+          fecha_inicio: t.fecha_inicio,
+          fecha_fin: t.fecha_fin,
+        },
+      };
+    }
+  }
+
+  return { ok: true, conflicto: null };
+}
+
+/**
+ * Valida múltiples operarios contra las tareas del plan.
+ * Devuelve { ok, conflictos: [...] } con todos los que fallan.
+ */
+export function validarSolapamientoMultiple(operariosIds, fechaInicio, fechaFin, tareasDelPlan, tareaActualId) {
+  const conflictos = [];
+  for (const opId of operariosIds) {
+    const res = validarSolapamientoOperario(opId, fechaInicio, fechaFin, tareasDelPlan, tareaActualId);
+    if (!res.ok) {
+      conflictos.push({ operarioId: opId, ...res.conflicto });
+    }
+  }
+  return { ok: conflictos.length === 0, conflictos };
+}

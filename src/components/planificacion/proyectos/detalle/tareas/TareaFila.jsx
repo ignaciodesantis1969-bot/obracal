@@ -1,12 +1,22 @@
 import React, { useMemo } from 'react';
-import { Users, Calendar, Pencil } from 'lucide-react';
+import { Users, DollarSign, Pencil } from 'lucide-react';
 
-export default function TareaFila({ tarea, personal = [], insumos = [] }) {
-  // Recursos asignados (por ahora vacío)
+export default function TareaFila({ tarea, personal = [], insumos = [], onEditar }) {
+  // 🔑 Recursos asignados a esta tarea
   const recursosAsignados = useMemo(() => {
     if (!Array.isArray(tarea.recursos)) return [];
     return tarea.recursos;
   }, [tarea.recursos]);
+
+  const operariosAsignados = useMemo(
+    () => recursosAsignados.filter(r => r.tipo === 'operario'),
+    [recursosAsignados]
+  );
+
+  const subcontratosAsignados = useMemo(
+    () => recursosAsignados.filter(r => r.tipo === 'subcontrato'),
+    [recursosAsignados]
+  );
 
   const formatFecha = (iso) => {
     if (!iso) return '---';
@@ -23,10 +33,11 @@ export default function TareaFila({ tarea, personal = [], insumos = [] }) {
 
   const duracion = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 0;
   const costo = Number(tarea.costo_total) || 0;
+  const tieneRecursos = recursosAsignados.length > 0;
 
   return (
     <div className="grid grid-cols-12 gap-2 px-4 py-2.5 hover:bg-amber-50/60 transition-colors items-center text-xs">
-      {/* Nombre indentado */}
+      {/* 🔑 Nombre indentado + insumo MO */}
       <div className="col-span-4 pl-8">
         <p className="font-semibold text-slate-800 truncate" title={tarea.tarea_nombre}>
           {tarea.tarea_nombre}
@@ -60,23 +71,42 @@ export default function TareaFila({ tarea, personal = [], insumos = [] }) {
         </span>
       </div>
 
-      {/* Costo + Recursos + Editar */}
+      {/* 🔑 Costo + Recursos + Editar */}
       <div className="col-span-2 flex items-center justify-end gap-2">
-        <span className="font-bold text-slate-800 font-mono text-[11px]">
+        {/* Costo */}
+        <span
+          className={`font-bold font-mono text-[11px] ${costo > 0 ? 'text-slate-800' : 'text-slate-400'}`}
+          title={`Costo total: $${costo.toLocaleString('es-AR')}`}
+        >
           $ {costo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
         </span>
 
-        {recursosAsignados.length > 0 ? (
+        {/* Avatares de recursos */}
+        {tieneRecursos ? (
           <div className="flex items-center -space-x-1">
-            {recursosAsignados.slice(0, 3).map((r, idx) => (
+            {/* Operarios (avatares con inicial) */}
+            {operariosAsignados.slice(0, 2).map((r, idx) => (
               <div
-                key={idx}
-                className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black flex items-center justify-center border-2 border-white"
-                title={r.nombre}
+                key={`op-${idx}`}
+                className="w-6 h-6 rounded-full bg-amber-500 text-slate-950 text-[9px] font-black flex items-center justify-center border-2 border-white shadow-sm"
+                title={`${r.nombre} (${r.especialidad || 'Operario'})`}
               >
                 {String(r.nombre || '?').charAt(0).toUpperCase()}
               </div>
             ))}
+
+            {/* Subcontratos (icono $ azul) */}
+            {subcontratosAsignados.slice(0, 1).map((r, idx) => (
+              <div
+                key={`sub-${idx}`}
+                className="w-6 h-6 rounded-full bg-blue-500 text-white flex items-center justify-center border-2 border-white shadow-sm"
+                title={`Subcontrato: ${r.nombre}`}
+              >
+                <DollarSign className="w-3 h-3" />
+              </div>
+            ))}
+
+            {/* Contador si hay más de 3 */}
             {recursosAsignados.length > 3 && (
               <div className="w-6 h-6 rounded-full bg-slate-300 text-slate-700 text-[9px] font-black flex items-center justify-center border-2 border-white">
                 +{recursosAsignados.length - 3}
@@ -84,16 +114,20 @@ export default function TareaFila({ tarea, personal = [], insumos = [] }) {
             )}
           </div>
         ) : (
-          <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center border border-slate-300" title="Sin recursos asignados">
+          <div
+            className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center border border-slate-300"
+            title="Sin recursos asignados"
+          >
             <Users className="w-3 h-3 text-slate-400" />
           </div>
         )}
 
+        {/* Botón editar */}
         <button
           type="button"
-          disabled
-          className="p-1 text-slate-300 rounded cursor-not-allowed"
-          title="Edición disponible en Paso 5B"
+          onClick={() => onEditar && onEditar(tarea)}
+          className="p-1 text-slate-400 hover:text-amber-600 hover:bg-amber-50 rounded transition-colors cursor-pointer"
+          title="Asignar recursos / editar"
         >
           <Pencil className="w-3.5 h-3.5" />
         </button>
