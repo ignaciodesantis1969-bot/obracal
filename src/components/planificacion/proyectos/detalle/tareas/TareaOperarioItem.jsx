@@ -9,9 +9,20 @@ export default function TareaOperarioItem({
   porcentajeCargas = 76,
   disabled = false,
 }) {
-  const sueldoBase = Number(operario?.costo_en_mano || operario?.Costo_en_mano || operario?.salario || 0);
-  const factor = 1 + (porcentajeCargas / 100);
-  const costoConCargas = Math.round(sueldoBase * factor * 100) / 100;
+  // 🔑 FIX: sanitizar el número del sueldo base
+  const sueldoRaw = operario?.costo_en_mano ?? operario?.Costo_en_mano ?? operario?.salario ?? 0;
+  const sueldoBaseNum = Number(sueldoRaw);
+  const sueldoBase = isNaN(sueldoBaseNum) ? 0 : sueldoBaseNum;
+
+  // 🔑 FIX: sanitizar % de cargas
+  const cargasNum = Number(porcentajeCargas);
+  const cargasSafe = isNaN(cargasNum) ? 76 : cargasNum;
+
+  const factor = 1 + (cargasSafe / 100);
+  const costoConCargasRaw = sueldoBase * factor;
+  const costoConCargas = isNaN(costoConCargasRaw)
+    ? 0
+    : Math.round(costoConCargasRaw * 100) / 100;
 
   const nombre = operario?.nombre || operario?.Nombre || 'Sin nombre';
   const especialidad = operario?.especialidad || operario?.Especialidad || 'Operario';
@@ -52,7 +63,9 @@ export default function TareaOperarioItem({
 
       {/* Costos */}
       <div className="text-right shrink-0">
-        <p className="text-[10px] text-slate-500">Base: ${sueldoBase.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</p>
+        <p className="text-[10px] text-slate-500">
+          Base: ${sueldoBase.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+        </p>
         <p className="text-xs font-black text-emerald-700">
           ${costoConCargas.toLocaleString('es-AR', { maximumFractionDigits: 0 })}/día
         </p>

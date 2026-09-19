@@ -130,7 +130,7 @@ export function buscarCuadrillaPorNombre(nombreCuadrilla, insumos) {
 
   const match = insumos.find(i => {
     const tipo = normalizarTexto(i?.tipo || '');
-    if (!tipo.includes('mano de obra') && !tipo.includes('mano de obra')) return false;
+    if (!tipo.includes('mano de obra')) return false;
 
     const nom = normalizarTexto(i?.nombre || i?.nombre_del_articulo || '');
     return nom === buscado;
@@ -284,6 +284,7 @@ export const ESTADOS_TAREA = [
   { id: 'completada',  label: 'Completada',  color: 'bg-emerald-100 text-emerald-800' },
   { id: 'bloqueada',   label: 'Bloqueada',   color: 'bg-rose-100 text-rose-800' }
 ];
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ELIMINACIÓN DE PLANES (con cascada a tareas)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -291,9 +292,6 @@ export const ESTADOS_TAREA = [
 /**
  * Elimina un plan + todas sus tareas asociadas.
  * Devuelve { ok, tareasEliminadas } o lanza error.
- *
- * @param {String} planId - ID del plan a eliminar
- * @param {Object} colecciones - { tareas, eliminarDoc, eliminarDocsFiltrados }
  */
 export async function eliminarPlanConTareas(planId, colecciones) {
   const { tareas, eliminarDoc, eliminarDocsFiltrados } = colecciones;
@@ -302,20 +300,17 @@ export async function eliminarPlanConTareas(planId, colecciones) {
 
   let tareasEliminadas = 0;
 
-  // 1) Borrar las tareas del plan
   if (typeof eliminarDocsFiltrados === 'function') {
     try {
       const resultado = await eliminarDocsFiltrados('planificacion_tareas', (docData) => {
         return String(docData.plan_id || '').trim() === String(planId).trim();
       });
-      // eliminarDocsFiltrados puede devolver cantidad o void
       tareasEliminadas = typeof resultado === 'number' ? resultado : 0;
     } catch (err) {
       console.warn('[planificacionHelpers] eliminarDocsFiltrados falló, usando fallback:', err);
     }
   }
 
-  // Fallback: si no se eliminó nada por el helper, hacer loop manual
   if (tareasEliminadas === 0 && Array.isArray(tareas)) {
     const tareasDelPlan = tareas.filter(t => String(t.plan_id || '') === String(planId));
     for (const t of tareasDelPlan) {
@@ -324,11 +319,11 @@ export async function eliminarPlanConTareas(planId, colecciones) {
     }
   }
 
-  // 2) Borrar el plan
   await eliminarDoc('planificacion_planes', planId);
 
   return { ok: true, tareasEliminadas };
 }
+
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPERS DE RECURSOS Y VALIDACIÓN (Paso 5B)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -358,22 +353,31 @@ export function obtenerPorcentajeCargasDeTarea(tarea, insumos) {
 
 /**
  * Calcula el costo diario real de un operario (sueldo + cargas).
+ * 🔑 FIX: sanitiza todos los números (evita NaN)
  */
 export function calcularCostoDiarioOperario(operario, porcentajeCargas = 76) {
-  const sueldoBase = Number(operario?.costo_en_mano || operario?.Costo_en_mano || operario?.salario || 0);
-  const factor = 1 + (porcentajeCargas / 100);
-  return Math.round(sueldoBase * factor * 100) / 100;
+  // 🔑 FIX: usar nullish coalescing en vez de || (para no pisar el 0 legítimo)
+  const sueldoRaw = operario?.costo_en_mano ?? operario?.Costo_en_mano ?? operario?.salario ?? 0;
+  const sueldoBaseNum = Number(sueldoRaw);
+  const sueldoBase = isNaN(sueldoBaseNum) ? 0 : sueldoBaseNum;
+
+  const cargasNum = Number(porcentajeCargas);
+  const cargasSafe = isNaN(cargasNum) ? 76 : cargasNum;
+
+  const factor = 1 + (cargasSafe / 100);
+  const total = sueldoBase * factor;
+
+  return isNaN(total) ? 0 : Math.round(total * 100) / 100;
 }
 
 /**
  * Obtiene los subcontratos disponibles en una tarea específica.
  * Busca en los insumos del presupuesto dentro de la tarea.
- * Devuelve array de: { nombre, montoTotal, unidad, cantidad }
+ * Devuelve array de: { id, nombre, montoTotal, unidad, cantidad }
  */
 export function obtenerSubcontratosDeTarea(tarea, presupuesto) {
   if (!tarea || !presupuesto) return [];
 
-  // Buscar la tarea en items_detalle del presupuesto
   let itemsDetalle = presupuesto.items_detalle || presupuesto.itemsDetalle || {};
   if (typeof itemsDetalle === 'string') {
     try { itemsDetalle = JSON.parse(itemsDetalle); } catch { return []; }
@@ -428,7 +432,7 @@ export function validarSolapamientoOperario(operarioId, fechaInicio, fechaFin, t
     const tInicio = new Date(t.fecha_inicio + 'T00:00:00');
     const tFin = new Date(t.fecha_fin + 'T00:00:00');
 
-    // Detectar solapamiento
+    // Detectar solapamiento (rangos inclusivos)
     const solapa = !(fin < tInicio || inicio > tFin);
     if (solapa) {
       return {

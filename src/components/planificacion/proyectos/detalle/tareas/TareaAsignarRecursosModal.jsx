@@ -29,7 +29,7 @@ export default function TareaAsignarRecursosModal({
   const [diasManuales, setDiasManuales] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
 
-  // 🔑 % de cargas de la cuadrilla de esta tarea
+  // 🔑 FIX: % de cargas — protegido con optional chaining
   const porcentajeCargas = useMemo(() => {
     if (!tarea?.insumo_mo_nombre || !Array.isArray(insumos)) return 76;
     const cuadrilla = insumos.find(i =>
@@ -47,7 +47,7 @@ export default function TareaAsignarRecursosModal({
     }
   }, [tarea, insumos]);
 
-  // 🔑 Composición de la cuadrilla (cuántos y quiénes)
+  // 🔑 FIX: composición de la cuadrilla — protegido
   const composicionCuadrilla = useMemo(() => {
     if (!tarea?.insumo_mo_nombre || !Array.isArray(insumos)) return { personas: [], total: 0 };
     const cuadrilla = insumos.find(i =>
@@ -67,7 +67,7 @@ export default function TareaAsignarRecursosModal({
     }
   }, [tarea, insumos]);
 
-  // 🔑 Subcontratos de esta tarea
+  // 🔑 Subcontratos de esta tarea — protegido
   const subcontratosDisponibles = useMemo(() => {
     if (!tarea || !presupuesto) return [];
     return obtenerSubcontratosDeTarea(tarea, presupuesto);
@@ -116,17 +116,18 @@ export default function TareaAsignarRecursosModal({
     );
   };
 
-  // 🔑 Validar solapamiento de operarios
+  // 🔑 FIX: validar solapamiento — protegido con optional chaining
   const conflictos = useMemo(() => {
+    if (!tarea) return [];
     const lista = [];
     for (const opId of operariosSeleccionados) {
       const op = personal.find(p => String(p.id || p.ID) === String(opId));
       const res = validarSolapamientoOperario(
         opId,
-        tarea.fecha_inicio,
-        tarea.fecha_fin,
+        tarea?.fecha_inicio,
+        tarea?.fecha_fin,
         tareasDelPlan,
-        tarea.id
+        tarea?.id
       );
       if (!res.ok) {
         lista.push({
@@ -139,7 +140,7 @@ export default function TareaAsignarRecursosModal({
     return lista;
   }, [operariosSeleccionados, tarea, tareasDelPlan, personal]);
 
-  // 🔑 Cálculo de duración real
+  // 🔑 FIX: cálculos — protegido con optional chaining
   const calculos = useMemo(() => {
     const totalDiasHombre = Number(tarea?.total_dias_hombre) || 0;
     const operariosCount = operariosSeleccionados.length;
@@ -156,10 +157,10 @@ export default function TareaAsignarRecursosModal({
       duracionSubcontratos = Math.max(...subcontratosSeleccionados.map(s => Number(s.diasAsignados) || 0));
     }
 
-    // 🔑 Duración final: la máxima entre operarios y subcontratos
+    // Duración final: la máxima entre operarios y subcontratos
     let duracionFinal = Math.max(duracionOperarios, duracionSubcontratos);
 
-    // 🔑 Si no hay ni operarios ni subcontratos → usa días manuales
+    // Si no hay ni operarios ni subcontratos → usa días manuales
     if (duracionFinal === 0 && diasManuales > 0) {
       duracionFinal = diasManuales;
     }
@@ -198,6 +199,8 @@ export default function TareaAsignarRecursosModal({
 
   // 🔑 Guardar
   const handleGuardar = async () => {
+    if (!tarea) return;
+
     if (conflictos.length > 0) {
       toast.error('Hay operarios con solapamiento de fechas. Corregí antes de guardar.');
       return;
@@ -212,7 +215,6 @@ export default function TareaAsignarRecursosModal({
     const toastId = toast.loading('Guardando asignación...');
 
     try {
-      // Construir recursos
       const recursos = [];
 
       operariosSeleccionados.forEach(opId => {
@@ -242,7 +244,7 @@ export default function TareaAsignarRecursosModal({
         }
       });
 
-      // 🔑 Recalcular fecha_fin según duración final
+      // Recalcular fecha_fin según duración final
       const feriadosSet = getFeriadosDelAnio(
         Number((tarea.fecha_inicio || '').slice(0, 4)) || new Date().getFullYear(),
         []
@@ -270,6 +272,7 @@ export default function TareaAsignarRecursosModal({
     }
   };
 
+  // 🔑 FIX: return null DESPUÉS de los hooks (Reglas de Hooks)
   if (!tarea) return null;
 
   const sinOperariosNiSubcontratos = operariosSeleccionados.length === 0 && subcontratosSeleccionados.length === 0;
