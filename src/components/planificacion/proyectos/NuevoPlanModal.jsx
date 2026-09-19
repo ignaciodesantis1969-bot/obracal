@@ -199,7 +199,11 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
       let fechaFinMax = formData.fecha_inicio;
 
       for (const t of tareasPreview) {
-        const duracionInicial = t.dias_hombre || 1;
+        // 🔑 FIX: la duración inicial debe ser los DÍAS DE CUADRILLA (cantidad_dias),
+        // no los días-hombre. Los dh son el total de trabajo; los días son cuánto
+        // tarda la cuadrilla completa.
+        // Ejemplo: 10 m² × 0.5 día/m² × 4 operarios = 20 dh, pero son 5 días de cuadrilla.
+        const duracionInicial = Number(t.cantidad_dias) || 1;
         const fechaFin = calcularFechaFin(formData.fecha_inicio, duracionInicial, feriadosSet);
 
         if (fechaFin > fechaFinMax) fechaFinMax = fechaFin;
@@ -214,11 +218,12 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
           cantidad: t.cantidad,
           insumo_mo_nombre: t.insumo_mo_nombre,
           cuadrilla_id: t.cuadrilla_id,
-          cantidad_dias_teoricos: t.cantidad_dias,
-          operarios_teoricos: t.operarios_teoricos,
-          operarios_asignados: [],
-          total_dias_hombre: t.dias_hombre,
-          duracion_real_dias: duracionInicial,
+          // 🔑 Datos teóricos (los 3 valores por separado):
+          cantidad_dias_teoricos: t.cantidad_dias,       // ← días TOTALES de cuadrilla (ej: 5)
+          operarios_teoricos: t.operarios_teoricos,       // ← personas en la cuadrilla (ej: 4)
+          total_dias_hombre: t.dias_hombre,               // ← dh totales (ej: 20)
+          // 🔑 Datos iniciales (sin recursos asignados):
+          duracion_real_dias: duracionInicial,            // ← arranca con días de cuadrilla
           fecha_inicio: formData.fecha_inicio,
           fecha_fin: fechaFin,
           estado: 'no_iniciado',
@@ -226,6 +231,7 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
           prioridad: 'media',
           predecesoras: [],
           subtareas: [],
+          recursos: [],                                   // 🔑 array vacío desde el arranque
           notas: ''
         });
       }

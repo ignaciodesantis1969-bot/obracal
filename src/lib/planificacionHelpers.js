@@ -168,7 +168,33 @@ export function buscarCuadrillaPorNombre(nombreCuadrilla, insumos) {
 
 /**
  * Calcula los días-hombre de una tarea a partir de su insumo de Mano de Obra.
- * Devuelve { cantidadDias, operariosTeoricos, diasHombre, cuadrilla }
+ * 
+ * 🔑 FIX: ahora multiplica por la CANTIDAD DE LA TAREA.
+ * 
+ * Interpretación correcta del insumo MO:
+ *   - `insumoMO.cantidad` = días de cuadrilla POR UNIDAD de la tarea
+ *   - `tarea.cantidad`    = cuántas unidades hay que ejecutar
+ *   - `cuadrilla.totalPersonas` = cuántas personas componen la cuadrilla
+ * 
+ * Fórmula:
+ *   diasCuadrillaTotales = tarea.cantidad × insumoMO.cantidad
+ *   diasHombre           = diasCuadrillaTotales × operariosTeoricos
+ * 
+ * Ejemplo:
+ *   Tarea: pintar 10 m² (tarea.cantidad = 10)
+ *   Insumo MO: 0.5 día/m² (insumoMO.cantidad = 0.5)
+ *   Cuadrilla: 4 personas
+ *   → diasCuadrillaTotales = 10 × 0.5 = 5 días
+ *   → diasHombre = 5 × 4 = 20 días-hombre
+ * 
+ * Devuelve {
+ *   cantidadUnidadesTarea,  // cuántas unidades hay que ejecutar
+ *   diasPorUnidad,          // días de cuadrilla por unidad
+ *   cantidadDias,           // días TOTALES de cuadrilla (tarea.cantidad × insumoMO.cantidad)
+ *   operariosTeoricos,      // personas en la cuadrilla
+ *   diasHombre,             // cantidadDias × operariosTeoricos
+ *   cuadrilla
+ * }
  */
 export function calcularDiasHombreTarea(tarea, insumos) {
   const insumosTarea = Array.isArray(tarea?.insumos) ? tarea.insumos : [];
@@ -179,6 +205,8 @@ export function calcularDiasHombreTarea(tarea, insumos) {
 
   if (!insumoMO) {
     return {
+      cantidadUnidadesTarea: 0,
+      diasPorUnidad: 0,
       cantidadDias: 0,
       operariosTeoricos: 0,
       diasHombre: 0,
@@ -187,13 +215,24 @@ export function calcularDiasHombreTarea(tarea, insumos) {
     };
   }
 
-  const cantidadDias = Number(insumoMO.cantidad) || 0;
-  const cuadrilla = buscarCuadrillaPorNombre(insumoMO.nombre, insumos);
+  // 🔑 FIX: cantidad de unidades de la tarea (ej: 10 m², 5 gl, 3 un)
+  const cantidadUnidadesTarea = Number(tarea?.cantidad) || 1;
 
+  // 🔑 FIX: días de cuadrilla por unidad (ej: 0.5 día/m²)
+  const diasPorUnidad = Number(insumoMO.cantidad) || 0;
+
+  // 🔑 FIX: días TOTALES de cuadrilla = unidades × días por unidad
+  const cantidadDias = cantidadUnidadesTarea * diasPorUnidad;
+
+  const cuadrilla = buscarCuadrillaPorNombre(insumoMO.nombre, insumos);
   const operariosTeoricos = cuadrilla?.totalPersonas || 1;
+
+  // 🔑 FIX: días-hombre = días totales de cuadrilla × operarios
   const diasHombre = cantidadDias * operariosTeoricos;
 
   return {
+    cantidadUnidadesTarea,
+    diasPorUnidad,
     cantidadDias,
     operariosTeoricos,
     diasHombre,
@@ -233,9 +272,13 @@ export function extraerTareasDelPresupuesto(presupuesto, insumos) {
         tarea_idx: tIdx,
         unidad: t?.unidad || 'gl',
         cantidad: Number(t?.cantidad) || 1,
+
+        // 🔑 Datos de la MO (con la fórmula corregida)
         insumo_mo_nombre: calculo.cuadrilla?.nombre || '',
         cuadrilla_id: calculo.cuadrilla?.id || null,
-        cantidad_dias: calculo.cantidadDias,
+        cantidad_unidades_tarea: calculo.cantidadUnidadesTarea,
+        dias_por_unidad: calculo.diasPorUnidad,
+        cantidad_dias: calculo.cantidadDias,              // ← días TOTALES de cuadrilla
         operarios_teoricos: calculo.operariosTeoricos,
         dias_hombre: calculo.diasHombre,
         sin_mano_de_obra: calculo.sinManoDeObra

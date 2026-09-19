@@ -140,9 +140,22 @@ export default function TareaAsignarRecursosModal({
     return lista;
   }, [operariosSeleccionados, tarea, tareasDelPlan, personal]);
 
-  // 🔑 FIX: cálculos — protegido con optional chaining
+  // 🔑 FIX: cálculos — recalcula totalDiasHombre desde datos crudos (no confía en el campo guardado)
   const calculos = useMemo(() => {
-    const totalDiasHombre = Number(tarea?.total_dias_hombre) || 0;
+    // 🔑 FIX: recalcular días-hombre desde los campos base.
+    // El campo `total_dias_hombre` guardado en Firestore puede estar desactualizado
+    // (bug antiguo: no multiplicaba por cantidad de tarea).
+    const cantidadDiasTeoricos = Number(tarea?.cantidad_dias_teoricos) || 0;
+    const operariosTeoricos = Number(tarea?.operarios_teoricos) || composicionCuadrilla.total || 0;
+
+    // 🔑 Cálculo primario: días teóricos × operarios teóricos
+    let totalDiasHombre = cantidadDiasTeoricos * operariosTeoricos;
+
+    // 🔑 Fallback: si por algún motivo da 0, usar el campo guardado (aunque sea viejo)
+    if (totalDiasHombre === 0) {
+      totalDiasHombre = Number(tarea?.total_dias_hombre) || 0;
+    }
+
     const operariosCount = operariosSeleccionados.length;
 
     // Si tiene operarios asignados → recalcula duración
@@ -167,7 +180,7 @@ export default function TareaAsignarRecursosModal({
 
     // Fallback: la duración teórica
     if (duracionFinal === 0) {
-      duracionFinal = Number(tarea?.duracion_real_dias) || Number(tarea?.cantidad_dias_teoricos) || 1;
+      duracionFinal = Number(tarea?.duracion_real_dias) || cantidadDiasTeoricos || 1;
     }
 
     // Costo total
@@ -195,7 +208,7 @@ export default function TareaAsignarRecursosModal({
       costoSubcontratos,
       costoTotal: costoOperarios + costoSubcontratos,
     };
-  }, [tarea, operariosSeleccionados, subcontratosSeleccionados, diasManuales, personal, porcentajeCargas, subcontratosDisponibles]);
+  }, [tarea, operariosSeleccionados, subcontratosSeleccionados, diasManuales, personal, porcentajeCargas, subcontratosDisponibles, composicionCuadrilla.total]);
 
   // 🔑 Guardar
   const handleGuardar = async () => {
