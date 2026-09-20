@@ -34,13 +34,13 @@ export default function GanttBarra({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE RUBRO: línea + topes cortos, centrada en el medio
+// BARRA DE RUBRO — línea negra + topes en L, centrada verticalmente
 // ═══════════════════════════════════════════════════════════════════════════
 
 function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
   const GROSOR = 4;
-  const ALTO_TOPE = 8;         // 🔑 más corto (antes 12)
-  const COLOR = '#1e293b';
+  const ALTO_TOPE = 8;
+  const COLOR = '#0f172a';   // slate-900 (más oscuro, más contraste)
 
   return (
     <div
@@ -53,19 +53,19 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
         className="absolute"
         style={{
           left: `${rubro._offsetPx}px`,
-          top: '50%',                              // centrado
+          top: '50%',
           width: `${rubro._anchoPx}px`,
           height: `${GROSOR}px`,
           backgroundColor: COLOR,
           transform: 'translateY(-50%)',
         }}
       >
-        {/* Tope izquierdo — mitad arriba, mitad abajo */}
+        {/* Tope izquierdo — ligeramente arriba */}
         <div
           style={{
             position: 'absolute',
             left: 0,
-            top: `-${Math.round(ALTO_TOPE / 4)}px`,   // 🔑 ligeramente arriba
+            top: `-${Math.round(ALTO_TOPE / 4)}px`,
             width: `${GROSOR}px`,
             height: `${ALTO_TOPE}px`,
             backgroundColor: COLOR,
@@ -88,7 +88,7 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE TAREA: más fina y elegante
+// BARRA DE TAREA — celeste con borde más oscuro
 // ═══════════════════════════════════════════════════════════════════════════
 
 function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMove }) {
@@ -113,23 +113,23 @@ function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMov
           left: `${tarea._offsetPx}px`,
           top: '50%',
           width: `${anchoBarra}px`,
-          height: `${alturaFila * 0.38}px`,        // 🔑 más fina (antes 0.5)
+          height: `${alturaFila * 0.38}px`,
           transform: 'translateY(-50%)',
-          border: '1px solid #3b82f6',             // 🔑 borde 1px
+          border: '2px solid #2563eb',       // 🔑 azul-600, más oscuro
           overflow: 'hidden',
         }}
       >
-        {/* Fondo celeste */}
+        {/* Fondo celeste — azul-200 (más saturado que azul-100) */}
         <div
           style={{
             position: 'absolute',
             inset: 0,
-            backgroundColor: '#dbeafe',
+            backgroundColor: '#bfdbfe',       // 🔑 más visible
             zIndex: 0,
           }}
         />
 
-        {/* Progreso */}
+        {/* Progreso interno */}
         {porcentajeAvance > 0 && (
           <div
             style={{
@@ -138,30 +138,30 @@ function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMov
               bottom: 0,
               left: 0,
               width: `${Math.min(porcentajeAvance, 100)}%`,
-              backgroundColor: '#3b82f6',
-              opacity: 0.5,
+              backgroundColor: '#2563eb',
+              opacity: 0.6,
               zIndex: 1,
             }}
           />
         )}
-
-        {/* Burbuja % */}
-        {porcentajeAvance > 0 && tarea._anchoPx > 40 && (
-          <div
-            className="absolute text-[9px] font-black text-slate-700 bg-white border border-slate-300 rounded-full px-1.5 py-0.5 shadow-sm"
-            style={{
-              top: '50%',
-              right: '-4px',
-              transform: 'translate(100%, -50%)',
-              minWidth: '28px',
-              textAlign: 'center',
-              zIndex: 2,
-            }}
-          >
-            {Math.round(porcentajeAvance)}%
-          </div>
-        )}
       </div>
+
+      {/* Burbuja % — fuera de la barra */}
+      {porcentajeAvance > 0 && tarea._anchoPx > 40 && (
+        <div
+          className="absolute text-[9px] font-black text-slate-800 bg-white border-2 border-slate-400 rounded-full px-1.5 py-0.5 shadow-sm"
+          style={{
+            left: `${tarea._offsetPx + anchoBarra + 6}px`,
+            top: '50%',
+            transform: 'translateY(-50%)',
+            minWidth: '28px',
+            textAlign: 'center',
+            zIndex: 2,
+          }}
+        >
+          {Math.round(porcentajeAvance)}%
+        </div>
+      )}
     </div>
   );
 }

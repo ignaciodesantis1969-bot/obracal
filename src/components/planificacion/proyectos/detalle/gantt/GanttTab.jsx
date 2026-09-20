@@ -4,11 +4,12 @@ import { BarChart3, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NIVELES_ZOOM, useGanttCalculos } from './useGanttCalculos';
 import GanttHeader from './GanttHeader';
-import GanttSidebar from './GanttSidebar';
+import { FilaRubro, FilaTarea } from './GanttSidebar';
 import GanttBarra from './GanttBarra';
 import GanttTooltip from './GanttTooltip';
 
 const ALTURA_FILA = 36;
+const ALTURA_HEADER_GANTT = 44 + ALTURA_FILA * 1.5; // = 98px
 
 export default function GanttTab({ plan, tareas = [], personal = [], insumos = [] }) {
   const [nivelZoomId, setNivelZoomId] = useState('semanas');
@@ -60,20 +61,14 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
   return (
     <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
 
-      {/* Barra superior */}
+      {/* Barra superior informativa */}
       <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-[10px]">
         <div className="flex items-center gap-3 text-slate-500">
-          <span>
-            <b className="text-slate-700">{totalRubros}</b> rubros
-          </span>
+          <span><b className="text-slate-700">{totalRubros}</b> rubros</span>
           <span className="text-slate-300">|</span>
-          <span>
-            <b className="text-slate-700">{tareas.length}</b> tareas
-          </span>
+          <span><b className="text-slate-700">{tareas.length}</b> tareas</span>
           <span className="text-slate-300">|</span>
-          <span>
-            Rango: <b className="text-slate-700">{rango.totalDias} días</b>
-          </span>
+          <span>Rango: <b className="text-slate-700">{rango.totalDias} días</b></span>
         </div>
         {tareasSinFecha.length > 0 && (
           <div className="flex items-center gap-1 text-amber-700">
@@ -83,21 +78,61 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         )}
       </div>
 
-      {/* Contenedor principal */}
-      <div className="flex">
+      {/* LAYOUT UNIFICADO: sidebar + barras en el mismo contenedor con scroll vertical */}
+      <div className="flex" style={{ height: '70vh', minHeight: '400px' }}>
 
-        <GanttSidebar
-          filas={filas}
-          alturaFila={ALTURA_FILA}
-          onHoverTarea={setTareaHoverId}
-          tareaHoverId={tareaHoverId}
-          onToggleRubro={toggleRubro}
-        />
+        {/* ═══ Columna izquierda: sidebar ═══ */}
+        <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-300 overflow-y-auto overflow-x-hidden">
+          {/* Header del sidebar sticky */}
+          <div
+            className="border-b-2 border-slate-300 px-3 flex items-center bg-slate-200 sticky top-0 z-10"
+            style={{ height: `${ALTURA_HEADER_GANTT}px` }}
+          >
+            <p className="text-[10px] font-black text-slate-700 uppercase">Rubro / Tarea</p>
+          </div>
 
-        <div className="flex-1 min-w-0">
-          <div className="overflow-x-auto overflow-y-hidden">
-            <div style={{ width: `${anchoTotal}px`, minWidth: '100%' }}>
+          {/* Filas del sidebar */}
+          {filas.map((fila) => {
+            const isRubro = fila._tipo === 'rubro';
+            const hoverKey = isRubro ? `rubro-${fila.nombre}` : fila.id;
+            const isHover = tareaHoverId === hoverKey;
 
+            return (
+              <div
+                key={fila._key}
+                style={{ height: `${ALTURA_FILA}px` }}
+                className={cn(
+                  'border-b overflow-hidden transition-colors',
+                  isRubro ? 'bg-slate-100 border-slate-300' : 'border-slate-200',
+                  isHover && !isRubro && 'bg-amber-100',
+                  isHover && isRubro && 'bg-blue-100'
+                )}
+              >
+                {isRubro ? (
+                  <FilaRubro
+                    rubro={fila}
+                    alturaFila={ALTURA_FILA}
+                    onClick={() => toggleRubro(fila.nombre)}
+                  />
+                ) : (
+                  <FilaTarea
+                    tarea={fila}
+                    alturaFila={ALTURA_FILA}
+                    esHover={isHover}
+                    onHover={setTareaHoverId}
+                  />
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* ═══ Columna derecha: header + barras con scroll horizontal ═══ */}
+        <div className="flex-1 min-w-0 overflow-x-auto overflow-y-hidden">
+          <div style={{ width: `${anchoTotal}px`, minWidth: '100%' }}>
+
+            {/* Header del Gantt */}
+            <div style={{ position: 'sticky', top: 0, zIndex: 20 }}>
               <GanttHeader
                 ticks={ticks}
                 anchoTotal={anchoTotal}
@@ -105,60 +140,62 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                 onCambiarZoom={setNivelZoomId}
                 alturaFila={ALTURA_FILA}
               />
+            </div>
 
-              <div className="relative">
-                {/* Grilla de fondo */}
-                <div
-                  className="absolute top-0 left-0 pointer-events-none flex"
-                  style={{ width: `${anchoTotal}px`, height: `${filas.length * ALTURA_FILA}px` }}
-                >
-                  {ticks.map((tick, idx) => (
-                    <div
-                      key={`grid-${tick.iso}-${idx}`}
-                      className={cn(
-                        'border-r shrink-0 h-full',
-                        tick.esFinde ? 'bg-slate-50/40 border-slate-100' : 'border-slate-100',
-                        tick.esInicioMes && 'border-l-2 border-l-slate-300'
-                      )}
-                      style={{ width: `${tick.anchoPx}px` }}
-                    />
-                  ))}
-                </div>
-
-                {/* Filas */}
-                <div className="relative">
-                  {filas.map((fila) => {
-                    const isRubro = fila._tipo === 'rubro';
-                    const hoverKey = isRubro ? `rubro-${fila.nombre}` : fila.id;
-                    const isHover = tareaHoverId === hoverKey;
-
-                    return (
-                      <div
-                        key={fila._key}
-                        className={cn(
-                          'border-b transition-colors',
-                          isRubro
-                            ? 'bg-slate-100/40 border-slate-200'
-                            : 'border-slate-100',
-                          isHover && !isRubro && 'bg-amber-50/40',
-                          isHover && isRubro && 'bg-blue-50/60'
-                        )}
-                      >
-                        <GanttBarra
-                          fila={fila}
-                          alturaFila={ALTURA_FILA}
-                          esHover={isHover}
-                          onHover={setTareaHoverId}
-                          onLeave={handleLeave}
-                          onTooltipMove={isRubro ? undefined : handleTooltipMove}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
+            {/* Filas de barras */}
+            <div className="relative">
+              {/* Grilla de fondo */}
+              <div
+                className="absolute top-0 left-0 pointer-events-none flex"
+                style={{ width: `${anchoTotal}px`, height: `${filas.length * ALTURA_FILA}px` }}
+              >
+                {ticks.map((tick, idx) => (
+                  <div
+                    key={`grid-${tick.iso}-${idx}`}
+                    className={cn(
+                      'border-r shrink-0 h-full',
+                      tick.esFinde
+                        ? 'bg-slate-100 border-slate-200'
+                        : 'border-slate-200',
+                      tick.esInicioMes && 'border-l-2 border-l-slate-400'
+                    )}
+                    style={{ width: `${tick.anchoPx}px` }}
+                  />
+                ))}
               </div>
 
+              {/* Filas */}
+              <div className="relative">
+                {filas.map((fila) => {
+                  const isRubro = fila._tipo === 'rubro';
+                  const hoverKey = isRubro ? `rubro-${fila.nombre}` : fila.id;
+                  const isHover = tareaHoverId === hoverKey;
+
+                  return (
+                    <div
+                      key={fila._key}
+                      style={{ height: `${ALTURA_FILA}px` }}
+                      className={cn(
+                        'border-b overflow-hidden transition-colors',
+                        isRubro ? 'bg-slate-100 border-slate-300' : 'border-slate-200',
+                        isHover && !isRubro && 'bg-amber-100',
+                        isHover && isRubro && 'bg-blue-100'
+                      )}
+                    >
+                      <GanttBarra
+                        fila={fila}
+                        alturaFila={ALTURA_FILA}
+                        esHover={isHover}
+                        onHover={setTareaHoverId}
+                        onLeave={handleLeave}
+                        onTooltipMove={isRubro ? undefined : handleTooltipMove}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
+
           </div>
         </div>
       </div>

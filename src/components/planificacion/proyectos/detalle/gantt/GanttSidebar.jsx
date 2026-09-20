@@ -3,10 +3,13 @@ import React from 'react';
 import { ChevronDown, ChevronRight, Users, FolderKanban } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { COLORES_ESTADO } from './useGanttCalculos';
-import { ALTURA_BARRA_SUPERIOR_HEADER } from './GanttHeader';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPONENTE DEFAULT (compatibilidad hacia atrás)
+// ═══════════════════════════════════════════════════════════════════════════
 
 export default function GanttSidebar({
-  filas,
+  filas = [],
   alturaFila = 36,
   onHoverTarea,
   tareaHoverId,
@@ -14,47 +17,52 @@ export default function GanttSidebar({
 }) {
   if (!filas || filas.length === 0) {
     return (
-      <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-200 flex items-center justify-center p-4">
+      <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-300 flex items-center justify-center p-4">
         <p className="text-xs text-slate-400 text-center">Sin tareas para mostrar</p>
       </div>
     );
   }
 
-  // 🔑 Altura del header = barra superior + eje temporal (igual que GanttHeader)
-  const alturaHeader = ALTURA_BARRA_SUPERIOR_HEADER + alturaFila * 1.5;
-
   return (
-    <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-200">
-      {/* Header — alineado con el header del Gantt */}
+    <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-300">
       <div
-        className="border-b border-slate-200 px-3 flex items-center bg-slate-100"
-        style={{ height: `${alturaHeader}px` }}
+        className="border-b-2 border-slate-300 px-3 flex items-center bg-slate-200"
+        style={{ height: `${44 + alturaFila * 1.5}px` }}
       >
-        <p className="text-[10px] font-black text-slate-600 uppercase">Rubro / Tarea</p>
+        <p className="text-[10px] font-black text-slate-700 uppercase">Rubro / Tarea</p>
       </div>
 
-      {/* Filas */}
       <div>
         {filas.map((fila) => {
-          if (fila._tipo === 'rubro') {
-            return (
-              <FilaRubro
-                key={fila._key}
-                rubro={fila}
-                alturaFila={alturaFila}
-                onClick={() => onToggleRubro?.(fila.nombre)}
-              />
-            );
-          }
+          const isRubro = fila._tipo === 'rubro';
+          const isHover = tareaHoverId === (isRubro ? `rubro-${fila.nombre}` : fila.id);
 
           return (
-            <FilaTarea
+            <div
               key={fila._key}
-              tarea={fila}
-              alturaFila={alturaFila}
-              esHover={tareaHoverId === fila.id}
-              onHover={onHoverTarea}
-            />
+              style={{ height: `${alturaFila}px` }}
+              className={cn(
+                'border-b overflow-hidden transition-colors',
+                isRubro ? 'bg-slate-100 border-slate-300' : 'border-slate-200',
+                isHover && !isRubro && 'bg-amber-100',
+                isHover && isRubro && 'bg-blue-100'
+              )}
+            >
+              {isRubro ? (
+                <FilaRubro
+                  rubro={fila}
+                  alturaFila={alturaFila}
+                  onClick={() => onToggleRubro?.(fila.nombre)}
+                />
+              ) : (
+                <FilaTarea
+                  tarea={fila}
+                  alturaFila={alturaFila}
+                  esHover={isHover}
+                  onHover={onHoverTarea}
+                />
+              )}
+            </div>
           );
         })}
       </div>
@@ -63,24 +71,22 @@ export default function GanttSidebar({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FILA DE RUBRO — contenido centrado verticalmente
+// FILA DE RUBRO
 // ═══════════════════════════════════════════════════════════════════════════
 
-function FilaRubro({ rubro, alturaFila, onClick }) {
+export function FilaRubro({ rubro, alturaFila = 36, onClick }) {
   const IconoChevron = rubro._colapsado ? ChevronRight : ChevronDown;
 
   return (
     <div
       onClick={onClick}
       className={cn(
-        'px-3 border-b border-slate-200 transition-colors cursor-pointer',
-        'flex items-center gap-2',
-        'bg-slate-100 hover:bg-slate-200/70'
+        'px-3 flex items-center gap-2 transition-colors cursor-pointer h-full w-full',
+        'hover:bg-slate-200'
       )}
-      style={{ height: alturaFila }}
     >
-      <IconoChevron className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-      <FolderKanban className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+      <IconoChevron className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+      <FolderKanban className="w-3.5 h-3.5 text-blue-700 shrink-0" />
       <div className="min-w-0 flex-1">
         <p
           className="text-[11px] font-black text-slate-900 truncate uppercase leading-tight"
@@ -89,17 +95,17 @@ function FilaRubro({ rubro, alturaFila, onClick }) {
           {rubro.nombre}
         </p>
         <div className="flex items-center gap-2 leading-tight">
-          <span className="text-[9px] text-slate-500 font-semibold">
+          <span className="text-[9px] text-slate-600 font-semibold">
             {rubro.duracionDias} d
           </span>
           {Number(rubro.diasHombreTotal) > 0 && (
-            <span className="text-[9px] text-slate-500 font-semibold">
+            <span className="text-[9px] text-slate-600 font-semibold">
               {Math.round(rubro.diasHombreTotal)} dh
             </span>
           )}
         </div>
       </div>
-      <span className="text-[10px] font-bold text-slate-500 shrink-0">
+      <span className="text-[10px] font-bold text-slate-600 shrink-0">
         {rubro.tareasCompletadas}/{rubro.totalTareas}
       </span>
     </div>
@@ -107,10 +113,10 @@ function FilaRubro({ rubro, alturaFila, onClick }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FILA DE TAREA — contenido centrado verticalmente
+// FILA DE TAREA
 // ═══════════════════════════════════════════════════════════════════════════
 
-function FilaTarea({ tarea, alturaFila, esHover, onHover }) {
+export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover }) {
   const estadoKey = String(tarea.estado || 'no_iniciado').toLowerCase();
   const color = COLORES_ESTADO[estadoKey] || COLORES_ESTADO.no_iniciado;
 
@@ -123,11 +129,9 @@ function FilaTarea({ tarea, alturaFila, esHover, onHover }) {
       onMouseEnter={() => onHover?.(tarea.id)}
       onMouseLeave={() => onHover?.(null)}
       className={cn(
-        'pl-8 pr-3 border-b border-slate-100 transition-colors cursor-pointer',
-        'flex items-center gap-2',                      // 🔑 centrado vertical
-        esHover ? 'bg-amber-50' : 'hover:bg-white'
+        'pl-8 pr-3 flex items-center gap-2 transition-colors cursor-pointer h-full w-full',
+        'hover:bg-slate-50'
       )}
-      style={{ height: alturaFila }}
     >
       <div
         className="w-2 h-2 rounded-full shrink-0"
@@ -146,18 +150,18 @@ function FilaTarea({ tarea, alturaFila, esHover, onHover }) {
         </p>
         <div className="flex items-center gap-2 leading-tight">
           {Number(tarea.total_dias_hombre) > 0 && (
-            <span className="text-[9px] text-slate-500 font-semibold">
+            <span className="text-[9px] text-slate-600 font-semibold">
               {Math.round(Number(tarea.total_dias_hombre))} dh
             </span>
           )}
           {operarios > 0 && (
-            <span className="text-[9px] text-blue-600 font-semibold flex items-center gap-0.5">
+            <span className="text-[9px] text-blue-700 font-semibold flex items-center gap-0.5">
               <Users className="w-2.5 h-2.5" />
               {operarios}
             </span>
           )}
           {Number(tarea._duracionDias) > 0 && (
-            <span className="text-[9px] text-slate-400 font-semibold">
+            <span className="text-[9px] text-slate-500 font-semibold">
               {tarea._duracionDias} d
             </span>
           )}
