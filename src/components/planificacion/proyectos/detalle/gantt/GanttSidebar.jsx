@@ -63,7 +63,7 @@ export default function GanttSidebar({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FILA DE RUBRO
+// FILA DE RUBRO — contenido centrado verticalmente
 // ═══════════════════════════════════════════════════════════════════════════
 
 function FilaRubro({ rubro, alturaFila, onClick }) {
@@ -73,40 +73,41 @@ function FilaRubro({ rubro, alturaFila, onClick }) {
     <div
       onClick={onClick}
       className={cn(
-        'px-3 flex flex-col justify-center border-b border-slate-200 transition-colors cursor-pointer',
+        'px-3 border-b border-slate-200 transition-colors cursor-pointer',
+        'flex items-center gap-2',
         'bg-slate-100 hover:bg-slate-200/70'
       )}
       style={{ height: alturaFila }}
     >
-      <div className="flex items-center gap-2">
-        <IconoChevron className="w-3.5 h-3.5 text-slate-600 shrink-0" />
-        <FolderKanban className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+      <IconoChevron className="w-3.5 h-3.5 text-slate-600 shrink-0" />
+      <FolderKanban className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+      <div className="min-w-0 flex-1">
         <p
-          className="text-[11px] font-black text-slate-900 truncate flex-1 uppercase"
+          className="text-[11px] font-black text-slate-900 truncate uppercase leading-tight"
           title={rubro.nombre}
         >
           {rubro.nombre}
         </p>
-        <span className="text-[10px] font-bold text-slate-500 shrink-0">
-          {rubro.tareasCompletadas}/{rubro.totalTareas}
-        </span>
+        <div className="flex items-center gap-2 leading-tight">
+          <span className="text-[9px] text-slate-500 font-semibold">
+            {rubro.duracionDias} d
+          </span>
+          {Number(rubro.diasHombreTotal) > 0 && (
+            <span className="text-[9px] text-slate-500 font-semibold">
+              {Math.round(rubro.diasHombreTotal)} dh
+            </span>
+          )}
+        </div>
       </div>
-      <div className="flex items-center gap-3 mt-0.5 pl-5">
-        <p className="text-[9px] text-slate-500 font-semibold">
-          {rubro.duracionDias} d
-        </p>
-        {Number(rubro.diasHombreTotal) > 0 && (
-          <p className="text-[9px] text-slate-500 font-semibold">
-            {Math.round(rubro.diasHombreTotal)} dh
-          </p>
-        )}
-      </div>
+      <span className="text-[10px] font-bold text-slate-500 shrink-0">
+        {rubro.tareasCompletadas}/{rubro.totalTareas}
+      </span>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FILA DE TAREA
+// FILA DE TAREA — contenido centrado verticalmente
 // ═══════════════════════════════════════════════════════════════════════════
 
 function FilaTarea({ tarea, alturaFila, esHover, onHover }) {
@@ -122,44 +123,45 @@ function FilaTarea({ tarea, alturaFila, esHover, onHover }) {
       onMouseEnter={() => onHover?.(tarea.id)}
       onMouseLeave={() => onHover?.(null)}
       className={cn(
-        'pl-8 pr-3 flex flex-col justify-center border-b border-slate-100 transition-colors cursor-pointer',
+        'pl-8 pr-3 border-b border-slate-100 transition-colors cursor-pointer',
+        'flex items-center gap-2',                      // 🔑 centrado vertical
         esHover ? 'bg-amber-50' : 'hover:bg-white'
       )}
       style={{ height: alturaFila }}
     >
-      <div className="flex items-center gap-2">
-        <div
-          className="w-2 h-2 rounded-full shrink-0"
-          style={{ backgroundColor: color.border }}
-          title={color.label}
-        />
+      <div
+        className="w-2 h-2 rounded-full shrink-0"
+        style={{ backgroundColor: color.border }}
+        title={color.label}
+      />
+      <div className="min-w-0 flex-1">
         <p
           className={cn(
-            'text-[11px] font-bold truncate flex-1',
+            'text-[11px] font-bold truncate leading-tight',
             esHover ? 'text-amber-900' : 'text-slate-800'
           )}
           title={tarea.tarea_nombre}
         >
           {tarea.tarea_nombre || '---'}
         </p>
-      </div>
-      <div className="flex items-center gap-3 mt-0.5 pl-4">
-        {Number(tarea.total_dias_hombre) > 0 && (
-          <span className="text-[9px] text-slate-500 font-semibold">
-            {Math.round(Number(tarea.total_dias_hombre))} dh
-          </span>
-        )}
-        {operarios > 0 && (
-          <span className="text-[9px] text-blue-600 font-semibold flex items-center gap-0.5">
-            <Users className="w-2.5 h-2.5" />
-            {operarios}
-          </span>
-        )}
-        {Number(tarea._duracionDias) > 0 && (
-          <span className="text-[9px] text-slate-400 font-semibold">
-            {tarea._duracionDias} d
-          </span>
-        )}
+        <div className="flex items-center gap-2 leading-tight">
+          {Number(tarea.total_dias_hombre) > 0 && (
+            <span className="text-[9px] text-slate-500 font-semibold">
+              {Math.round(Number(tarea.total_dias_hombre))} dh
+            </span>
+          )}
+          {operarios > 0 && (
+            <span className="text-[9px] text-blue-600 font-semibold flex items-center gap-0.5">
+              <Users className="w-2.5 h-2.5" />
+              {operarios}
+            </span>
+          )}
+          {Number(tarea._duracionDias) > 0 && (
+            <span className="text-[9px] text-slate-400 font-semibold">
+              {tarea._duracionDias} d
+            </span>
+          )}
+        </div>
       </div>
     </div>
   );
