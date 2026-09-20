@@ -3,6 +3,7 @@ import React from 'react';
 import { cn } from '@/lib/utils';
 import { COLOR_TAREA } from './useGanttCalculos';
 
+
 export default function GanttBarra({
   fila,
   alturaFila = 36,
