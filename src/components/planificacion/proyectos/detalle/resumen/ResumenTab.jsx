@@ -12,7 +12,7 @@ import {
   Ban,
   PlayCircle,
   CircleDashed,
-  BarChart3,
+  BarChart3,        // 🔑 FALTABA ESTE
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
