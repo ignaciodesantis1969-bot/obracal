@@ -1,7 +1,9 @@
+// src/components/planificacion/proyectos/detalle/DetalleTabs.jsx
 import React, { useState } from 'react';
 import { CheckSquare, BarChart3, Users, Calendar, LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import TareasTab from './tareas/TareasTab';
+import ResumenTab from './resumen/ResumenTab';   // 🔑 NUEVO
 
 const TABS = [
   { id: 'tareas',   label: 'Tareas',   icon: CheckSquare },
@@ -45,10 +47,14 @@ export default function DetalleTabs({ plan, tareas, personal, insumos }) {
         />
       )}
 
+      {/* 🔑 NUEVO: Tab Resumen */}
       {tabActiva === 'resumen' && (
-        <div className="bg-white p-12 rounded-2xl border border-dashed border-slate-300 text-center">
-          <p className="text-sm font-bold text-slate-500">Tab Resumen — próximamente (Paso 5C)</p>
-        </div>
+        <ResumenTab
+          plan={plan}
+          tareas={tareas}
+          personal={personal}
+          insumos={insumos}
+        />
       )}
 
       {tabActiva === 'gantt' && (
