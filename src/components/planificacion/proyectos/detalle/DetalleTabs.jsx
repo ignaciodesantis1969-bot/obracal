@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import { CheckSquare, BarChart3, Users, Calendar, LayoutDashboard } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import TareasTab from './tareas/TareasTab';
-import ResumenTab from './resumen/ResumenTab';   // 🔑 NUEVO
+import ResumenTab from './resumen/ResumenTab';
+import GanttTab from './gantt/GanttTab';   // 🔑 NUEVO
 
 const TABS = [
   { id: 'tareas',   label: 'Tareas',   icon: CheckSquare },
@@ -47,7 +48,6 @@ export default function DetalleTabs({ plan, tareas, personal, insumos }) {
         />
       )}
 
-      {/* 🔑 NUEVO: Tab Resumen */}
       {tabActiva === 'resumen' && (
         <ResumenTab
           plan={plan}
@@ -57,10 +57,14 @@ export default function DetalleTabs({ plan, tareas, personal, insumos }) {
         />
       )}
 
+      {/* 🔑 NUEVO: Tab Gantt */}
       {tabActiva === 'gantt' && (
-        <div className="bg-white p-12 rounded-2xl border border-dashed border-slate-300 text-center">
-          <p className="text-sm font-bold text-slate-500">Tab Gantt — próximamente (Paso 5D)</p>
-        </div>
+        <GanttTab
+          plan={plan}
+          tareas={tareas}
+          personal={personal}
+          insumos={insumos}
+        />
       )}
 
       {tabActiva === 'equipo' && (
