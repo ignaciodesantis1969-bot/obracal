@@ -1,5 +1,5 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttTab.jsx
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState } from 'react';
 import { BarChart3, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NIVELES_ZOOM, useGanttCalculos } from './useGanttCalculos';
@@ -11,29 +11,30 @@ import GanttTooltip from './GanttTooltip';
 const ALTURA_FILA = 36;
 
 export default function GanttTab({ plan, tareas = [], personal = [], insumos = [] }) {
-  const [nivelZoomId, setNivelZoomId] = useState('semanas'); // default según opción 2A
+  const [nivelZoomId, setNivelZoomId] = useState('semanas');
   const [tareaHoverId, setTareaHoverId] = useState(null);
   const [tooltip, setTooltip] = useState({ tarea: null, posicion: null });
+  const [rubrosColapsados, setRubrosColapsados] = useState(new Set());
 
   const nivelZoom = NIVELES_ZOOM[nivelZoomId] || NIVELES_ZOOM.semanas;
 
-  const { rango, tareasConPos, ticks, anchoTotal } = useGanttCalculos(tareas, nivelZoom);
+  const { rango, filas, ticks, anchoTotal } = useGanttCalculos(
+    tareas,
+    nivelZoom,
+    rubrosColapsados
+  );
 
-  const scrollRef = useRef(null);
-
-  // Sincronizar scroll horizontal entre header y área de barras
-  const [scrollX, setScrollX] = useState(0);
-
-  const handleScroll = (e) => {
-    setScrollX(e.target.scrollLeft);
+  const toggleRubro = (nombreRubro) => {
+    setRubrosColapsados((prev) => {
+      const next = new Set(prev);
+      if (next.has(nombreRubro)) next.delete(nombreRubro);
+      else next.add(nombreRubro);
+      return next;
+    });
   };
 
-  // Tooltip: tracking de posición del mouse
   const handleTooltipMove = (e, tarea) => {
-    setTooltip({
-      tarea,
-      posicion: { x: e.clientX, y: e.clientY },
-    });
+    setTooltip({ tarea, posicion: { x: e.clientX, y: e.clientY } });
   };
 
   const handleLeave = () => {
@@ -41,7 +42,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     setTooltip({ tarea: null, posicion: null });
   };
 
-  // ─── Estado vacío ─────────────────────────────────────────────────────
   if (!Array.isArray(tareas) || tareas.length === 0) {
     return (
       <div className="bg-white p-12 rounded-2xl border border-dashed border-slate-300 text-center space-y-3">
@@ -54,17 +54,21 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     );
   }
 
-  // ─── Alertas de tareas sin fecha ──────────────────────────────────────
   const tareasSinFecha = tareas.filter(t => !t.fecha_inicio || !t.fecha_fin);
+  const totalRubros = filas.filter(f => f._tipo === 'rubro').length;
 
   return (
     <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
 
-      {/* Barra superior con info del rango */}
+      {/* Barra superior */}
       <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-[10px]">
         <div className="flex items-center gap-3 text-slate-500">
           <span>
-            <b className="text-slate-700">{tareasConPos.length}</b> tareas en el Gantt
+            <b className="text-slate-700">{totalRubros}</b> rubros
+          </span>
+          <span className="text-slate-300">|</span>
+          <span>
+            <b className="text-slate-700">{tareas.length}</b> tareas
           </span>
           <span className="text-slate-300">|</span>
           <span>
@@ -74,7 +78,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         {tareasSinFecha.length > 0 && (
           <div className="flex items-center gap-1 text-amber-700">
             <AlertCircle className="w-3 h-3" />
-            <span>{tareasSinFecha.length} tarea{tareasSinFecha.length === 1 ? '' : 's'} sin fechas</span>
+            <span>{tareasSinFecha.length} sin fechas</span>
           </div>
         )}
       </div>
@@ -82,24 +86,18 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       {/* Contenedor principal */}
       <div className="flex">
 
-        {/* Sidebar con tareas */}
         <GanttSidebar
-          tareas={tareasConPos}
+          filas={filas}
           alturaFila={ALTURA_FILA}
           onHoverTarea={setTareaHoverId}
           tareaHoverId={tareaHoverId}
+          onToggleRubro={toggleRubro}
         />
 
-        {/* Área scrolleable con header + barras */}
         <div className="flex-1 min-w-0">
-          <div
-            ref={scrollRef}
-            className="overflow-x-auto overflow-y-hidden relative"
-            onScroll={handleScroll}
-          >
+          <div className="overflow-x-auto overflow-y-hidden">
             <div style={{ width: `${anchoTotal}px`, minWidth: '100%' }}>
 
-              {/* Header temporal */}
               <GanttHeader
                 ticks={ticks}
                 anchoTotal={anchoTotal}
@@ -108,12 +106,11 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                 alturaFila={ALTURA_FILA}
               />
 
-              {/* Filas de barras */}
               <div className="relative">
-                {/* Líneas verticales de la grilla (por tick) */}
+                {/* Grilla de fondo */}
                 <div
                   className="absolute top-0 left-0 pointer-events-none flex"
-                  style={{ width: `${anchoTotal}px`, height: `${tareasConPos.length * ALTURA_FILA}px` }}
+                  style={{ width: `${anchoTotal}px`, height: `${filas.length * ALTURA_FILA}px` }}
                 >
                   {ticks.map((tick, idx) => (
                     <div
@@ -130,24 +127,34 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
 
                 {/* Filas */}
                 <div className="relative">
-                  {tareasConPos.map((t) => (
-                    <div
-                      key={t.id || t._idx}
-                      className={cn(
-                        'border-b border-slate-100 transition-colors',
-                        tareaHoverId === t.id ? 'bg-amber-50/40' : 'hover:bg-slate-50/60'
-                      )}
-                    >
-                      <GanttBarra
-                        tarea={t}
-                        alturaFila={ALTURA_FILA}
-                        esHover={tareaHoverId === t.id}
-                        onHover={setTareaHoverId}
-                        onLeave={handleLeave}
-                        onTooltipMove={handleTooltipMove}
-                      />
-                    </div>
-                  ))}
+                  {filas.map((fila) => {
+                    const isRubro = fila._tipo === 'rubro';
+                    const hoverKey = isRubro ? `rubro-${fila.nombre}` : fila.id;
+                    const isHover = tareaHoverId === hoverKey;
+
+                    return (
+                      <div
+                        key={fila._key}
+                        className={cn(
+                          'border-b transition-colors',
+                          isRubro
+                            ? 'bg-slate-100/40 border-slate-200'
+                            : 'border-slate-100',
+                          isHover && !isRubro && 'bg-amber-50/40',
+                          isHover && isRubro && 'bg-blue-50/60'
+                        )}
+                      >
+                        <GanttBarra
+                          fila={fila}
+                          alturaFila={ALTURA_FILA}
+                          esHover={isHover}
+                          onHover={setTareaHoverId}
+                          onLeave={handleLeave}
+                          onTooltipMove={isRubro ? undefined : handleTooltipMove}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -156,11 +163,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       </div>
 
-      {/* Tooltip flotante */}
-      <GanttTooltip
-        tarea={tooltip.tarea}
-        posicion={tooltip.posicion}
-      />
+      <GanttTooltip tarea={tooltip.tarea} posicion={tooltip.posicion} />
     </div>
   );
 }
