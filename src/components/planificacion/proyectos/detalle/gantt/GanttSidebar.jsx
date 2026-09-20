@@ -2,7 +2,8 @@
 import React from 'react';
 import { ChevronDown, ChevronRight, Users, FolderKanban } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { COLORES_ESTADO, COLOR_RUBRO } from './useGanttCalculos';
+import { COLORES_ESTADO } from './useGanttCalculos';
+import { ALTURA_BARRA_SUPERIOR_HEADER } from './GanttHeader';
 
 export default function GanttSidebar({
   filas,
@@ -19,10 +20,16 @@ export default function GanttSidebar({
     );
   }
 
+  // 🔑 Altura del header = barra superior + eje temporal (igual que GanttHeader)
+  const alturaHeader = ALTURA_BARRA_SUPERIOR_HEADER + alturaFila * 1.5;
+
   return (
     <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-200">
-      {/* Header */}
-      <div className="h-14 border-b border-slate-200 px-3 flex items-center bg-slate-100">
+      {/* Header — alineado con el header del Gantt */}
+      <div
+        className="border-b border-slate-200 px-3 flex items-center bg-slate-100"
+        style={{ height: `${alturaHeader}px` }}
+      >
         <p className="text-[10px] font-black text-slate-600 uppercase">Rubro / Tarea</p>
       </div>
 
@@ -91,11 +98,6 @@ function FilaRubro({ rubro, alturaFila, onClick }) {
         {Number(rubro.diasHombreTotal) > 0 && (
           <p className="text-[9px] text-slate-500 font-semibold">
             {Math.round(rubro.diasHombreTotal)} dh
-          </p>
-        )}
-        {Number(rubro.costoTotal) > 0 && (
-          <p className="text-[9px] text-slate-500 font-semibold">
-            $ {Math.round(rubro.costoTotal).toLocaleString('es-AR')}
           </p>
         )}
       </div>

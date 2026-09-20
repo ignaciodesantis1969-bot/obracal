@@ -1,8 +1,6 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttBarra.jsx
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { COLOR_TAREA } from './useGanttCalculos';
-
 
 export default function GanttBarra({
   fila,
@@ -36,13 +34,13 @@ export default function GanttBarra({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE RUBRO: línea horizontal + 2 topes en L apuntando hacia abajo
+// BARRA DE RUBRO: línea horizontal fina + topes cortos en L
 // ═══════════════════════════════════════════════════════════════════════════
 
 function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
-  const GROSOR = 4;          // grosor de todas las líneas
-  const ALTO_TOPE = 14;      // alto de los topes verticales (bajan desde la línea)
-  const COLOR = '#1e293b';   // slate-800
+  const GROSOR = 3;         // 🔑 más fina (antes 4)
+  const ALTO_TOPE = 8;      // 🔑 más corta (antes 14)
+  const COLOR = '#1e293b';
 
   return (
     <div
@@ -62,10 +60,10 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
           transform: 'translateY(-50%)',
         }}
       >
-        {/* Tope izquierdo: baja desde la línea */}
+        {/* Tope izquierdo */}
         <div
-          className="absolute"
           style={{
+            position: 'absolute',
             left: 0,
             top: 0,
             width: `${GROSOR}px`,
@@ -73,10 +71,10 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
             backgroundColor: COLOR,
           }}
         />
-        {/* Tope derecho: baja desde la línea */}
+        {/* Tope derecho */}
         <div
-          className="absolute"
           style={{
+            position: 'absolute',
             right: 0,
             top: 0,
             width: `${GROSOR}px`,
@@ -90,7 +88,7 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE TAREA: relleno celeste + borde celeste más oscuro (sin texto)
+// BARRA DE TAREA: fondo celeste + borde celeste más oscuro (hardcodeado)
 // ═══════════════════════════════════════════════════════════════════════════
 
 function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMove }) {
@@ -106,30 +104,35 @@ function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMov
     >
       <div
         className={cn(
-          'absolute top-1/2 -translate-y-1/2 rounded-md border-2 transition-all',
+          'absolute top-1/2 -translate-y-1/2 rounded-md transition-all',
           esHover ? 'shadow-lg ring-2 ring-amber-400 z-10' : 'shadow-sm'
         )}
         style={{
           left: `${tarea._offsetPx}px`,
           width: `${tarea._anchoPx}px`,
           height: `${alturaFila * 0.55}px`,
-          backgroundColor: COLOR_TAREA.bg,
-          borderColor: COLOR_TAREA.border,
+          transform: 'translateY(-50%)',
+          backgroundColor: '#dbeafe',        // 🔑 celeste claro (blue-100)
+          border: '2px solid #3b82f6',       // 🔑 borde celeste oscuro (blue-500)
         }}
       >
         {/* Progreso interno */}
         {porcentajeAvance > 0 && (
           <div
-            className="absolute inset-y-0 left-0 rounded-l"
             style={{
+              position: 'absolute',
+              top: 0,
+              bottom: 0,
+              left: 0,
               width: `${Math.min(porcentajeAvance, 100)}%`,
-              backgroundColor: COLOR_TAREA.border,
+              backgroundColor: '#3b82f6',
               opacity: 0.5,
+              borderRadius: '6px 0 0 6px',
             }}
           />
         )}
 
-        {/* Burbuja % a la derecha */}
+        {/* Burbuja % */}
         {porcentajeAvance > 0 && tarea._anchoPx > 40 && (
           <div
             className="absolute -right-1 top-1/2 -translate-y-1/2 translate-x-full text-[9px] font-black text-slate-700 bg-white border border-slate-300 rounded-full px-1.5 py-0.5 shadow-sm"

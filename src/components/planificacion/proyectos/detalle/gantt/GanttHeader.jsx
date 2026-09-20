@@ -1,12 +1,12 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttHeader.jsx
 import React from 'react';
-import { Calendar, ZoomIn, ZoomOut } from 'lucide-react';
+import { Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NIVELES_ZOOM } from './useGanttCalculos';
 
-/**
- * Header del Gantt: eje temporal + controles de zoom.
- */
+// 🔑 Altura de la barra superior (fija) — debe coincidir con GanttSidebar
+export const ALTURA_BARRA_SUPERIOR_HEADER = 44;
+
 export default function GanttHeader({
   ticks,
   anchoTotal,
@@ -19,8 +19,11 @@ export default function GanttHeader({
   return (
     <div className="flex flex-col bg-white border-b border-slate-200 sticky top-0 z-20">
 
-      {/* ─── Barra superior: título + controles zoom ─────────────────── */}
-      <div className="flex items-center justify-between px-3 py-2 border-b border-slate-100 bg-slate-50">
+      {/* ─── Barra superior: título + zoom (altura FIJA para alinear con sidebar) */}
+      <div
+        className="flex items-center justify-between px-3 border-b border-slate-100 bg-slate-50"
+        style={{ height: `${ALTURA_BARRA_SUPERIOR_HEADER}px` }}
+      >
         <div className="flex items-center gap-2">
           <Calendar className="w-3.5 h-3.5 text-amber-500" />
           <p className="text-[10px] font-black text-slate-600 uppercase">Vista Gantt</p>
@@ -69,11 +72,6 @@ export default function GanttHeader({
               <span className="text-[10px] font-black text-slate-800 leading-tight">
                 {tick.label2}
               </span>
-              {tick.tipo === 'mes' && (
-                <span className="text-[9px] text-slate-400 mt-0.5">
-                  {tick.label2}
-                </span>
-              )}
             </div>
           ))}
         </div>
