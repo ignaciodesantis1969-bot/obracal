@@ -1,12 +1,8 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttBarra.jsx
 import React from 'react';
 import { cn } from '@/lib/utils';
-import { COLORES_ESTADO, COLOR_RUBRO } from './useGanttCalculos';
+import { COLOR_TAREA } from './useGanttCalculos';
 
-/**
- * Barra individual del Gantt.
- * Maneja 2 tipos: 'rubro' (barra agregada larga) y 'tarea' (barra normal).
- */
 export default function GanttBarra({
   fila,
   alturaFila = 36,
@@ -22,7 +18,6 @@ export default function GanttBarra({
         alturaFila={alturaFila}
         onHover={onHover}
         onLeave={onLeave}
-        onTooltipMove={onTooltipMove}
       />
     );
   }
@@ -40,11 +35,13 @@ export default function GanttBarra({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE RUBRO (agregada, con subdivisiones internas)
+// BARRA DE RUBRO: línea horizontal + 2 topes en L apuntando hacia abajo
 // ═══════════════════════════════════════════════════════════════════════════
 
-function BarraRubro({ rubro, alturaFila, onHover, onLeave, onTooltipMove }) {
-  const mostrarLabel = rubro._anchoPx > 80;
+function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
+  const GROSOR = 4;          // grosor de todas las líneas
+  const ALTO_TOPE = 14;      // alto de los topes verticales (bajan desde la línea)
+  const COLOR = '#1e293b';   // slate-800
 
   return (
     <div
@@ -53,56 +50,50 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave, onTooltipMove }) {
       onMouseEnter={() => onHover?.(`rubro-${rubro.nombre}`)}
       onMouseLeave={() => onLeave?.()}
     >
-      {/* Barra principal del rubro */}
       <div
-        className={cn(
-          'absolute top-1/2 -translate-y-1/2 rounded-md border shadow-sm',
-          'bg-gradient-to-r'
-        )}
+        className="absolute"
         style={{
           left: `${rubro._offsetPx}px`,
+          top: '50%',
           width: `${rubro._anchoPx}px`,
-          height: `${alturaFila * 0.55}px`,
-          backgroundColor: COLOR_RUBRO.bg,
-          borderColor: COLOR_RUBRO.border,
+          height: `${GROSOR}px`,
+          backgroundColor: COLOR,
+          transform: 'translateY(-50%)',
         }}
       >
-        {/* Subdivisiones (cada tarea hija como línea vertical tenue) */}
-        {rubro._subBarras.map((sub, idx) => (
-          <div
-            key={idx}
-            className="absolute top-1 bottom-1 w-0.5 opacity-50"
-            style={{
-              left: `${sub._offsetInternoPx}px`,
-              backgroundColor: 'rgba(30,58,138,0.5)',
-            }}
-            title={sub.nombre}
-          />
-        ))}
-
-        {/* Label dentro */}
-        {mostrarLabel && (
-          <div className="absolute inset-0 flex items-center px-2 pointer-events-none">
-            <span className="text-[10px] font-black text-blue-950 truncate drop-shadow-sm">
-              {rubro.nombre}
-            </span>
-          </div>
-        )}
+        {/* Tope izquierdo: baja desde la línea */}
+        <div
+          className="absolute"
+          style={{
+            left: 0,
+            top: 0,
+            width: `${GROSOR}px`,
+            height: `${ALTO_TOPE}px`,
+            backgroundColor: COLOR,
+          }}
+        />
+        {/* Tope derecho: baja desde la línea */}
+        <div
+          className="absolute"
+          style={{
+            right: 0,
+            top: 0,
+            width: `${GROSOR}px`,
+            height: `${ALTO_TOPE}px`,
+            backgroundColor: COLOR,
+          }}
+        />
       </div>
     </div>
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE TAREA (normal)
+// BARRA DE TAREA: relleno celeste + borde celeste más oscuro (sin texto)
 // ═══════════════════════════════════════════════════════════════════════════
 
 function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMove }) {
-  const estadoKey = String(tarea.estado || 'no_iniciado').toLowerCase();
-  const color = COLORES_ESTADO[estadoKey] || COLORES_ESTADO.no_iniciado;
-
   const porcentajeAvance = Number(tarea.porcentaje_avance) || 0;
-  const mostrarLabel = tarea._anchoPx > 60;
 
   return (
     <div
@@ -114,35 +105,27 @@ function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMov
     >
       <div
         className={cn(
-          'absolute top-1/2 -translate-y-1/2 rounded-md border transition-all',
+          'absolute top-1/2 -translate-y-1/2 rounded-md border-2 transition-all',
           esHover ? 'shadow-lg ring-2 ring-amber-400 z-10' : 'shadow-sm'
         )}
         style={{
           left: `${tarea._offsetPx}px`,
           width: `${tarea._anchoPx}px`,
           height: `${alturaFila * 0.55}px`,
-          backgroundColor: color.bg,
-          borderColor: color.border,
+          backgroundColor: COLOR_TAREA.bg,
+          borderColor: COLOR_TAREA.border,
         }}
       >
         {/* Progreso interno */}
         {porcentajeAvance > 0 && (
           <div
-            className="absolute inset-y-0 left-0 rounded-l-md opacity-50"
+            className="absolute inset-y-0 left-0 rounded-l"
             style={{
               width: `${Math.min(porcentajeAvance, 100)}%`,
-              backgroundColor: color.border,
+              backgroundColor: COLOR_TAREA.border,
+              opacity: 0.5,
             }}
           />
-        )}
-
-        {/* Label dentro */}
-        {mostrarLabel && (
-          <div className="absolute inset-0 flex items-center px-2 pointer-events-none">
-            <span className="text-[10px] font-black text-slate-800 truncate drop-shadow-sm">
-              {tarea.tarea_nombre}
-            </span>
-          </div>
         )}
 
         {/* Burbuja % a la derecha */}
