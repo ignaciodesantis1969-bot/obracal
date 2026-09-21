@@ -4,26 +4,20 @@ import { diasEntre, sumarDias } from './useGanttCalculos';
 
 /**
  * Hook que maneja la lógica del drag de barras del Gantt.
- * Fase 2.1: solo detección + preview. Fase 2.2 agregará guardado.
+ * Fase 2.2: detección + preview + guardado en Firestore.
  */
 export function useGanttDrag({
   filas = [],
   nivelZoom,
-  onGuardar,     // callback para Fase 2.2 (opcional por ahora)
+  guardarCambios,   // 🔑 callback async que hace el writeBatch
 }) {
-  // Estado del drag activo
   const [dragActivo, setDragActivo] = useState(null);
-  // { tareaId, tipo: 'mover' | 'resize-izq' | 'resize-der', mouseX0, offsetPx0 }
-
-  // Estado del preview
   const [preview, setPreview] = useState(null);
-  // { tareaId, offsetPx, anchoPx, offsetDiasDelta, duracionDelta }
 
-  // Detectar dependencias afectadas por mover una tarea
+  // ─── Dependencias afectadas por la tarea que se está moviendo ──────────
   const dependenciasAfectadas = useMemo(() => {
     if (!preview || !filas.length) return [];
     const tareaMoviendoseId = preview.tareaId;
-    // Buscar todas las tareas cuya predecesora incluya la tarea movida
     return filas.filter((f) => {
       if (f._tipo !== 'tarea') return false;
       const preds = Array.isArray(f.predecesoras) ? f.predecesoras : [];
@@ -31,35 +25,11 @@ export function useGanttDrag({
     });
   }, [preview, filas]);
 
-  // Detectar si hay conflicto con predecesoras de la tarea movida
+  // ─── Conflicto actual ──────────────────────────────────────────────────
   const conflicto = useMemo(() => {
     if (!preview || !filas.length) return null;
     const tarea = filas.find(f => f.id === preview.tareaId);
     if (!tarea || tarea._tipo !== 'tarea') return null;
-
-    const preds = Array.isArray(tarea.predecesoras) ? tarea.predecesoras : [];
-    if (preds.length === 0) return null;
-
-    // Nueva fecha inicio propuesta
-    const nuevaFechaInicio = sumarDias(tarea.fecha_inicio, preview.offsetDiasDelta);
-
-    // Buscar la fecha fin más tardía de las predecesoras
-    let fechaFinMaxPreds = null;
-    for (const predId of preds) {
-      const pred = filas.find(f => String(f.id) === String(predId));
-      if (pred && pred.fecha_fin) {
-        if (!fechaFinMaxPreds || pred.fecha_fin > fechaFinMaxPreds) {
-          fechaFinMaxPreds = pred.fecha_fin;
-        }
-      }
-    }
-
-    if (fechaFinMaxPreds && nuevaFechaInicio < fechaFinMaxPreds) {
-      return {
-        tipo: 'predecesora',
-        mensaje: `La tarea no puede empezar antes del ${fechaFinMaxPreds} (fin de su predecesora)`,
-      };
-    }
 
     // Duración mínima 1 día
     if (preview.duracionDelta < 0 && (tarea._duracionDias + preview.duracionDelta) < 1) {
@@ -69,14 +39,41 @@ export function useGanttDrag({
       };
     }
 
+    // No se puede terminar antes de empezar
+    if (preview.duracionDelta < 0 && (tarea._duracionDias + preview.duracionDelta) < 0.5) {
+      return {
+        tipo: 'duracion',
+        mensaje: 'La fecha de fin no puede ser anterior a la de inicio',
+      };
+    }
+
+    // Predecesoras: la tarea no puede empezar antes del fin de su predecesora
+    const preds = Array.isArray(tarea.predecesoras) ? tarea.predecesoras : [];
+    if (preds.length > 0) {
+      const nuevaFechaInicio = sumarDias(tarea.fecha_inicio, preview.offsetDiasDelta);
+      let fechaFinMaxPreds = null;
+      for (const predId of preds) {
+        const pred = filas.find(f => String(f.id) === String(predId));
+        if (pred && pred.fecha_fin) {
+          if (!fechaFinMaxPreds || pred.fecha_fin > fechaFinMaxPreds) {
+            fechaFinMaxPreds = pred.fecha_fin;
+          }
+        }
+      }
+      if (fechaFinMaxPreds && nuevaFechaInicio <= fechaFinMaxPreds) {
+        return {
+          tipo: 'predecesora',
+          mensaje: `No puede empezar antes del ${fechaFinMaxPreds} (fin de su predecesora)`,
+        };
+      }
+    }
+
     return null;
   }, [preview, filas]);
 
-  // Iniciar drag
+  // ─── Iniciar drag ──────────────────────────────────────────────────────
   const iniciarDrag = useCallback((e, tarea, tipoDrag = 'mover') => {
-    // Solo botón izquierdo del mouse
     if (e.button !== 0) return;
-
     e.preventDefault();
     e.stopPropagation();
 
@@ -98,12 +95,11 @@ export function useGanttDrag({
     });
   }, []);
 
-  // Actualizar drag (mousemove)
+  // ─── Actualizar drag ───────────────────────────────────────────────────
   const actualizarDrag = useCallback((e) => {
     if (!dragActivo) return;
 
     const deltaX = e.clientX - dragActivo.mouseX0;
-    // Convertir píxeles a días según zoom
     const deltaDias = Math.round(deltaX / nivelZoom.pxPorDia);
 
     let nuevoOffsetPx = dragActivo.offsetPx0;
@@ -112,24 +108,21 @@ export function useGanttDrag({
     let duracionDelta = 0;
 
     if (dragActivo.tipo === 'mover') {
-      // Mover toda la barra
       offsetDiasDelta = deltaDias;
       nuevoOffsetPx = dragActivo.offsetPx0 + deltaDias * nivelZoom.pxPorDia;
     } else if (dragActivo.tipo === 'resize-izq') {
-      // Mover el borde izquierdo (cambia inicio y duración)
       offsetDiasDelta = deltaDias;
       duracionDelta = -deltaDias;
       nuevoOffsetPx = dragActivo.offsetPx0 + deltaDias * nivelZoom.pxPorDia;
       nuevoAnchoPx = Math.max(
         dragActivo.anchoPx0 - deltaDias * nivelZoom.pxPorDia,
-        nivelZoom.pxPorDia // mínimo 1 día de ancho
+        nivelZoom.pxPorDia
       );
     } else if (dragActivo.tipo === 'resize-der') {
-      // Mover el borde derecho (solo cambia duración)
       duracionDelta = deltaDias;
       nuevoAnchoPx = Math.max(
         dragActivo.anchoPx0 + deltaDias * nivelZoom.pxPorDia,
-        nivelZoom.pxPorDia // mínimo 1 día
+        nivelZoom.pxPorDia
       );
     }
 
@@ -142,44 +135,80 @@ export function useGanttDrag({
     });
   }, [dragActivo, nivelZoom]);
 
-  // Terminar drag (mouseup)
-  const terminarDrag = useCallback((e) => {
-    if (!dragActivo || !preview) {
-      setDragActivo(null);
-      setPreview(null);
-      return;
-    }
+  // ─── Terminar drag → GUARDAR ───────────────────────────────────────────
+  const terminarDrag = useCallback(async (e) => {
+    const drag = dragActivo;
+    const prev = preview;
 
-    // Si no cambió nada → cancelar
-    if (preview.offsetDiasDelta === 0 && preview.duracionDelta === 0) {
-      setDragActivo(null);
-      setPreview(null);
-      return;
-    }
+    // Reset estado
+    setDragActivo(null);
+    setPreview(null);
 
-    // Si hay conflicto → cancelar (no guardar)
-    if (conflicto) {
-      setDragActivo(null);
-      setPreview(null);
-      return;
-    }
+    if (!drag || !prev) return;
 
-    // Fase 2.2: acá va el guardado en Firestore
-    // Por ahora solo cancelamos
-    if (typeof onGuardar === 'function') {
-      onGuardar({
-        tareaId: dragActivo.tareaId,
-        offsetDiasDelta: preview.offsetDiasDelta,
-        duracionDelta: preview.duracionDelta,
-        dependenciasAfectadas,
+    // Sin cambios → no hacer nada
+    if (prev.offsetDiasDelta === 0 && prev.duracionDelta === 0) return;
+
+    // Con conflicto → no guardar
+    if (conflicto) return;
+
+    // Calcular datos a guardar
+    const tarea = filas.find(f => f.id === drag.tareaId);
+    if (!tarea) return;
+
+    // 🔑 Armar lista de cambios para writeBatch
+    const cambios = [];
+
+    // 1. La tarea que se movió
+    if (drag.tipo === 'mover') {
+      cambios.push({
+        tareaId: tarea.id,
+        fecha_inicio: sumarDias(tarea.fecha_inicio, prev.offsetDiasDelta),
+        fecha_fin: sumarDias(tarea.fecha_fin, prev.offsetDiasDelta),
+        fecha_manual: true,
+      });
+    } else if (drag.tipo === 'resize-izq') {
+      const nuevaDuracion = Math.max(tarea._duracionDias + prev.duracionDelta, 1);
+      cambios.push({
+        tareaId: tarea.id,
+        fecha_inicio: sumarDias(tarea.fecha_inicio, prev.offsetDiasDelta),
+        duracion_real_dias: nuevaDuracion,
+        fecha_manual: true,
+      });
+    } else if (drag.tipo === 'resize-der') {
+      const nuevaDuracion = Math.max(tarea._duracionDias + prev.duracionDelta, 1);
+      cambios.push({
+        tareaId: tarea.id,
+        fecha_fin: sumarDias(tarea.fecha_fin, prev.duracionDelta),
+        duracion_real_dias: nuevaDuracion,
+        fecha_manual: true,
       });
     }
 
-    setDragActivo(null);
-    setPreview(null);
-  }, [dragActivo, preview, conflicto, dependenciasAfectadas, onGuardar]);
+    // 2. Cascada: mover también las dependencias afectadas
+    // (solo en modo 'mover', no en resize)
+    if (drag.tipo === 'mover' && dependenciasAfectadas.length > 0) {
+      dependenciasAfectadas.forEach((dep) => {
+        cambios.push({
+          tareaId: dep.id,
+          fecha_inicio: sumarDias(dep.fecha_inicio, prev.offsetDiasDelta),
+          fecha_fin: sumarDias(dep.fecha_fin, prev.offsetDiasDelta),
+        });
+      });
+    }
 
-  // Cancelar drag (tecla Escape)
+    // 3. Ejecutar el guardado (writeBatch atómico)
+    if (typeof guardarCambios === 'function' && cambios.length > 0) {
+      try {
+        await guardarCambios(cambios);
+      } catch (err) {
+        console.error('[useGanttDrag] Error al guardar:', err);
+        // El error lo maneja el componente padre con toast
+      }
+    }
+  }, [dragActivo, preview, conflicto, filas, dependenciasAfectadas, guardarCambios]);
+
+  // ─── Cancelar drag ─────────────────────────────────────────────────────
   const cancelarDrag = useCallback(() => {
     setDragActivo(null);
     setPreview(null);
