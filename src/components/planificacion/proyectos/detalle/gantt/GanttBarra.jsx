@@ -1,9 +1,8 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttBarra.jsx
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import GanttDragGhost from './GanttDragGhost';
 
-// Ancho de las zonas de resize (en píxeles)
 const ZONA_RESIZE_PX = 8;
 
 export default function GanttBarra({
@@ -13,7 +12,6 @@ export default function GanttBarra({
   onHover,
   onLeave,
   onTooltipMove,
-  // 🔑 Fase 2.1: drag
   onIniciarDrag,
   dragActivo,
   preview,
@@ -47,7 +45,7 @@ export default function GanttBarra({
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE RUBRO — sin drag (por ahora)
+// BARRA DE RUBRO
 // ═══════════════════════════════════════════════════════════════════════════
 
 function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
@@ -99,7 +97,7 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE TAREA — con drag
+// BARRA DE TAREA
 // ═══════════════════════════════════════════════════════════════════════════
 
 function BarraTarea({
@@ -117,20 +115,17 @@ function BarraTarea({
   const porcentajeAvance = Number(tarea.porcentaje_avance) || 0;
   const anchoBarra = Math.max(tarea._anchoPx, 12);
 
-  // Detecta si esta tarea es la que se está arrastrando
   const esLaQueSeArrastra = dragActivo?.tareaId === tarea.id;
-  const esRubro = tarea._tipo === 'rubro';
-
-  // Preview actual (solo si es esta tarea)
   const previewActual = preview?.tareaId === tarea.id ? preview : null;
 
-  // Cursor según zona
-  const [cursorZona, setCursorZona] = React.useState(null);
+  const barraRef = useRef(null);
+  const [cursorZona, setCursorZona] = useState(null);
 
-  // Detectar zona según posición del mouse dentro de la barra
-  const detectarZona = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left;
+  // 🔑 FIX: usar el rect de la barra real
+  const detectarZona = (clientX) => {
+    const rect = barraRef.current?.getBoundingClientRect();
+    if (!rect) return 'mover';
+    const x = clientX - rect.left;
     const ancho = rect.width;
 
     if (x < ZONA_RESIZE_PX) return 'resize-izq';
@@ -140,14 +135,14 @@ function BarraTarea({
 
   const handleMouseMoveInterno = (e) => {
     if (esLaQueSeArrastra) return;
-    const zona = detectarZona(e);
+    const zona = detectarZona(e.clientX);
     setCursorZona(zona);
     onTooltipMove?.(e, tarea);
   };
 
   const handleMouseDown = (e) => {
     if (!onIniciarDrag) return;
-    const zona = detectarZona(e);
+    const zona = detectarZona(e.clientX);
     onIniciarDrag(e, tarea, zona);
   };
 
@@ -155,7 +150,9 @@ function BarraTarea({
     ? 'cursor-grabbing'
     : cursorZona === 'resize-izq' || cursorZona === 'resize-der'
       ? 'cursor-ew-resize'
-      : 'cursor-grab';
+      : cursorZona === 'mover'
+        ? 'cursor-grab'
+        : '';
 
   return (
     <div
@@ -168,7 +165,7 @@ function BarraTarea({
       }}
       onMouseMove={handleMouseMoveInterno}
     >
-      {/* Si está en conflicto, dibujar un halo rojo alrededor */}
+      {/* Halo rojo si hay conflicto */}
       {esLaQueSeArrastra && conflicto && (
         <div
           className="absolute rounded ring-4 ring-rose-400 pointer-events-none"
@@ -183,7 +180,7 @@ function BarraTarea({
         />
       )}
 
-      {/* Barra fantasma (cuando está arrastrando esta tarea) */}
+      {/* Barra fantasma */}
       {esLaQueSeArrastra && previewActual && (
         <GanttDragGhost
           preview={previewActual}
@@ -194,12 +191,13 @@ function BarraTarea({
 
       {/* Barra real */}
       <div
+        ref={barraRef}
         onMouseDown={handleMouseDown}
         className={cn(
           'absolute rounded transition-all',
           cursorClass,
           esHover ? 'shadow-md ring-2 ring-amber-400 z-10' : 'shadow-sm',
-          esLaQueSeArrastra && 'opacity-40'   // 🔑 la original queda opaca mientras arrastrás
+          esLaQueSeArrastra && 'opacity-40'
         )}
         style={{
           left: `${tarea._offsetPx}px`,
