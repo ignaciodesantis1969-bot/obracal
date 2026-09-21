@@ -6,13 +6,15 @@ import { doc, writeBatch } from 'firebase/firestore';
 import { db } from '@/firebase';
 import { cn } from '@/lib/utils';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { actualizarDoc } from '@/lib/firestoreHelpers';
 import { NIVELES_ZOOM, useGanttCalculos } from './useGanttCalculos';
 import { useGanttDrag } from './useGanttDrag';
 import GanttHeader from './GanttHeader';
 import { FilaRubro, FilaTarea } from './GanttSidebar';
 import GanttBarra from './GanttBarra';
 import GanttTooltip from './GanttTooltip';
-import GanttFlechas from './GanttFlechas';   // 🔑 Fase 3.1
+import GanttFlechas from './GanttFlechas';
+import TareaDependenciasModal from './TareaDependenciasModal';   // 🔑 Fase 3.2
 
 const ALTURA_FILA = 36;
 const ALTURA_HEADER_GANTT = 44 + ALTURA_FILA * 1.5;
@@ -24,6 +26,9 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
   const [tooltip, setTooltip] = useState({ tarea: null, posicion: null });
   const [rubrosColapsados, setRubrosColapsados] = useState(new Set());
   const [tareasOptimistas, setTareasOptimistas] = useState({});
+
+  // 🔑 Fase 3.2: estado del modal de dependencias
+  const [tareaDependencias, setTareaDependencias] = useState(null);
 
   const { data: feriadosFs } = useFirestoreCollection('feriados');
   const feriadosCustom = useMemo(
@@ -41,13 +46,13 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     });
   }, [tareas, tareasOptimistas]);
 
-  // 🔑 Fase 3.1: extraemos flechas y alturaFila del hook
-  const { rango, filas, ticks, anchoTotal, flechas, alturaFila } = useGanttCalculos(
+  const { rango, filas, ticks, anchoTotal, flechas } = useGanttCalculos(
     tareasConCambios,
     nivelZoom,
     rubrosColapsados
   );
 
+  // ─── Toast persistente con botón Deshacer ─────────────────────────────
   const mostrarToastUndo = useCallback((cantidad, snapshot) => {
     const toastId = toast.custom(
       (t) => (
@@ -230,6 +235,98 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     setTooltip({ tarea: null, posicion: null });
   };
 
+  // 🔑 Fase 3.2: abrir el modal de dependencias
+  const handleAbrirDependencias = useCallback((tarea) => {
+    setTareaDependencias(tarea);
+  }, []);
+
+  // 🔑 Fase 3.2: guardar dependencias en Firestore
+  const handleGuardarDependencias = useCallback(async (tareaId, predecesoras) => {
+    const tareaOriginal = tareas.find(t => t.id === tareaId);
+    if (!tareaOriginal) throw new Error('Tarea no encontrada');
+
+    // Guardar snapshot para Undo
+    const snapshot = [{
+      tareaId,
+      predecesoras: tareaOriginal.predecesoras || [],
+    }];
+
+    // Actualización optimista
+    setTareasOptimistas(prev => ({
+      ...prev,
+      [tareaId]: {
+        ...(prev[tareaId] || {}),
+        predecesoras,
+      },
+    }));
+
+    try {
+      await actualizarDoc('planificacion_tareas', tareaId, { predecesoras });
+
+      // Toast con Undo
+      const toastId = toast.custom(
+        (t) => (
+          <div
+            className={cn(
+              'bg-slate-900 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3',
+              'border border-slate-700',
+              t.visible ? 'animate-enter' : 'animate-leave'
+            )}
+            style={{ minWidth: '340px', maxWidth: '460px' }}
+          >
+            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-bold">Dependencias guardadas</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {predecesoras.length} predecesora{predecesoras.length === 1 ? '' : 's'}
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                toast.dismiss(toastId);
+                try {
+                  await actualizarDoc('planificacion_tareas', tareaId, {
+                    predecesoras: snapshot[0].predecesoras,
+                  });
+                  setTareasOptimistas(prev => {
+                    const nuevo = { ...prev };
+                    delete nuevo[tareaId];
+                    return nuevo;
+                  });
+                  toast.success('Dependencias revertidas', { duration: 2000 });
+                } catch (err) {
+                  toast.error('Error al revertir: ' + (err.message || ''));
+                }
+              }}
+              className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-800 shrink-0"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              Deshacer
+            </button>
+            <button
+              onClick={() => toast.dismiss(toastId)}
+              className="text-slate-500 hover:text-slate-300 shrink-0"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ),
+        {
+          duration: 10000,
+          position: 'bottom-right',
+        }
+      );
+    } catch (err) {
+      // Revertir UI
+      setTareasOptimistas(prev => {
+        const nuevo = { ...prev };
+        delete nuevo[tareaId];
+        return nuevo;
+      });
+      throw err;
+    }
+  }, [tareas]);
+
   if (!Array.isArray(tareas) || tareas.length === 0) {
     return (
       <div className="bg-white p-12 rounded-2xl border border-dashed border-slate-300 text-center space-y-3">
@@ -341,6 +438,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                       alturaFila={ALTURA_FILA}
                       esHover={isHover}
                       onHover={setTareaHoverId}
+                      onAbrirDependencias={handleAbrirDependencias}
                     />
                   )}
                 </div>
@@ -383,7 +481,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                   ))}
                 </div>
 
-                {/* 🔑 Fase 3.1: Flechas de dependencia (capa SVG debajo de las barras) */}
+                {/* Flechas */}
                 <GanttFlechas
                   flechas={flechas}
                   anchoTotal={anchoTotal}
@@ -434,9 +532,22 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       </div>
 
+      {/* Tooltip */}
       {!dragActivo && (
         <GanttTooltip tarea={tooltip.tarea} posicion={tooltip.posicion} />
       )}
+
+      {/* 🔑 Fase 3.2: Modal de dependencias */}
+      {tareaDependencias && (
+        <TareaDependenciasModal
+          isOpen={!!tareaDependencias}
+          onClose={() => setTareaDependencias(null)}
+          tarea={tareasConCambios.find(t => t.id === tareaDependencias.id) || tareaDependencias}
+          tareas={tareasConCambios}
+          onGuardar={handleGuardarDependencias}
+        />
+      )}
+
     </div>
   );
 }

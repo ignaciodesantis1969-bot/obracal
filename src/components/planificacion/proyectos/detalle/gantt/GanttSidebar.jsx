@@ -1,8 +1,9 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttSidebar.jsx
 import React from 'react';
-import { ChevronDown, ChevronRight, Users, FolderKanban } from 'lucide-react';
+import { ChevronDown, ChevronRight, Users, FolderKanban, Link as LinkIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { COLORES_ESTADO } from './useGanttCalculos';
+import { obtenerIdsPredecesoras } from '@/lib/planificacionHelpers';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // COMPONENTE DEFAULT (compatibilidad hacia atrás)
@@ -14,6 +15,7 @@ export default function GanttSidebar({
   onHoverTarea,
   tareaHoverId,
   onToggleRubro,
+  onAbrirDependencias,   // 🔑 NUEVO: callback al abrir el modal
 }) {
   if (!filas || filas.length === 0) {
     return (
@@ -60,6 +62,7 @@ export default function GanttSidebar({
                   alturaFila={alturaFila}
                   esHover={isHover}
                   onHover={onHoverTarea}
+                  onAbrirDependencias={onAbrirDependencias}
                 />
               )}
             </div>
@@ -113,10 +116,10 @@ export function FilaRubro({ rubro, alturaFila = 36, onClick }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FILA DE TAREA
+// FILA DE TAREA (con botón de dependencias)
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover }) {
+export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover, onAbrirDependencias }) {
   const estadoKey = String(tarea.estado || 'no_iniciado').toLowerCase();
   const color = COLORES_ESTADO[estadoKey] || COLORES_ESTADO.no_iniciado;
 
@@ -124,12 +127,15 @@ export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover }) {
     ? tarea.recursos.filter(r => r.tipo === 'operario').length
     : 0;
 
+  // 🔑 Contar predecesoras (para mostrar en el badge del botón)
+  const predsCount = obtenerIdsPredecesoras(tarea.predecesoras).length;
+
   return (
     <div
       onMouseEnter={() => onHover?.(tarea.id)}
       onMouseLeave={() => onHover?.(null)}
       className={cn(
-        'pl-8 pr-3 flex items-center gap-2 transition-colors cursor-pointer h-full w-full',
+        'pl-8 pr-3 flex items-center gap-2 transition-colors h-full w-full group',
         'hover:bg-slate-50'
       )}
     >
@@ -167,6 +173,33 @@ export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover }) {
           )}
         </div>
       </div>
+
+      {/* 🔑 Botón de dependencias */}
+      {onAbrirDependencias && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAbrirDependencias(tarea);
+          }}
+          className={cn(
+            'shrink-0 flex items-center gap-1 px-1.5 py-1 rounded-lg transition-all cursor-pointer',
+            predsCount > 0
+              ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 opacity-100'
+              : 'bg-slate-100 text-slate-400 hover:bg-slate-200 opacity-0 group-hover:opacity-100'
+          )}
+          title={
+            predsCount > 0
+              ? `${predsCount} predecesora${predsCount === 1 ? '' : 's'} — click para editar`
+              : 'Agregar dependencias'
+          }
+        >
+          <LinkIcon className="w-3 h-3" />
+          {predsCount > 0 && (
+            <span className="text-[9px] font-black">{predsCount}</span>
+          )}
+        </button>
+      )}
     </div>
   );
 }
