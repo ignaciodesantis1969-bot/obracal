@@ -1,7 +1,8 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttBarra.jsx
-import React, { useRef, useState } from 'react';
+import React, { useRef, useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import GanttDragGhost from './GanttDragGhost';
+import { sumarDias } from './useGanttCalculos';
 
 const ZONA_RESIZE_PX = 8;
 
@@ -121,7 +122,43 @@ function BarraTarea({
   const barraRef = useRef(null);
   const [cursorZona, setCursorZona] = useState(null);
 
-  // 🔑 FIX: usar el rect de la barra real
+  // 🔑 Fechas nuevas durante el drag (para mostrar en el badge)
+  const fechasPreview = useMemo(() => {
+    if (!esLaQueSeArrastra || !previewActual || !dragActivo) return null;
+
+    const offsetDias = previewActual.offsetDiasDelta || 0;
+    const durDelta = previewActual.duracionDelta || 0;
+
+    if (dragActivo.tipo === 'mover') {
+      return {
+        inicio: sumarDias(tarea.fecha_inicio, offsetDias),
+        fin: sumarDias(tarea.fecha_fin, offsetDias),
+        duracion: tarea._duracionDias,
+      };
+    }
+
+    if (dragActivo.tipo === 'resize-izq') {
+      const duracionNueva = Math.max(tarea._duracionDias + durDelta, 1);
+      return {
+        inicio: sumarDias(tarea.fecha_inicio, offsetDias),
+        fin: tarea.fecha_fin,
+        duracion: duracionNueva,
+      };
+    }
+
+    if (dragActivo.tipo === 'resize-der') {
+      const duracionNueva = Math.max(tarea._duracionDias + durDelta, 1);
+      return {
+        inicio: tarea.fecha_inicio,
+        fin: sumarDias(tarea.fecha_fin, durDelta),
+        duracion: duracionNueva,
+      };
+    }
+
+    return null;
+  }, [esLaQueSeArrastra, previewActual, dragActivo, tarea]);
+
+  // Detectar zona de resize
   const detectarZona = (clientX) => {
     const rect = barraRef.current?.getBoundingClientRect();
     if (!rect) return 'mover';
@@ -180,12 +217,16 @@ function BarraTarea({
         />
       )}
 
-      {/* Barra fantasma */}
+      {/* Barra fantasma con badge de fechas */}
       {esLaQueSeArrastra && previewActual && (
         <GanttDragGhost
           preview={previewActual}
           alturaFila={alturaFila}
           tieneConflicto={!!conflicto}
+          fechaInicioNueva={fechasPreview?.inicio}
+          fechaFinNueva={fechasPreview?.fin}
+          duracionNueva={fechasPreview?.duracion}
+          tipoDrag={dragActivo?.tipo}
         />
       )}
 

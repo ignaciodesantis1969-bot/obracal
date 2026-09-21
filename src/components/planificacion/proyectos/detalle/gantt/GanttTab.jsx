@@ -1,9 +1,9 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttTab.jsx
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { BarChart3, AlertCircle, CheckCircle2, Undo2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { doc, writeBatch } from 'firebase/firestore';
-import { db } from '@/firebase';       // ← 🔑 ESTA línea
+import { db } from '@/firebase';
 import { cn } from '@/lib/utils';
 import { NIVELES_ZOOM, useGanttCalculos } from './useGanttCalculos';
 import { useGanttDrag } from './useGanttDrag';
@@ -14,8 +14,6 @@ import GanttTooltip from './GanttTooltip';
 
 const ALTURA_FILA = 36;
 const ALTURA_HEADER_GANTT = 44 + ALTURA_FILA * 1.5;
-
-// 🔑 Duración del toast "Deshacer" (en ms)
 const DURACION_TOAST_DESHACER = 10000;
 
 export default function GanttTab({ plan, tareas = [], personal = [], insumos = [] }) {
@@ -23,15 +21,12 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
   const [tareaHoverId, setTareaHoverId] = useState(null);
   const [tooltip, setTooltip] = useState({ tarea: null, posicion: null });
   const [rubrosColapsados, setRubrosColapsados] = useState(new Set());
-
-  // 🔑 Cambios optimistas: tareas modificadas localmente antes de que Firestore confirme
   const [tareasOptimistas, setTareasOptimistas] = useState({});
-  // { [tareaId]: { fecha_inicio, fecha_fin, duracion_real_dias } }
 
   const nivelZoom = NIVELES_ZOOM[nivelZoomId] || NIVELES_ZOOM.semanas;
 
   // Mezclar tareas originales con cambios optimistas
-  const tareasConCambios = React.useMemo(() => {
+  const tareasConCambios = useMemo(() => {
     return tareas.map(t => {
       const cambio = tareasOptimistas[t.id];
       if (!cambio) return t;
@@ -45,61 +40,8 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     rubrosColapsados
   );
 
-  // 🔑 Guardar cambios en Firestore con writeBatch (atómico)
-  const guardarCambios = useCallback(async (cambios) => {
-    // 1. Guardar snapshot del estado anterior (para Undo)
-    const snapshotAnterior = cambios.map(c => {
-      const tarea = tareas.find(t => t.id === c.tareaId);
-      return {
-        tareaId: c.tareaId,
-        fecha_inicio: tarea?.fecha_inicio,
-        fecha_fin: tarea?.fecha_fin,
-        duracion_real_dias: tarea?.duracion_real_dias,
-      };
-    });
-
-    // 2. Actualización optimista de la UI
-    const nuevosOptimistas = { ...tareasOptimistas };
-    cambios.forEach(c => {
-      nuevosOptimistas[c.tareaId] = {
-        ...(nuevosOptimistas[c.tareaId] || {}),
-        ...(c.fecha_inicio !== undefined && { fecha_inicio: c.fecha_inicio }),
-        ...(c.fecha_fin !== undefined && { fecha_fin: c.fecha_fin }),
-        ...(c.duracion_real_dias !== undefined && { duracion_real_dias: c.duracion_real_dias }),
-      };
-    });
-    setTareasOptimistas(nuevosOptimistas);
-
-    // 3. Ejecutar writeBatch
-    try {
-      const batch = writeBatch(db);
-      cambios.forEach(c => {
-        const ref = doc(db, 'planificacion_tareas', c.tareaId);
-        const data = {};
-        if (c.fecha_inicio !== undefined) data.fecha_inicio = c.fecha_inicio;
-        if (c.fecha_fin !== undefined) data.fecha_fin = c.fecha_fin;
-        if (c.duracion_real_dias !== undefined) data.duracion_real_dias = c.duracion_real_dias;
-        if (c.fecha_manual !== undefined) data.fecha_manual = c.fecha_manual;
-        batch.update(ref, data);
-      });
-
-      await batch.commit();
-
-      // 4. Éxito → mostrar toast persistente con Undo
-      mostrarToastUndo(cambios.length, snapshotAnterior);
-
-    } catch (err) {
-      console.error('[GanttTab] Error en writeBatch:', err);
-      // Revertir cambios optimistas
-      setTareasOptimistas(tareasOptimistas);
-      toast.error('Error al guardar cambios: ' + (err.message || ''), {
-        duration: 6000,
-      });
-    }
-  }, [tareas, tareasOptimistas]);
-
-  // 🔑 Toast persistente con botón Deshacer
-  const mostrarToastUndo = (cantidad, snapshot) => {
+  // ─── Toast persistente con botón Deshacer ─────────────────────────────
+  const mostrarToastUndo = useCallback((cantidad, snapshot) => {
     const toastId = toast.custom(
       (t) => (
         <div
@@ -108,7 +50,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
             'border border-slate-700',
             t.visible ? 'animate-enter' : 'animate-leave'
           )}
-          style={{ minWidth: '320px' }}
+          style={{ minWidth: '340px', maxWidth: '460px' }}
         >
           <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
           <div className="flex-1 min-w-0">
@@ -139,10 +81,10 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         position: 'bottom-right',
       }
     );
-  };
+  }, []);
 
-  // 🔑 Deshacer: revertir los cambios
-  const handleUndo = async (toastId, snapshot) => {
+  // ─── Deshacer cambios ─────────────────────────────────────────────────
+  const handleUndo = useCallback(async (toastId, snapshot) => {
     toast.dismiss(toastId);
 
     try {
@@ -158,21 +100,81 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
 
       await batch.commit();
 
-      // Revertir también el estado optimista
-      const nuevosOptimistas = { ...tareasOptimistas };
-      snapshot.forEach(s => {
-        delete nuevosOptimistas[s.tareaId];
+      // Revertir el estado optimista
+      setTareasOptimistas(prev => {
+        const nuevo = { ...prev };
+        snapshot.forEach(s => {
+          delete nuevo[s.tareaId];
+        });
+        return nuevo;
       });
-      setTareasOptimistas(nuevosOptimistas);
 
       toast.success('Cambios revertidos', { duration: 2000 });
     } catch (err) {
       console.error('[GanttTab] Error al deshacer:', err);
       toast.error('No se pudo deshacer: ' + (err.message || ''), { duration: 5000 });
     }
-  };
+  }, []);
 
-  // 🔑 Hook de drag (con guardado real)
+  // ─── Guardar cambios con writeBatch ──────────────────────────────────
+  const guardarCambios = useCallback(async (cambios) => {
+    // 1. Snapshot del estado anterior (para Undo)
+    const snapshotAnterior = cambios.map(c => {
+      const tarea = tareas.find(t => t.id === c.tareaId);
+      return {
+        tareaId: c.tareaId,
+        fecha_inicio: tarea?.fecha_inicio,
+        fecha_fin: tarea?.fecha_fin,
+        duracion_real_dias: tarea?.duracion_real_dias,
+      };
+    });
+
+    // 2. Actualización optimista de la UI
+    setTareasOptimistas(prev => {
+      const nuevos = { ...prev };
+      cambios.forEach(c => {
+        nuevos[c.tareaId] = {
+          ...(nuevos[c.tareaId] || {}),
+          ...(c.fecha_inicio !== undefined && { fecha_inicio: c.fecha_inicio }),
+          ...(c.fecha_fin !== undefined && { fecha_fin: c.fecha_fin }),
+          ...(c.duracion_real_dias !== undefined && { duracion_real_dias: c.duracion_real_dias }),
+        };
+      });
+      return nuevos;
+    });
+
+    // 3. writeBatch atómico
+    try {
+      const batch = writeBatch(db);
+      cambios.forEach(c => {
+        const ref = doc(db, 'planificacion_tareas', c.tareaId);
+        const data = {};
+        if (c.fecha_inicio !== undefined) data.fecha_inicio = c.fecha_inicio;
+        if (c.fecha_fin !== undefined) data.fecha_fin = c.fecha_fin;
+        if (c.duracion_real_dias !== undefined) data.duracion_real_dias = c.duracion_real_dias;
+        if (c.fecha_manual !== undefined) data.fecha_manual = c.fecha_manual;
+        batch.update(ref, data);
+      });
+
+      await batch.commit();
+
+      // 4. Toast con Undo
+      mostrarToastUndo(cambios.length, snapshotAnterior);
+    } catch (err) {
+      console.error('[GanttTab] Error en writeBatch:', err);
+      // Revertir UI
+      setTareasOptimistas(prev => {
+        const nuevos = { ...prev };
+        cambios.forEach(c => {
+          delete nuevos[c.tareaId];
+        });
+        return nuevos;
+      });
+      toast.error('Error al guardar cambios: ' + (err.message || ''), { duration: 6000 });
+    }
+  }, [tareas, mostrarToastUndo]);
+
+  // ─── Hook de drag ─────────────────────────────────────────────────────
   const {
     dragActivo,
     preview,
@@ -188,7 +190,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     guardarCambios,
   });
 
-  // Listeners globales
+  // ─── Listeners globales ───────────────────────────────────────────────
   useEffect(() => {
     if (!dragActivo) return;
 
@@ -407,7 +409,10 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       </div>
 
-      <GanttTooltip tarea={tooltip.tarea} posicion={tooltip.posicion} />
+      {/* 🔑 Tooltip solo cuando NO hay drag activo */}
+      {!dragActivo && (
+        <GanttTooltip tarea={tooltip.tarea} posicion={tooltip.posicion} />
+      )}
     </div>
   );
 }
