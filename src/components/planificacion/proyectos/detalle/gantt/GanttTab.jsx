@@ -308,7 +308,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                   key={fila._key}
                   style={{ height: `${ALTURA_FILA}px` }}
                   className={cn(
-                    'border-b overflow-hidden transition-colors',
+                    'border-b transition-colors',
                     isRubro ? 'bg-slate-100 border-slate-300' : 'border-slate-200',
                     isHover && !isRubro && 'bg-amber-100',
                     isHover && isRubro && 'bg-blue-100'
@@ -380,7 +380,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                         key={fila._key}
                         style={{ height: `${ALTURA_FILA}px` }}
                         className={cn(
-                          'border-b overflow-hidden transition-colors',
+                          'border-b transition-colors',
                           isRubro ? 'bg-slate-100 border-slate-300' : 'border-slate-200',
                           isHover && !isRubro && 'bg-amber-100',
                           isHover && isRubro && 'bg-blue-100'
