@@ -12,22 +12,24 @@ import {
   ajustarADiaHabil,
   esFinDeSemana,
   esFeriado,
+  obtenerIdsPredecesoras,
 } from '@/lib/planificacionHelpers';
 
 /**
  * Hook que maneja la lógica del drag de barras del Gantt.
- * Fase 2.3: agrega snap a días hábiles + validación de feriados.
+ * Fase 2.3: snap a días hábiles + validación de feriados.
+ * Fase 3.1: compatible con estructura nueva de predecesoras.
  */
 export function useGanttDrag({
   filas = [],
   nivelZoom,
   guardarCambios,
-  plan,           // 🔑 para leer feriados custom
-  feriadosCustom = [],  // 🔑 feriados desde Firestore
+  plan,
+  feriadosCustom = [],
 }) {
   const [dragActivo, setDragActivo] = useState(null);
   const [preview, setPreview] = useState(null);
-  const [aviso, setAviso] = useState(null); // 🔑 aviso sobre fin de semana/feriado
+  const [aviso, setAviso] = useState(null);
 
   // Feriados del año del plan
   const feriadosSet = useMemo(() => {
@@ -41,8 +43,8 @@ export function useGanttDrag({
     const tareaMoviendoseId = preview.tareaId;
     return filas.filter((f) => {
       if (f._tipo !== 'tarea') return false;
-      const preds = Array.isArray(f.predecesoras) ? f.predecesoras : [];
-      return preds.some(p => String(p) === String(tareaMoviendoseId));
+      const predsIds = obtenerIdsPredecesoras(f.predecesoras);
+      return predsIds.some(p => String(p) === String(tareaMoviendoseId));
     });
   }, [preview, filas]);
 
@@ -60,12 +62,12 @@ export function useGanttDrag({
       };
     }
 
-    // Predecesoras
-    const preds = Array.isArray(tarea.predecesoras) ? tarea.predecesoras : [];
-    if (preds.length > 0) {
+    // Predecesoras (solo FS aplica para bloqueo simple)
+    const predsIds = obtenerIdsPredecesoras(tarea.predecesoras);
+    if (predsIds.length > 0) {
       const nuevaFechaInicio = sumarDias(tarea.fecha_inicio, preview.offsetDiasDelta);
       let fechaFinMaxPreds = null;
-      for (const predId of preds) {
+      for (const predId of predsIds) {
         const pred = filas.find(f => String(f.id) === String(predId));
         if (pred && pred.fecha_fin) {
           if (!fechaFinMaxPreds || pred.fecha_fin > fechaFinMaxPreds) {
@@ -143,10 +145,8 @@ export function useGanttDrag({
       );
     }
 
-    // 🔑 Calcular la fecha de inicio propuesta
     const fechaInicioPropuesta = sumarDias(dragActivo.fechaInicio0, offsetDiasDelta);
 
-    // 🔑 Snap a día hábil: si la fecha propuesta cae en finde/feriado, avisar
     const caeEnFinde = esFinDeSemana(fechaInicioPropuesta);
     const caeEnFeriado = esFeriado(fechaInicioPropuesta, feriadosSet);
 
@@ -194,11 +194,8 @@ export function useGanttDrag({
     const cambios = [];
 
     if (drag.tipo === 'mover') {
-      // 🔑 Aplicar snap a día hábil
       const fechaInicioPropuesta = sumarDias(drag.fechaInicio0, prev.offsetDiasDelta);
       const fechaInicioFinal = ajustarADiaHabil(fechaInicioPropuesta, feriadosSet);
-
-      // 🔑 Recalcular fecha fin con duración en días hábiles
       const fechaFinFinal = calcularFechaFin(
         fechaInicioFinal,
         tarea._duracionDias,
@@ -227,7 +224,6 @@ export function useGanttDrag({
       });
     } else if (drag.tipo === 'resize-der') {
       const nuevaDuracion = Math.max(tarea._duracionDias + prev.duracionDelta, 1);
-      const fechaFinPropuesta = sumarDias(drag.fechaInicio0, nuevaDuracion);
       const fechaFinFinal = calcularFechaFin(tarea.fecha_inicio, nuevaDuracion, feriadosSet);
 
       cambios.push({
@@ -260,7 +256,6 @@ export function useGanttDrag({
       });
     }
 
-    // Guardar
     if (typeof guardarCambios === 'function' && cambios.length > 0) {
       try {
         await guardarCambios(cambios);

@@ -1,5 +1,6 @@
 // src/components/planificacion/proyectos/detalle/gantt/useGanttCalculos.js
 import { useMemo } from 'react';
+import { normalizarPredecesoras } from '@/lib/planificacionHelpers';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -13,22 +14,22 @@ export const NIVELES_ZOOM = {
 
 // 🎨 Colores (celeste pálido con bordes más oscuros)
 export const COLORES_ESTADO = {
-  no_iniciado: { bg: '#dbeafe', border: '#93c5fd', label: 'No iniciado' },      // blue-100 / blue-300
-  en_curso:    { bg: '#bae6fd', border: '#0ea5e9', label: 'En curso' },         // sky-200 / sky-500
-  completada:  { bg: '#bbf7d0', border: '#22c55e', label: 'Completada' },       // green-200 / green-500
-  bloqueada:   { bg: '#fecaca', border: '#ef4444', label: 'Bloqueada' },        // red-200 / red-500
+  no_iniciado: { bg: '#dbeafe', border: '#93c5fd', label: 'No iniciado' },
+  en_curso:    { bg: '#bae6fd', border: '#0ea5e9', label: 'En curso' },
+  completada:  { bg: '#bbf7d0', border: '#22c55e', label: 'Completada' },
+  bloqueada:   { bg: '#fecaca', border: '#ef4444', label: 'Bloqueada' },
 };
 
-// Color para barras de RUBRO (agregadas, un tono más oscuro)
 export const COLOR_RUBRO = {
-  bg: '#93c5fd',      // blue-300
-  border: '#3b82f6',  // blue-500
+  bg: '#93c5fd',
+  border: '#3b82f6',
 };
 
 export const COLOR_TAREA = {
   bg: '#dbeafe',
   border: '#3b82f6',
 };
+
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPERS DE FECHA
 // ═══════════════════════════════════════════════════════════════════════════
@@ -93,15 +94,6 @@ export function esFindeSemana(date) {
 // HOOK PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Calcula las posiciones del Gantt agrupando por rubro.
- * Devuelve:
- *   - filas: array de filas mezclando rubros (padre) y tareas (hijas)
- *     cada fila tiene _tipo: 'rubro' | 'tarea' y _offsetPx / _anchoPx
- *   - rango: { inicio, fin, totalDias }
- *   - ticks
- *   - anchoTotal
- */
 export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new Set()) {
   return useMemo(() => {
     // ─── Sin tareas ─────────────────────────────────────────────────────
@@ -115,6 +107,8 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
         filas: [],
         ticks: generarTicks(dateAIso(hoy), dateAIso(fin), nivelZoom),
         anchoTotal: 30 * nivelZoom.pxPorDia,
+        flechas: [],
+        alturaFila: 36,
       };
     }
 
@@ -150,7 +144,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
     const filas = [];
 
     rubrosArray.forEach((rubro) => {
-      // Ordenar tareas dentro del rubro por fecha inicio
       const tareasOrdenadas = [...rubro.tareas].sort((a, b) => {
         const fA = a.fecha_inicio || '';
         const fB = b.fecha_inicio || '';
@@ -158,7 +151,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
         return (Number(a.tarea_idx) || 0) - (Number(b.tarea_idx) || 0);
       });
 
-      // Calcular métricas del rubro (fecha mín, fecha máx, costo, dh)
       let rubroFechaMin = null;
       let rubroFechaMax = null;
       let rubroCostoTotal = 0;
@@ -177,17 +169,13 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
         if (String(t.estado || '').toLowerCase() === 'completada') rubroTareasCompletadas++;
       });
 
-      // Fallback: si no hay fechas, usar las del inicio del plan
       if (!rubroFechaMin) rubroFechaMin = inicioIso;
       if (!rubroFechaMax) rubroFechaMax = rubroFechaMin;
 
-      // Posición de la barra agregada del rubro
       const rubroOffsetDias = diasEntre(inicioIso, rubroFechaMin);
       const rubroDuracionDias = Math.max(diasEntre(rubroFechaMin, rubroFechaMax), 1);
-
       const rubroColapsado = rubrosColapsados.has(rubro.nombre);
 
-      // Fila del rubro
       filas.push({
         _tipo: 'rubro',
         _key: `rubro-${rubro.nombre}`,
@@ -205,7 +193,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
         _offsetDias: rubroOffsetDias,
         _duracionDias: rubroDuracionDias,
         _colapsado: rubroColapsado,
-        // Lista de barras hijas (subdivisiones dentro de la barra del rubro)
         _subBarras: tareasOrdenadas.map((t) => {
           const inicio = t.fecha_inicio || rubroFechaMin;
           const fin = t.fecha_fin || t.fecha_inicio || inicio;
@@ -221,7 +208,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
         }),
       });
 
-      // Filas de las tareas hijas (solo si no está colapsado)
       if (!rubroColapsado) {
         tareasOrdenadas.forEach((t) => {
           const inicio = t.fecha_inicio;
@@ -243,14 +229,83 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       }
     });
 
-    // ─── Ticks ──────────────────────────────────────────────────────────
     const ticks = generarTicks(inicioIso, finIso, nivelZoom);
+
+    // ═══════════════════════════════════════════════════════════════════
+    // 🔑 Fase 3.1: Calcular datos para las flechas de dependencia
+    // ═══════════════════════════════════════════════════════════════════
+    const ALTURA_FILA = 36;
+    const flechas = [];
+
+    // Mapa de tareaId → índice de fila (para calcular Y)
+    const filaIdxPorTarea = new Map();
+    filas.forEach((f, idx) => {
+      if (f._tipo === 'tarea') {
+        filaIdxPorTarea.set(String(f.id), idx);
+      }
+    });
+
+    filas.forEach((filaDestino, idxDestino) => {
+      if (filaDestino._tipo !== 'tarea') return;
+
+      const predecesoras = normalizarPredecesoras(filaDestino.predecesoras);
+      if (predecesoras.length === 0) return;
+
+      predecesoras.forEach((pred) => {
+        const filaOrigen = filas.find(f =>
+          f._tipo === 'tarea' && String(f.id) === String(pred.tarea_id)
+        );
+        if (!filaOrigen) return;
+
+        const idxOrigen = filaIdxPorTarea.get(String(filaOrigen.id));
+        if (idxOrigen === undefined) return;
+
+        const yOrigen = idxOrigen * ALTURA_FILA + ALTURA_FILA / 2;
+        const yDestino = idxDestino * ALTURA_FILA + ALTURA_FILA / 2;
+
+        let xOrigen, xDestino;
+
+        switch (pred.tipo) {
+          case 'SS':
+            xOrigen = filaOrigen._offsetPx;
+            xDestino = filaDestino._offsetPx;
+            break;
+          case 'FF':
+            xOrigen = filaOrigen._offsetPx + filaOrigen._anchoPx;
+            xDestino = filaDestino._offsetPx + filaDestino._anchoPx;
+            break;
+          case 'SF':
+            xOrigen = filaOrigen._offsetPx;
+            xDestino = filaDestino._offsetPx + filaDestino._anchoPx;
+            break;
+          case 'FS':
+          default:
+            xOrigen = filaOrigen._offsetPx + filaOrigen._anchoPx;
+            xDestino = filaDestino._offsetPx;
+            break;
+        }
+
+        flechas.push({
+          id: `${pred.tarea_id}->${filaDestino.id}`,
+          tipo: pred.tipo,
+          lag: pred.lag,
+          x1: xOrigen,
+          y1: yOrigen,
+          x2: xDestino,
+          y2: yDestino,
+          origenId: filaOrigen.id,
+          destinoId: filaDestino.id,
+        });
+      });
+    });
 
     return {
       rango: { inicio: inicioIso, fin: finIso, totalDias },
       filas,
       ticks,
       anchoTotal: totalDias * nivelZoom.pxPorDia,
+      flechas,
+      alturaFila: ALTURA_FILA,
     };
   }, [tareas, nivelZoom, rubrosColapsados]);
 }

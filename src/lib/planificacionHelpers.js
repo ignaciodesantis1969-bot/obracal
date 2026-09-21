@@ -595,3 +595,142 @@ export function esFeriado(fechaIso, feriadosSet) {
   if (!fechaIso || !feriadosSet) return false;
   return feriadosSet.has(fechaIso);
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPERS DE DEPENDENCIAS (Fase 3.1)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Tipos de dependencia entre tareas (estándar de project management):
+ * - FS (Finish-to-Start): B empieza cuando termina A. ← el más común
+ * - SS (Start-to-Start):   B empieza cuando empieza A
+ * - FF (Finish-to-Finish): B termina cuando termina A
+ * - SF (Start-to-Finish):  B termina cuando empieza A (raro)
+ */
+export const TIPOS_DEPENDENCIA = [
+  { id: 'FS', label: 'Fin → Inicio', descripcion: 'La sucesora empieza cuando termina la predecesora', icono: '→' },
+  { id: 'SS', label: 'Inicio → Inicio', descripcion: 'Ambas empiezan al mismo tiempo', icono: '⇉' },
+  { id: 'FF', label: 'Fin → Fin', descripcion: 'Ambas terminan al mismo tiempo', icono: '⇉' },
+  { id: 'SF', label: 'Inicio → Fin', descripcion: 'La sucesora termina cuando empieza la predecesora (raro)', icono: '→' },
+];
+
+/**
+ * Normaliza el array `predecesoras` de una tarea al formato nuevo:
+ *   [{ tarea_id: "xxx", tipo: "FS", lag: 0 }]
+ * 
+ * Acepta:
+ *   - Viejo: ["id1", "id2"]                    → strings sueltos
+ *   - Nuevo: [{ tarea_id, tipo, lag }]         → ya normalizado
+ *   - Mixto: ["id1", { tarea_id: "id2", ... }] → ambos convivendo
+ * 
+ * @param {Array} predecesorasRaw - El array crudo de la tarea
+ * @returns {Array} Array normalizado con estructura nueva
+ */
+export function normalizarPredecesoras(predecesorasRaw) {
+  if (!Array.isArray(predecesorasRaw)) return [];
+
+  return predecesorasRaw
+    .map((p) => {
+      // Formato viejo: string con el ID
+      if (typeof p === 'string') {
+        return {
+          tarea_id: p,
+          tipo: 'FS',
+          lag: 0,
+        };
+      }
+
+      // Formato nuevo: objeto con tarea_id
+      if (p && typeof p === 'object') {
+        const tareaId = p.tarea_id || p.id || p.tareaId;
+        if (!tareaId) return null;
+
+        const tipo = String(p.tipo || 'FS').toUpperCase();
+        const tipoValido = ['FS', 'SS', 'FF', 'SF'].includes(tipo) ? tipo : 'FS';
+
+        return {
+          tarea_id: String(tareaId),
+          tipo: tipoValido,
+          lag: Number(p.lag) || 0,
+        };
+      }
+
+      return null;
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Extrae solo los IDs de las predecesoras (útil para buscar tareas).
+ * Acepta ambos formatos.
+ * 
+ * @param {Array} predecesorasRaw
+ * @returns {string[]} Array de IDs
+ */
+export function obtenerIdsPredecesoras(predecesorasRaw) {
+  return normalizarPredecesoras(predecesorasRaw).map(p => p.tarea_id);
+}
+
+/**
+ * Verifica si una tarea tiene una predecesora específica.
+ * Acepta ambos formatos.
+ */
+export function tienePredecesora(predecesorasRaw, tareaId) {
+  const ids = obtenerIdsPredecesoras(predecesorasRaw);
+  return ids.some(id => String(id) === String(tareaId));
+}
+
+/**
+ * Detecta si agregar una nueva predecesora generaría un ciclo.
+ * 
+ * @param {string} tareaId - ID de la tarea que va a recibir la nueva predecesora
+ * @param {string} nuevaPredecesoraId - ID de la tarea que se quiere agregar como predecesora
+ * @param {Array} todasLasTareas - Array completo de tareas del plan
+ * @returns {Object} { tieneCiclo: boolean, camino: string[] }
+ */
+export function detectarCiclo(tareaId, nuevaPredecesoraId, todasLasTareas) {
+  if (!tareaId || !nuevaPredecesoraId) return { tieneCiclo: false, camino: [] };
+  if (String(tareaId) === String(nuevaPredecesoraId)) {
+    return { tieneCiclo: true, camino: [tareaId, tareaId] };
+  }
+
+  // BFS: desde la nueva predecesora, seguir sus predecesoras.
+  // Si llegamos a la tarea original → ciclo.
+  const visitados = new Set();
+  const cola = [{ id: String(nuevaPredecesoraId), camino: [String(nuevaPredecesoraId)] }];
+
+  while (cola.length > 0) {
+    const actual = cola.shift();
+    if (visitados.has(actual.id)) continue;
+    visitados.add(actual.id);
+
+    // ¿Llegamos a la tarea original?
+    if (actual.id === String(tareaId)) {
+      return { tieneCiclo: true, camino: [String(tareaId), ...actual.camino] };
+    }
+
+    // Buscar la tarea actual en el listado
+    const tareaActual = todasLasTareas.find(t => String(t.id) === actual.id);
+    if (!tareaActual) continue;
+
+    // Seguir sus predecesoras
+    const preds = obtenerIdsPredecesoras(tareaActual.predecesoras);
+    preds.forEach(predId => {
+      if (!visitados.has(predId)) {
+        cola.push({
+          id: String(predId),
+          camino: [...actual.camino, String(predId)],
+        });
+      }
+    });
+  }
+
+  return { tieneCiclo: false, camino: [] };
+}
+
+/**
+ * Devuelve el mensaje legible del tipo de dependencia.
+ */
+export function labelTipoDependencia(tipo) {
+  const t = TIPOS_DEPENDENCIA.find(x => x.id === tipo);
+  return t ? t.label : 'Fin → Inicio';
+}
