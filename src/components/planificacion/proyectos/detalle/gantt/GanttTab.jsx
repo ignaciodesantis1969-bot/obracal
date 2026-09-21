@@ -1,15 +1,16 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttTab.jsx
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { BarChart3, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NIVELES_ZOOM, useGanttCalculos } from './useGanttCalculos';
+import { useGanttDrag } from './useGanttDrag';
 import GanttHeader from './GanttHeader';
 import { FilaRubro, FilaTarea } from './GanttSidebar';
 import GanttBarra from './GanttBarra';
 import GanttTooltip from './GanttTooltip';
 
 const ALTURA_FILA = 36;
-const ALTURA_HEADER_GANTT = 44 + ALTURA_FILA * 1.5; // = 98px
+const ALTURA_HEADER_GANTT = 44 + ALTURA_FILA * 1.5;
 
 export default function GanttTab({ plan, tareas = [], personal = [], insumos = [] }) {
   const [nivelZoomId, setNivelZoomId] = useState('semanas');
@@ -24,6 +25,46 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     nivelZoom,
     rubrosColapsados
   );
+
+  // 🔑 Fase 2.1: hook de drag (todavía sin guardar)
+  const {
+    dragActivo,
+    preview,
+    conflicto,
+    dependenciasAfectadas,
+    iniciarDrag,
+    actualizarDrag,
+    terminarDrag,
+    cancelarDrag,
+  } = useGanttDrag({
+    filas,
+    nivelZoom,
+    onGuardar: (data) => {
+      // Fase 2.2: acá va el writeBatch
+      console.log('[Fase 2.1] Drag terminado (sin guardar):', data);
+    },
+  });
+
+  // 🔑 Fase 2.1: listeners globales para mousemove/mouseup durante el drag
+  useEffect(() => {
+    if (!dragActivo) return;
+
+    const handleMouseMove = (e) => actualizarDrag(e);
+    const handleMouseUp = (e) => terminarDrag(e);
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') cancelarDrag();
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [dragActivo, actualizarDrag, terminarDrag, cancelarDrag]);
 
   const toggleRubro = (nombreRubro) => {
     setRubrosColapsados((prev) => {
@@ -78,16 +119,33 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         )}
       </div>
 
-      {/* 🔑 Contenedor único con scroll VERTICAL en ambas columnas */}
-      <div
-        className="overflow-auto"
-        style={{ height: '70vh', minHeight: '400px' }}
-      >
+      {/* Banner de conflicto durante el drag */}
+      {conflicto && (
+        <div className="px-4 py-2 bg-rose-100 border-b-2 border-rose-400 text-rose-900 text-[11px] font-bold flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5" />
+          <span>⚠️ {conflicto.mensaje} — Soltá para cancelar</span>
+        </div>
+      )}
+
+      {/* Banner de dependencias afectadas */}
+      {!conflicto && dependenciasAfectadas.length > 0 && (
+        <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5" />
+          <span>
+            Al mover esta tarea también se moverán {dependenciasAfectadas.length} tarea{dependenciasAfectadas.length === 1 ? '' : 's'}:
+            {' '}
+            {dependenciasAfectadas.slice(0, 3).map(d => d.tarea_nombre).join(', ')}
+            {dependenciasAfectadas.length > 3 && ` +${dependenciasAfectadas.length - 3} más`}
+          </span>
+        </div>
+      )}
+
+      {/* Contenedor con scroll */}
+      <div className="overflow-auto" style={{ height: '70vh', minHeight: '400px' }}>
         <div className="flex min-w-fit">
 
-          {/* ═══ Columna izquierda: sidebar (sticky horizontal para no perder de vista) ═══ */}
+          {/* Columna izquierda: sidebar */}
           <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-300 sticky left-0 z-30">
-            {/* Header del sidebar sticky top */}
             <div
               className="border-b-2 border-slate-300 px-3 flex items-center bg-slate-200 sticky top-0 z-10"
               style={{ height: `${ALTURA_HEADER_GANTT}px` }}
@@ -95,7 +153,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
               <p className="text-[10px] font-black text-slate-700 uppercase">Rubro / Tarea</p>
             </div>
 
-            {/* Filas del sidebar */}
             {filas.map((fila) => {
               const isRubro = fila._tipo === 'rubro';
               const hoverKey = isRubro ? `rubro-${fila.nombre}` : fila.id;
@@ -131,11 +188,10 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
             })}
           </div>
 
-          {/* ═══ Columna derecha: Gantt ═══ */}
+          {/* Columna derecha: Gantt */}
           <div className="flex-1 min-w-0">
             <div style={{ width: `${anchoTotal}px`, minWidth: '100%' }}>
 
-              {/* Header del Gantt sticky top */}
               <div style={{ position: 'sticky', top: 0, zIndex: 20 }}>
                 <GanttHeader
                   ticks={ticks}
@@ -146,7 +202,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                 />
               </div>
 
-              {/* Filas de barras */}
               <div className="relative">
                 {/* Grilla de fondo */}
                 <div
@@ -193,6 +248,10 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                           onHover={setTareaHoverId}
                           onLeave={handleLeave}
                           onTooltipMove={isRubro ? undefined : handleTooltipMove}
+                          onIniciarDrag={isRubro ? undefined : iniciarDrag}
+                          dragActivo={dragActivo}
+                          preview={preview}
+                          conflicto={conflicto}
                         />
                       </div>
                     );

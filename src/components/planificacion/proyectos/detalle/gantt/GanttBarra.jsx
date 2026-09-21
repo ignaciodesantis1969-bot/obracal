@@ -1,6 +1,10 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttBarra.jsx
-import React from 'react';
+import React, { useRef } from 'react';
 import { cn } from '@/lib/utils';
+import GanttDragGhost from './GanttDragGhost';
+
+// Ancho de las zonas de resize (en píxeles)
+const ZONA_RESIZE_PX = 8;
 
 export default function GanttBarra({
   fila,
@@ -9,6 +13,11 @@ export default function GanttBarra({
   onHover,
   onLeave,
   onTooltipMove,
+  // 🔑 Fase 2.1: drag
+  onIniciarDrag,
+  dragActivo,
+  preview,
+  conflicto,
 }) {
   if (fila._tipo === 'rubro') {
     return (
@@ -29,18 +38,22 @@ export default function GanttBarra({
       onHover={onHover}
       onLeave={onLeave}
       onTooltipMove={onTooltipMove}
+      onIniciarDrag={onIniciarDrag}
+      dragActivo={dragActivo}
+      preview={preview}
+      conflicto={conflicto}
     />
   );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE RUBRO — línea negra + topes en L, centrada verticalmente
+// BARRA DE RUBRO — sin drag (por ahora)
 // ═══════════════════════════════════════════════════════════════════════════
 
 function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
   const GROSOR = 4;
   const ALTO_TOPE = 8;
-  const COLOR = '#0f172a';   // slate-900 (más oscuro, más contraste)
+  const COLOR = '#0f172a';
 
   return (
     <div
@@ -60,7 +73,6 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
           transform: 'translateY(-50%)',
         }}
       >
-        {/* Tope izquierdo — ligeramente arriba */}
         <div
           style={{
             position: 'absolute',
@@ -71,7 +83,6 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
             backgroundColor: COLOR,
           }}
         />
-        {/* Tope derecho */}
         <div
           style={{
             position: 'absolute',
@@ -88,26 +99,107 @@ function BarraRubro({ rubro, alturaFila, onHover, onLeave }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE TAREA — celeste con borde más oscuro
+// BARRA DE TAREA — con drag
 // ═══════════════════════════════════════════════════════════════════════════
 
-function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMove }) {
+function BarraTarea({
+  tarea,
+  alturaFila,
+  esHover,
+  onHover,
+  onLeave,
+  onTooltipMove,
+  onIniciarDrag,
+  dragActivo,
+  preview,
+  conflicto,
+}) {
   const porcentajeAvance = Number(tarea.porcentaje_avance) || 0;
-
   const anchoBarra = Math.max(tarea._anchoPx, 12);
+
+  // Detecta si esta tarea es la que se está arrastrando
+  const esLaQueSeArrastra = dragActivo?.tareaId === tarea.id;
+  const esRubro = tarea._tipo === 'rubro';
+
+  // Preview actual (solo si es esta tarea)
+  const previewActual = preview?.tareaId === tarea.id ? preview : null;
+
+  // Cursor según zona
+  const [cursorZona, setCursorZona] = React.useState(null);
+
+  // Detectar zona según posición del mouse dentro de la barra
+  const detectarZona = (e) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const ancho = rect.width;
+
+    if (x < ZONA_RESIZE_PX) return 'resize-izq';
+    if (x > ancho - ZONA_RESIZE_PX) return 'resize-der';
+    return 'mover';
+  };
+
+  const handleMouseMoveInterno = (e) => {
+    if (esLaQueSeArrastra) return;
+    const zona = detectarZona(e);
+    setCursorZona(zona);
+    onTooltipMove?.(e, tarea);
+  };
+
+  const handleMouseDown = (e) => {
+    if (!onIniciarDrag) return;
+    const zona = detectarZona(e);
+    onIniciarDrag(e, tarea, zona);
+  };
+
+  const cursorClass = esLaQueSeArrastra
+    ? 'cursor-grabbing'
+    : cursorZona === 'resize-izq' || cursorZona === 'resize-der'
+      ? 'cursor-ew-resize'
+      : 'cursor-grab';
 
   return (
     <div
       className="relative"
       style={{ height: alturaFila }}
       onMouseEnter={() => onHover?.(tarea.id)}
-      onMouseLeave={() => onLeave?.()}
-      onMouseMove={(e) => onTooltipMove?.(e, tarea)}
+      onMouseLeave={() => {
+        setCursorZona(null);
+        onLeave?.();
+      }}
+      onMouseMove={handleMouseMoveInterno}
     >
+      {/* Si está en conflicto, dibujar un halo rojo alrededor */}
+      {esLaQueSeArrastra && conflicto && (
+        <div
+          className="absolute rounded ring-4 ring-rose-400 pointer-events-none"
+          style={{
+            left: `${previewActual?.offsetPx ?? tarea._offsetPx}px`,
+            top: '50%',
+            width: `${previewActual?.anchoPx ?? anchoBarra}px`,
+            height: `${alturaFila * 0.38 + 8}px`,
+            transform: 'translateY(-50%)',
+            zIndex: 25,
+          }}
+        />
+      )}
+
+      {/* Barra fantasma (cuando está arrastrando esta tarea) */}
+      {esLaQueSeArrastra && previewActual && (
+        <GanttDragGhost
+          preview={previewActual}
+          alturaFila={alturaFila}
+          tieneConflicto={!!conflicto}
+        />
+      )}
+
+      {/* Barra real */}
       <div
+        onMouseDown={handleMouseDown}
         className={cn(
           'absolute rounded transition-all',
-          esHover ? 'shadow-md ring-2 ring-amber-400 z-10' : 'shadow-sm'
+          cursorClass,
+          esHover ? 'shadow-md ring-2 ring-amber-400 z-10' : 'shadow-sm',
+          esLaQueSeArrastra && 'opacity-40'   // 🔑 la original queda opaca mientras arrastrás
         )}
         style={{
           left: `${tarea._offsetPx}px`,
@@ -115,21 +207,19 @@ function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMov
           width: `${anchoBarra}px`,
           height: `${alturaFila * 0.38}px`,
           transform: 'translateY(-50%)',
-          border: '2px solid #2563eb',       // 🔑 azul-600, más oscuro
+          border: '2px solid #2563eb',
           overflow: 'hidden',
         }}
       >
-        {/* Fondo celeste — azul-200 (más saturado que azul-100) */}
         <div
           style={{
             position: 'absolute',
             inset: 0,
-            backgroundColor: '#bfdbfe',       // 🔑 más visible
+            backgroundColor: '#bfdbfe',
             zIndex: 0,
           }}
         />
 
-        {/* Progreso interno */}
         {porcentajeAvance > 0 && (
           <div
             style={{
@@ -146,10 +236,10 @@ function BarraTarea({ tarea, alturaFila, esHover, onHover, onLeave, onTooltipMov
         )}
       </div>
 
-      {/* Burbuja % — fuera de la barra */}
-      {porcentajeAvance > 0 && tarea._anchoPx > 40 && (
+      {/* Burbuja % */}
+      {porcentajeAvance > 0 && tarea._anchoPx > 40 && !esLaQueSeArrastra && (
         <div
-          className="absolute text-[9px] font-black text-slate-800 bg-white border-2 border-slate-400 rounded-full px-1.5 py-0.5 shadow-sm"
+          className="absolute text-[9px] font-black text-slate-800 bg-white border-2 border-slate-400 rounded-full px-1.5 py-0.5 shadow-sm pointer-events-none"
           style={{
             left: `${tarea._offsetPx + anchoBarra + 6}px`,
             top: '50%',
