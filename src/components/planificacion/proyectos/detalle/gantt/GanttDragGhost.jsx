@@ -24,50 +24,67 @@ export default function GanttDragGhost({
 
   return (
     <div
-      className="absolute pointer-events-none"
       style={{
+        position: 'absolute',
         left: `${preview.offsetPx}px`,
         top: '50%',
         width: `${preview.anchoPx}px`,
         transform: 'translateY(-50%)',
         zIndex: 30,
+        pointerEvents: 'none',
       }}
     >
       {/* Badge con fechas (arriba de la barra fantasma) */}
       {mostrarBadge && (
         <div
-          className="absolute left-0 bottom-full mb-2 whitespace-nowrap rounded-lg shadow-lg border-2 px-2.5 py-1 flex items-center gap-2"
           style={{
+            position: 'absolute',
+            left: 0,
+            bottom: '100%',
+            marginBottom: '8px',
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '8px',
             backgroundColor: tieneConflicto ? '#7f1d1d' : '#0f172a',
-            borderColor: colorBorde,
+            border: `2px solid ${colorBorde}`,
+            borderRadius: '8px',
+            padding: '6px 10px',
+            boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
+            whiteSpace: 'nowrap',
+            fontSize: '11px',
+            fontWeight: 700,
             color: 'white',
+            minHeight: '28px',
+            lineHeight: 1.2,
           }}
         >
           {/* Tipo de drag */}
-          <span className="text-[10px] font-black uppercase text-amber-400">
+          <span
+            style={{
+              color: '#fbbf24',
+              textTransform: 'uppercase',
+              fontSize: '10px',
+              fontWeight: 900,
+              letterSpacing: '0.3px',
+            }}
+          >
             {tipoDrag === 'mover' && '↔ Mover'}
             {tipoDrag === 'resize-izq' && '← Inicio'}
             {tipoDrag === 'resize-der' && 'Fin →'}
           </span>
 
-          <span className="text-[10px] text-slate-400">|</span>
+          <span style={{ color: '#64748b' }}>|</span>
 
-          {/* Fecha inicio → fin */}
-          <span className="text-[10px] font-bold">
-            {formatearFechaLarga(fechaInicioNueva)}
-          </span>
-          <span className="text-[10px] text-slate-400">→</span>
-          <span className="text-[10px] font-bold">
-            {formatearFechaLarga(fechaFinNueva)}
-          </span>
+          {/* Fechas */}
+          <span>{formatearFechaLarga(fechaInicioNueva)}</span>
+          <span style={{ color: '#64748b' }}>→</span>
+          <span>{formatearFechaLarga(fechaFinNueva)}</span>
 
           {/* Duración */}
           {duracionNueva > 0 && (
             <>
-              <span className="text-[10px] text-slate-400">|</span>
-              <span className="text-[10px] font-bold text-emerald-400">
-                {duracionNueva} d
-              </span>
+              <span style={{ color: '#64748b' }}>|</span>
+              <span style={{ color: '#34d399' }}>{duracionNueva} d</span>
             </>
           )}
         </div>
@@ -75,12 +92,12 @@ export default function GanttDragGhost({
 
       {/* Barra fantasma */}
       <div
-        className="rounded"
         style={{
           width: '100%',
           height: `${alturaFila * 0.38}px`,
           backgroundColor: colorFondo,
           border: `2px dashed ${colorBorde}`,
+          borderRadius: '4px',
           opacity: 0.85,
         }}
       />
