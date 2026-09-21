@@ -12,6 +12,7 @@ import GanttHeader from './GanttHeader';
 import { FilaRubro, FilaTarea } from './GanttSidebar';
 import GanttBarra from './GanttBarra';
 import GanttTooltip from './GanttTooltip';
+import GanttFlechas from './GanttFlechas';   // 🔑 Fase 3.1
 
 const ALTURA_FILA = 36;
 const ALTURA_HEADER_GANTT = 44 + ALTURA_FILA * 1.5;
@@ -24,7 +25,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
   const [rubrosColapsados, setRubrosColapsados] = useState(new Set());
   const [tareasOptimistas, setTareasOptimistas] = useState({});
 
-  // 🔑 Fase 2.3: leer feriados desde Firestore
   const { data: feriadosFs } = useFirestoreCollection('feriados');
   const feriadosCustom = useMemo(
     () => (Array.isArray(feriadosFs) ? feriadosFs : []),
@@ -33,7 +33,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
 
   const nivelZoom = NIVELES_ZOOM[nivelZoomId] || NIVELES_ZOOM.semanas;
 
-  // Mezclar tareas originales con cambios optimistas
   const tareasConCambios = useMemo(() => {
     return tareas.map(t => {
       const cambio = tareasOptimistas[t.id];
@@ -42,13 +41,13 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     });
   }, [tareas, tareasOptimistas]);
 
-  const { rango, filas, ticks, anchoTotal } = useGanttCalculos(
+  // 🔑 Fase 3.1: extraemos flechas y alturaFila del hook
+  const { rango, filas, ticks, anchoTotal, flechas, alturaFila } = useGanttCalculos(
     tareasConCambios,
     nivelZoom,
     rubrosColapsados
   );
 
-  // ─── Toast persistente con botón Deshacer ─────────────────────────────
   const mostrarToastUndo = useCallback((cantidad, snapshot) => {
     const toastId = toast.custom(
       (t) => (
@@ -91,7 +90,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     );
   }, []);
 
-  // ─── Deshacer cambios ─────────────────────────────────────────────────
   const handleUndo = useCallback(async (toastId, snapshot) => {
     toast.dismiss(toastId);
 
@@ -123,7 +121,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     }
   }, []);
 
-  // ─── Guardar cambios con writeBatch ──────────────────────────────────
   const guardarCambios = useCallback(async (cambios) => {
     const snapshotAnterior = cambios.map(c => {
       const tarea = tareas.find(t => t.id === c.tareaId);
@@ -176,7 +173,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     }
   }, [tareas, mostrarToastUndo]);
 
-  // ─── Hook de drag (con Fase 2.3) ──────────────────────────────────────
   const {
     dragActivo,
     preview,
@@ -196,7 +192,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     feriadosCustom,
   });
 
-  // ─── Listeners globales ───────────────────────────────────────────────
   useEffect(() => {
     if (!dragActivo) return;
 
@@ -261,6 +256,12 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
           <span><b className="text-slate-700">{tareas.length}</b> tareas</span>
           <span className="text-slate-300">|</span>
           <span>Rango: <b className="text-slate-700">{rango.totalDias} días</b></span>
+          {flechas.length > 0 && (
+            <>
+              <span className="text-slate-300">|</span>
+              <span><b className="text-slate-700">{flechas.length}</b> dependencias</span>
+            </>
+          )}
         </div>
         {tareasSinFecha.length > 0 && (
           <div className="flex items-center gap-1 text-amber-700">
@@ -270,7 +271,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         )}
       </div>
 
-      {/* Banner de conflicto (rojo, bloquea) */}
+      {/* Banner de conflicto */}
       {conflicto && (
         <div className="px-4 py-2 bg-rose-100 border-b-2 border-rose-400 text-rose-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -278,13 +279,11 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       )}
 
-      {/* 🔑 Banner de aviso (amarillo, NO bloquea) — finde o feriado */}
+      {/* Banner de aviso */}
       {!conflicto && aviso && (
         <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
-          <span>
-            📅 {aviso.mensaje}
-          </span>
+          <span>📅 {aviso.mensaje}</span>
         </div>
       )}
 
@@ -384,8 +383,16 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                   ))}
                 </div>
 
+                {/* 🔑 Fase 3.1: Flechas de dependencia (capa SVG debajo de las barras) */}
+                <GanttFlechas
+                  flechas={flechas}
+                  anchoTotal={anchoTotal}
+                  altoTotal={filas.length * ALTURA_FILA}
+                  hoverKey={tareaHoverId}
+                />
+
                 {/* Filas */}
-                <div className="relative">
+                <div className="relative" style={{ zIndex: 10 }}>
                   {filas.map((fila) => {
                     const isRubro = fila._tipo === 'rubro';
                     const hoverKey = isRubro ? `rubro-${fila.nombre}` : fila.id;
@@ -427,7 +434,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       </div>
 
-      {/* Tooltip solo cuando NO hay drag activo */}
       {!dragActivo && (
         <GanttTooltip tarea={tooltip.tarea} posicion={tooltip.posicion} />
       )}
