@@ -1,27 +1,37 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttFlechas.jsx
-import React from 'react';
+import React, { useMemo } from 'react';
 
-const COLOR_FLECHA = '#64748b';       // slate-500
-const COLOR_FLECHA_ACTIVA = '#f59e0b'; // amber-500
+const COLOR_FLECHA = '#64748b';
+const COLOR_FLECHA_ACTIVA = '#f59e0b';
 const GROSOR = 1.5;
-const MARGEN_CODO = 12;
+const GROSOR_ACTIVA = 2.5;
 
-/**
- * Dibuja las flechas de dependencia entre tareas del Gantt.
- * Estilo MS Project (líneas ortogonales con codos).
- * 
- * Props:
- *   - flechas: array de { id, tipo, x1, y1, x2, y2 }
- *   - anchoTotal: ancho del contenedor SVG
- *   - altoTotal: alto del contenedor SVG
- *   - hoverKey: id de la tarea en hover (para resaltar sus flechas)
- */
+const TRAMO_SALIDA = 10;
+const TRAMO_ENTRADA = 6;
+
 export default function GanttFlechas({
   flechas = [],
   anchoTotal = 0,
   altoTotal = 0,
   hoverKey = null,
 }) {
+  const gruposPorOrigen = useMemo(() => {
+    const mapa = new Map();
+    flechas.forEach(f => {
+      const key = String(f.origenId);
+      if (!mapa.has(key)) {
+        mapa.set(key, {
+          origenId: f.origenId,
+          xSalida: f.x1,
+          ySalida: f.y1,
+          flechas: [],
+        });
+      }
+      mapa.get(key).flechas.push(f);
+    });
+    return Array.from(mapa.values());
+  }, [flechas]);
+
   if (!flechas.length || anchoTotal <= 0 || altoTotal <= 0) return null;
 
   return (
@@ -33,11 +43,10 @@ export default function GanttFlechas({
         width: `${anchoTotal}px`,
         height: `${altoTotal}px`,
         pointerEvents: 'none',
-        zIndex: 15,   // 🔑 por encima de las filas de fondo (rubros), debajo del sidebar sticky
+        zIndex: 5,
         overflow: 'visible',
       }}
     >
-      {/* Definición del marcador de punta de flecha */}
       <defs>
         <marker
           id="arrowhead"
@@ -63,113 +72,60 @@ export default function GanttFlechas({
         </marker>
       </defs>
 
-      {flechas.map((flecha) => {
-        const esActiva = hoverKey === flecha.origenId || hoverKey === flecha.destinoId;
-        const color = esActiva ? COLOR_FLECHA_ACTIVA : COLOR_FLECHA;
-        const grosor = esActiva ? 2 : GROSOR;
+      {gruposPorOrigen.map((grupo) => {
+        const xRiel = grupo.xSalida + TRAMO_SALIDA;
 
-        const pathD = construirPath(flecha);
-        if (!pathD) return null;
+        const ysSalida = grupo.flechas.map(f => f.y1);
+        const ysLlegada = grupo.flechas.map(f => f.y2);
+        const yMax = Math.max(...ysSalida, ...ysLlegada);
+
+        const grupoActivo = hoverKey === String(grupo.origenId)
+          || grupo.flechas.some(f => hoverKey === String(f.destinoId));
+
+        const colorRiel = grupoActivo ? COLOR_FLECHA_ACTIVA : COLOR_FLECHA;
+        const grosorRiel = grupoActivo ? GROSOR_ACTIVA : GROSOR;
 
         return (
-          <path
-            key={flecha.id}
-            d={pathD}
-            fill="none"
-            stroke={color}
-            strokeWidth={grosor}
-            markerEnd={esActiva ? 'url(#arrowhead-activa)' : 'url(#arrowhead)'}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          <g key={`grupo-${grupo.origenId}`}>
+            <path
+              d={`M ${grupo.xSalida} ${grupo.ySalida} L ${xRiel} ${grupo.ySalida} L ${xRiel} ${yMax}`}
+              fill="none"
+              stroke={colorRiel}
+              strokeWidth={grosorRiel}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+
+            {grupo.flechas.map((flecha) => {
+              const flechaActiva = hoverKey === String(flecha.destinoId) || grupoActivo;
+              const color = flechaActiva ? COLOR_FLECHA_ACTIVA : COLOR_FLECHA;
+              const grosor = flechaActiva ? GROSOR_ACTIVA : GROSOR;
+
+              const xEntrada = flecha.x2 - TRAMO_ENTRADA;
+              const yEntrada = flecha.y2;
+
+              const pathCodo = [
+                `M ${xRiel} ${yEntrada}`,
+                `L ${xEntrada} ${yEntrada}`,
+                `L ${flecha.x2} ${yEntrada}`,
+              ].join(' ');
+
+              return (
+                <path
+                  key={flecha.id}
+                  d={pathCodo}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth={grosor}
+                  markerEnd={flechaActiva ? 'url(#arrowhead-activa)' : 'url(#arrowhead)'}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              );
+            })}
+          </g>
         );
       })}
     </svg>
   );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CONSTRUCCIÓN DEL PATH SEGÚN TIPO DE DEPENDENCIA
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Genera el atributo `d` del path SVG para una flecha.
- * Estilo MS Project: líneas ortogonales con codos.
- */
-function construirPath(flecha) {
-  const { x1, y1, x2, y2, tipo } = flecha;
-
-  // Si están en la misma fila → línea recta
-  if (Math.abs(y1 - y2) < 2) {
-    return `M ${x1} ${y1} L ${x2} ${y2}`;
-  }
-
-  // Y mid: punto medio entre las dos filas
-  const yMid = (y1 + y2) / 2;
-
-  // FS (Finish-to-Start): sale del fin de A, entra al inicio de B
-  if (tipo === 'FS' || !tipo) {
-    // Si B empieza después de que A termina → codo normal
-    // Si B empieza antes → codo hacia atrás
-    if (x2 >= x1) {
-      // Codo normal: A fin → medio → x2 → B inicio
-      return [
-        `M ${x1} ${y1}`,
-        `L ${x1 + MARGEN_CODO} ${y1}`,
-        `L ${x1 + MARGEN_CODO} ${yMid}`,
-        `L ${x2 - MARGEN_CODO} ${yMid}`,
-        `L ${x2 - MARGEN_CODO} ${y2}`,
-        `L ${x2} ${y2}`,
-      ].join(' ');
-    } else {
-      // Codo hacia atrás (backwards): B empieza antes del fin de A
-      return [
-        `M ${x1} ${y1}`,
-        `L ${x1 + MARGEN_CODO} ${y1}`,
-        `L ${x1 + MARGEN_CODO} ${yMid}`,
-        `L ${x2 - MARGEN_CODO} ${yMid}`,
-        `L ${x2 - MARGEN_CODO} ${y2}`,
-        `L ${x2} ${y2}`,
-      ].join(' ');
-    }
-  }
-
-  // SS (Start-to-Start): sale del inicio de A, entra al inicio de B
-  if (tipo === 'SS') {
-    return [
-      `M ${x1} ${y1}`,
-      `L ${x1 - MARGEN_CODO} ${y1}`,
-      `L ${x1 - MARGEN_CODO} ${yMid}`,
-      `L ${x2 - MARGEN_CODO} ${yMid}`,
-      `L ${x2 - MARGEN_CODO} ${y2}`,
-      `L ${x2} ${y2}`,
-    ].join(' ');
-  }
-
-  // FF (Finish-to-Finish): sale del fin de A, entra al fin de B
-  if (tipo === 'FF') {
-    return [
-      `M ${x1} ${y1}`,
-      `L ${x1 + MARGEN_CODO} ${y1}`,
-      `L ${x1 + MARGEN_CODO} ${yMid}`,
-      `L ${x2 + MARGEN_CODO} ${yMid}`,
-      `L ${x2 + MARGEN_CODO} ${y2}`,
-      `L ${x2} ${y2}`,
-    ].join(' ');
-  }
-
-  // SF (Start-to-Finish): sale del inicio de A, entra al fin de B
-  if (tipo === 'SF') {
-    return [
-      `M ${x1} ${y1}`,
-      `L ${x1 - MARGEN_CODO} ${y1}`,
-      `L ${x1 - MARGEN_CODO} ${yMid}`,
-      `L ${x2 + MARGEN_CODO} ${yMid}`,
-      `L ${x2 + MARGEN_CODO} ${y2}`,
-      `L ${x2} ${y2}`,
-    ].join(' ');
-  }
-
-  // Fallback: línea simple
-  return `M ${x1} ${y1} L ${x2} ${y2}`;
 }

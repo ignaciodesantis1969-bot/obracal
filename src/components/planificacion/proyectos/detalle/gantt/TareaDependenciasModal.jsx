@@ -34,7 +34,6 @@ export default function TareaDependenciasModal({
   const [isSaving, setIsSaving] = useState(false);
   const [conflictoNueva, setConflictoNueva] = useState(null);
 
-  // 🔑 FIX: usar tarea?.id como dependencia (no el objeto completo)
   useEffect(() => {
     if (!isOpen || !tarea) return;
     const normalizadas = normalizarPredecesoras(tarea.predecesoras);
@@ -46,7 +45,6 @@ export default function TareaDependenciasModal({
     setIsSaving(false);
   }, [isOpen, tarea?.id]);
 
-  // Sucesoras: tareas que tienen a ESTA tarea como predecesora
   const sucesoras = useMemo(() => {
     if (!tarea || !Array.isArray(tareas)) return [];
 
@@ -63,7 +61,6 @@ export default function TareaDependenciasModal({
       }));
   }, [tarea, tareas]);
 
-  // Tareas candidatas para agregar como predecesora
   const tareasCandidatas = useMemo(() => {
     if (!tarea || !Array.isArray(tareas)) return [];
 
@@ -83,7 +80,6 @@ export default function TareaDependenciasModal({
       });
   }, [tarea, tareas, predecesoras, sucesoras]);
 
-  // Validar la dependencia que se quiere agregar
   useEffect(() => {
     if (!nuevaPredId || !tarea) {
       setConflictoNueva(null);
@@ -144,8 +140,6 @@ export default function TareaDependenciasModal({
   const handleGuardar = async () => {
     if (!tarea) return;
 
-    console.log('[ModalDependencias] Guardando con predecesoras:', predecesoras);
-
     setIsSaving(true);
     const toastId = toast.loading('Guardando dependencias...');
 
@@ -172,9 +166,6 @@ export default function TareaDependenciasModal({
     >
       <div className="space-y-4">
 
-        {/* ═══════════════════════════════════════════════════════════════ */}
-        {/* Info de la tarea (compacta) */}
-        {/* ═══════════════════════════════════════════════════════════════ */}
         <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
           <p className="text-[10px] font-black text-slate-500 uppercase">Tarea</p>
           <p className="text-sm font-bold text-slate-900 truncate">
@@ -185,9 +176,6 @@ export default function TareaDependenciasModal({
           </p>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════════════ */}
-        {/* PREDECESORAS */}
-        {/* ═══════════════════════════════════════════════════════════════ */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <LinkIcon className="w-4 h-4 text-blue-500" />
@@ -199,9 +187,8 @@ export default function TareaDependenciasModal({
             </span>
           </div>
 
-          {/* 🔑 FIX: recuadro más angosto (max-w-sm) cuando está vacío */}
           {predecesoras.length === 0 ? (
-            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl py-3 px-4 max-w-sm text-center">
+            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-lg py-2 px-3 inline-block text-left">
               <p className="text-xs text-slate-400 italic">
                 Esta tarea no tiene predecesoras
               </p>
@@ -222,7 +209,6 @@ export default function TareaDependenciasModal({
             </div>
           )}
 
-          {/* Agregar nueva predecesora */}
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 space-y-2">
             <p className="text-[10px] font-black text-blue-900 uppercase">
               Agregar predecesora
@@ -289,9 +275,6 @@ export default function TareaDependenciasModal({
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════════════ */}
-        {/* SUCESORAS (read-only) */}
-        {/* ═══════════════════════════════════════════════════════════════ */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <ArrowLeftRight className="w-4 h-4 text-emerald-500" />
@@ -304,7 +287,7 @@ export default function TareaDependenciasModal({
           </div>
 
           {sucesoras.length === 0 ? (
-            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl py-3 px-4 max-w-sm text-center">
+            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-lg py-2 px-3 inline-block text-left">
               <p className="text-xs text-slate-400 italic">
                 Ninguna tarea depende de esta
               </p>
@@ -334,9 +317,6 @@ export default function TareaDependenciasModal({
           </div>
         </div>
 
-        {/* ═══════════════════════════════════════════════════════════════ */}
-        {/* BOTONES */}
-        {/* ═══════════════════════════════════════════════════════════════ */}
         <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
           <button
             type="button"
