@@ -35,7 +35,6 @@ export default function TareaDependenciasModal({
   const [conflictoNueva, setConflictoNueva] = useState(null);
 
   // 🔑 FIX: usar tarea?.id como dependencia (no el objeto completo)
-  // para evitar que el useEffect se re-ejecute y pise el estado al re-renderizar
   useEffect(() => {
     if (!isOpen || !tarea) return;
     const normalizadas = normalizarPredecesoras(tarea.predecesoras);
@@ -145,7 +144,6 @@ export default function TareaDependenciasModal({
   const handleGuardar = async () => {
     if (!tarea) return;
 
-    // 🔑 Debug temporal
     console.log('[ModalDependencias] Guardando con predecesoras:', predecesoras);
 
     setIsSaving(true);
@@ -172,11 +170,11 @@ export default function TareaDependenciasModal({
       title="Dependencias de la tarea"
       maxWidth="max-w-2xl"
     >
-      {/* ⚠️ SIN max-h ni overflow-y-auto porque el Modal ya los aplica */}
-
       <div className="space-y-4">
 
+        {/* ═══════════════════════════════════════════════════════════════ */}
         {/* Info de la tarea (compacta) */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
         <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
           <p className="text-[10px] font-black text-slate-500 uppercase">Tarea</p>
           <p className="text-sm font-bold text-slate-900 truncate">
@@ -187,7 +185,9 @@ export default function TareaDependenciasModal({
           </p>
         </div>
 
+        {/* ═══════════════════════════════════════════════════════════════ */}
         {/* PREDECESORAS */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <LinkIcon className="w-4 h-4 text-blue-500" />
@@ -199,8 +199,9 @@ export default function TareaDependenciasModal({
             </span>
           </div>
 
+          {/* 🔑 FIX: recuadro más angosto (max-w-sm) cuando está vacío */}
           {predecesoras.length === 0 ? (
-            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-3 text-center">
+            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl py-3 px-4 max-w-sm text-center">
               <p className="text-xs text-slate-400 italic">
                 Esta tarea no tiene predecesoras
               </p>
@@ -288,7 +289,9 @@ export default function TareaDependenciasModal({
           </div>
         </div>
 
+        {/* ═══════════════════════════════════════════════════════════════ */}
         {/* SUCESORAS (read-only) */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <ArrowLeftRight className="w-4 h-4 text-emerald-500" />
@@ -301,7 +304,7 @@ export default function TareaDependenciasModal({
           </div>
 
           {sucesoras.length === 0 ? (
-            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl p-3 text-center">
+            <div className="bg-slate-50 border border-dashed border-slate-300 rounded-xl py-3 px-4 max-w-sm text-center">
               <p className="text-xs text-slate-400 italic">
                 Ninguna tarea depende de esta
               </p>
@@ -331,7 +334,9 @@ export default function TareaDependenciasModal({
           </div>
         </div>
 
+        {/* ═══════════════════════════════════════════════════════════════ */}
         {/* BOTONES */}
+        {/* ═══════════════════════════════════════════════════════════════ */}
         <div className="flex justify-end gap-3 pt-3 border-t border-slate-200">
           <button
             type="button"
