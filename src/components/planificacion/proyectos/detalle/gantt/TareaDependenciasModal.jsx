@@ -213,11 +213,12 @@ export default function TareaDependenciasModal({
             <p className="text-[10px] font-black text-blue-900 uppercase">
               Agregar predecesora
             </p>
-            <div className="flex flex-col sm:flex-row gap-2">
+
+            <div className="grid grid-cols-1 gap-2">
               <select
                 value={nuevaPredId}
                 onChange={(e) => setNuevaPredId(e.target.value)}
-                className="flex-1 bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+                className="w-full bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 text-xs font-semibold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
               >
                 <option value="">-- Seleccionar tarea --</option>
                 {tareasCandidatas.map(t => (
@@ -230,38 +231,40 @@ export default function TareaDependenciasModal({
                 )}
               </select>
 
-              <select
-                value={nuevoTipo}
-                onChange={(e) => setNuevoTipo(e.target.value)}
-                className="bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer shrink-0"
-              >
-                {TIPOS_DEPENDENCIA.map(t => (
-                  <option key={t.id} value={t.id}>
-                    {t.id} — {t.label}
-                  </option>
-                ))}
-              </select>
+              <div className="flex flex-wrap items-center gap-2">
+                <select
+                  value={nuevoTipo}
+                  onChange={(e) => setNuevoTipo(e.target.value)}
+                  className="bg-white border border-blue-200 rounded-lg px-2.5 py-1.5 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  {TIPOS_DEPENDENCIA.map(t => (
+                    <option key={t.id} value={t.id}>
+                      {t.id} — {t.label}
+                    </option>
+                  ))}
+                </select>
 
-              <div className="flex items-center gap-1 shrink-0">
-                <input
-                  type="number"
-                  value={nuevoLag}
-                  onChange={(e) => setNuevoLag(Number(e.target.value) || 0)}
-                  className="w-14 bg-white border border-blue-200 rounded-lg px-2 py-1.5 text-xs font-bold text-center text-slate-800 outline-none focus:border-amber-500"
-                  title="Días de espera"
-                />
-                <span className="text-[10px] text-slate-500 font-bold">d</span>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    value={nuevoLag}
+                    onChange={(e) => setNuevoLag(Number(e.target.value) || 0)}
+                    className="w-14 bg-white border border-blue-200 rounded-lg px-2 py-1.5 text-xs font-bold text-center text-slate-800 outline-none focus:border-amber-500"
+                    title="Días de espera"
+                  />
+                  <span className="text-[10px] text-slate-500 font-bold">d</span>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleAgregar}
+                  disabled={!nuevaPredId || !!conflictoNueva}
+                  className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-bold shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  Agregar
+                </button>
               </div>
-
-              <button
-                type="button"
-                onClick={handleAgregar}
-                disabled={!nuevaPredId || !!conflictoNueva}
-                className="flex items-center justify-center gap-1.5 px-3 py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-bold shadow-sm transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                Agregar
-              </button>
             </div>
 
             {conflictoNueva && (

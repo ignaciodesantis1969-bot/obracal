@@ -43,7 +43,7 @@ export default function GanttFlechas({
         width: `${anchoTotal}px`,
         height: `${altoTotal}px`,
         pointerEvents: 'none',
-        zIndex: 5,
+        zIndex: 20,
         overflow: 'visible',
       }}
     >
