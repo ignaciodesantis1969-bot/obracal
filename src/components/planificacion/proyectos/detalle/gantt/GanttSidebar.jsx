@@ -1,157 +1,205 @@
-// src/components/planificacion/proyectos/detalle/gantt/GanttFlechas.jsx
-import React, { useMemo } from 'react';
+// src/components/planificacion/proyectos/detalle/gantt/GanttSidebar.jsx
+import React from 'react';
+import { ChevronDown, ChevronRight, Users, FolderKanban, Link as LinkIcon } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { COLORES_ESTADO } from './useGanttCalculos';
+import { obtenerIdsPredecesoras } from '@/lib/planificacionHelpers';
 
-const COLOR_FLECHA = '#64748b';        // slate-500
-const COLOR_FLECHA_ACTIVA = '#f59e0b'; // amber-500
-const GROSOR = 1.5;
-const GROSOR_ACTIVA = 2.5;
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPONENTE DEFAULT (compatibilidad hacia atrás)
+// ═══════════════════════════════════════════════════════════════════════════
 
-// Distancia horizontal del "pequeño tramo" al salir de la predecesora
-const TRAMO_SALIDA = 10;
-
-// Distancia horizontal del "pequeño tramo" al entrar a la sucesora
-const TRAMO_ENTRADA = 6;
-
-/**
- * Dibuja las flechas de dependencia entre tareas del Gantt.
- * Estilo: bus vertical compartido + codos horizontales por tarea.
- * 
- * Props:
- *   - flechas: array de { id, tipo, x1, y1, x2, y2, origenId, destinoId }
- *   - anchoTotal: ancho del contenedor SVG
- *   - altoTotal: alto del contenedor SVG
- *   - hoverKey: id de la tarea en hover (para resaltar sus flechas)
- */
-export default function GanttFlechas({
-  flechas = [],
-  anchoTotal = 0,
-  altoTotal = 0,
-  hoverKey = null,
+export default function GanttSidebar({
+  filas = [],
+  alturaFila = 36,
+  onHoverTarea,
+  tareaHoverId,
+  onToggleRubro,
+  onAbrirDependencias,
 }) {
-  // 🔑 Agrupar flechas por origen para compartir el "riel" vertical
-  const gruposPorOrigen = useMemo(() => {
-    const mapa = new Map();
-    flechas.forEach(f => {
-      const key = String(f.origenId);
-      if (!mapa.has(key)) {
-        mapa.set(key, {
-          origenId: f.origenId,
-          xSalida: f.x1,      // punto de salida (borde derecho de la predecesora)
-          ySalida: f.y1,
-          flechas: [],
-        });
-      }
-      mapa.get(key).flechas.push(f);
-    });
-    return Array.from(mapa.values());
-  }, [flechas]);
-
-  if (!flechas.length || anchoTotal <= 0 || altoTotal <= 0) return null;
+  if (!filas || filas.length === 0) {
+    return (
+      <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-300 flex items-center justify-center p-4">
+        <p className="text-xs text-slate-400 text-center">Sin tareas para mostrar</p>
+      </div>
+    );
+  }
 
   return (
-    <svg
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: `${anchoTotal}px`,
-        height: `${altoTotal}px`,
-        pointerEvents: 'none',
-        zIndex: 5,
-        overflow: 'visible',
-      }}
-    >
-      <defs>
-        <marker
-          id="arrowhead"
-          viewBox="0 0 10 10"
-          refX="9"
-          refY="5"
-          markerWidth="6"
-          markerHeight="6"
-          orient="auto-start-reverse"
-        >
-          <path d="M 0 0 L 10 5 L 0 10 z" fill={COLOR_FLECHA} />
-        </marker>
-        <marker
-          id="arrowhead-activa"
-          viewBox="0 0 10 10"
-          refX="9"
-          refY="5"
-          markerWidth="7"
-          markerHeight="7"
-          orient="auto-start-reverse"
-        >
-          <path d="M 0 0 L 10 5 L 0 10 z" fill={COLOR_FLECHA_ACTIVA} />
-        </marker>
-      </defs>
+    <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-300">
+      <div
+        className="border-b-2 border-slate-300 px-3 flex items-center bg-slate-200"
+        style={{ height: `${44 + alturaFila * 1.5}px` }}
+      >
+        <p className="text-[10px] font-black text-slate-700 uppercase">Rubro / Tarea</p>
+      </div>
 
-      {gruposPorOrigen.map((grupo) => {
-        // 🔑 Coordenada X del riel vertical compartido
-        const xRiel = grupo.xSalida + TRAMO_SALIDA;
+      <div>
+        {filas.map((fila) => {
+          const isRubro = fila._tipo === 'rubro';
+          const isHover = tareaHoverId === (isRubro ? `rubro-${fila.nombre}` : fila.id);
 
-        // 🔑 Y mínimo y máximo entre todas las flechas del grupo
-        // para saber hasta dónde baja el riel
-        const ysSalida = grupo.flechas.map(f => f.y1);
-        const ysLlegada = grupo.flechas.map(f => f.y2);
-        const yMin = Math.min(...ysSalida, ...ysLlegada);
-        const yMax = Math.max(...ysSalida, ...ysLlegada);
-
-        // ¿El grupo tiene alguna flecha activa?
-        const grupoActivo = hoverKey === String(grupo.origenId)
-          || grupo.flechas.some(f => hoverKey === String(f.destinoId));
-
-        const colorRiel = grupoActivo ? COLOR_FLECHA_ACTIVA : COLOR_FLECHA;
-        const grosorRiel = grupoActivo ? GROSOR_ACTIVA : GROSOR;
-
-        return (
-          <g key={`grupo-${grupo.origenId}`}>
-            {/* 🔑 Riel vertical compartido */}
-            <path
-              d={`M ${grupo.xSalida} ${grupo.ySalida} L ${xRiel} ${grupo.ySalida} L ${xRiel} ${yMax}`}
-              fill="none"
-              stroke={colorRiel}
-              strokeWidth={grosorRiel}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-
-            {/* 🔑 Codos individuales hacia cada sucesora */}
-            {grupo.flechas.map((flecha) => {
-              const flechaActiva = hoverKey === String(flecha.destinoId) || grupoActivo;
-              const color = flechaActiva ? COLOR_FLECHA_ACTIVA : COLOR_FLECHA;
-              const grosor = flechaActiva ? GROSOR_ACTIVA : GROSOR;
-
-              // Punto de entrada: un poco antes del borde izquierdo de la sucesora
-              const xEntrada = flecha.x2 - TRAMO_ENTRADA;
-              const yEntrada = flecha.y2;
-
-              // 🔑 Path del codo:
-              // 1. Del riel baja hasta yEntrada
-              // 2. Va horizontal hasta xEntrada  
-              // 3. Con un pequeño tramo final hasta x2 (con flecha)
-              const pathCodo = [
-                `M ${xRiel} ${yEntrada}`,
-                `L ${xEntrada} ${yEntrada}`,
-                `L ${flecha.x2} ${yEntrada}`,
-              ].join(' ');
-
-              return (
-                <path
-                  key={flecha.id}
-                  d={pathCodo}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={grosor}
-                  markerEnd={flechaActiva ? 'url(#arrowhead-activa)' : 'url(#arrowhead)'}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+          return (
+            <div
+              key={fila._key}
+              style={{ height: `${alturaFila}px` }}
+              className={cn(
+                'border-b overflow-hidden transition-colors',
+                isRubro ? 'bg-slate-100 border-slate-300' : 'border-slate-200',
+                isHover && !isRubro && 'bg-amber-100',
+                isHover && isRubro && 'bg-blue-100'
+              )}
+            >
+              {isRubro ? (
+                <FilaRubro
+                  rubro={fila}
+                  alturaFila={alturaFila}
+                  onClick={() => onToggleRubro?.(fila.nombre)}
                 />
-              );
-            })}
-          </g>
-        );
-      })}
-    </svg>
+              ) : (
+                <FilaTarea
+                  tarea={fila}
+                  alturaFila={alturaFila}
+                  esHover={isHover}
+                  onHover={onHoverTarea}
+                  onAbrirDependencias={onAbrirDependencias}
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FILA DE RUBRO
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function FilaRubro({ rubro, alturaFila = 36, onClick }) {
+  const IconoChevron = rubro._colapsado ? ChevronRight : ChevronDown;
+
+  return (
+    <div
+      onClick={onClick}
+      className={cn(
+        'px-3 flex items-center gap-2 transition-colors cursor-pointer h-full w-full',
+        'hover:bg-slate-200'
+      )}
+    >
+      <IconoChevron className="w-3.5 h-3.5 text-slate-700 shrink-0" />
+      <FolderKanban className="w-3.5 h-3.5 text-blue-700 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p
+          className="text-[11px] font-black text-slate-900 truncate uppercase leading-tight"
+          title={rubro.nombre}
+        >
+          {rubro.nombre}
+        </p>
+        <div className="flex items-center gap-2 leading-tight">
+          <span className="text-[9px] text-slate-600 font-semibold">
+            {rubro.duracionDias} d
+          </span>
+          {Number(rubro.diasHombreTotal) > 0 && (
+            <span className="text-[9px] text-slate-600 font-semibold">
+              {Math.round(rubro.diasHombreTotal)} dh
+            </span>
+          )}
+        </div>
+      </div>
+      <span className="text-[10px] font-bold text-slate-600 shrink-0">
+        {rubro.tareasCompletadas}/{rubro.totalTareas}
+      </span>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// FILA DE TAREA (con botón de dependencias)
+// ═══════════════════════════════════════════════════════════════════════════
+
+export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover, onAbrirDependencias }) {
+  const estadoKey = String(tarea.estado || 'no_iniciado').toLowerCase();
+  const color = COLORES_ESTADO[estadoKey] || COLORES_ESTADO.no_iniciado;
+
+  const operarios = Array.isArray(tarea.recursos)
+    ? tarea.recursos.filter(r => r.tipo === 'operario').length
+    : 0;
+
+  // 🔑 Contar predecesoras
+  const predsCount = obtenerIdsPredecesoras(tarea.predecesoras).length;
+
+  return (
+    <div
+      onMouseEnter={() => onHover?.(tarea.id)}
+      onMouseLeave={() => onHover?.(null)}
+      className={cn(
+        'pl-8 pr-3 flex items-center gap-2 transition-colors h-full w-full group',
+        'hover:bg-slate-50'
+      )}
+    >
+      <div
+        className="w-2 h-2 rounded-full shrink-0"
+        style={{ backgroundColor: color.border }}
+        title={color.label}
+      />
+      <div className="min-w-0 flex-1">
+        <p
+          className={cn(
+            'text-[11px] font-bold truncate leading-tight',
+            esHover ? 'text-amber-900' : 'text-slate-800'
+          )}
+          title={tarea.tarea_nombre}
+        >
+          {tarea.tarea_nombre || '---'}
+        </p>
+        <div className="flex items-center gap-2 leading-tight">
+          {Number(tarea.total_dias_hombre) > 0 && (
+            <span className="text-[9px] text-slate-600 font-semibold">
+              {Math.round(Number(tarea.total_dias_hombre))} dh
+            </span>
+          )}
+          {operarios > 0 && (
+            <span className="text-[9px] text-blue-700 font-semibold flex items-center gap-0.5">
+              <Users className="w-2.5 h-2.5" />
+              {operarios}
+            </span>
+          )}
+          {Number(tarea._duracionDias) > 0 && (
+            <span className="text-[9px] text-slate-500 font-semibold">
+              {tarea._duracionDias} d
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* 🔑 Botón de dependencias */}
+      {onAbrirDependencias && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onAbrirDependencias(tarea);
+          }}
+          className={cn(
+            'shrink-0 flex items-center gap-1 px-1.5 py-1 rounded-lg transition-all cursor-pointer',
+            predsCount > 0
+              ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 opacity-100'
+              : 'bg-slate-100 text-slate-400 hover:bg-slate-200 opacity-0 group-hover:opacity-100'
+          )}
+          title={
+            predsCount > 0
+              ? `${predsCount} predecesora${predsCount === 1 ? '' : 's'} — click para editar`
+              : 'Agregar dependencias'
+          }
+        >
+          <LinkIcon className="w-3 h-3" />
+          {predsCount > 0 && (
+            <span className="text-[9px] font-black">{predsCount}</span>
+          )}
+        </button>
+      )}
+    </div>
   );
 }
