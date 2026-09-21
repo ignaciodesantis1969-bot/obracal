@@ -5,7 +5,8 @@ import { cn } from '@/lib/utils';
 import TareasTab from './tareas/TareasTab';
 import ResumenTab from './resumen/ResumenTab';
 import GanttTab from './gantt/GanttTab';
-import EquipoTab from './equipoDetalle/EquipoTab';   // 🔑 NUEVO
+import EquipoTab from './equipoDetalle/EquipoTab';
+import ReunionesTab from './reuniones/ReunionesTab';   // 🔑 NUEVO
 
 const TABS = [
   { id: 'tareas',   label: 'Tareas',   icon: CheckSquare },
@@ -67,7 +68,6 @@ export default function DetalleTabs({ plan, tareas, personal, insumos }) {
         />
       )}
 
-      {/* 🔑 NUEVO: Tab Equipo */}
       {tabActiva === 'equipo' && (
         <EquipoTab
           plan={plan}
@@ -77,10 +77,14 @@ export default function DetalleTabs({ plan, tareas, personal, insumos }) {
         />
       )}
 
+      {/* 🔑 NUEVO: Tab Reuniones */}
       {tabActiva === 'reuniones' && (
-        <div className="bg-white p-12 rounded-2xl border border-dashed border-slate-300 text-center">
-          <p className="text-sm font-bold text-slate-500">Tab Reuniones — próximamente (Paso 5F)</p>
-        </div>
+        <ReunionesTab
+          plan={plan}
+          tareas={tareas}
+          personal={personal}
+          insumos={insumos}
+        />
       )}
     </div>
   );
