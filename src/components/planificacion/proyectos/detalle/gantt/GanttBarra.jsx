@@ -3,6 +3,12 @@ import React, { useRef, useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import GanttDragGhost from './GanttDragGhost';
 import { sumarDias } from './useGanttCalculos';
+import {
+  calcularFechaFin,
+  ajustarADiaHabil,
+  esFinDeSemana,
+  esFeriado,
+} from '@/lib/planificacionHelpers';
 
 const ZONA_RESIZE_PX = 8;
 
@@ -17,6 +23,8 @@ export default function GanttBarra({
   dragActivo,
   preview,
   conflicto,
+  aviso,
+  feriadosSet,
 }) {
   if (fila._tipo === 'rubro') {
     return (
@@ -41,6 +49,8 @@ export default function GanttBarra({
       dragActivo={dragActivo}
       preview={preview}
       conflicto={conflicto}
+      aviso={aviso}
+      feriadosSet={feriadosSet}
     />
   );
 }
@@ -112,6 +122,8 @@ function BarraTarea({
   dragActivo,
   preview,
   conflicto,
+  aviso,
+  feriadosSet,
 }) {
   const porcentajeAvance = Number(tarea.porcentaje_avance) || 0;
   const anchoBarra = Math.max(tarea._anchoPx, 12);
@@ -122,7 +134,7 @@ function BarraTarea({
   const barraRef = useRef(null);
   const [cursorZona, setCursorZona] = useState(null);
 
-  // 🔑 Fechas nuevas durante el drag (para mostrar en el badge)
+  // 🔑 Fechas nuevas durante el drag (con cálculo de días hábiles)
   const fechasPreview = useMemo(() => {
     if (!esLaQueSeArrastra || !previewActual || !dragActivo) return null;
 
@@ -130,35 +142,41 @@ function BarraTarea({
     const durDelta = previewActual.duracionDelta || 0;
 
     if (dragActivo.tipo === 'mover') {
+      const inicioPropuesto = sumarDias(tarea.fecha_inicio, offsetDias);
+      const inicioFinal = ajustarADiaHabil(inicioPropuesto, feriadosSet);
+      const finFinal = calcularFechaFin(inicioFinal, tarea._duracionDias, feriadosSet);
       return {
-        inicio: sumarDias(tarea.fecha_inicio, offsetDias),
-        fin: sumarDias(tarea.fecha_fin, offsetDias),
+        inicio: inicioFinal,
+        fin: finFinal,
         duracion: tarea._duracionDias,
       };
     }
 
     if (dragActivo.tipo === 'resize-izq') {
+      const inicioPropuesto = sumarDias(tarea.fecha_inicio, offsetDias);
+      const inicioFinal = ajustarADiaHabil(inicioPropuesto, feriadosSet);
       const duracionNueva = Math.max(tarea._duracionDias + durDelta, 1);
+      const finFinal = calcularFechaFin(inicioFinal, duracionNueva, feriadosSet);
       return {
-        inicio: sumarDias(tarea.fecha_inicio, offsetDias),
-        fin: tarea.fecha_fin,
+        inicio: inicioFinal,
+        fin: finFinal,
         duracion: duracionNueva,
       };
     }
 
     if (dragActivo.tipo === 'resize-der') {
       const duracionNueva = Math.max(tarea._duracionDias + durDelta, 1);
+      const finFinal = calcularFechaFin(tarea.fecha_inicio, duracionNueva, feriadosSet);
       return {
         inicio: tarea.fecha_inicio,
-        fin: sumarDias(tarea.fecha_fin, durDelta),
+        fin: finFinal,
         duracion: duracionNueva,
       };
     }
 
     return null;
-  }, [esLaQueSeArrastra, previewActual, dragActivo, tarea]);
+  }, [esLaQueSeArrastra, previewActual, dragActivo, tarea, feriadosSet]);
 
-  // Detectar zona de resize
   const detectarZona = (clientX) => {
     const rect = barraRef.current?.getBoundingClientRect();
     if (!rect) return 'mover';
@@ -217,7 +235,7 @@ function BarraTarea({
         />
       )}
 
-      {/* Barra fantasma con badge de fechas */}
+      {/* Barra fantasma con badge */}
       {esLaQueSeArrastra && previewActual && (
         <GanttDragGhost
           preview={previewActual}
@@ -227,6 +245,7 @@ function BarraTarea({
           fechaFinNueva={fechasPreview?.fin}
           duracionNueva={fechasPreview?.duracion}
           tipoDrag={dragActivo?.tipo}
+          aviso={aviso}
         />
       )}
 

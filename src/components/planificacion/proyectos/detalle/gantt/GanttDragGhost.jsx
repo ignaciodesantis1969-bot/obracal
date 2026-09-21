@@ -4,7 +4,7 @@ import { formatearFechaLarga } from './useGanttCalculos';
 
 /**
  * Barra fantasma que muestra el preview durante el drag.
- * Incluye un badge con las fechas destino y el tipo de acción.
+ * Fase 2.3: incluye aviso si la fecha cae en finde/feriado.
  */
 export default function GanttDragGhost({
   preview,
@@ -14,6 +14,7 @@ export default function GanttDragGhost({
   fechaFinNueva,
   duracionNueva,
   tipoDrag = 'mover',
+  aviso = null,
 }) {
   if (!preview) return null;
 
@@ -21,6 +22,18 @@ export default function GanttDragGhost({
   const colorBorde = tieneConflicto ? '#dc2626' : '#2563eb';
 
   const mostrarBadge = fechaInicioNueva && fechaFinNueva;
+
+  const colorBadge = tieneConflicto
+    ? '#7f1d1d'
+    : aviso
+      ? '#78350f'  // marrón si hay aviso de finde/feriado
+      : '#0f172a';
+
+  const colorBordeBadge = tieneConflicto
+    ? '#dc2626'
+    : aviso
+      ? '#f59e0b'
+      : colorBorde;
 
   return (
     <div
@@ -34,7 +47,7 @@ export default function GanttDragGhost({
         pointerEvents: 'none',
       }}
     >
-      {/* Badge con fechas (arriba de la barra fantasma) */}
+      {/* Badge con fechas */}
       {mostrarBadge && (
         <div
           style={{
@@ -45,8 +58,8 @@ export default function GanttDragGhost({
             display: 'inline-flex',
             alignItems: 'center',
             gap: '8px',
-            backgroundColor: tieneConflicto ? '#7f1d1d' : '#0f172a',
-            border: `2px solid ${colorBorde}`,
+            backgroundColor: colorBadge,
+            border: `2px solid ${colorBordeBadge}`,
             borderRadius: '8px',
             padding: '6px 10px',
             boxShadow: '0 4px 12px rgba(0,0,0,0.3)',
@@ -85,6 +98,17 @@ export default function GanttDragGhost({
             <>
               <span style={{ color: '#64748b' }}>|</span>
               <span style={{ color: '#34d399' }}>{duracionNueva} d</span>
+            </>
+          )}
+
+          {/* Aviso de fin de semana / feriado */}
+          {aviso && (
+            <>
+              <span style={{ color: '#64748b' }}>|</span>
+              <span style={{ color: '#fbbf24', fontSize: '10px' }}>
+                {aviso.tipo === 'finde' && '📅 Fin de semana'}
+                {aviso.tipo === 'feriado' && '🎉 Feriado'}
+              </span>
             </>
           )}
         </div>

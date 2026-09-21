@@ -5,6 +5,7 @@ import toast from 'react-hot-toast';
 import { doc, writeBatch } from 'firebase/firestore';
 import { db } from '@/firebase';
 import { cn } from '@/lib/utils';
+import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { NIVELES_ZOOM, useGanttCalculos } from './useGanttCalculos';
 import { useGanttDrag } from './useGanttDrag';
 import GanttHeader from './GanttHeader';
@@ -22,6 +23,13 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
   const [tooltip, setTooltip] = useState({ tarea: null, posicion: null });
   const [rubrosColapsados, setRubrosColapsados] = useState(new Set());
   const [tareasOptimistas, setTareasOptimistas] = useState({});
+
+  // 🔑 Fase 2.3: leer feriados desde Firestore
+  const { data: feriadosFs } = useFirestoreCollection('feriados');
+  const feriadosCustom = useMemo(
+    () => (Array.isArray(feriadosFs) ? feriadosFs : []),
+    [feriadosFs]
+  );
 
   const nivelZoom = NIVELES_ZOOM[nivelZoomId] || NIVELES_ZOOM.semanas;
 
@@ -100,7 +108,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
 
       await batch.commit();
 
-      // Revertir el estado optimista
       setTareasOptimistas(prev => {
         const nuevo = { ...prev };
         snapshot.forEach(s => {
@@ -118,7 +125,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
 
   // ─── Guardar cambios con writeBatch ──────────────────────────────────
   const guardarCambios = useCallback(async (cambios) => {
-    // 1. Snapshot del estado anterior (para Undo)
     const snapshotAnterior = cambios.map(c => {
       const tarea = tareas.find(t => t.id === c.tareaId);
       return {
@@ -129,7 +135,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       };
     });
 
-    // 2. Actualización optimista de la UI
     setTareasOptimistas(prev => {
       const nuevos = { ...prev };
       cambios.forEach(c => {
@@ -143,7 +148,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       return nuevos;
     });
 
-    // 3. writeBatch atómico
     try {
       const batch = writeBatch(db);
       cambios.forEach(c => {
@@ -158,11 +162,9 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
 
       await batch.commit();
 
-      // 4. Toast con Undo
       mostrarToastUndo(cambios.length, snapshotAnterior);
     } catch (err) {
       console.error('[GanttTab] Error en writeBatch:', err);
-      // Revertir UI
       setTareasOptimistas(prev => {
         const nuevos = { ...prev };
         cambios.forEach(c => {
@@ -174,20 +176,24 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     }
   }, [tareas, mostrarToastUndo]);
 
-  // ─── Hook de drag ─────────────────────────────────────────────────────
+  // ─── Hook de drag (con Fase 2.3) ──────────────────────────────────────
   const {
     dragActivo,
     preview,
     conflicto,
+    aviso,
     dependenciasAfectadas,
     iniciarDrag,
     actualizarDrag,
     terminarDrag,
     cancelarDrag,
+    feriadosSet,
   } = useGanttDrag({
     filas,
     nivelZoom,
     guardarCambios,
+    plan,
+    feriadosCustom,
   });
 
   // ─── Listeners globales ───────────────────────────────────────────────
@@ -264,7 +270,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         )}
       </div>
 
-      {/* Banner de conflicto */}
+      {/* Banner de conflicto (rojo, bloquea) */}
       {conflicto && (
         <div className="px-4 py-2 bg-rose-100 border-b-2 border-rose-400 text-rose-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -272,9 +278,19 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       )}
 
-      {/* Banner de dependencias afectadas */}
-      {!conflicto && dependenciasAfectadas.length > 0 && (
+      {/* 🔑 Banner de aviso (amarillo, NO bloquea) — finde o feriado */}
+      {!conflicto && aviso && (
         <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5" />
+          <span>
+            📅 {aviso.mensaje}
+          </span>
+        </div>
+      )}
+
+      {/* Banner de dependencias afectadas */}
+      {!conflicto && !aviso && dependenciasAfectadas.length > 0 && (
+        <div className="px-4 py-2 bg-blue-100 border-b-2 border-blue-400 text-blue-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
           <span>
             Al mover esta tarea también se moverán {dependenciasAfectadas.length} tarea{dependenciasAfectadas.length === 1 ? '' : 's'}:
@@ -397,6 +413,8 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                           dragActivo={dragActivo}
                           preview={preview}
                           conflicto={conflicto}
+                          aviso={aviso}
+                          feriadosSet={feriadosSet}
                         />
                       </div>
                     );
@@ -409,7 +427,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       </div>
 
-      {/* 🔑 Tooltip solo cuando NO hay drag activo */}
+      {/* Tooltip solo cuando NO hay drag activo */}
       {!dragActivo && (
         <GanttTooltip tarea={tooltip.tarea} posicion={tooltip.posicion} />
       )}

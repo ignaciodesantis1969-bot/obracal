@@ -1,20 +1,41 @@
 // src/components/planificacion/proyectos/detalle/gantt/useGanttDrag.js
 import { useState, useCallback, useMemo } from 'react';
-import { diasEntre, sumarDias } from './useGanttCalculos';
+import {
+  diasEntre,
+  sumarDias,
+  isoADate,
+  dateAIso,
+} from './useGanttCalculos';
+import {
+  calcularFechaFin,
+  getFeriadosDelAnio,
+  ajustarADiaHabil,
+  esFinDeSemana,
+  esFeriado,
+} from '@/lib/planificacionHelpers';
 
 /**
  * Hook que maneja la lógica del drag de barras del Gantt.
- * Fase 2.2: detección + preview + guardado en Firestore.
+ * Fase 2.3: agrega snap a días hábiles + validación de feriados.
  */
 export function useGanttDrag({
   filas = [],
   nivelZoom,
-  guardarCambios,   // 🔑 callback async que hace el writeBatch
+  guardarCambios,
+  plan,           // 🔑 para leer feriados custom
+  feriadosCustom = [],  // 🔑 feriados desde Firestore
 }) {
   const [dragActivo, setDragActivo] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [aviso, setAviso] = useState(null); // 🔑 aviso sobre fin de semana/feriado
 
-  // ─── Dependencias afectadas por la tarea que se está moviendo ──────────
+  // Feriados del año del plan
+  const feriadosSet = useMemo(() => {
+    const anio = Number((plan?.fecha_inicio || '').slice(0, 4)) || new Date().getFullYear();
+    return getFeriadosDelAnio(anio, feriadosCustom);
+  }, [plan?.fecha_inicio, feriadosCustom]);
+
+  // ─── Dependencias afectadas ────────────────────────────────────────────
   const dependenciasAfectadas = useMemo(() => {
     if (!preview || !filas.length) return [];
     const tareaMoviendoseId = preview.tareaId;
@@ -39,15 +60,7 @@ export function useGanttDrag({
       };
     }
 
-    // No se puede terminar antes de empezar
-    if (preview.duracionDelta < 0 && (tarea._duracionDias + preview.duracionDelta) < 0.5) {
-      return {
-        tipo: 'duracion',
-        mensaje: 'La fecha de fin no puede ser anterior a la de inicio',
-      };
-    }
-
-    // Predecesoras: la tarea no puede empezar antes del fin de su predecesora
+    // Predecesoras
     const preds = Array.isArray(tarea.predecesoras) ? tarea.predecesoras : [];
     if (preds.length > 0) {
       const nuevaFechaInicio = sumarDias(tarea.fecha_inicio, preview.offsetDiasDelta);
@@ -84,6 +97,8 @@ export function useGanttDrag({
       offsetPx0: tarea._offsetPx,
       anchoPx0: tarea._anchoPx,
       duracionDias0: tarea._duracionDias,
+      fechaInicio0: tarea.fecha_inicio,
+      fechaFin0: tarea.fecha_fin,
     });
 
     setPreview({
@@ -93,6 +108,8 @@ export function useGanttDrag({
       offsetDiasDelta: 0,
       duracionDelta: 0,
     });
+
+    setAviso(null);
   }, []);
 
   // ─── Actualizar drag ───────────────────────────────────────────────────
@@ -126,6 +143,28 @@ export function useGanttDrag({
       );
     }
 
+    // 🔑 Calcular la fecha de inicio propuesta
+    const fechaInicioPropuesta = sumarDias(dragActivo.fechaInicio0, offsetDiasDelta);
+
+    // 🔑 Snap a día hábil: si la fecha propuesta cae en finde/feriado, avisar
+    const caeEnFinde = esFinDeSemana(fechaInicioPropuesta);
+    const caeEnFeriado = esFeriado(fechaInicioPropuesta, feriadosSet);
+
+    let avisoTexto = null;
+    if (caeEnFinde) {
+      avisoTexto = {
+        tipo: 'finde',
+        mensaje: 'La fecha cae en fin de semana. Se moverá al próximo día hábil.',
+      };
+    } else if (caeEnFeriado) {
+      avisoTexto = {
+        tipo: 'feriado',
+        mensaje: 'La fecha cae en un feriado. Se moverá al próximo día hábil.',
+      };
+    }
+
+    setAviso(avisoTexto);
+
     setPreview({
       tareaId: dragActivo.tareaId,
       offsetPx: nuevoOffsetPx,
@@ -133,95 +172,121 @@ export function useGanttDrag({
       offsetDiasDelta,
       duracionDelta,
     });
-  }, [dragActivo, nivelZoom]);
+  }, [dragActivo, nivelZoom, feriadosSet]);
 
-  // ─── Terminar drag → GUARDAR ───────────────────────────────────────────
+  // ─── Terminar drag → GUARDAR con snap ─────────────────────────────────
   const terminarDrag = useCallback(async (e) => {
     const drag = dragActivo;
     const prev = preview;
 
-    // Reset estado
     setDragActivo(null);
     setPreview(null);
+    setAviso(null);
 
     if (!drag || !prev) return;
 
-    // Sin cambios → no hacer nada
     if (prev.offsetDiasDelta === 0 && prev.duracionDelta === 0) return;
-
-    // Con conflicto → no guardar
     if (conflicto) return;
 
-    // Calcular datos a guardar
     const tarea = filas.find(f => f.id === drag.tareaId);
     if (!tarea) return;
 
-    // 🔑 Armar lista de cambios para writeBatch
     const cambios = [];
 
-    // 1. La tarea que se movió
     if (drag.tipo === 'mover') {
+      // 🔑 Aplicar snap a día hábil
+      const fechaInicioPropuesta = sumarDias(drag.fechaInicio0, prev.offsetDiasDelta);
+      const fechaInicioFinal = ajustarADiaHabil(fechaInicioPropuesta, feriadosSet);
+
+      // 🔑 Recalcular fecha fin con duración en días hábiles
+      const fechaFinFinal = calcularFechaFin(
+        fechaInicioFinal,
+        tarea._duracionDias,
+        feriadosSet
+      );
+
       cambios.push({
         tareaId: tarea.id,
-        fecha_inicio: sumarDias(tarea.fecha_inicio, prev.offsetDiasDelta),
-        fecha_fin: sumarDias(tarea.fecha_fin, prev.offsetDiasDelta),
+        fecha_inicio: fechaInicioFinal,
+        fecha_fin: fechaFinFinal,
         fecha_manual: true,
       });
     } else if (drag.tipo === 'resize-izq') {
+      const fechaInicioPropuesta = sumarDias(drag.fechaInicio0, prev.offsetDiasDelta);
+      const fechaInicioFinal = ajustarADiaHabil(fechaInicioPropuesta, feriadosSet);
       const nuevaDuracion = Math.max(tarea._duracionDias + prev.duracionDelta, 1);
+
+      const fechaFinFinal = calcularFechaFin(fechaInicioFinal, nuevaDuracion, feriadosSet);
+
       cambios.push({
         tareaId: tarea.id,
-        fecha_inicio: sumarDias(tarea.fecha_inicio, prev.offsetDiasDelta),
+        fecha_inicio: fechaInicioFinal,
+        fecha_fin: fechaFinFinal,
         duracion_real_dias: nuevaDuracion,
         fecha_manual: true,
       });
     } else if (drag.tipo === 'resize-der') {
       const nuevaDuracion = Math.max(tarea._duracionDias + prev.duracionDelta, 1);
+      const fechaFinPropuesta = sumarDias(drag.fechaInicio0, nuevaDuracion);
+      const fechaFinFinal = calcularFechaFin(tarea.fecha_inicio, nuevaDuracion, feriadosSet);
+
       cambios.push({
         tareaId: tarea.id,
-        fecha_fin: sumarDias(tarea.fecha_fin, prev.duracionDelta),
+        fecha_fin: fechaFinFinal,
         duracion_real_dias: nuevaDuracion,
         fecha_manual: true,
       });
     }
 
-    // 2. Cascada: mover también las dependencias afectadas
-    // (solo en modo 'mover', no en resize)
+    // Cascada: mover también dependencias
     if (drag.tipo === 'mover' && dependenciasAfectadas.length > 0) {
+      const offsetAplicado = prev.offsetDiasDelta;
       dependenciasAfectadas.forEach((dep) => {
+        const nuevaFechaInicio = ajustarADiaHabil(
+          sumarDias(dep.fecha_inicio, offsetAplicado),
+          feriadosSet
+        );
+        const nuevaFechaFin = calcularFechaFin(
+          nuevaFechaInicio,
+          dep._duracionDias,
+          feriadosSet
+        );
+
         cambios.push({
           tareaId: dep.id,
-          fecha_inicio: sumarDias(dep.fecha_inicio, prev.offsetDiasDelta),
-          fecha_fin: sumarDias(dep.fecha_fin, prev.offsetDiasDelta),
+          fecha_inicio: nuevaFechaInicio,
+          fecha_fin: nuevaFechaFin,
         });
       });
     }
 
-    // 3. Ejecutar el guardado (writeBatch atómico)
+    // Guardar
     if (typeof guardarCambios === 'function' && cambios.length > 0) {
       try {
         await guardarCambios(cambios);
       } catch (err) {
         console.error('[useGanttDrag] Error al guardar:', err);
-        // El error lo maneja el componente padre con toast
       }
     }
-  }, [dragActivo, preview, conflicto, filas, dependenciasAfectadas, guardarCambios]);
+  }, [dragActivo, preview, conflicto, filas, dependenciasAfectadas, guardarCambios, feriadosSet]);
 
   // ─── Cancelar drag ─────────────────────────────────────────────────────
   const cancelarDrag = useCallback(() => {
     setDragActivo(null);
     setPreview(null);
+    setAviso(null);
   }, []);
 
   return {
     dragActivo,
     preview,
     conflicto,
+    aviso,
     dependenciasAfectadas,
     iniciarDrag,
     actualizarDrag,
     terminarDrag,
     cancelarDrag,
+    feriadosSet,
   };
 }

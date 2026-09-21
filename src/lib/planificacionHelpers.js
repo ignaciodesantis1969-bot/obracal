@@ -507,3 +507,91 @@ export function validarSolapamientoMultiple(operariosIds, fechaInicio, fechaFin,
   }
   return { ok: conflictos.length === 0, conflictos };
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPERS DE DÍAS HÁBILES (Fase 2.3)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Ajusta una fecha al próximo día hábil si cae en fin de semana o feriado.
+ * Si ya es día hábil, la devuelve sin cambios.
+ * 
+ * @param {string} fechaIso - Fecha en formato YYYY-MM-DD
+ * @param {Set} feriadosSet - Set con fechas de feriados (YYYY-MM-DD)
+ * @returns {string} Fecha ajustada en formato YYYY-MM-DD
+ */
+export function ajustarADiaHabil(fechaIso, feriadosSet) {
+  if (!fechaIso) return fechaIso;
+
+  const d = new Date(fechaIso + 'T00:00:00');
+  let iteraciones = 0;
+  const MAX_ITERACIONES = 30;
+
+  while (!esDiaHabil(d, feriadosSet) && iteraciones < MAX_ITERACIONES) {
+    d.setDate(d.getDate() + 1);
+    iteraciones++;
+  }
+
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Ajusta una fecha al día hábil ANTERIOR si cae en fin de semana o feriado.
+ * Útil para calcular cuándo termina realmente una tarea que empieza en un día hábil
+ * y dura N días hábiles (el fin cae en día hábil, pero por las dudas).
+ */
+export function ajustarADiaHabilAnterior(fechaIso, feriadosSet) {
+  if (!fechaIso) return fechaIso;
+
+  const d = new Date(fechaIso + 'T00:00:00');
+  let iteraciones = 0;
+  const MAX_ITERACIONES = 30;
+
+  while (!esDiaHabil(d, feriadosSet) && iteraciones < MAX_ITERACIONES) {
+    d.setDate(d.getDate() - 1);
+    iteraciones++;
+  }
+
+  return d.toISOString().slice(0, 10);
+}
+
+/**
+ * Cuenta cuántos días calendario hay entre 2 fechas, excluyendo fines de semana
+ * y feriados.
+ * 
+ * @returns {number} Cantidad de días hábiles
+ */
+export function contarDiasCalendarioHabiles(fechaIsoInicio, fechaIsoFin, feriadosSet) {
+  if (!fechaIsoInicio || !fechaIsoFin) return 0;
+
+  const inicio = new Date(fechaIsoInicio + 'T00:00:00');
+  const fin = new Date(fechaIsoFin + 'T00:00:00');
+
+  if (fin < inicio) return 0;
+
+  let contador = 0;
+  const cursor = new Date(inicio);
+  while (cursor <= fin) {
+    if (esDiaHabil(cursor, feriadosSet)) contador++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return contador;
+}
+
+/**
+ * Verifica si una fecha cae en fin de semana (sábado o domingo).
+ */
+export function esFinDeSemana(fechaIso) {
+  if (!fechaIso) return false;
+  const d = new Date(fechaIso + 'T00:00:00');
+  const dia = d.getDay();
+  return dia === 0 || dia === 6;
+}
+
+/**
+ * Verifica si una fecha es feriado.
+ */
+export function esFeriado(fechaIso, feriadosSet) {
+  if (!fechaIso || !feriadosSet) return false;
+  return feriadosSet.has(fechaIso);
+}
