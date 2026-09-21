@@ -14,7 +14,7 @@ import { FilaRubro, FilaTarea } from './GanttSidebar';
 import GanttBarra from './GanttBarra';
 import GanttTooltip from './GanttTooltip';
 import GanttFlechas from './GanttFlechas';
-import TareaDependenciasModal from './TareaDependenciasModal';   // 🔑 Fase 3.2
+import TareaDependenciasModal from './TareaDependenciasModal';
 
 const ALTURA_FILA = 36;
 const ALTURA_HEADER_GANTT = 44 + ALTURA_FILA * 1.5;
@@ -26,8 +26,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
   const [tooltip, setTooltip] = useState({ tarea: null, posicion: null });
   const [rubrosColapsados, setRubrosColapsados] = useState(new Set());
   const [tareasOptimistas, setTareasOptimistas] = useState({});
-
-  // 🔑 Fase 3.2: estado del modal de dependencias
   const [tareaDependencias, setTareaDependencias] = useState(null);
 
   const { data: feriadosFs } = useFirestoreCollection('feriados');
@@ -235,23 +233,19 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     setTooltip({ tarea: null, posicion: null });
   };
 
-  // 🔑 Fase 3.2: abrir el modal de dependencias
   const handleAbrirDependencias = useCallback((tarea) => {
     setTareaDependencias(tarea);
   }, []);
 
-  // 🔑 Fase 3.2: guardar dependencias en Firestore
   const handleGuardarDependencias = useCallback(async (tareaId, predecesoras) => {
     const tareaOriginal = tareas.find(t => t.id === tareaId);
     if (!tareaOriginal) throw new Error('Tarea no encontrada');
 
-    // Guardar snapshot para Undo
     const snapshot = [{
       tareaId,
       predecesoras: tareaOriginal.predecesoras || [],
     }];
 
-    // Actualización optimista
     setTareasOptimistas(prev => ({
       ...prev,
       [tareaId]: {
@@ -263,7 +257,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     try {
       await actualizarDoc('planificacion_tareas', tareaId, { predecesoras });
 
-      // Toast con Undo
       const toastId = toast.custom(
         (t) => (
           <div
@@ -317,7 +310,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         }
       );
     } catch (err) {
-      // Revertir UI
       setTareasOptimistas(prev => {
         const nuevo = { ...prev };
         delete nuevo[tareaId];
@@ -461,10 +453,14 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
               </div>
 
               <div className="relative">
-                {/* Grilla */}
+                {/* Grilla (capa 0) */}
                 <div
                   className="absolute top-0 left-0 pointer-events-none flex"
-                  style={{ width: `${anchoTotal}px`, height: `${filas.length * ALTURA_FILA}px` }}
+                  style={{
+                    width: `${anchoTotal}px`,
+                    height: `${filas.length * ALTURA_FILA}px`,
+                    zIndex: 0,
+                  }}
                 >
                   {ticks.map((tick, idx) => (
                     <div
@@ -481,7 +477,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                   ))}
                 </div>
 
-                {/* Flechas */}
+                {/* Flechas (capa 5) */}
                 <GanttFlechas
                   flechas={flechas}
                   anchoTotal={anchoTotal}
@@ -489,7 +485,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                   hoverKey={tareaHoverId}
                 />
 
-                {/* Filas */}
+                {/* Filas (fondos en capa 1, contenido en capa 10) */}
                 <div className="relative" style={{ zIndex: 10 }}>
                   {filas.map((fila) => {
                     const isRubro = fila._tipo === 'rubro';
@@ -501,26 +497,38 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                         key={fila._key}
                         style={{ height: `${ALTURA_FILA}px` }}
                         className={cn(
-                          'border-b transition-colors',
-                          isRubro ? 'bg-slate-100 border-slate-300' : 'border-slate-200',
-                          isHover && !isRubro && 'bg-amber-100',
-                          isHover && isRubro && 'bg-blue-100'
+                          'border-b relative',
+                          isRubro ? 'border-slate-300' : 'border-slate-200'
                         )}
                       >
-                        <GanttBarra
-                          fila={fila}
-                          alturaFila={ALTURA_FILA}
-                          esHover={isHover}
-                          onHover={setTareaHoverId}
-                          onLeave={handleLeave}
-                          onTooltipMove={isRubro ? undefined : handleTooltipMove}
-                          onIniciarDrag={isRubro ? undefined : iniciarDrag}
-                          dragActivo={dragActivo}
-                          preview={preview}
-                          conflicto={conflicto}
-                          aviso={aviso}
-                          feriadosSet={feriadosSet}
+                        {/* 🔑 Fondo de fila en capa baja (por debajo del SVG de flechas) */}
+                        <div
+                          className={cn(
+                            'absolute inset-0',
+                            isRubro ? 'bg-slate-100' : 'bg-transparent',
+                            isHover && !isRubro && 'bg-amber-100',
+                            isHover && isRubro && 'bg-blue-100'
+                          )}
+                          style={{ zIndex: 1 }}
                         />
+
+                        {/* Contenido (barras) en capa media */}
+                        <div className="relative" style={{ zIndex: 10 }}>
+                          <GanttBarra
+                            fila={fila}
+                            alturaFila={ALTURA_FILA}
+                            esHover={isHover}
+                            onHover={setTareaHoverId}
+                            onLeave={handleLeave}
+                            onTooltipMove={isRubro ? undefined : handleTooltipMove}
+                            onIniciarDrag={isRubro ? undefined : iniciarDrag}
+                            dragActivo={dragActivo}
+                            preview={preview}
+                            conflicto={conflicto}
+                            aviso={aviso}
+                            feriadosSet={feriadosSet}
+                          />
+                        </div>
                       </div>
                     );
                   })}
@@ -537,7 +545,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         <GanttTooltip tarea={tooltip.tarea} posicion={tooltip.posicion} />
       )}
 
-      {/* 🔑 Fase 3.2: Modal de dependencias */}
+      {/* Modal de dependencias */}
       {tareaDependencias && (
         <TareaDependenciasModal
           isOpen={!!tareaDependencias}

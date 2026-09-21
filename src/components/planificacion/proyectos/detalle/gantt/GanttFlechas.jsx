@@ -33,7 +33,7 @@ export default function GanttFlechas({
         width: `${anchoTotal}px`,
         height: `${altoTotal}px`,
         pointerEvents: 'none',
-        zIndex: 5,   // detrás de las barras (barras z-10)
+        zIndex: 15,   // 🔑 por encima de las filas de fondo (rubros), debajo del sidebar sticky
         overflow: 'visible',
       }}
     >
