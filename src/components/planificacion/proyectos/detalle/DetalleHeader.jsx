@@ -1,5 +1,17 @@
+// src/components/planificacion/proyectos/detalle/DetalleHeader.jsx
 import React, { useMemo } from 'react';
-import { ArrowLeft, Calendar, CheckSquare, DollarSign, TrendingUp, User } from 'lucide-react';
+import {
+  ArrowLeft,
+  Calendar,
+  CheckSquare,
+  DollarSign,
+  TrendingUp,
+  User,
+  UserCog,
+  Edit2,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { ROLES_RESPONSABLES } from '@/lib/planificacionHelpers';
 
 const ESTADO_STYLES = {
   borrador:   { bg: 'bg-slate-100 text-slate-700 border-slate-200', label: 'Borrador' },
@@ -9,7 +21,12 @@ const ESTADO_STYLES = {
   archivado:  { bg: 'bg-slate-200 text-slate-700 border-slate-300', label: 'Archivado' },
 };
 
-export default function DetalleHeader({ plan, tareas = [], onVolver }) {
+export default function DetalleHeader({
+  plan,
+  tareas = [],
+  onVolver,
+  onAsignarResponsable,   // 🔑 NUEVO
+}) {
   const estado = ESTADO_STYLES[plan.estado] || ESTADO_STYLES.borrador;
 
   const stats = useMemo(() => {
@@ -23,9 +40,16 @@ export default function DetalleHeader({ plan, tareas = [], onVolver }) {
   const fechaInicio = plan.fecha_inicio ? new Date(plan.fecha_inicio + 'T00:00:00').toLocaleDateString('es-AR') : '---';
   const fechaFin = plan.fecha_fin ? new Date(plan.fecha_fin + 'T00:00:00').toLocaleDateString('es-AR') : '---';
 
+  // 🔑 Info del responsable
+  const responsableNombre = plan.responsable_nombre || '';
+  const responsableEmail = plan.responsable_email || '';
+  const responsableRoleId = String(plan.responsable_role || '').toLowerCase();
+  const responsableRoleInfo = ROLES_RESPONSABLES.find(r => r.id === responsableRoleId);
+  const tieneResponsable = Boolean(plan.responsable_id && responsableNombre);
+
   return (
     <div className="bg-white rounded-2xl border border-slate-300 shadow-sm p-6 space-y-4">
-      {/* Fila 1: Volver + nombre + estado */}
+      {/* Fila 1: Volver + nombre + estado + responsable */}
       <div className="flex items-start gap-4">
         <button
           onClick={onVolver}
@@ -60,6 +84,41 @@ export default function DetalleHeader({ plan, tareas = [], onVolver }) {
               <User className="w-3.5 h-3.5 text-slate-400" />
               {plan.cliente_nombre}
             </p>
+          )}
+        </div>
+
+        {/* 🔑 Chip del responsable */}
+        <div className="shrink-0">
+          {tieneResponsable ? (
+            <button
+              onClick={onAsignarResponsable}
+              className="flex items-center gap-2 px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl hover:bg-blue-100 transition-colors cursor-pointer group"
+              title="Cambiar responsable"
+            >
+              <div className="w-8 h-8 rounded-full bg-blue-600 text-white flex items-center justify-center font-black text-xs shrink-0">
+                {String(responsableNombre).charAt(0).toUpperCase()}
+              </div>
+              <div className="text-left min-w-0">
+                <p className="text-[9px] font-black text-blue-900 uppercase leading-tight">
+                  {responsableRoleInfo?.label || 'Responsable'}
+                </p>
+                <p className="text-xs font-bold text-slate-800 truncate max-w-[140px]">
+                  {responsableNombre}
+                </p>
+              </div>
+              <Edit2 className="w-3.5 h-3.5 text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity shrink-0" />
+            </button>
+          ) : (
+            <button
+              onClick={onAsignarResponsable}
+              className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-dashed border-amber-400 rounded-xl hover:bg-amber-100 transition-colors cursor-pointer"
+              title="Asignar responsable"
+            >
+              <UserCog className="w-4 h-4 text-amber-600 shrink-0" />
+              <span className="text-xs font-bold text-amber-800">
+                Asignar responsable
+              </span>
+            </button>
           )}
         </div>
       </div>
