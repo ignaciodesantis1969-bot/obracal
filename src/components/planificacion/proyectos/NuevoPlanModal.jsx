@@ -1,6 +1,7 @@
+// src/components/planificacion/proyectos/NuevoPlanModal.jsx
 import React, { useState, useMemo, useEffect } from 'react';
 import toast from 'react-hot-toast';
-import { FolderKanban, Calendar, Palette, Loader2, CheckCircle2 } from 'lucide-react';
+import { FolderKanban, Calendar, Palette, Loader2, CheckCircle2, User } from 'lucide-react';
 import Modal from '../shared/Modal';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc } from '@/lib/firestoreHelpers';
@@ -9,11 +10,11 @@ import {
   ESTADOS_PLAN,
   extraerTareasDelPresupuesto,
   calcularFechaFin,
-  getFeriadosDelAnio
+  getFeriadosDelAnio,
+  usuariosResponsables,
 } from '@/lib/planificacionHelpers';
 
 export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId = null }) {
-  // 🔑 planId param: null = crear, valor = editar
   const esModoEdicion = !!planId;
 
   const { data: presupuestosFs } = useFirestoreCollection('presupuestos');
@@ -21,26 +22,19 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
   const { data: clientesFs } = useFirestoreCollection('clientes');
   const { data: feriadosFs } = useFirestoreCollection('feriados');
   const { data: planesFs } = useFirestoreCollection('planificacion_planes');
+  const { data: usuariosFs } = useFirestoreCollection('usuarios');
 
-  const presupuestos = useMemo(
-    () => (Array.isArray(presupuestosFs) ? presupuestosFs : []),
-    [presupuestosFs]
-  );
-  const insumos = useMemo(
-    () => (Array.isArray(insumosFs) ? insumosFs : []),
-    [insumosFs]
-  );
-  const clientes = useMemo(
-    () => (Array.isArray(clientesFs) ? clientesFs : []),
-    [clientesFs]
-  );
-  const feriadosCustom = useMemo(
-    () => (Array.isArray(feriadosFs) ? feriadosFs : []),
-    [feriadosFs]
-  );
-  const planes = useMemo(
-    () => (Array.isArray(planesFs) ? planesFs : []),
-    [planesFs]
+  const presupuestos = useMemo(() => (Array.isArray(presupuestosFs) ? presupuestosFs : []), [presupuestosFs]);
+  const insumos = useMemo(() => (Array.isArray(insumosFs) ? insumosFs : []), [insumosFs]);
+  const clientes = useMemo(() => (Array.isArray(clientesFs) ? clientesFs : []), [clientesFs]);
+  const feriadosCustom = useMemo(() => (Array.isArray(feriadosFs) ? feriadosFs : []), [feriadosFs]);
+  const planes = useMemo(() => (Array.isArray(planesFs) ? planesFs : []), [planesFs]);
+  const usuarios = useMemo(() => (Array.isArray(usuariosFs) ? usuariosFs : []), [usuariosFs]);
+
+  // 🔑 Solo usuarios con rol jefe_obra / admin / administrador
+  const responsablesDisponibles = useMemo(
+    () => usuariosResponsables(usuarios),
+    [usuarios]
   );
 
   const [formData, setFormData] = useState({
@@ -49,16 +43,16 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
     descripcion: '',
     fecha_inicio: new Date().toISOString().slice(0, 10),
     color: COLORES_PLAN[0].hex,
-    estado: 'activo'
+    estado: 'activo',
+    responsable_id: '',   // 🔑 NUEVO
   });
 
   const [isSaving, setIsSaving] = useState(false);
 
-  // 🔑 Resetear o cargar datos del plan al abrir
+  // Resetear o cargar datos del plan al abrir
   useEffect(() => {
     if (!isOpen) return;
 
-    // MODO EDICIÓN: buscar el plan existente y precargar
     if (esModoEdicion && planId) {
       const planExistente = planes.find(p => p.id === planId);
       if (planExistente) {
@@ -68,21 +62,22 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
           descripcion: planExistente.descripcion || '',
           fecha_inicio: planExistente.fecha_inicio || new Date().toISOString().slice(0, 10),
           color: planExistente.color || COLORES_PLAN[0].hex,
-          estado: planExistente.estado || 'activo'
+          estado: planExistente.estado || 'activo',
+          responsable_id: String(planExistente.responsable_id || ''),
         });
         setIsSaving(false);
         return;
       }
     }
 
-    // MODO CREACIÓN: resetear a defaults
     setFormData({
       presupuesto_id: '',
       nombre: '',
       descripcion: '',
       fecha_inicio: new Date().toISOString().slice(0, 10),
       color: COLORES_PLAN[0].hex,
-      estado: 'activo'
+      estado: 'activo',
+      responsable_id: '',
     });
     setIsSaving(false);
   }, [isOpen, esModoEdicion, planId, planes]);
@@ -96,32 +91,29 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
     });
   }, [presupuestos, formData.presupuesto_id]);
 
-  // Cliente resuelto a partir del código del presupuesto
+  // Cliente resuelto
   const clienteNombre = useMemo(() => {
     if (!presupuestoActual) return '';
     const codigo = String(presupuestoActual.codigo || '').trim();
     if (!codigo.includes('-')) return presupuestoActual.cliente || '';
 
     const codigoCliente = codigo.split('-')[0].trim();
-    const cliente = clientes.find(c =>
-      String(c.codigo || '').trim() === codigoCliente
-    );
+    const cliente = clientes.find(c => String(c.codigo || '').trim() === codigoCliente);
     return cliente?.razon_social || cliente?.nombre || presupuestoActual.cliente || '';
   }, [presupuestoActual, clientes]);
 
-  // Tareas que se van a copiar (preview) — solo en modo creación
+  // Preview tareas
   const tareasPreview = useMemo(() => {
     if (!presupuestoActual) return [];
-    if (esModoEdicion) return []; // no recalcula en edición
+    if (esModoEdicion) return [];
     return extraerTareasDelPresupuesto(presupuestoActual, insumos);
   }, [presupuestoActual, insumos, esModoEdicion]);
 
-  // Total de días-hombre del plan
   const totalDiasHombre = useMemo(() => {
     return tareasPreview.reduce((acc, t) => acc + (t.dias_hombre || 0), 0);
   }, [tareasPreview]);
 
-  // Autocompletar nombre cuando se selecciona presupuesto (solo en creación)
+  // Autocompletar nombre
   useEffect(() => {
     if (!esModoEdicion && presupuestoActual && !formData.nombre) {
       const cod = presupuestoActual.codigo || presupuestoActual.id || '';
@@ -130,16 +122,13 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
     }
   }, [presupuestoActual, formData.nombre, esModoEdicion]);
 
-  // Guardar plan (crear o editar)
+  // Guardar
   const handleGuardar = async (e) => {
     e.preventDefault();
 
-    if (!esModoEdicion) {
-      // MODO CREACIÓN: requiere presupuesto
-      if (!presupuestoActual) {
-        toast.error('Seleccione un presupuesto');
-        return;
-      }
+    if (!esModoEdicion && !presupuestoActual) {
+      toast.error('Seleccione un presupuesto');
+      return;
     }
     if (!formData.nombre.trim()) {
       toast.error('Ingrese un nombre para el plan');
@@ -149,30 +138,33 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
     setIsSaving(true);
     const toastId = toast.loading(esModoEdicion ? 'Actualizando plan...' : 'Creando plan de trabajo...');
 
+    // Resolver datos del responsable elegido
+    const respSeleccionado = responsablesDisponibles.find(u =>
+      String(u.id) === String(formData.responsable_id)
+    );
+
     try {
-      // ═══════════════════════════════════════════════════════════════
-      // MODO EDICIÓN: solo actualiza campos del plan (NO recrea tareas)
-      // ═══════════════════════════════════════════════════════════════
+      // ═══════ MODO EDICIÓN ═══════
       if (esModoEdicion) {
         await actualizarDoc('planificacion_planes', planId, {
           nombre: formData.nombre.trim(),
           descripcion: formData.descripcion.trim(),
           fecha_inicio: formData.fecha_inicio,
           color: formData.color,
-          estado: formData.estado
+          estado: formData.estado,
+          responsable_id: respSeleccionado ? String(respSeleccionado.id) : '',
+          responsable_nombre: respSeleccionado?.nombre || '',
+          responsable_email: respSeleccionado?.email || '',
+          responsable_role: respSeleccionado?.role || respSeleccionado?.rol || '',
         });
 
-        toast.success('¡Plan actualizado con éxito!', { id: toastId });
+        toast.success('¡Plan actualizado!', { id: toastId });
         if (typeof onPlanCreado === 'function') onPlanCreado(planId);
         onClose();
         return;
       }
 
-      // ═══════════════════════════════════════════════════════════════
-      // MODO CREACIÓN: crea plan + copia todas las tareas
-      // ═══════════════════════════════════════════════════════════════
-
-      // PASO 1: crear el plan
+      // ═══════ MODO CREACIÓN ═══════
       const payloadPlan = {
         nombre: formData.nombre.trim(),
         descripcion: formData.descripcion.trim(),
@@ -185,12 +177,31 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
         color: formData.color,
         estado: formData.estado,
         total_tareas: tareasPreview.length,
-        total_dias_hombre: totalDiasHombre
+        total_dias_hombre: totalDiasHombre,
+        // 🔑 NUEVO: responsable
+        responsable_id: respSeleccionado ? String(respSeleccionado.id) : '',
+        responsable_nombre: respSeleccionado?.nombre || '',
+        responsable_email: respSeleccionado?.email || '',
+        responsable_role: respSeleccionado?.role || respSeleccionado?.rol || '',
       };
 
       const nuevoPlanId = await crearDoc('planificacion_planes', payloadPlan);
 
-      // PASO 2: crear todas las tareas del plan
+      // 🔑 NUEVO: actualizar también el presupuesto con el responsable
+      if (respSeleccionado) {
+        try {
+          await actualizarDoc('presupuestos', presupuestoActual.id, {
+            responsable_id: String(respSeleccionado.id),
+            responsable_nombre: respSeleccionado.nombre || '',
+            responsable_email: respSeleccionado.email || '',
+            responsable_role: respSeleccionado.role || respSeleccionado.rol || '',
+          });
+        } catch (errResp) {
+          console.warn('[NuevoPlanModal] No se pudo actualizar presupuesto con responsable:', errResp);
+        }
+      }
+
+      // Crear tareas
       const feriadosSet = getFeriadosDelAnio(
         Number(formData.fecha_inicio.slice(0, 4)),
         feriadosCustom
@@ -199,10 +210,6 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
       let fechaFinMax = formData.fecha_inicio;
 
       for (const t of tareasPreview) {
-        // 🔑 FIX: la duración inicial debe ser los DÍAS DE CUADRILLA (cantidad_dias),
-        // no los días-hombre. Los dh son el total de trabajo; los días son cuánto
-        // tarda la cuadrilla completa.
-        // Ejemplo: 10 m² × 0.5 día/m² × 4 operarios = 20 dh, pero son 5 días de cuadrilla.
         const duracionInicial = Number(t.cantidad_dias) || 1;
         const fechaFin = calcularFechaFin(formData.fecha_inicio, duracionInicial, feriadosSet);
 
@@ -218,12 +225,10 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
           cantidad: t.cantidad,
           insumo_mo_nombre: t.insumo_mo_nombre,
           cuadrilla_id: t.cuadrilla_id,
-          // 🔑 Datos teóricos (los 3 valores por separado):
-          cantidad_dias_teoricos: t.cantidad_dias,       // ← días TOTALES de cuadrilla (ej: 5)
-          operarios_teoricos: t.operarios_teoricos,       // ← personas en la cuadrilla (ej: 4)
-          total_dias_hombre: t.dias_hombre,               // ← dh totales (ej: 20)
-          // 🔑 Datos iniciales (sin recursos asignados):
-          duracion_real_dias: duracionInicial,            // ← arranca con días de cuadrilla
+          cantidad_dias_teoricos: t.cantidad_dias,
+          operarios_teoricos: t.operarios_teoricos,
+          total_dias_hombre: t.dias_hombre,
+          duracion_real_dias: duracionInicial,
           fecha_inicio: formData.fecha_inicio,
           fecha_fin: fechaFin,
           estado: 'no_iniciado',
@@ -231,12 +236,11 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
           prioridad: 'media',
           predecesoras: [],
           subtareas: [],
-          recursos: [],                                   // 🔑 array vacío desde el arranque
+          recursos: [],
           notas: ''
         });
       }
 
-      // PASO 3: actualizar el plan con la fecha fin real
       await actualizarDoc('planificacion_planes', nuevoPlanId, {
         fecha_fin: fechaFinMax
       });
@@ -268,7 +272,7 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
     >
       <form onSubmit={handleGuardar} className="space-y-5">
 
-        {/* Presupuesto (solo lectura en edición) */}
+        {/* Presupuesto */}
         <div>
           <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">
             Presupuesto vinculado *
@@ -276,11 +280,6 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
           {esModoEdicion ? (
             <div className="bg-slate-100 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-700">
               {presupuestoActual?.codigo || formData.presupuesto_id || '---'}
-              {presupuestoActual?.nombre && (
-                <span className="block text-xs font-medium text-slate-500 mt-0.5">
-                  {presupuestoActual.nombre}
-                </span>
-              )}
             </div>
           ) : (
             <select
@@ -292,19 +291,17 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
               <option value="">-- Seleccionar presupuesto --</option>
               {presupuestos.map(p => {
                 const pId = String(p.id || p.ID || p.codigo || '');
-                const label = `[${p.codigo || pId}] ${p.nombre || 'Presupuesto'}`;
-                return <option key={pId} value={pId}>{label}</option>;
+                return (
+                  <option key={pId} value={pId}>
+                    [{p.codigo || pId}] {p.nombre || 'Presupuesto'}
+                  </option>
+                );
               })}
             </select>
           )}
-          {!esModoEdicion && presupuestos.length === 0 && (
-            <p className="text-[10px] text-amber-700 mt-1">
-              No hay presupuestos cargados. Creá uno primero desde el módulo Presupuestos.
-            </p>
-          )}
         </div>
 
-        {/* Preview del presupuesto seleccionado (solo en creación) */}
+        {/* Preview del presupuesto */}
         {!esModoEdicion && presupuestoActual && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
             <div className="flex items-center justify-between text-xs">
@@ -349,6 +346,37 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
             placeholder="Ej: Demoliciones + Tabiques..."
             className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-amber-500 resize-none"
           />
+        </div>
+
+        {/* 🔑 NUEVO: Responsable */}
+        <div>
+          <label className="block text-[10px] font-black text-slate-500 uppercase mb-1 flex items-center gap-1.5">
+            <User className="w-3.5 h-3.5 text-blue-600" />
+            Responsable del plan
+          </label>
+          <select
+            value={formData.responsable_id}
+            onChange={(e) => setFormData(prev => ({ ...prev, responsable_id: e.target.value }))}
+            className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-amber-500 cursor-pointer"
+          >
+            <option value="">-- Sin responsable asignado --</option>
+            {responsablesDisponibles.map(u => {
+              const rolLabel = u.role === 'admin' || u.role === 'administrador' ? 'Admin' : 'Jefe de Obra';
+              return (
+                <option key={u.id} value={u.id}>
+                  {u.nombre || u.email} — {rolLabel}
+                </option>
+              );
+            })}
+          </select>
+          {responsablesDisponibles.length === 0 && (
+            <p className="text-[10px] text-amber-700 mt-1">
+              No hay usuarios con rol Jefe de Obra, Admin o Administrador cargados.
+            </p>
+          )}
+          <p className="text-[10px] text-slate-500 mt-1">
+            El responsable se copia también al presupuesto para hacer seguimiento.
+          </p>
         </div>
 
         {/* Fechas */}
@@ -402,10 +430,10 @@ export default function NuevoPlanModal({ isOpen, onClose, onPlanCreado, planId =
           </div>
         </div>
 
-        {/* Info en modo edición */}
+        {/* Info modo edición */}
         {esModoEdicion && (
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-800">
-            <strong>Modo edición:</strong> se van a actualizar solo los campos del plan (nombre, fechas, color, estado). Las tareas ya copiadas NO se modifican.
+            <strong>Modo edición:</strong> se actualizan solo los campos del plan. Las tareas ya copiadas NO se modifican.
           </div>
         )}
 

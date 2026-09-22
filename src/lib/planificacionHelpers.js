@@ -734,3 +734,46 @@ export function labelTipoDependencia(tipo) {
   const t = TIPOS_DEPENDENCIA.find(x => x.id === tipo);
   return t ? t.label : 'Fin → Inicio';
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPERS DE RESPONSABLES (Fase 1 — Asignación de responsables)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Roles que pueden ser asignados como responsables de un plan/presupuesto.
+ * Son los roles "de gestión" que supervisan obra.
+ */
+export const ROLES_RESPONSABLES = [
+  { id: 'jefe_obra',     label: 'Jefe de Obra',   color: 'bg-blue-100 text-blue-800' },
+  { id: 'admin',         label: 'Admin',          color: 'bg-rose-100 text-rose-800' },
+  { id: 'administrador', label: 'Administrador',  color: 'bg-rose-100 text-rose-800' },
+];
+
+/**
+ * Devuelve el label legible de un rol.
+ */
+export function labelRolResponsable(rolId) {
+  const r = ROLES_RESPONSABLES.find(x => x.id === String(rolId || '').toLowerCase());
+  return r ? r.label : rolId || 'Sin rol';
+}
+
+/**
+ * Filtra la lista de usuarios dejando solo los que pueden ser responsables.
+ * 
+ * @param {Array} usuarios - Lista de usuarios del sistema
+ * @returns {Array} Usuarios filtrados (jefe_obra, admin, administrador)
+ */
+export function usuariosResponsables(usuarios) {
+  if (!Array.isArray(usuarios)) return [];
+  return usuarios.filter(u => {
+    const rol = String(u.role || u.rol || '').toLowerCase();
+    return ROLES_RESPONSABLES.some(r => r.id === rol);
+  });
+}
+
+/**
+ * Busca un usuario por id en la lista.
+ */
+export function buscarUsuarioPorId(usuarios, userId) {
+  if (!Array.isArray(usuarios) || !userId) return null;
+  return usuarios.find(u => String(u.id) === String(userId)) || null;
+}
