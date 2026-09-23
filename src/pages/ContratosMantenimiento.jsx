@@ -1,16 +1,44 @@
 // src/pages/ContratosMantenimiento.jsx
-import { useState, useEffect, Fragment } from 'react';
-import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload, Key } from 'lucide-react';
+import { useState, useEffect, useMemo, Fragment } from 'react';
+import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload, Key, User } from 'lucide-react';
 import { cn } from '@/lib/utils';
-// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { useAuth } from '@/hooks/useAuth';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+import { usuariosResponsables } from '@/lib/planificacionHelpers';
 
 export default function ContratosMantenimiento() {
-  // 🔑 NUEVO: leemos contratos + clientes desde Firestore
-  const { data: contratos, loading: loadingContratos } = useFirestoreCollection('contratos');
+  const { user } = useAuth();
+
+  // 🔑 Lectura de Firestore
+  const { data: contratosFs, loading: loadingContratos } = useFirestoreCollection('contratos');
   const { data: clientes, loading: loadingClientes } = useFirestoreCollection('clientes');
+  const { data: usuariosFs } = useFirestoreCollection('usuarios');
+
+  const usuarios = useMemo(() => (Array.isArray(usuariosFs) ? usuariosFs : []), [usuariosFs]);
+
+  // 🔑 Usuarios que pueden ser responsables (jefe_obra / admin / administrador)
+  const responsablesDisponibles = useMemo(
+    () => usuariosResponsables(usuarios),
+    [usuarios]
+  );
+
+  // 🔑 Filtrar contratos por responsable (si es jefe_obra)
+  const contratos = useMemo(() => {
+    const todos = Array.isArray(contratosFs) ? contratosFs : [];
+    if (!user) return todos;
+
+    const rol = String(user.role || user.rol || '').toLowerCase().trim().replace(/-/g, '_');
+    if (rol === 'admin' || rol === 'administrador') return todos;
+
+    if (rol === 'jefe_obra') {
+      const userId = String(user.firestoreId || user.id || user.uid || '');
+      if (!userId) return [];
+      return todos.filter(c => String(c.responsable_id || '') === userId);
+    }
+
+    return todos;
+  }, [contratosFs, user]);
 
   const [pestanaActiva, setPestanaActiva] = useState('trabajo');
   const [busqueda, setBusqueda] = useState('');
@@ -67,8 +95,6 @@ export default function ContratosMantenimiento() {
   const [ajustesAplicados, setAjustesAplicados] = useState([]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
-  // 🔑 FIX: cuando cambia el contrato en detalle, parseamos el JSON embebido en `descripcion`
-  // 🔑 NUEVO: también leemos porcentaje_beneficio_deseado del doc (top-level)
   useEffect(() => {
     if (contratoDetalle) {
       const desc = contratoDetalle.descripcion || '';
@@ -114,7 +140,6 @@ export default function ContratosMantenimiento() {
       setClienteCargo(cCargo);
       setClienteNombre(cNombre);
 
-      // 🔑 NUEVO: leer fee del contrato (con default 4.61 para contratos viejos)
       setPorcentajeBeneficioDeseado(
         contratoDetalle.porcentaje_beneficio_deseado != null
           ? Number(contratoDetalle.porcentaje_beneficio_deseado)
@@ -126,7 +151,6 @@ export default function ContratosMantenimiento() {
     }
   }, [contratoDetalle?.id]);
 
-  // 🔑 FIX: guardar firmantes directo a Firestore
   const guardarDatosFirmantesEnServidor = async (newProvKey, newCliKey, newProvCargo, newProvNom, newCliCargo, newCliNom) => {
     if (!contratoDetalle) return;
     try {
@@ -157,7 +181,6 @@ export default function ContratosMantenimiento() {
     }
   };
 
-  // 🔑 FIX: guardar cambios polinómicos directo a Firestore
   const guardarCambiosPolinomicaEnServidor = async (nuevosRegistros, nuevosAjustes) => {
     if (!contratoDetalle) return;
     try {
@@ -254,7 +277,9 @@ export default function ContratosMantenimiento() {
     proveedorNombre: 'Juan Pérez',
     clienteKey: 'CG9012',
     clienteCargo: 'Supervisor de Planta',
-    clienteNombre: 'Carlos Gómez'
+    clienteNombre: 'Carlos Gómez',
+    // 🔑 NUEVO: responsable del contrato
+    responsable_id: '',
   });
 
   const totalBorrador = contratos.filter(c => String(c.estado || '').toLowerCase() === 'borrador').length;
@@ -292,9 +317,9 @@ export default function ContratosMantenimiento() {
       proveedorNombre: 'Juan Pérez',
       clienteKey: 'CG9012',
       clienteCargo: 'Supervisor de Planta',
-      clienteNombre: 'Carlos Gómez'
+      clienteNombre: 'Carlos Gómez',
+      responsable_id: '',
     });
-    // 🔑 NUEVO: resetear fee a default en alta nueva
     setPorcentajeBeneficioDeseado(4.61);
     setModalAbierto(true);
   };
@@ -343,10 +368,10 @@ export default function ContratosMantenimiento() {
       proveedorNombre: pNombre,
       clienteKey: cKey,
       clienteCargo: cCargo,
-      clienteNombre: cNombre
+      clienteNombre: cNombre,
+      responsable_id: String(c.responsable_id || ''),
     });
 
-    // 🔑 NUEVO: leer fee del contrato (con default para contratos viejos)
     setPorcentajeBeneficioDeseado(
       c.porcentaje_beneficio_deseado != null
         ? Number(c.porcentaje_beneficio_deseado)
@@ -356,8 +381,7 @@ export default function ContratosMantenimiento() {
     setModalAbierto(true);
   };
 
-  // 🔑 FIX: guardar contrato directo a Firestore
-  // 🔑 NUEVO: persistir porcentaje_beneficio_deseado + fee_materiales
+  // 🔑 Guardar contrato con responsable
   const guardarContrato = async (e) => {
     e.preventDefault();
     setCargando(true);
@@ -380,14 +404,22 @@ export default function ContratosMantenimiento() {
 
       const descripcionFinal = `${descClean}\n---DATOS_SICE_INTEGRAL---\n${payloadDataJson}`;
 
+      // 🔑 Resolver datos del responsable
+      const respSeleccionado = responsablesDisponibles.find(u =>
+        String(u.id) === String(formData.responsable_id)
+      );
+
       const datosAGuardar = {
         ...formData,
         descripcion: descripcionFinal,
-        // 🔑 NUEVO: persistir fee (top-level, consultable desde CertificadoMaterialesTab)
         porcentaje_beneficio_deseado: Number(porcentajeBeneficioDeseado),
-        fee_materiales: Number(porcentajeFee.toFixed(2))
+        fee_materiales: Number(porcentajeFee.toFixed(2)),
+        // 🔑 NUEVO: responsable
+        responsable_id: respSeleccionado ? String(respSeleccionado.id) : '',
+        responsable_nombre: respSeleccionado?.nombre || '',
+        responsable_email: respSeleccionado?.email || '',
+        responsable_role: respSeleccionado?.role || respSeleccionado?.rol || '',
       };
-      // 🔑 FIX: limpiar campos internos de Firestore
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosAGuardar;
 
       if (contratoEditando) {
@@ -405,7 +437,6 @@ export default function ContratosMantenimiento() {
     }
   };
 
-  // 🔑 FIX: eliminar contrato directo a Firestore
   const eliminarContrato = async (id) => {
     if (!confirm("¿Estás seguro de eliminar este contrato?")) return;
     try {
@@ -416,7 +447,6 @@ export default function ContratosMantenimiento() {
     }
   };
 
-  // 🔑 FIX: cambiar estado rápido directo a Firestore
   const cambiarEstadoRapido = async (id, nuevoEstado) => {
     try {
       await actualizarDoc('contratos', id, { estado: nuevoEstado });
@@ -445,8 +475,7 @@ export default function ContratosMantenimiento() {
     }
     return true;
   });
-
-  const procesarMesesPolinomica = () => {
+    const procesarMesesPolinomica = () => {
     let acumuladoTotal = 0;
     let cicloAcumulado = 0;
     let resultados = [];
@@ -1508,6 +1537,37 @@ export default function ContratosMantenimiento() {
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
                   />
                 </div>
+              </div>
+
+              {/* 🔑 NUEVO: Responsable del contrato */}
+              <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-2">
+                <label className="block text-xs font-black text-blue-900 uppercase flex items-center gap-1.5">
+                  <User className="w-4 h-4 text-blue-600" />
+                  Responsable del Contrato
+                </label>
+                <p className="text-[11px] text-slate-600">
+                  Solo los usuarios con rol Jefe de Obra, Admin o Administrador pueden ser responsables.
+                </p>
+                <select
+                  value={formData.responsable_id}
+                  onChange={(e) => setFormData({ ...formData, responsable_id: e.target.value })}
+                  className="w-full bg-white border border-blue-300 rounded-xl px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="">-- Sin responsable asignado --</option>
+                  {responsablesDisponibles.map(u => {
+                    const rolLabel = u.role === 'admin' || u.role === 'administrador' ? 'Admin' : 'Jefe de Obra';
+                    return (
+                      <option key={u.id} value={u.id}>
+                        {u.nombre || u.email} — {rolLabel}
+                      </option>
+                    );
+                  })}
+                </select>
+                {responsablesDisponibles.length === 0 && (
+                  <p className="text-[10px] text-amber-700">
+                    No hay usuarios con rol Jefe de Obra, Admin o Administrador cargados.
+                  </p>
+                )}
               </div>
 
               <div>
