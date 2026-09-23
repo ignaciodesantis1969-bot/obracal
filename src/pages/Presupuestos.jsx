@@ -1,15 +1,17 @@
 // src/pages/Presupuestos.jsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Plus, Trash2, Search, Loader2, Eye, X, RefreshCw, FileText, CheckCircle2, Archive, Clock, Filter } from 'lucide-react';
-// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { useAuth } from '@/hooks/useAuth';
+import { filtrarPorResponsable } from '@/lib/permissions';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function Presupuestos() {
-  // 🔑 NUEVO: leemos las 4 colecciones que necesita el listado
-  const { data: presupuestos, loading: loadingPres, error: errorPres } = useFirestoreCollection('presupuestos');
+  const { user } = useAuth();
+
+  // 🔑 Leemos las 4 colecciones que necesita el listado
+  const { data: presupuestosFs, loading: loadingPres, error: errorPres } = useFirestoreCollection('presupuestos');
   const { data: obras, loading: loadingObras } = useFirestoreCollection('obras');
   const { data: clientes, loading: loadingClientes } = useFirestoreCollection('clientes');
   const { data: insumosActuales, loading: loadingInsumos } = useFirestoreCollection('insumos');
@@ -17,11 +19,17 @@ export default function Presupuestos() {
   const isLoading = loadingPres || loadingObras || loadingClientes || loadingInsumos;
   const errorFirestore = errorPres;
 
+  // 🔑 Filtrar presupuestos por responsable (si es jefe_obra)
+  const presupuestos = useMemo(() => {
+    const todos = Array.isArray(presupuestosFs) ? presupuestosFs : [];
+    return filtrarPorResponsable(todos, user);
+  }, [presupuestosFs, user]);
+
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // 🔑 NUEVO: searchParams + setSearchParams para leer y limpiar el ?obra=
+  // 🔑 searchParams + setSearchParams para leer y limpiar el ?obra=
   const [searchParams, setSearchParams] = useSearchParams();
   const obraIdDesdeUrl = searchParams.get('obra') || '';
 
@@ -45,7 +53,6 @@ export default function Presupuestos() {
     version: 'v1'
   });
 
-  // 🔑 NUEVO: si viene ?obra= desde el listado de Obras, precargamos ese obra_id en el modal
   useEffect(() => {
     if (obraIdDesdeUrl && !isModalOpen) {
       setNuevoPresupuesto(prev => ({
@@ -57,7 +64,6 @@ export default function Presupuestos() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [obraIdDesdeUrl]);
 
-  // 🔑 NUEVO: autogenera código con formato CL###-OB###-PR###
   const generarCodigoPresupuestoAutomatico = (obraIdSeleccionada) => {
     if (!obraIdSeleccionada) return '';
 
@@ -97,7 +103,6 @@ export default function Presupuestos() {
     });
   };
 
-  // 🔑 FIX: creación directo a Firestore
   const handleCrear = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -110,7 +115,6 @@ export default function Presupuestos() {
         estado_presupuesto: 'borrador',
         items_detalle: JSON.stringify([{ rubro: 'RUBRO GENERAL / PRINCIPAL', tareas: [] }])
       };
-      // 🔑 FIX: limpiar campos internos de Firestore
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevo;
 
       await crearDoc('presupuestos', datosLimpios);
@@ -125,7 +129,6 @@ export default function Presupuestos() {
     }
   };
 
-  // 🔑 FIX: actualización directo a Firestore
   const ejecutarActualizacionEstado = async (id, datosActualizacion) => {
     try {
       await actualizarDoc('presupuestos', id, datosActualizacion);
@@ -183,7 +186,6 @@ export default function Presupuestos() {
     }
   };
 
-  // 🔑 FIX: crear nueva versión → ahora usa crearDoc
   const handleActualizarPresupuestoVersion = async (presupuestoActual) => {
     if (!window.confirm(`¿Desea actualizar los precios de este presupuesto y generar una nueva versión basada en los costos actuales de los insumos?`)) return;
 
@@ -282,7 +284,12 @@ export default function Presupuestos() {
         version: nuevaVersionStr,
         costo_directo: nuevoCostoDirecto,
         precio_venta: nuevoPrecioVenta,
-        items_detalle: JSON.stringify(estructuraCompletaNueva)
+        items_detalle: JSON.stringify(estructuraCompletaNueva),
+        // 🔑 Heredar responsable
+        responsable_id: presupuestoActual.responsable_id || '',
+        responsable_nombre: presupuestoActual.responsable_nombre || '',
+        responsable_email: presupuestoActual.responsable_email || '',
+        responsable_role: presupuestoActual.responsable_role || ''
       };
 
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVersion;
@@ -297,7 +304,6 @@ export default function Presupuestos() {
     }
   };
 
-  // 🔑 FIX: eliminación directo a Firestore
   const handleEliminar = async (id, estadoActual) => {
     const est = String(estadoActual || '').toLowerCase();
     if (est === 'aprobado' || est === 'entregado') {
@@ -319,7 +325,6 @@ export default function Presupuestos() {
   const totalAprobado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'aprobado').length;
   const totalRechazado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'rechazado').length;
 
-  // 🔑 FIX: filtro por ?obra= (ya viene validado por el <select>)
   const presupuestosFiltradosPorTab = presupuestos.filter(p => {
     if (obraIdDesdeUrl && String(p.obra_id || '').trim() !== String(obraIdDesdeUrl).trim()) {
       return false;
@@ -431,14 +436,12 @@ export default function Presupuestos() {
         </div>
 
         <div className="flex items-center gap-2 w-full md:w-auto">
-          {/* 🔑 NUEVO: selector de obra. '' = Todas las obras */}
           <div className="flex items-center gap-2 bg-slate-50 px-3 py-2 rounded-xl border border-slate-200 w-full md:w-72">
             <Filter className="w-4 h-4 text-slate-400 shrink-0" />
             <select
               value={obraIdDesdeUrl}
               onChange={(e) => {
                 const nuevoId = e.target.value;
-                // 🔑 FIX: actualizamos el ?obra= en la URL. Si es '', lo sacamos.
                 const params = new URLSearchParams(searchParams);
                 if (nuevoId) {
                   params.set('obra', nuevoId);
