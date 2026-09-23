@@ -6,7 +6,6 @@ import { queryClientInstance } from '@/lib/query-client';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
-// 🔑 Leer el rol del usuario desde Firestore
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -16,6 +15,7 @@ import RequirePermiso from '@/components/RequirePermiso';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider } from '@/lib/AuthContext';
 import { useAuth } from '@/hooks/useAuth';
+import { tienePermiso } from '@/lib/permissions';
 
 // Pages con Lazy Loading
 const Login = lazy(() => import('@/pages/Login'));
@@ -35,8 +35,7 @@ const Usuarios = lazy(() => import('@/pages/Usuarios'));
 const TareasTemplate = lazy(() => import('@/pages/TareasTemplate'));
 const ContratosMantenimiento = lazy(() => import('@/pages/ContratosMantenimiento'));
 
-// 🔑 Lee el perfil (nombre + rol) del usuario desde Firestore.
-// Si falla o no existe, devuelve null y se usa el fallback.
+// 🔑 Lee el perfil (nombre + rol + id Firestore) desde Firestore.
 const cargarPerfilUsuario = async (emailFirebase) => {
   try {
     const emailLimpio = String(emailFirebase || '').trim().toLowerCase();
@@ -47,7 +46,6 @@ const cargarPerfilUsuario = async (emailFirebase) => {
     const snapshot = await getDocs(q);
 
     if (snapshot.empty) {
-      // Fallback: intentar match case-insensitive sobre todos los usuarios
       const snapshotTodos = await getDocs(ref);
       const match = snapshotTodos.docs.find(d => {
         const dEmail = String(d.data()?.email || '').trim().toLowerCase();
@@ -56,6 +54,7 @@ const cargarPerfilUsuario = async (emailFirebase) => {
       if (match) {
         const data = match.data();
         return {
+          firestoreId: data?.id !== undefined ? String(data.id) : match.id,
           nombre: data?.nombre || data?.Nombre || null,
           role: data?.role || data?.rol || null,
         };
@@ -66,6 +65,8 @@ const cargarPerfilUsuario = async (emailFirebase) => {
     const doc0 = snapshot.docs[0];
     const data = doc0.data();
     return {
+      // 🔑 firestoreId: usa el campo `id` interno si existe, sino el nombre del doc
+      firestoreId: data?.id !== undefined ? String(data.id) : doc0.id,
       nombre: data?.nombre || data?.Nombre || null,
       role: data?.role || data?.rol || null,
     };
@@ -84,19 +85,19 @@ const AuthenticatedApp = () => {
       if (firebaseUser) {
         let rolFinal = 'operador';
         let nombreFinal = firebaseUser.email.split('@')[0];
+        let firestoreIdFinal = null;
         const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
 
-        // 🔑 Resguardo directo SOLO para el admin principal (por si falla Firestore)
+        // 🔑 Resguardo directo SOLO para el admin principal
         if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
           rolFinal = 'admin';
         }
 
-        // 🔑 Leer el perfil desde Firestore (nombre + rol)
         const perfil = await cargarPerfilUsuario(emailFirebase);
 
         if (perfil) {
           if (perfil.nombre) nombreFinal = perfil.nombre;
-          // Firestore tiene prioridad, EXCEPTO para el admin principal (que ya tiene resguardo)
+          if (perfil.firestoreId) firestoreIdFinal = perfil.firestoreId;
           if (perfil.role && emailFirebase !== 'ignaciodesantis@sicesa.com.ar') {
             rolFinal = String(perfil.role).toLowerCase().trim();
           }
@@ -104,6 +105,7 @@ const AuthenticatedApp = () => {
 
         setUser({
           ...firebaseUser,
+          firestoreId: firestoreIdFinal,   // 🔑 NUEVO: id del doc de Firestore
           nombre: nombreFinal,
           role: rolFinal,
           rol: rolFinal
@@ -133,7 +135,6 @@ const AuthenticatedApp = () => {
     );
   }
 
-  // Normalización estricta de roles
   const userRole = String(user.role || user.rol || '').toLowerCase().trim().replace(/-/g, '_');
   const esOperadorEstandar = userRole === 'operador' || userRole === 'operator';
   const esOperadorII = userRole === 'operador_ii' || userRole === 'operadorii' || userRole === 'operador2' || userRole === 'operador ii';
@@ -146,124 +147,37 @@ const AuthenticatedApp = () => {
     }>
       <Routes>
         <Route element={<Layout />}>
-          {/* 1. Operador Estándar: Solo partes diarios */}
           {esOperadorEstandar ? (
-            <Route
-              path="*"
-              element={
-                <Reportes
-                  currentUser={user}
-                  userRole={userRole}
-                  esOperador={true}
-                  esOperadorII={false}
-                />
-              }
-            />
+            <Route path="*" element={<Reportes currentUser={user} userRole={userRole} esOperador={true} esOperadorII={false} />} />
           ) : esOperadorII ? (
-            /* 2. Operador II: Menú de reportes e insumos sin dashboard */
             <>
               <Route path="/" element={<Navigate to="/reportes" replace />} />
-              <Route
-                path="/reportes"
-                element={
-                  <Reportes
-                    currentUser={user}
-                    userRole={userRole}
-                    esOperador={false}
-                    esOperadorII={true}
-                  />
-                }
-              />
-              <Route
-                path="/insumos"
-                element={
-                  <RequirePermiso modulo="insumos">
-                    <Insumos />
-                  </RequirePermiso>
-                }
-              />
+              <Route path="/reportes" element={<Reportes currentUser={user} userRole={userRole} esOperador={false} esOperadorII={true} />} />
+              <Route path="/insumos" element={<RequirePermiso modulo="insumos"><Insumos /></RequirePermiso>} />
               <Route path="*" element={<Navigate to="/reportes" replace />} />
             </>
           ) : (
-            /* 3. Admin / Administrador / Jefe de Obra / Gestor / Finanzas */
             <>
               <Route
                 path="/"
                 element={
-                  <Dashboard />
+                  tienePermiso(user, 'dashboard')
+                    ? <Dashboard />
+                    : <Navigate to="/planificacion/inicio" replace />
                 }
               />
-              <Route
-                path="/clientes"
-                element={
-                  <RequirePermiso modulo="clientes">
-                    <Clientes />
-                  </RequirePermiso>
-                }
-              />
-              <Route
-                path="/proveedores"
-                element={
-                  <RequirePermiso modulo="proveedores">
-                    <Proveedores />
-                  </RequirePermiso>
-                }
-              />
+              <Route path="/clientes" element={<RequirePermiso modulo="clientes"><Clientes /></RequirePermiso>} />
+              <Route path="/proveedores" element={<RequirePermiso modulo="proveedores"><Proveedores /></RequirePermiso>} />
               <Route path="/obras" element={<RequirePermiso modulo="obras"><Obras /></RequirePermiso>} />
-              <Route
-                path="/insumos"
-                element={
-                  <RequirePermiso modulo="insumos">
-                    <Insumos />
-                  </RequirePermiso>
-                }
-              />
+              <Route path="/insumos" element={<RequirePermiso modulo="insumos"><Insumos /></RequirePermiso>} />
               <Route path="/presupuestos" element={<RequirePermiso modulo="presupuestos"><Presupuestos /></RequirePermiso>} />
               <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
               <Route path="/planificacion/*" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
-              <Route
-                path="/rrhh"
-                element={
-                  <RequirePermiso modulo="rrhh">
-                    <Rrhh />
-                  </RequirePermiso>
-                }
-              />
-              <Route
-                path="/compras"
-                element={
-                  <RequirePermiso modulo="compras">
-                    <Compras />
-                  </RequirePermiso>
-                }
-              />
-              <Route
-                path="/tesoreria"
-                element={
-                  <RequirePermiso modulo="tesoreria">
-                    <Tesoreria />
-                  </RequirePermiso>
-                }
-              />
-              <Route
-                path="/reportes"
-                element={
-                  <Reportes
-                    currentUser={user}
-                    userRole={userRole}
-                    esOperador={false}
-                    esOperadorII={false}
-                  />
-                }
-              />
-              <Route
-                path="/contratos-mantenimiento"
-                element={
-                  <RequirePermiso modulo="contratos_mantenimiento">
-                    <ContratosMantenimiento />
-                  </RequirePermiso>
-                }
-              />
+              <Route path="/rrhh" element={<RequirePermiso modulo="rrhh"><Rrhh /></RequirePermiso>} />
+              <Route path="/compras" element={<RequirePermiso modulo="compras"><Compras /></RequirePermiso>} />
+              <Route path="/tesoreria" element={<RequirePermiso modulo="tesoreria"><Tesoreria /></RequirePermiso>} />
+              <Route path="/reportes" element={<Reportes currentUser={user} userRole={userRole} esOperador={false} esOperadorII={false} />} />
+              <Route path="/contratos-mantenimiento" element={<RequirePermiso modulo="contratos_mantenimiento"><ContratosMantenimiento /></RequirePermiso>} />
               <Route path="/usuarios" element={<Usuarios />} />
               <Route path="/tareas-template" element={<RequirePermiso modulo="presupuestos"><TareasTemplate /></RequirePermiso>} />
             </>
