@@ -1,5 +1,8 @@
+// src/components/planificacion/inicio/InicioTab.jsx
 import React, { useState, useMemo, useEffect } from 'react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { useAuth } from '@/hooks/useAuth';
+import { filtrarPorResponsable } from '@/lib/permissions';
 import InicioHeader from './InicioHeader';
 import InicioMiResumen from './InicioMiResumen';
 import InicioPulsoProyecto from './InicioPulsoProyecto';
@@ -11,15 +14,22 @@ import NuevoPlanModal from '../proyectos/NuevoPlanModal';
 const STORAGE_KEY = 'planificacion_plan_activo_id';
 
 export default function InicioTab() {
-  // 🔑 Lectura de Firestore
+  const { user } = useAuth();
+
   const { data: planesFs } = useFirestoreCollection('planificacion_planes');
   const { data: tareasFs } = useFirestoreCollection('planificacion_tareas');
   const { data: reunionesFs } = useFirestoreCollection('planificacion_reuniones');
 
   const extraerArray = (fuente) => (Array.isArray(fuente) ? fuente : []);
-  const planes = useMemo(() => extraerArray(planesFs), [planesFs]);
+
+  const planesTodos = useMemo(() => extraerArray(planesFs), [planesFs]);
   const tareasTodas = useMemo(() => extraerArray(tareasFs), [tareasFs]);
   const reunionesTodas = useMemo(() => extraerArray(reunionesFs), [reunionesFs]);
+
+  // 🔑 Filtrar planes por responsable (si es jefe_obra)
+  const planes = useMemo(() => {
+    return filtrarPorResponsable(planesTodos, user);
+  }, [planesTodos, user]);
 
   // 🔑 Plan activo persistido en localStorage
   const [planActivoId, setPlanActivoId] = useState(() => {
@@ -47,7 +57,7 @@ export default function InicioTab() {
     if (primerActivo?.id) setPlanActivoId(primerActivo.id);
   }, [planes, planActivoId]);
 
-  // 🔑 Validar que el plan activo exista (por si lo borraron)
+  // 🔑 Validar que el plan activo exista (por si lo borraron o cambió el filtro)
   useEffect(() => {
     if (!planActivoId) return;
     const existe = planes.some(p => p.id === planActivoId);
@@ -119,10 +129,14 @@ export default function InicioTab() {
       {!planActivo ? (
         <div className="bg-white p-12 rounded-2xl border border-dashed border-slate-300 text-center">
           <p className="text-sm font-bold text-slate-500">
-            No hay ningún plan de trabajo seleccionado.
+            {planes.length === 0
+              ? 'No tenés planes de trabajo asignados.'
+              : 'No hay ningún plan de trabajo seleccionado.'}
           </p>
           <p className="text-xs text-slate-400 mt-1">
-            Creá uno con el botón "+ Nuevo" o seleccioná uno existente arriba.
+            {planes.length === 0
+              ? 'Contactá al administrador para que te asigne un plan.'
+              : 'Creá uno con el botón "+ Nuevo" o seleccioná uno existente arriba.'}
           </p>
         </div>
       ) : (
@@ -169,7 +183,6 @@ export default function InicioTab() {
         isOpen={modalNuevoPlan}
         onClose={() => setModalNuevoPlan(false)}
         onPlanCreado={(nuevoPlanId) => {
-          // 🔑 Auto-seleccionar el plan recién creado
           if (nuevoPlanId) setPlanActivoId(nuevoPlanId);
         }}
       />

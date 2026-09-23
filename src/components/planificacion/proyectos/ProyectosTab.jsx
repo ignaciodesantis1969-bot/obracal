@@ -1,7 +1,10 @@
+// src/components/planificacion/proyectos/ProyectosTab.jsx
 import React, { useState, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { FolderKanban } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { useAuth } from '@/hooks/useAuth';
+import { filtrarPorResponsable } from '@/lib/permissions';
 import { eliminarDoc, eliminarDocsFiltrados } from '@/lib/firestoreHelpers';
 import { eliminarPlanConTareas } from '@/lib/planificacionHelpers';
 import ProyectosHeader from './ProyectosHeader';
@@ -11,11 +14,18 @@ import ConfirmarEliminarModal from './ConfirmarEliminarModal';
 import EmptyState from '../shared/EmptyState';
 
 export default function ProyectosTab({ onVerDetalle }) {
+  const { user } = useAuth();
+
   const { data: planesFs } = useFirestoreCollection('planificacion_planes');
   const { data: tareasFs } = useFirestoreCollection('planificacion_tareas');
 
-  const planes = useMemo(() => (Array.isArray(planesFs) ? planesFs : []), [planesFs]);
+  const planesTodos = useMemo(() => (Array.isArray(planesFs) ? planesFs : []), [planesFs]);
   const tareas = useMemo(() => (Array.isArray(tareasFs) ? tareasFs : []), [tareasFs]);
+
+  // 🔑 Filtrar planes por responsable (si es jefe_obra)
+  const planes = useMemo(() => {
+    return filtrarPorResponsable(planesTodos, user);
+  }, [planesTodos, user]);
 
   const [filtroActivo, setFiltroActivo] = useState('todos');
   const [busqueda, setBusqueda] = useState('');
@@ -119,7 +129,6 @@ export default function ProyectosTab({ onVerDetalle }) {
           setPlanEditando(null);
         }}
         onPlanCreado={() => {
-          // El hook refresca automáticamente
           console.info('[ProyectosTab] Plan guardado');
         }}
       />
