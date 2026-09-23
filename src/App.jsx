@@ -35,7 +35,7 @@ const Usuarios = lazy(() => import('@/pages/Usuarios'));
 const TareasTemplate = lazy(() => import('@/pages/TareasTemplate'));
 const ContratosMantenimiento = lazy(() => import('@/pages/ContratosMantenimiento'));
 
-// 🔑 Lee el perfil (nombre + rol + id Firestore) desde Firestore.
+// 🔑 Lee el perfil (nombre + rol + firestoreId) desde Firestore.
 const cargarPerfilUsuario = async (emailFirebase) => {
   try {
     const emailLimpio = String(emailFirebase || '').trim().toLowerCase();
@@ -65,7 +65,6 @@ const cargarPerfilUsuario = async (emailFirebase) => {
     const doc0 = snapshot.docs[0];
     const data = doc0.data();
     return {
-      // 🔑 firestoreId: usa el campo `id` interno si existe, sino el nombre del doc
       firestoreId: data?.id !== undefined ? String(data.id) : doc0.id,
       nombre: data?.nombre || data?.Nombre || null,
       role: data?.role || data?.rol || null,
@@ -105,7 +104,7 @@ const AuthenticatedApp = () => {
 
         setUser({
           ...firebaseUser,
-          firestoreId: firestoreIdFinal,   // 🔑 NUEVO: id del doc de Firestore
+          firestoreId: firestoreIdFinal,
           nombre: nombreFinal,
           role: rolFinal,
           rol: rolFinal
@@ -178,7 +177,7 @@ const AuthenticatedApp = () => {
               <Route path="/tesoreria" element={<RequirePermiso modulo="tesoreria"><Tesoreria /></RequirePermiso>} />
               <Route path="/reportes" element={<Reportes currentUser={user} userRole={userRole} esOperador={false} esOperadorII={false} />} />
               <Route path="/contratos-mantenimiento" element={<RequirePermiso modulo="contratos_mantenimiento"><ContratosMantenimiento /></RequirePermiso>} />
-              <Route path="/usuarios" element={<Usuarios />} />
+              <Route path="/usuarios" element={<RequirePermiso modulo="usuarios"><Usuarios /></RequirePermiso>} />
               <Route path="/tareas-template" element={<RequirePermiso modulo="presupuestos"><TareasTemplate /></RequirePermiso>} />
             </>
           )}

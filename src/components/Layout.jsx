@@ -1,3 +1,4 @@
+// src/components/Layout.jsx
 import { useState } from 'react';
 import { Outlet, Link, useLocation } from 'react-router-dom';
 import {
@@ -16,7 +17,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
 
 const allNavItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/', key: null },
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/', key: 'dashboard' },   // 🔑 key cambiado
   { icon: Users, label: 'Clientes', path: '/clientes', key: 'clientes' },
   { icon: Truck, label: 'Proveedores', path: '/proveedores', key: 'proveedores' },
   { icon: Building2, label: 'Obras', path: '/obras', key: 'obras' },
@@ -31,7 +32,6 @@ const allNavItems = [
   { icon: CalendarDays, label: 'Planificación', path: '/planificacion', key: 'planificacion' },
 ];
 
-// 🔑 FIX: SidebarContent ahora es un componente ESTABLE, declarado FUERA del Layout.
 function SidebarContent({
   collapsed,
   setMobileOpen,
@@ -42,6 +42,9 @@ function SidebarContent({
   esOperadorEstandar,
   esOperadorII,
 }) {
+  // 🔑 Control de permiso para el link de Usuarios
+  const puedeVerUsuarios = tienePermiso(user, 'usuarios');
+
   return (
     <div className="flex flex-col h-full">
       <div className="flex items-center gap-3 px-4 py-5 border-b border-slate-700">
@@ -78,8 +81,8 @@ function SidebarContent({
         })}
       </nav>
 
-      {/* Ocultamos Usuarios si es operador */}
-      {!esOperadorEstandar && !esOperadorII && (
+      {/* 🔑 Usuarios: solo si tiene permiso (admin/administrador) */}
+      {puedeVerUsuarios && (
         <div className="px-2 pb-1">
           <Link
             to="/usuarios"
@@ -133,15 +136,13 @@ export default function Layout() {
   const esOperadorEstandar = rolUsuario === 'operador' || rolUsuario === 'operator';
   const esOperadorII = rolUsuario === 'operador_ii' || rolUsuario === 'operadorii' || rolUsuario === 'operador2' || rolUsuario === 'operador ii' || rolUsuario.includes('operador_ii');
 
-  // 🔑 El caso "!user" lo maneja App.jsx (muestra el <Login />).
-  // Acá simplemente no renderizamos nada.
   if (!user) {
     return null;
   }
 
   const navItems = (esOperadorEstandar || esOperadorII)
     ? allNavItems.filter(item => item.path === '/reportes')
-    : allNavItems.filter(item => item.key === null || tienePermiso(user, item.key));
+    : allNavItems.filter(item => tienePermiso(user, item.key));
 
   return (
     <div className="flex h-screen bg-slate-100 overflow-hidden">
