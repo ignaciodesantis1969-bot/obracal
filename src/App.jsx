@@ -1,3 +1,4 @@
+// src/App.jsx
 import React, { useState, useEffect, lazy, Suspense } from 'react';
 import { Toaster } from 'react-hot-toast';
 import { QueryClientProvider } from '@tanstack/react-query';
@@ -5,7 +6,7 @@ import { queryClientInstance } from '@/lib/query-client';
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
-// 🔑 NUEVO: para leer el rol del usuario desde Firestore
+// 🔑 Leer el rol del usuario desde Firestore
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -34,7 +35,7 @@ const Usuarios = lazy(() => import('@/pages/Usuarios'));
 const TareasTemplate = lazy(() => import('@/pages/TareasTemplate'));
 const ContratosMantenimiento = lazy(() => import('@/pages/ContratosMantenimiento'));
 
-// 🔑 NUEVO: lee el perfil (nombre + rol) del usuario desde Firestore.
+// 🔑 Lee el perfil (nombre + rol) del usuario desde Firestore.
 // Si falla o no existe, devuelve null y se usa el fallback.
 const cargarPerfilUsuario = async (emailFirebase) => {
   try {
@@ -47,7 +48,6 @@ const cargarPerfilUsuario = async (emailFirebase) => {
 
     if (snapshot.empty) {
       // Fallback: intentar match case-insensitive sobre todos los usuarios
-      // (por si el email se guardó con mayúsculas)
       const snapshotTodos = await getDocs(ref);
       const match = snapshotTodos.docs.find(d => {
         const dEmail = String(d.data()?.email || '').trim().toLowerCase();
@@ -86,12 +86,9 @@ const AuthenticatedApp = () => {
         let nombreFinal = firebaseUser.email.split('@')[0];
         const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
 
-        // 🔑 Resguardo directo para correos principales (evita la lectura a Firestore
-        // y garantiza que siempre entren como admin/operador_ii)
+        // 🔑 Resguardo directo SOLO para el admin principal (por si falla Firestore)
         if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
           rolFinal = 'admin';
-        } else if (emailFirebase === 'roldangerman033@gmail.com') {
-          rolFinal = 'operador_ii';
         }
 
         // 🔑 Leer el perfil desde Firestore (nombre + rol)
@@ -99,8 +96,8 @@ const AuthenticatedApp = () => {
 
         if (perfil) {
           if (perfil.nombre) nombreFinal = perfil.nombre;
-          // El resguardo directo tiene prioridad sobre lo que dice Firestore
-          if (perfil.role && emailFirebase !== 'ignaciodesantis@sicesa.com.ar' && emailFirebase !== 'roldangerman033@gmail.com') {
+          // Firestore tiene prioridad, EXCEPTO para el admin principal (que ya tiene resguardo)
+          if (perfil.role && emailFirebase !== 'ignaciodesantis@sicesa.com.ar') {
             rolFinal = String(perfil.role).toLowerCase().trim();
           }
         }
@@ -188,7 +185,7 @@ const AuthenticatedApp = () => {
               <Route path="*" element={<Navigate to="/reportes" replace />} />
             </>
           ) : (
-            /* 3. Administradores: Acceso total al sistema */
+            /* 3. Admin / Administrador / Jefe de Obra / Gestor / Finanzas */
             <>
               <Route
                 path="/"
