@@ -1,7 +1,7 @@
 // src/pages/Presupuestos.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Plus, Trash2, Search, Loader2, Eye, X, RefreshCw, FileText, CheckCircle2, Archive, Clock, Filter } from 'lucide-react';
+import { Plus, Trash2, Search, Loader2, Eye, X, RefreshCw, FileText, CheckCircle2, Archive, Clock, Filter, PlayCircle, Flag } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { useAuth } from '@/hooks/useAuth';
 import { filtrarPorResponsable } from '@/lib/permissions';
@@ -320,24 +320,60 @@ export default function Presupuestos() {
     }
   };
 
-  const totalBorrador = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'borrador').length;
-  const totalEntregado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'entregado').length;
-  const totalAprobado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'aprobado').length;
-  const totalRechazado = presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'rechazado').length;
+  // 🔑 Normalizar estados (acepta "en_ejecucion" o "en ejecucion")
+  const normalizarEstado = (str) => {
+    return String(str || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[_-]/g, ' ')
+      .trim();
+  };
+
+  // 🔑 Contadores por estado
+  const totalBorrador = presupuestos.filter(p => {
+    const est = normalizarEstado(p.estado_presupuesto || p.estado);
+    return !est || est === 'borrador' || est === 'en revision';
+  }).length;
+
+  const totalEntregado = presupuestos.filter(p => {
+    const est = normalizarEstado(p.estado_presupuesto || p.estado);
+    return est === 'entregado' || est === 'entregada';
+  }).length;
+
+  const totalAprobado = presupuestos.filter(p => {
+    const est = normalizarEstado(p.estado_presupuesto || p.estado);
+    return est === 'aprobado' || est === 'aprobada';
+  }).length;
+
+  const totalRechazado = presupuestos.filter(p => {
+    const est = normalizarEstado(p.estado_presupuesto || p.estado);
+    return est === 'rechazado' || est === 'rechazada';
+  }).length;
+
+  const totalEnEjecucion = presupuestos.filter(p => {
+    const est = normalizarEstado(p.estado_presupuesto || p.estado);
+    return est === 'en ejecucion' || est === 'ejecucion';
+  }).length;
+
+  const totalFinalizado = presupuestos.filter(p => {
+    const est = normalizarEstado(p.estado_presupuesto || p.estado);
+    return est === 'finalizado' || est === 'finalizada' || est === 'finalizadas' || est === 'completado';
+  }).length;
 
   const presupuestosFiltradosPorTab = presupuestos.filter(p => {
     if (obraIdDesdeUrl && String(p.obra_id || '').trim() !== String(obraIdDesdeUrl).trim()) {
       return false;
     }
 
-    const est = String(p.estado_presupuesto || p.estado || 'borrador').toLowerCase();
+    const est = normalizarEstado(p.estado_presupuesto || p.estado);
 
     if (activeTab === 'workspace') {
-      return est === 'borrador' || est === 'entregado' || est === 'en revision';
+      return !est || est === 'borrador' || est === 'entregado' || est === 'en revision';
     } else if (activeTab === 'aprobados') {
-      return est === 'aprobado';
+      return est === 'aprobado' || est === 'aprobada';
     } else if (activeTab === 'archivados') {
-      return est === 'rechazado';
+      return est === 'rechazado' || est === 'rechazada';
     }
     return true;
   });
@@ -382,22 +418,31 @@ export default function Presupuestos() {
 
       {error && <div className="p-4 bg-red-50 text-red-600 text-sm text-center border border-red-200 rounded-xl">{error}</div>}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
-          <p className="text-xs font-bold text-slate-500 uppercase">Borrador</p>
+      {/* 🔑 Fila de KPIs — 6 cards */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Borrador</p>
           <h3 className="text-2xl font-black text-slate-800 mt-1">{totalBorrador}</h3>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
-          <p className="text-xs font-bold text-slate-500 uppercase">Entregado</p>
+        <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Entregado</p>
           <h3 className="text-2xl font-black text-purple-600 mt-1">{totalEntregado}</h3>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
-          <p className="text-xs font-bold text-slate-500 uppercase">Aprobados</p>
+        <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Aprobados</p>
           <h3 className="text-2xl font-black text-emerald-600 mt-1">{totalAprobado}</h3>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
-          <p className="text-xs font-bold text-slate-500 uppercase">Rechazados</p>
+        <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Rechazados</p>
           <h3 className="text-2xl font-black text-red-600 mt-1">{totalRechazado}</h3>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">En Ejecución</p>
+          <h3 className="text-2xl font-black text-indigo-600 mt-1">{totalEnEjecucion}</h3>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Finalizados</p>
+          <h3 className="text-2xl font-black text-teal-600 mt-1">{totalFinalizado}</h3>
         </div>
       </div>
 
@@ -503,7 +548,7 @@ export default function Presupuestos() {
                   versionVisual = match ? `v${match[1]}` : 'v1';
                 }
 
-                const estadoActual = String(p.estado_presupuesto || p.estado || 'borrador').toLowerCase();
+                const estadoActual = normalizarEstado(p.estado_presupuesto || p.estado) || 'borrador';
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
@@ -531,6 +576,10 @@ export default function Presupuestos() {
                             ? 'bg-emerald-100 text-emerald-800 border-emerald-300 cursor-not-allowed opacity-75'
                             : estadoActual === 'rechazado'
                             ? 'bg-red-100 text-red-800 border-red-300 cursor-not-allowed opacity-75'
+                            : estadoActual === 'en ejecucion'
+                            ? 'bg-indigo-100 text-indigo-800 border-indigo-300 cursor-pointer'
+                            : estadoActual === 'finalizado'
+                            ? 'bg-teal-100 text-teal-800 border-teal-300 cursor-pointer'
                             : 'bg-slate-100 text-slate-700 border-slate-300 cursor-pointer'
                         }`}
                         title={estadoActual === 'aprobado' || estadoActual === 'rechazado' ? "Estado bloqueado por regla de negocio" : "Cambiar estado"}
@@ -539,6 +588,8 @@ export default function Presupuestos() {
                         <option value="entregado">Entregado</option>
                         <option value="aprobado">Aprobado</option>
                         <option value="rechazado">Rechazado</option>
+                        <option value="en_ejecucion">En Ejecución</option>
+                        <option value="finalizado">Finalizado</option>
                       </select>
                     </td>
                     <td className="w-[9%] px-2 py-4 text-right">

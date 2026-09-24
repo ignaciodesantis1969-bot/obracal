@@ -101,12 +101,14 @@ export default function Dashboard() {
   // FILA 1 — KPIs GENERALES
   // ═══════════════════════════════════════════════════════════════════════
   const totalPresupuestos = presupuestos.length;
+
   const presupuestosAprobados = useMemo(
     () => presupuestos.filter(p =>
       normalizarEstado(p.estado_presupuesto || p.estado) === 'aprobado'
     ).length,
     [presupuestos]
   );
+
   const porcentajeAprobados = totalPresupuestos > 0
     ? Math.round((presupuestosAprobados / totalPresupuestos) * 100)
     : 0;
@@ -177,62 +179,56 @@ export default function Dashboard() {
   const saldoIva = totalIvaVentas - totalIvaCompras - totalRetencionesIva;
 
   // ═══════════════════════════════════════════════════════════════════════
-  // FILA 4 — ESTADO DE OBRAS
+  // FILA 4 — ESTADO DE PRESUPUESTOS
   // ═══════════════════════════════════════════════════════════════════════
-  const estadoObras = useMemo(() => {
+  const estadoPresupuestos = useMemo(() => {
     const conteo = {
-      presupuesto: 0,
-      presupuestoAprobado: 0,
-      adjudicadas: 0,
-      ejecucion: 0,
-      finalizadas: 0,
-      pausadas: 0,
+      borrador: 0,
+      entregado: 0,
+      aprobado: 0,
+      rechazado: 0,
+      en_ejecucion: 0,
+      finalizado: 0,
     };
-
-    obras.forEach(o => {
-      const est = normalizarEstado(o.estado);
-
-      // "En Presupuesto" — sin acentos, acepta "en presupuesto" / "presupuesto"
-      if (!est || est === 'en presupuesto' || est === 'presupuesto') {
-        conteo.presupuesto++;
+    presupuestos.forEach(p => {
+      const est = normalizarEstado(p.estado_presupuesto || p.estado);
+      // "Borrador" — incluye vacío por default
+      if (!est || est === 'borrador' || est === 'en revision') {
+        conteo.borrador++;
       }
-      // "Con Presupuesto Aprobado" — nuevo estado
-      else if (est === 'con presupuesto aprobado' || est === 'presupuesto aprobado') {
-        conteo.presupuestoAprobado++;
+      // "Entregado"
+      else if (est === 'entregado' || est === 'entregada') {
+        conteo.entregado++;
       }
-      // "Adjudicadas"
-      else if (est === 'adjudicadas' || est === 'adjudicada' || est === 'adjudicado') {
-        conteo.adjudicadas++;
+      // "Aprobado"
+      else if (est === 'aprobado' || est === 'aprobada') {
+        conteo.aprobado++;
+      }
+      // "Rechazado"
+      else if (est === 'rechazado' || est === 'rechazada') {
+        conteo.rechazado++;
       }
       // "En Ejecución"
-      else if (est === 'en ejecucion' || est === 'ejecucion' || est === 'activa' || est === 'activo') {
-        conteo.ejecucion++;
+      else if (est === 'en ejecucion' || est === 'ejecucion') {
+        conteo.en_ejecucion++;
       }
-      // "Finalizadas"
-      else if (est === 'finalizadas' || est === 'finalizada' || est === 'finalizado' || est === 'completada') {
-        conteo.finalizadas++;
-      }
-      // "Pausada"
-      else if (est === 'pausada' || est === 'pausado' || est === 'pausa') {
-        conteo.pausadas++;
+      // "Finalizado"
+      else if (est === 'finalizado' || est === 'finalizada' || est === 'finalizadas' || est === 'completado') {
+        conteo.finalizado++;
       }
     });
-
     return conteo;
-  }, [obras]);
+  }, [presupuestos]);
 
   // ═══════════════════════════════════════════════════════════════════════
   // FILA 4 — TOP 5 PROVEEDORES POR COMPRAS
   // ═══════════════════════════════════════════════════════════════════════
   const top5Proveedores = useMemo(() => {
     const map = new Map();
-
     facturasCompras.forEach(f => {
       const provId = String(f.proveedor_id || '');
       if (!provId) return;
-
       const total = Number(f.total || 0) || 0;
-
       if (!map.has(provId)) {
         const prov = proveedores.find(p => String(p.id || p.ID) === provId);
         map.set(provId, {
@@ -243,7 +239,6 @@ export default function Dashboard() {
       }
       map.get(provId).total += total;
     });
-
     return Array.from(map.values())
       .sort((a, b) => b.total - a.total)
       .slice(0, 5);
@@ -263,7 +258,6 @@ export default function Dashboard() {
         if (!t.fecha_fin) return false;
         const est = normalizarEstado(t.estado);
         if (est === 'completada') return false;
-
         const f = new Date(t.fecha_fin + 'T00:00:00');
         return f >= hoy && f <= en7dias;
       })
@@ -274,7 +268,6 @@ export default function Dashboard() {
   const proximasReuniones = useMemo(() => {
     const hoy = new Date();
     hoy.setHours(0, 0, 0, 0);
-
     return reuniones
       .filter(r => {
         if (!r.fecha) return false;
@@ -290,8 +283,8 @@ export default function Dashboard() {
   // ═══════════════════════════════════════════════════════════════════════
   const cashFlowData = useMemo(() => {
     const byMonth = {};
-
     const hoy = new Date();
+
     for (let i = 11; i >= 0; i--) {
       const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
@@ -303,7 +296,6 @@ export default function Dashboard() {
       if (!fecha) return;
       const mes = String(fecha).substring(0, 7);
       if (!byMonth[mes]) return;
-
       if (normalizarEstado(m.tipo) === 'ingreso') {
         byMonth[mes].ingresos += Number(m.monto) || 0;
       } else {
@@ -320,7 +312,6 @@ export default function Dashboard() {
   // ═══════════════════════════════════════════════════════════════════════
   // RENDER
   // ═══════════════════════════════════════════════════════════════════════
-
   if (loading) {
     return (
       <div className="p-20 text-center">
@@ -334,7 +325,6 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-
       {/* HEADER */}
       <div>
         <h1 className="text-2xl font-extrabold text-slate-900">Dashboard</h1>
@@ -387,23 +377,52 @@ export default function Dashboard() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* FILA 4 — OBRAS + TOP PROVEEDORES */}
+      {/* FILA 4 — ESTADO DE PRESUPUESTOS + TOP PROVEEDORES */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
-        {/* Estado de Obras */}
+        {/* Estado de Presupuestos */}
         <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
           <div className="flex items-center gap-2">
-            <Building2 className="w-4 h-4 text-amber-500" />
-            <h3 className="font-extrabold text-slate-800 text-sm uppercase">Estado de Obras</h3>
+            <Calculator className="w-4 h-4 text-amber-500" />
+            <h3 className="font-extrabold text-slate-800 text-sm uppercase">Estado de los Presupuestos</h3>
           </div>
           <div className="space-y-2 pt-2">
-            <BarraEstadoObra label="En Presupuesto" count={estadoObras.presupuesto} total={obras.length} color="bg-amber-500" />
-            <BarraEstadoObra label="Con Presupuesto Aprobado" count={estadoObras.presupuestoAprobado} total={obras.length} color="bg-lime-500" />
-            <BarraEstadoObra label="Adjudicadas" count={estadoObras.adjudicadas} total={obras.length} color="bg-blue-500" />
-            <BarraEstadoObra label="En Ejecución" count={estadoObras.ejecucion} total={obras.length} color="bg-indigo-500" />
-            <BarraEstadoObra label="Finalizadas" count={estadoObras.finalizadas} total={obras.length} color="bg-emerald-500" />
-            <BarraEstadoObra label="Pausadas" count={estadoObras.pausadas} total={obras.length} color="bg-slate-500" />
+            <BarraEstadoObra
+              label="Borrador"
+              count={estadoPresupuestos.borrador}
+              total={presupuestos.length}
+              color="bg-slate-500"
+            />
+            <BarraEstadoObra
+              label="Entregado"
+              count={estadoPresupuestos.entregado}
+              total={presupuestos.length}
+              color="bg-purple-500"
+            />
+            <BarraEstadoObra
+              label="Aprobados"
+              count={estadoPresupuestos.aprobado}
+              total={presupuestos.length}
+              color="bg-emerald-500"
+            />
+            <BarraEstadoObra
+              label="Rechazados"
+              count={estadoPresupuestos.rechazado}
+              total={presupuestos.length}
+              color="bg-rose-500"
+            />
+            <BarraEstadoObra
+              label="En Ejecución"
+              count={estadoPresupuestos.en_ejecucion}
+              total={presupuestos.length}
+              color="bg-indigo-500"
+            />
+            <BarraEstadoObra
+              label="Finalizados"
+              count={estadoPresupuestos.finalizado}
+              total={presupuestos.length}
+              color="bg-teal-500"
+            />
           </div>
         </div>
 
@@ -438,14 +457,12 @@ export default function Dashboard() {
             </ResponsiveContainer>
           )}
         </div>
-
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
       {/* FILA 5 — PLANIFICACIÓN */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-
         {/* Tareas críticas */}
         <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
           <div className="flex items-center gap-2">
@@ -464,7 +481,6 @@ export default function Dashboard() {
                   (new Date(t.fecha_fin + 'T00:00:00') - new Date().setHours(0, 0, 0, 0)) / (1000 * 60 * 60 * 24)
                 );
                 const urgente = diasRestantes <= 2;
-
                 return (
                   <div
                     key={t.id || idx}
@@ -539,7 +555,6 @@ export default function Dashboard() {
             </div>
           )}
         </div>
-
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
@@ -562,7 +577,6 @@ export default function Dashboard() {
           </BarChart>
         </ResponsiveContainer>
       </div>
-
     </div>
   );
 }
@@ -570,16 +584,15 @@ export default function Dashboard() {
 // ═══════════════════════════════════════════════════════════════════════════
 // KPI CARD
 // ═══════════════════════════════════════════════════════════════════════════
-
 function KpiCard({ label, value, icon: Icon, color = 'slate', subtitle, porcentaje }) {
   const colorMap = {
-    slate:   { bg: 'bg-slate-100',   text: 'text-slate-700',   border: 'bg-slate-600' },
-    blue:    { bg: 'bg-blue-50',     text: 'text-blue-600',    border: 'bg-blue-600' },
-    purple:  { bg: 'bg-purple-50',   text: 'text-purple-600',  border: 'bg-purple-600' },
-    amber:   { bg: 'bg-amber-50',    text: 'text-amber-600',   border: 'bg-amber-500' },
-    emerald: { bg: 'bg-emerald-50',  text: 'text-emerald-600', border: 'bg-emerald-600' },
-    rose:    { bg: 'bg-rose-50',     text: 'text-rose-600',    border: 'bg-rose-600' },
-    cyan:    { bg: 'bg-cyan-50',     text: 'text-cyan-600',    border: 'bg-cyan-600' },
+    slate: { bg: 'bg-slate-100', text: 'text-slate-700', border: 'bg-slate-600' },
+    blue: { bg: 'bg-blue-50', text: 'text-blue-600', border: 'bg-blue-600' },
+    purple: { bg: 'bg-purple-50', text: 'text-purple-600', border: 'bg-purple-600' },
+    amber: { bg: 'bg-amber-50', text: 'text-amber-600', border: 'bg-amber-500' },
+    emerald: { bg: 'bg-emerald-50', text: 'text-emerald-600', border: 'bg-emerald-600' },
+    rose: { bg: 'bg-rose-50', text: 'text-rose-600', border: 'bg-rose-600' },
+    cyan: { bg: 'bg-cyan-50', text: 'text-cyan-600', border: 'bg-cyan-600' },
   };
   const c = colorMap[color] || colorMap.slate;
 
@@ -615,12 +628,10 @@ function KpiCard({ label, value, icon: Icon, color = 'slate', subtitle, porcenta
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// BARRA DE ESTADO DE OBRA
+// BARRA DE ESTADO
 // ═══════════════════════════════════════════════════════════════════════════
-
 function BarraEstadoObra({ label, count, total, color }) {
   const porcentaje = total > 0 ? Math.round((count / total) * 100) : 0;
-
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
