@@ -26,7 +26,7 @@ export default function Obras() {
     cliente_id: '',
     direccion: '',
     ciudad: '',
-    estado: 'en_ejecucion',
+    estado: 'en_presupuesto',
     fecha_de_inicio: '',
     notas: ''
   });
@@ -88,7 +88,7 @@ export default function Obras() {
       cliente_id: '',
       direccion: '',
       ciudad: '',
-      estado: 'en_ejecucion',
+      estado: 'en_presupuesto',
       fecha_de_inicio: '',
       notas: ''
     });
@@ -103,7 +103,7 @@ export default function Obras() {
       cliente_id: obra.cliente_id || '',
       direccion: obra.direccion || '',
       ciudad: obra.ciudad || '',
-      estado: obra.estado || 'en_ejecucion',
+      estado: obra.estado || 'en_presupuesto',
       fecha_de_inicio: obra.fecha_de_inicio ? String(obra.fecha_de_inicio).split('T')[0] : '',
       notas: obra.notas || ''
     });
@@ -127,7 +127,7 @@ export default function Obras() {
         await crearDoc('obras', datosLimpios);
       }
 
-      setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'en_ejecucion', fecha_de_inicio: '', notas: '' });
+      setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'en_presupuesto', fecha_de_inicio: '', notas: '' });
       setEditingId(null);
       setIsFormOpen(false);
       // Firestore actualiza la lista en tiempo real vía onSnapshot.
@@ -170,6 +170,56 @@ export default function Obras() {
     } catch (e) {
       return fechaStr;
     }
+  };
+
+  // 🔑 NUEVO: normaliza el estado (por si viene con guion bajo o con espacio)
+  const normalizarEstado = (str) => {
+    return String(str || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[_-]/g, ' ')
+      .trim();
+  };
+
+  // 🔑 NUEVO: devuelve el label legible + las clases de color por estado
+  const obtenerInfoEstado = (estadoRaw) => {
+    const est = normalizarEstado(estadoRaw);
+
+    if (est === 'en presupuesto' || est === 'presupuesto' || !est) {
+      return {
+        label: 'En Presupuesto',
+        clases: 'bg-amber-100 text-amber-800 border border-amber-200',
+      };
+    }
+    if (est === 'aprobada' || est === 'aprobado') {
+      return {
+        label: 'Aprobada',
+        clases: 'bg-blue-100 text-blue-800 border border-blue-200',
+      };
+    }
+    if (est === 'en ejecucion' || est === 'ejecucion' || est === 'activa') {
+      return {
+        label: 'En Ejecución',
+        clases: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
+      };
+    }
+    if (est === 'finalizada' || est === 'finalizado' || est === 'completada') {
+      return {
+        label: 'Finalizada',
+        clases: 'bg-teal-100 text-teal-800 border border-teal-200',
+      };
+    }
+    if (est === 'rechazada' || est === 'rechazado') {
+      return {
+        label: 'Rechazada',
+        clases: 'bg-rose-100 text-rose-800 border border-rose-200',
+      };
+    }
+    return {
+      label: estadoRaw || '—',
+      clases: 'bg-slate-100 text-slate-700 border border-slate-200',
+    };
   };
 
   const obrasFiltradas = obras.filter(o => {
@@ -264,15 +314,17 @@ export default function Obras() {
               onChange={(e) => setNuevaObra({ ...nuevaObra, ciudad: e.target.value })}
             />
 
+            {/* 🔑 Dropdown de estados actualizado: sin Pausada, con Aprobada y Rechazada */}
             <select
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
               value={nuevaObra.estado}
               onChange={(e) => setNuevaObra({ ...nuevaObra, estado: e.target.value })}
             >
-              <option value="en_ejecucion">En Ejecución</option>
               <option value="en_presupuesto">En Presupuesto</option>
+              <option value="aprobada">Aprobada</option>
+              <option value="en_ejecucion">En Ejecución</option>
               <option value="finalizada">Finalizada</option>
-              <option value="pausada">Pausada</option>
+              <option value="rechazada">Rechazada</option>
             </select>
 
             <input
@@ -360,61 +412,62 @@ export default function Obras() {
                   </td>
                 </tr>
               ) : (
-                obrasFiltradas.map((o, i) => (
-                  <tr key={o.id || i} className="hover:bg-slate-50 transition-colors group">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="font-bold text-blue-600 text-sm">{obtenerCodigoCompleto(o)}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="font-semibold text-slate-800 text-sm">{o.nombre || '—'}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-slate-700 font-medium text-sm">{obtenerNombreCliente(o.cliente_id)}</span>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className="text-slate-600 text-sm">
-                        {o.direccion ? `${o.direccion}${o.ciudad ? `, ${o.ciudad}` : ''}` : (o.ciudad || '—')}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="text-slate-600 text-sm">{formatearFecha(o.fecha_de_inicio)}</span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${
-                        String(o.estado || '').toLowerCase() === 'en_ejecucion'
-                          ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                          : 'bg-amber-100 text-amber-800 border border-amber-200'
-                      }`}>
-                        {o.estado ? o.estado.replace('_', ' ').toUpperCase() : 'EN EJECUCIÓN'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-right">
-                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <a
-                          href={`/presupuestos?obra=${o.id}`}
-                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors border border-slate-200 bg-white"
-                          title="Ver Presupuestos de la Obra"
-                        >
-                          <Calculator className="w-4 h-4" />
-                        </a>
-                        <button
-                          onClick={() => handleEditarClick(o)}
-                          className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors border border-slate-200 bg-white"
-                          title="Editar"
-                        >
-                          <Edit2 className="w-4 h-4" />
-                        </button>
-                        <button
-                          onClick={() => handleEliminar(o.id)}
-                          className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors border border-slate-200 bg-white"
-                          title="Eliminar"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                obrasFiltradas.map((o, i) => {
+                  // 🔑 FIX: usar el helper para el badge de estado
+                  const infoEstado = obtenerInfoEstado(o.estado);
+                  return (
+                    <tr key={o.id || i} className="hover:bg-slate-50 transition-colors group">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="font-bold text-blue-600 text-sm">{obtenerCodigoCompleto(o)}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="font-semibold text-slate-800 text-sm">{o.nombre || '—'}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-slate-700 font-medium text-sm">{obtenerNombreCliente(o.cliente_id)}</span>
+                      </td>
+                      <td className="px-6 py-4">
+                        <span className="text-slate-600 text-sm">
+                          {o.direccion ? `${o.direccion}${o.ciudad ? `, ${o.ciudad}` : ''}` : (o.ciudad || '—')}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className="text-slate-600 text-sm">{formatearFecha(o.fecha_de_inicio)}</span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        {/* 🔑 FIX: badge dinámico según estado */}
+                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${infoEstado.clases}`}>
+                          {infoEstado.label.toUpperCase()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right">
+                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <a
+                            href={`/presupuestos?obra=${o.id}`}
+                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors border border-slate-200 bg-white"
+                            title="Ver Presupuestos de la Obra"
+                          >
+                            <Calculator className="w-4 h-4" />
+                          </a>
+                          <button
+                            onClick={() => handleEditarClick(o)}
+                            className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors border border-slate-200 bg-white"
+                            title="Editar"
+                          >
+                            <Edit2 className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleEliminar(o.id)}
+                            className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors border border-slate-200 bg-white"
+                            title="Eliminar"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
