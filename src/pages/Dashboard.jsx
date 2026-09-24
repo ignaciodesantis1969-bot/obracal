@@ -15,7 +15,6 @@ import {
   Receipt,
   AlertTriangle,
   Calendar,
-  Clock,
   TrendingUp,
 } from 'lucide-react';
 import {
@@ -88,12 +87,24 @@ export default function Dashboard() {
     return `${meses[parseInt(mes, 10) - 1] || mes} ${anio.slice(2)}`;
   };
 
+  // 🔑 Normaliza un estado (minúsculas, sin acentos, guiones bajos → espacios)
+  const normalizarEstado = (str) => {
+    return String(str || '')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[_-]/g, ' ')
+      .trim();
+  };
+
   // ═══════════════════════════════════════════════════════════════════════
   // FILA 1 — KPIs GENERALES
   // ═══════════════════════════════════════════════════════════════════════
   const totalPresupuestos = presupuestos.length;
   const presupuestosAprobados = useMemo(
-    () => presupuestos.filter(p => String(p.estado_presupuesto || p.estado || '').toLowerCase() === 'aprobado').length,
+    () => presupuestos.filter(p =>
+      normalizarEstado(p.estado_presupuesto || p.estado) === 'aprobado'
+    ).length,
     [presupuestos]
   );
   const porcentajeAprobados = totalPresupuestos > 0
@@ -101,7 +112,7 @@ export default function Dashboard() {
     : 0;
 
   const personalActivo = useMemo(
-    () => personal.filter(p => String(p.estado || '').toLowerCase() === 'activo').length,
+    () => personal.filter(p => normalizarEstado(p.estado) === 'activo').length,
     [personal]
   );
 
@@ -115,14 +126,14 @@ export default function Dashboard() {
 
   const totalIngresos = useMemo(
     () => movimientos
-      .filter(m => String(m.tipo || '').toLowerCase() === 'ingreso')
+      .filter(m => normalizarEstado(m.tipo) === 'ingreso')
       .reduce((s, m) => s + (Number(m.monto) || 0), 0),
     [movimientos]
   );
 
   const totalEgresos = useMemo(
     () => movimientos
-      .filter(m => String(m.tipo || '').toLowerCase() === 'egreso')
+      .filter(m => normalizarEstado(m.tipo) === 'egreso')
       .reduce((s, m) => s + (Number(m.monto) || 0), 0),
     [movimientos]
   );
@@ -130,7 +141,7 @@ export default function Dashboard() {
   const totalFacturasAPagar = useMemo(
     () => facturasCompras
       .filter(f => {
-        const estado = String(f.estado_pago || '').toLowerCase();
+        const estado = normalizarEstado(f.estado_pago);
         return estado === 'pendiente' || estado === 'pagado parcial' || estado === '';
       })
       .reduce((s, f) => s + (Number(f.total || 0) || 0), 0),
@@ -171,17 +182,40 @@ export default function Dashboard() {
   const estadoObras = useMemo(() => {
     const conteo = {
       presupuesto: 0,
+      presupuestoAprobado: 0,
       adjudicadas: 0,
       ejecucion: 0,
       finalizadas: 0,
+      pausadas: 0,
     };
 
     obras.forEach(o => {
-      const est = String(o.estado || '').toLowerCase();
-      if (!est || est === 'en presupuesto' || est === 'presupuesto') conteo.presupuesto++;
-      else if (est === 'adjudicadas' || est === 'adjudicada') conteo.adjudicadas++;
-      else if (est === 'en ejecución' || est === 'en ejecucion' || est === 'activa') conteo.ejecucion++;
-      else if (est === 'finalizadas' || est === 'finalizada' || est === 'completada') conteo.finalizadas++;
+      const est = normalizarEstado(o.estado);
+
+      // "En Presupuesto" — sin acentos, acepta "en presupuesto" / "presupuesto"
+      if (!est || est === 'en presupuesto' || est === 'presupuesto') {
+        conteo.presupuesto++;
+      }
+      // "Con Presupuesto Aprobado" — nuevo estado
+      else if (est === 'con presupuesto aprobado' || est === 'presupuesto aprobado') {
+        conteo.presupuestoAprobado++;
+      }
+      // "Adjudicadas"
+      else if (est === 'adjudicadas' || est === 'adjudicada' || est === 'adjudicado') {
+        conteo.adjudicadas++;
+      }
+      // "En Ejecución"
+      else if (est === 'en ejecucion' || est === 'ejecucion' || est === 'activa' || est === 'activo') {
+        conteo.ejecucion++;
+      }
+      // "Finalizadas"
+      else if (est === 'finalizadas' || est === 'finalizada' || est === 'finalizado' || est === 'completada') {
+        conteo.finalizadas++;
+      }
+      // "Pausada"
+      else if (est === 'pausada' || est === 'pausado' || est === 'pausa') {
+        conteo.pausadas++;
+      }
     });
 
     return conteo;
@@ -227,7 +261,7 @@ export default function Dashboard() {
     return tareas
       .filter(t => {
         if (!t.fecha_fin) return false;
-        const est = String(t.estado || '').toLowerCase();
+        const est = normalizarEstado(t.estado);
         if (est === 'completada') return false;
 
         const f = new Date(t.fecha_fin + 'T00:00:00');
@@ -257,7 +291,6 @@ export default function Dashboard() {
   const cashFlowData = useMemo(() => {
     const byMonth = {};
 
-    // Generar los últimos 12 meses (incluyendo el actual)
     const hoy = new Date();
     for (let i = 11; i >= 0; i--) {
       const d = new Date(hoy.getFullYear(), hoy.getMonth() - i, 1);
@@ -269,9 +302,9 @@ export default function Dashboard() {
       const fecha = m.fecha || m.Fecha;
       if (!fecha) return;
       const mes = String(fecha).substring(0, 7);
-      if (!byMonth[mes]) return; // fuera del rango de 12 meses
+      if (!byMonth[mes]) return;
 
-      if (String(m.tipo || '').toLowerCase() === 'ingreso') {
+      if (normalizarEstado(m.tipo) === 'ingreso') {
         byMonth[mes].ingresos += Number(m.monto) || 0;
       } else {
         byMonth[mes].egresos += Number(m.monto) || 0;
@@ -309,33 +342,13 @@ export default function Dashboard() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* FILA 1 — KPIs GENERALES (6 cards) */}
+      {/* FILA 1 — KPIs GENERALES */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-        <KpiCard
-          label="Clientes"
-          value={clientes.length}
-          icon={Users}
-          color="blue"
-        />
-        <KpiCard
-          label="Proveedores"
-          value={proveedores.length}
-          icon={Truck}
-          color="purple"
-        />
-        <KpiCard
-          label="Obras"
-          value={obras.length}
-          icon={Building2}
-          color="amber"
-        />
-        <KpiCard
-          label="Presupuestos"
-          value={totalPresupuestos}
-          icon={Calculator}
-          color="slate"
-        />
+        <KpiCard label="Clientes" value={clientes.length} icon={Users} color="blue" />
+        <KpiCard label="Proveedores" value={proveedores.length} icon={Truck} color="purple" />
+        <KpiCard label="Obras" value={obras.length} icon={Building2} color="amber" />
+        <KpiCard label="Presupuestos" value={totalPresupuestos} icon={Calculator} color="slate" />
         <KpiCard
           label="Aprobados"
           value={presupuestosAprobados}
@@ -344,68 +357,26 @@ export default function Dashboard() {
           subtitle={`${porcentajeAprobados}% del total`}
           porcentaje={porcentajeAprobados}
         />
-        <KpiCard
-          label="Personal Activo"
-          value={personalActivo}
-          icon={UserCheck}
-          color="cyan"
-        />
+        <KpiCard label="Personal Activo" value={personalActivo} icon={UserCheck} color="cyan" />
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* FILA 2 — FACTURACIÓN (4 cards) */}
+      {/* FILA 2 — FACTURACIÓN */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          label="Total Facturado (Ventas)"
-          value={fmt(totalFacturadoVentas)}
-          icon={Receipt}
-          color="blue"
-        />
-        <KpiCard
-          label="Total Ingresos"
-          value={fmt(totalIngresos)}
-          icon={ArrowUpCircle}
-          color="emerald"
-        />
-        <KpiCard
-          label="Total Egresos"
-          value={fmt(totalEgresos)}
-          icon={ArrowDownCircle}
-          color="rose"
-        />
-        <KpiCard
-          label="Facturas a Pagar"
-          value={fmt(totalFacturasAPagar)}
-          icon={Wallet}
-          color="amber"
-        />
+        <KpiCard label="Total Facturado (Ventas)" value={fmt(totalFacturadoVentas)} icon={Receipt} color="blue" />
+        <KpiCard label="Total Ingresos" value={fmt(totalIngresos)} icon={ArrowUpCircle} color="emerald" />
+        <KpiCard label="Total Egresos" value={fmt(totalEgresos)} icon={ArrowDownCircle} color="rose" />
+        <KpiCard label="Facturas a Pagar" value={fmt(totalFacturasAPagar)} icon={Wallet} color="amber" />
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
-      {/* FILA 3 — IVA (4 cards) */}
+      {/* FILA 3 — IVA */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        <KpiCard
-          label="IVA Compras"
-          value={fmt(totalIvaCompras)}
-          icon={FileText}
-          color="rose"
-          subtitle="Crédito fiscal"
-        />
-        <KpiCard
-          label="IVA Ventas"
-          value={fmt(totalIvaVentas)}
-          icon={FileText}
-          color="blue"
-          subtitle="Débito fiscal"
-        />
-        <KpiCard
-          label="Retenciones IVA"
-          value={fmt(totalRetencionesIva)}
-          icon={FileText}
-          color="amber"
-        />
+        <KpiCard label="IVA Compras" value={fmt(totalIvaCompras)} icon={FileText} color="rose" subtitle="Crédito fiscal" />
+        <KpiCard label="IVA Ventas" value={fmt(totalIvaVentas)} icon={FileText} color="blue" subtitle="Débito fiscal" />
+        <KpiCard label="Retenciones IVA" value={fmt(totalRetencionesIva)} icon={FileText} color="amber" />
         <KpiCard
           label="Saldo IVA"
           value={fmt(Math.abs(saldoIva))}
@@ -428,9 +399,11 @@ export default function Dashboard() {
           </div>
           <div className="space-y-2 pt-2">
             <BarraEstadoObra label="En Presupuesto" count={estadoObras.presupuesto} total={obras.length} color="bg-amber-500" />
+            <BarraEstadoObra label="Con Presupuesto Aprobado" count={estadoObras.presupuestoAprobado} total={obras.length} color="bg-lime-500" />
             <BarraEstadoObra label="Adjudicadas" count={estadoObras.adjudicadas} total={obras.length} color="bg-blue-500" />
             <BarraEstadoObra label="En Ejecución" count={estadoObras.ejecucion} total={obras.length} color="bg-indigo-500" />
             <BarraEstadoObra label="Finalizadas" count={estadoObras.finalizadas} total={obras.length} color="bg-emerald-500" />
+            <BarraEstadoObra label="Pausadas" count={estadoObras.pausadas} total={obras.length} color="bg-slate-500" />
           </div>
         </div>
 
@@ -445,7 +418,7 @@ export default function Dashboard() {
               Sin datos de compras por proveedor
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={200}>
+            <ResponsiveContainer width="100%" height={220}>
               <BarChart
                 data={top5Proveedores.map(p => ({
                   ...p,
