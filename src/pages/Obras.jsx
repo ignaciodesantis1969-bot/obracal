@@ -26,7 +26,7 @@ export default function Obras() {
     cliente_id: '',
     direccion: '',
     ciudad: '',
-    estado: 'en_presupuesto',
+    estado: 'activa',
     fecha_de_inicio: '',
     notas: ''
   });
@@ -88,7 +88,7 @@ export default function Obras() {
       cliente_id: '',
       direccion: '',
       ciudad: '',
-      estado: 'en_presupuesto',
+      estado: 'activa',
       fecha_de_inicio: '',
       notas: ''
     });
@@ -97,13 +97,14 @@ export default function Obras() {
 
   const handleEditarClick = (obra) => {
     setEditingId(obra.id);
+    // 🔑 NUEVO: normalizar el estado al abrir edición (mapea viejos → 'activa')
     setNuevaObra({
       codigo: obra.codigo || '',
       nombre: obra.nombre || '',
       cliente_id: obra.cliente_id || '',
       direccion: obra.direccion || '',
       ciudad: obra.ciudad || '',
-      estado: obra.estado || 'en_presupuesto',
+      estado: normalizarEstadoA3Opciones(obra.estado),
       fecha_de_inicio: obra.fecha_de_inicio ? String(obra.fecha_de_inicio).split('T')[0] : '',
       notas: obra.notas || ''
     });
@@ -127,7 +128,7 @@ export default function Obras() {
         await crearDoc('obras', datosLimpios);
       }
 
-      setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'en_presupuesto', fecha_de_inicio: '', notas: '' });
+      setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '' });
       setEditingId(null);
       setIsFormOpen(false);
       // Firestore actualiza la lista en tiempo real vía onSnapshot.
@@ -182,43 +183,36 @@ export default function Obras() {
       .trim();
   };
 
+  // 🔑 NUEVO: mapea cualquier estado viejo → uno de los 3 nuevos
+  // Todos los viejos caen en "activa" salvo que ya sea pausada/de baja
+  const normalizarEstadoA3Opciones = (estadoRaw) => {
+    const est = normalizarEstado(estadoRaw);
+    if (est === 'pausada' || est === 'pausado' || est === 'pausa') return 'pausada';
+    if (est === 'de baja' || est === 'baja' || est === 'debaja') return 'de_baja';
+    // Todo el resto (en_presupuesto, aprobada, en_ejecucion, finalizada, rechazada, vacío, etc.)
+    return 'activa';
+  };
+
   // 🔑 NUEVO: devuelve el label legible + las clases de color por estado
   const obtenerInfoEstado = (estadoRaw) => {
-    const est = normalizarEstado(estadoRaw);
+    const est = normalizarEstadoA3Opciones(estadoRaw);
 
-    if (est === 'en presupuesto' || est === 'presupuesto' || !est) {
+    if (est === 'pausada') {
       return {
-        label: 'En Presupuesto',
+        label: 'Pausada',
         clases: 'bg-amber-100 text-amber-800 border border-amber-200',
       };
     }
-    if (est === 'aprobada' || est === 'aprobado') {
+    if (est === 'de_baja') {
       return {
-        label: 'Aprobada',
-        clases: 'bg-blue-100 text-blue-800 border border-blue-200',
+        label: 'de Baja',
+        clases: 'bg-slate-200 text-slate-700 border border-slate-300',
       };
     }
-    if (est === 'en ejecucion' || est === 'ejecucion' || est === 'activa') {
-      return {
-        label: 'En Ejecución',
-        clases: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-      };
-    }
-    if (est === 'finalizada' || est === 'finalizado' || est === 'completada') {
-      return {
-        label: 'Finalizada',
-        clases: 'bg-teal-100 text-teal-800 border border-teal-200',
-      };
-    }
-    if (est === 'rechazada' || est === 'rechazado') {
-      return {
-        label: 'Rechazada',
-        clases: 'bg-rose-100 text-rose-800 border border-rose-200',
-      };
-    }
+    // Default: activa
     return {
-      label: estadoRaw || '—',
-      clases: 'bg-slate-100 text-slate-700 border border-slate-200',
+      label: 'Activa',
+      clases: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
     };
   };
 
@@ -314,17 +308,15 @@ export default function Obras() {
               onChange={(e) => setNuevaObra({ ...nuevaObra, ciudad: e.target.value })}
             />
 
-            {/* 🔑 Dropdown de estados actualizado: sin Pausada, con Aprobada y Rechazada */}
+            {/* 🔑 Dropdown reducido a los 3 estados nuevos: Activa, Pausada, de Baja */}
             <select
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
               value={nuevaObra.estado}
               onChange={(e) => setNuevaObra({ ...nuevaObra, estado: e.target.value })}
             >
-              <option value="en_presupuesto">En Presupuesto</option>
-              <option value="aprobada">Aprobada</option>
-              <option value="en_ejecucion">En Ejecución</option>
-              <option value="finalizada">Finalizada</option>
-              <option value="rechazada">Rechazada</option>
+              <option value="activa">Activa</option>
+              <option value="pausada">Pausada</option>
+              <option value="de_baja">de Baja</option>
             </select>
 
             <input
