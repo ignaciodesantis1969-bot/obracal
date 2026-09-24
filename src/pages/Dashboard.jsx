@@ -87,7 +87,6 @@ export default function Dashboard() {
     return `${meses[parseInt(mes, 10) - 1] || mes} ${anio.slice(2)}`;
   };
 
-  // 🔑 Normaliza un estado (minúsculas, sin acentos, guiones bajos → espacios)
   const normalizarEstado = (str) => {
     return String(str || '')
       .toLowerCase()
@@ -179,7 +178,7 @@ export default function Dashboard() {
   const saldoIva = totalIvaVentas - totalIvaCompras - totalRetencionesIva;
 
   // ═══════════════════════════════════════════════════════════════════════
-  // FILA 4 — ESTADO DE PRESUPUESTOS
+  // FILA 4 — ESTADO DE PRESUPUESTOS (lógica acumulativa)
   // ═══════════════════════════════════════════════════════════════════════
   const estadoPresupuestos = useMemo(() => {
     const conteo = {
@@ -192,29 +191,18 @@ export default function Dashboard() {
     };
     presupuestos.forEach(p => {
       const est = normalizarEstado(p.estado_presupuesto || p.estado);
-      // "Borrador" — incluye vacío por default
+      // Estado base (excluyente)
       if (!est || est === 'borrador' || est === 'en revision') {
         conteo.borrador++;
-      }
-      // "Entregado"
-      else if (est === 'entregado' || est === 'entregada') {
+      } else if (est === 'entregado' || est === 'entregada') {
         conteo.entregado++;
-      }
-      // "Aprobado"
-      else if (est === 'aprobado' || est === 'aprobada') {
+      } else if (est === 'aprobado' || est === 'aprobada') {
         conteo.aprobado++;
-      }
-      // "Rechazado"
-      else if (est === 'rechazado' || est === 'rechazada') {
+        // 🔑 Banderas acumulativas: solo cuentan si el estado base es aprobado
+        if (Boolean(p.en_ejecucion)) conteo.en_ejecucion++;
+        if (Boolean(p.finalizado)) conteo.finalizado++;
+      } else if (est === 'rechazado' || est === 'rechazada') {
         conteo.rechazado++;
-      }
-      // "En Ejecución"
-      else if (est === 'en ejecucion' || est === 'ejecucion') {
-        conteo.en_ejecucion++;
-      }
-      // "Finalizado"
-      else if (est === 'finalizado' || est === 'finalizada' || est === 'finalizadas' || est === 'completado') {
-        conteo.finalizado++;
       }
     });
     return conteo;

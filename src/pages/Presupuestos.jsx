@@ -113,6 +113,8 @@ export default function Presupuestos() {
         ...nuevoPresupuesto,
         version: 'v1',
         estado_presupuesto: 'borrador',
+        en_ejecucion: false,
+        finalizado: false,
         items_detalle: JSON.stringify([{ rubro: 'RUBRO GENERAL / PRINCIPAL', tareas: [] }])
       };
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevo;
@@ -144,7 +146,7 @@ export default function Presupuestos() {
     const estadoActual = String(p?.estado_presupuesto || p?.estado || 'borrador').toLowerCase();
 
     if (estadoActual === 'aprobado' || estadoActual === 'rechazado') {
-      alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede cambiar su estado.`);
+      alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede cambiar su estado base.`);
       return;
     }
 
@@ -183,6 +185,47 @@ export default function Presupuestos() {
       setPresupuestoAprobarId(null);
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  // 🔑 Toggle "En Ejecución" (solo si estado base = aprobado)
+  const handleToggleEnEjecucion = async (p) => {
+    const estadoBase = String(p.estado_presupuesto || p.estado || '').toLowerCase();
+    if (estadoBase !== 'aprobado') {
+      alert('⚠️ Solo los presupuestos APROBADOS pueden marcarse como En Ejecución.');
+      return;
+    }
+    const nuevoValor = !Boolean(p.en_ejecucion);
+    try {
+      const update = { en_ejecucion: nuevoValor };
+      // Si destildamos En Ejecución, también destildamos Finalizado
+      if (!nuevoValor && p.finalizado) {
+        update.finalizado = false;
+      }
+      await actualizarDoc('presupuestos', p.id, update);
+    } catch (err) {
+      console.error('Error al cambiar En Ejecución:', err);
+      alert('Error: ' + (err.message || ''));
+    }
+  };
+
+  // 🔑 Toggle "Finalizado" (requiere En Ejecución tildado)
+  const handleToggleFinalizado = async (p) => {
+    const estadoBase = String(p.estado_presupuesto || p.estado || '').toLowerCase();
+    if (estadoBase !== 'aprobado') {
+      alert('⚠️ Solo los presupuestos APROBADOS pueden marcarse como Finalizados.');
+      return;
+    }
+    if (!p.en_ejecucion) {
+      alert('⚠️ Primero hay que marcar "En Ejecución" para poder marcar "Finalizado".');
+      return;
+    }
+    const nuevoValor = !Boolean(p.finalizado);
+    try {
+      await actualizarDoc('presupuestos', p.id, { finalizado: nuevoValor });
+    } catch (err) {
+      console.error('Error al cambiar Finalizado:', err);
+      alert('Error: ' + (err.message || ''));
     }
   };
 
@@ -281,11 +324,12 @@ export default function Presupuestos() {
         obra_id: presupuestoActual.obra_id,
         coeficiente_pase: coeficientePase,
         estado_presupuesto: 'borrador',
+        en_ejecucion: false,
+        finalizado: false,
         version: nuevaVersionStr,
         costo_directo: nuevoCostoDirecto,
         precio_venta: nuevoPrecioVenta,
         items_detalle: JSON.stringify(estructuraCompletaNueva),
-        // 🔑 Heredar responsable
         responsable_id: presupuestoActual.responsable_id || '',
         responsable_nombre: presupuestoActual.responsable_nombre || '',
         responsable_email: presupuestoActual.responsable_email || '',
@@ -320,7 +364,7 @@ export default function Presupuestos() {
     }
   };
 
-  // 🔑 Normalizar estados (acepta "en_ejecucion" o "en ejecucion")
+  // 🔑 Normalizar estados
   const normalizarEstado = (str) => {
     return String(str || '')
       .toLowerCase()
@@ -330,7 +374,7 @@ export default function Presupuestos() {
       .trim();
   };
 
-  // 🔑 Contadores por estado
+  // 🔑 Contadores por estado base (NO acumulativo para estado base)
   const totalBorrador = presupuestos.filter(p => {
     const est = normalizarEstado(p.estado_presupuesto || p.estado);
     return !est || est === 'borrador' || est === 'en revision';
@@ -351,14 +395,16 @@ export default function Presupuestos() {
     return est === 'rechazado' || est === 'rechazada';
   }).length;
 
+  // 🔑 En Ejecución: SOLO los aprobados que tienen la bandera
   const totalEnEjecucion = presupuestos.filter(p => {
     const est = normalizarEstado(p.estado_presupuesto || p.estado);
-    return est === 'en ejecucion' || est === 'ejecucion';
+    return est === 'aprobado' && Boolean(p.en_ejecucion);
   }).length;
 
+  // 🔑 Finalizados: SOLO los aprobados que tienen la bandera finalizado
   const totalFinalizado = presupuestos.filter(p => {
     const est = normalizarEstado(p.estado_presupuesto || p.estado);
-    return est === 'finalizado' || est === 'finalizada' || est === 'finalizadas' || est === 'completado';
+    return est === 'aprobado' && Boolean(p.finalizado);
   }).length;
 
   const presupuestosFiltradosPorTab = presupuestos.filter(p => {
@@ -526,14 +572,16 @@ export default function Presupuestos() {
           <table className="w-full text-left text-xs table-fixed">
             <thead>
               <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                <th className="w-[12%] px-6 py-4">Código</th>
-                <th className="w-[24%] px-4 py-4">Nombre del Presupuesto</th>
-                <th className="w-[7%] px-2 py-4 text-center">Versión</th>
-                <th className="w-[20%] px-4 py-4">Obra Asociada</th>
-                <th className="w-[14%] px-4 py-4 text-right">Costo Directo</th>
-                <th className="w-[14%] px-4 py-4 text-right">Precio Venta</th>
-                <th className="w-[10%] px-2 py-4 text-center">Estado</th>
-                <th className="w-[9%] px-2 py-4 text-right">Acciones</th>
+                <th className="w-[10%] px-4 py-4">Código</th>
+                <th className="w-[20%] px-4 py-4">Nombre del Presupuesto</th>
+                <th className="w-[6%] px-2 py-4 text-center">Versión</th>
+                <th className="w-[16%] px-4 py-4">Obra Asociada</th>
+                <th className="w-[11%] px-4 py-4 text-right">Costo Directo</th>
+                <th className="w-[11%] px-4 py-4 text-right">Precio Venta</th>
+                <th className="w-[9%] px-2 py-4 text-center">Estado</th>
+                <th className="w-[6%] px-2 py-4 text-center">En Ejec.</th>
+                <th className="w-[6%] px-2 py-4 text-center">Final.</th>
+                <th className="w-[5%] px-2 py-4 text-right">Acc.</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -549,22 +597,25 @@ export default function Presupuestos() {
                 }
 
                 const estadoActual = normalizarEstado(p.estado_presupuesto || p.estado) || 'borrador';
+                const esAprobado = estadoActual === 'aprobado';
+                const enEjecucion = Boolean(p.en_ejecucion);
+                const finalizado = Boolean(p.finalizado);
 
                 return (
                   <tr key={p.id} className="hover:bg-slate-50 transition-colors group">
-                    <td className="w-[12%] px-6 py-4 font-bold text-blue-600 truncate">{p.codigo || '---'}</td>
-                    <td className="w-[24%] px-4 py-4 font-semibold text-slate-800 truncate" title={p.nombre}>{p.nombre || 'Sin nombre'}</td>
-                    <td className="w-[7%] px-2 py-4 text-center">
+                    <td className="w-[10%] px-4 py-4 font-bold text-blue-600 truncate">{p.codigo || '---'}</td>
+                    <td className="w-[20%] px-4 py-4 font-semibold text-slate-800 truncate" title={p.nombre}>{p.nombre || 'Sin nombre'}</td>
+                    <td className="w-[6%] px-2 py-4 text-center">
                       <span className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-200 rounded-md font-extrabold text-[11px] uppercase">
                         {versionVisual}
                       </span>
                     </td>
-                    <td className="w-[20%] px-4 py-4 text-slate-600 truncate" title={obraAsociada?.nombre || obraAsociada?.nombre_obra || 'Sin obra asignada'}>
+                    <td className="w-[16%] px-4 py-4 text-slate-600 truncate" title={obraAsociada?.nombre || obraAsociada?.nombre_obra || 'Sin obra asignada'}>
                       {obraAsociada?.nombre || obraAsociada?.nombre_obra || 'Sin obra asignada'}
                     </td>
-                    <td className="w-[14%] px-4 py-4 text-right font-medium text-slate-700 whitespace-nowrap">$ {costoDir.toLocaleString('es-AR')}</td>
-                    <td className="w-[14%] px-4 py-4 text-right font-black text-amber-600 whitespace-nowrap">$ {precioVta.toLocaleString('es-AR')}</td>
-                    <td className="w-[10%] px-2 py-4 text-center">
+                    <td className="w-[11%] px-4 py-4 text-right font-medium text-slate-700 whitespace-nowrap">$ {costoDir.toLocaleString('es-AR')}</td>
+                    <td className="w-[11%] px-4 py-4 text-right font-black text-amber-600 whitespace-nowrap">$ {precioVta.toLocaleString('es-AR')}</td>
+                    <td className="w-[9%] px-2 py-4 text-center">
                       <select
                         value={estadoActual}
                         disabled={estadoActual === 'aprobado' || estadoActual === 'rechazado'}
@@ -576,10 +627,6 @@ export default function Presupuestos() {
                             ? 'bg-emerald-100 text-emerald-800 border-emerald-300 cursor-not-allowed opacity-75'
                             : estadoActual === 'rechazado'
                             ? 'bg-red-100 text-red-800 border-red-300 cursor-not-allowed opacity-75'
-                            : estadoActual === 'en ejecucion'
-                            ? 'bg-indigo-100 text-indigo-800 border-indigo-300 cursor-pointer'
-                            : estadoActual === 'finalizado'
-                            ? 'bg-teal-100 text-teal-800 border-teal-300 cursor-pointer'
                             : 'bg-slate-100 text-slate-700 border-slate-300 cursor-pointer'
                         }`}
                         title={estadoActual === 'aprobado' || estadoActual === 'rechazado' ? "Estado bloqueado por regla de negocio" : "Cambiar estado"}
@@ -588,11 +635,49 @@ export default function Presupuestos() {
                         <option value="entregado">Entregado</option>
                         <option value="aprobado">Aprobado</option>
                         <option value="rechazado">Rechazado</option>
-                        <option value="en_ejecucion">En Ejecución</option>
-                        <option value="finalizado">Finalizado</option>
                       </select>
                     </td>
-                    <td className="w-[9%] px-2 py-4 text-right">
+                    {/* 🔑 Checkbox En Ejecución */}
+                    <td className="w-[6%] px-2 py-4 text-center">
+                      <input
+                        type="checkbox"
+                        checked={enEjecucion}
+                        disabled={!esAprobado}
+                        onChange={() => handleToggleEnEjecucion(p)}
+                        className={`w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer ${
+                          !esAprobado ? 'opacity-30 cursor-not-allowed' : ''
+                        }`}
+                        title={
+                          !esAprobado
+                            ? 'Solo disponible para presupuestos Aprobados'
+                            : enEjecucion
+                            ? 'Destildar: quitar de En Ejecución'
+                            : 'Tildar: marcar como En Ejecución'
+                        }
+                      />
+                    </td>
+                    {/* 🔑 Checkbox Finalizado */}
+                    <td className="w-[6%] px-2 py-4 text-center">
+                      <input
+                        type="checkbox"
+                        checked={finalizado}
+                        disabled={!esAprobado || !enEjecucion}
+                        onChange={() => handleToggleFinalizado(p)}
+                        className={`w-4 h-4 rounded border-slate-300 text-teal-600 focus:ring-teal-500 cursor-pointer ${
+                          !esAprobado || !enEjecucion ? 'opacity-30 cursor-not-allowed' : ''
+                        }`}
+                        title={
+                          !esAprobado
+                            ? 'Solo disponible para presupuestos Aprobados'
+                            : !enEjecucion
+                            ? 'Primero hay que marcar "En Ejecución"'
+                            : finalizado
+                            ? 'Destildar: quitar de Finalizado'
+                            : 'Tildar: marcar como Finalizado'
+                        }
+                      />
+                    </td>
+                    <td className="w-[5%] px-2 py-4 text-right">
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                         <button
                           onClick={() => handleActualizarPresupuestoVersion(p)}
