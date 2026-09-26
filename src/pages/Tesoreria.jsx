@@ -37,27 +37,26 @@ const normalizarNombre = (str) => {
 };
 
 // 🔑 NUEVO: normaliza un número de comprobante quitando ceros a la izquierda
-// (la NC trae "00000172" formato AFIP, pero en Firestore puede estar como "172")
 const normalizarNumComp = (s) => {
   return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
 };
 
 // 🔑 FIX: mapea el string que devuelve Gemini al valor canónico del <select>
-// 🔑 NUEVO: detecta si es electrónica (FCE/NCE/NDE) por el nombre del archivo o por texto
+// 🔑 FIX: detecta electrónica por prefijo del nombre del archivo (NCE_, NDE_, FCE_)
+//          NOTA: \b no funciona con "_" porque _ es word char en regex. Usamos includes.
 const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
   const t = String(tipoComprobanteOCR || '').toLowerCase();
   const tf = String(tipoFacturaOCR || '').toLowerCase();
   const nf = String(nombreArchivo || '').toUpperCase();
 
-  // 🔑 NUEVO: detectar electrónica por el nombre del archivo (NCE_, NDE_, FCE_, etc.)
-  const esElectronica = /\b(NCE|NDE|FCE|NCA|NDA|FCA|NCB|NDB|FCB)\b/.test(nf)
-    || nf.includes('ELECTRONICA')
-    || nf.includes('MIPYME')
-    || tf.includes('electronica')
-    || tf.includes('fce')
-    || tf.includes('mipyme');
+  // 🔑 FIX: detección por includes (más robusto que regex con \b)
+  const esElectronica =
+    nf.includes('NCE') || nf.includes('NDE') || nf.includes('FCE') ||
+    nf.includes('NCA') || nf.includes('NDA') || nf.includes('FCA') ||
+    nf.includes('NCB') || nf.includes('NDB') || nf.includes('FCB') ||
+    nf.includes('ELECTRONICA') || nf.includes('MIPYME') ||
+    tf.includes('electronica') || tf.includes('fce') || tf.includes('mipyme');
 
-  // Detectar tipo de letra (A o B) — por defecto A
   const esTipoB = tf.includes(' b') || tf.endsWith('b') || /\bB\b/.test(nf);
 
   if (t.includes('nota de credito') || t.includes('nota de crédito') || t === 'nc') {
@@ -92,7 +91,6 @@ const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo
 };
 
 export default function Tesoreria() {
-  // 🔑 NUEVO: leemos las 9 colecciones necesarias en paralelo
   const { data: movimientos } = useFirestoreCollection('tesoreria');
   const { data: facturas } = useFirestoreCollection('facturas_compras');
   const { data: facturasVenta } = useFirestoreCollection('facturas_ventas');
@@ -108,7 +106,7 @@ export default function Tesoreria() {
 
   const [filtroProveedorMovimientos, setFiltroProveedorMovimientos] = useState('');
   const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
-  // 🔑 NUEVO: filtro por tipo de movimiento (Ingreso / Egreso / Contabilizada)
+  // 🔑 NUEVO: filtro por tipo de movimiento (Ingreso / Egreso / Contabilizada / Anulada)
   const [filtroTipoMovimiento, setFiltroTipoMovimiento] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -163,7 +161,6 @@ export default function Tesoreria() {
     total: 0,
     archivo_url: '',
     estado_pago: 'pendiente',
-    // 🔑 NUEVO: campo para Notas de Crédito/Débito (comprobante que anula)
     comprobante_anula: ''
   });
 
@@ -229,7 +226,6 @@ export default function Tesoreria() {
     return str;
   };
 
-  // 🔑 NUEVO: sube un base64 a Drive vía Apps Script y devuelve la URL pública
   const subirArchivoADrive = async (base64, tabla) => {
     if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
     try {
@@ -463,8 +459,6 @@ export default function Tesoreria() {
   };
 
   // ⚠️ OCR sigue usando Apps Script
-  // 🔑 FIX: setea tipo_comprobante + match de cliente normalizado + aviso si no encuentra
-  // 🔑 FIX: usa archivo.name (no nombreArchivoVenta) para detectar electrónica correctamente
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -506,7 +500,6 @@ export default function Tesoreria() {
           }
 
           if (data.success && !data.error) {
-            // 🔑 FIX: búsqueda de cliente más robusta (normaliza acentos, S.A., etc.)
             let clienteEncontradoId = '';
             const nombreClienteBusqueda = data.cliente || data.proveedor || '';
 
@@ -557,7 +550,6 @@ export default function Tesoreria() {
 
             const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
 
-            // 🔑 FIX: pasamos archivo.name directo (no nombreArchivoVenta, que es asíncrono)
             const tipoComprobanteMapeado = mapearTipoComprobante(
               data.tipo_comprobante,
               data.tipo_factura,
@@ -590,7 +582,6 @@ export default function Tesoreria() {
               ]
             }));
 
-            // 🔑 NUEVO: avisar al usuario si el OCR no pudo matchear el cliente
             if (nombreClienteBusqueda && !clienteEncontradoId) {
               setTimeout(() => {
                 alert(
@@ -627,7 +618,6 @@ export default function Tesoreria() {
     }
   };
 
-  // 🔑 FIX: guardar movimiento directo a Firestore + actualizar estado de facturas asociadas
   const handleGuardarMovimiento = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -687,22 +677,18 @@ export default function Tesoreria() {
     }
   };
 
-  // 🔑 FIX: guardar factura de venta directo a Firestore (con subida a Drive si hay base64)
-  // 🔑 NUEVO: si es Nota de Crédito, guarda neto/iva/total en NEGATIVO automáticamente
-  // 🔑 NUEVO: si es NC, busca la factura original (con match normalizado), la marca como 'anulada' y crea un movimiento
+  // 🔑 FIX: guardar factura de venta + movimiento de anulación si es NC
   const handleGuardarFacturaVenta = async (e) => {
     e.preventDefault();
     if (isSavingVenta) return;
 
     setIsSavingVenta(true);
     try {
-      // 🔑 NUEVO: subir el archivo a Drive si todavía es base64
       let archivoUrlFinal = formDataVenta.archivo_url || '';
       if (archivoBase64Venta && archivoBase64Venta.indexOf('data:') === 0) {
         archivoUrlFinal = await subirArchivoADrive(archivoBase64Venta, 'FacturasVenta');
       }
 
-      // 🔑 NUEVO: detectar si es Nota de Crédito para aplicar signo negativo
       const esNC = esNotaCredito(formDataVenta.tipo_comprobante);
       const esND = esNotaDebito(formDataVenta.tipo_comprobante);
       const signo = esNC ? -1 : 1;
@@ -729,12 +715,9 @@ export default function Tesoreria() {
 
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVenta;
 
-      // 🔑 Guardar la NC/Factura/ND primero
       const nuevoDocId = await crearDoc('facturas_ventas', datosLimpios);
 
-      // 🔑 NUEVO: si es NC, buscar la factura que anula y marcarla como 'anulada'
-      // 🔑 FIX: match normalizado (quita ceros a la izquierda) porque la NC trae "00000172"
-      //          pero en Firestore la factura puede estar como "172"
+      // Si es NC → buscar la factura original (match normalizado) y marcarla como anulada
       if (esNC && formDataVenta.comprobante_anula) {
         try {
           const anulaLimpio = String(formDataVenta.comprobante_anula).trim();
@@ -749,12 +732,11 @@ export default function Tesoreria() {
             nCompAnula = anulaLimpio;
           }
 
-          // 🔑 FIX: normalizar números antes de comparar
           const ptoVtaAnulaNorm = normalizarNumComp(ptoVtaAnula);
           const nCompAnulaNorm = normalizarNumComp(nCompAnula);
 
-          // 🔑 FIX: match por punto_venta + numero_comp (ambos normalizados),
-          //          excluyendo facturas ya anuladas y NC/ND
+          console.log('[NC-Anular] Buscando:', { ptoVtaAnulaNorm, nCompAnulaNorm, totalFacturasVenta: facturasVenta.length });
+
           let facturaOriginal = facturasVenta.find(f => {
             if (String(f.estado_pago || '').toLowerCase() === 'anulada') return false;
             if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
@@ -768,13 +750,13 @@ export default function Tesoreria() {
             return fncNorm === nCompAnulaNorm;
           });
 
-          // 🔑 FIX: fallback solo por numero_comp si no matcheó punto_venta
           if (!facturaOriginal && nCompAnulaNorm) {
             facturaOriginal = facturasVenta.find(f => {
               if (String(f.estado_pago || '').toLowerCase() === 'anulada') return false;
               if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
               return normalizarNumComp(f.numero_comp) === nCompAnulaNorm;
             });
+            if (facturaOriginal) console.log('[NC-Anular] Match por fallback (solo numero_comp)');
           }
 
           if (facturaOriginal) {
@@ -786,6 +768,42 @@ export default function Tesoreria() {
               anulada_fecha: formDataVenta.fecha_emision
             });
             console.log(`✅ Factura ${formDataVenta.comprobante_anula} marcada como anulada por NC ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`);
+
+            // 🔑 NUEVO: crear movimiento informativo de la anulación (monto $0, tipo "anulada")
+            try {
+              const tipoFacturaAnulada = facturaOriginal.tipo_comprobante || 'Factura';
+              const pvFacturaAnulada = String(facturaOriginal.punto_venta || ptoVtaAnula || '').padStart(5, '0');
+              const nroFacturaAnulada = String(facturaOriginal.numero_comp || nCompAnula || '').padStart(8, '0');
+
+              const movimientoAnulacion = {
+                tipo: 'anulada',
+                fecha: formDataVenta.fecha_emision,
+                concepto: `ANULACIÓN ${tipoFacturaAnulada} ${pvFacturaAnulada}-${nroFacturaAnulada}`,
+                monto: 0,
+                obra_id: facturaOriginal.obra_id || '',
+                presupuesto_id: facturaOriginal.presupuesto_id || '',
+                contrato_id: facturaOriginal.contrato_id || '',
+                rubro_imputacion: '',
+                tipo_insumo: '',
+                medio_pago: '',
+                referencia: `Anulada por NC ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`,
+                retencion_suss: 0,
+                retencion_iva: 0,
+                retencion_ganancias: 0,
+                retencion_iibb_pba: 0,
+                retencion_iibb_caba: 0,
+                facturas_aplicadas: JSON.stringify([]),
+                es_autogenerado: true,
+                es_anulacion: true,
+                factura_anulada_id: facturaOrigId,
+                nota_credito_id: nuevoDocId
+              };
+
+              await crearDoc('tesoreria', movimientoAnulacion);
+              console.log(`✅ Movimiento de anulación creado para ${tipoFacturaAnulada} ${pvFacturaAnulada}-${nroFacturaAnulada}`);
+            } catch (errAnul) {
+              console.error("Error creando movimiento de anulación:", errAnul);
+            }
           } else {
             console.warn(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} para anular`);
             alert(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} en el sistema. La Nota de Crédito se guardó pero la factura no se marcó como anulada.`);
@@ -795,7 +813,7 @@ export default function Tesoreria() {
         }
       }
 
-      // 🔑 NUEVO: crear un movimiento automático para que la NC/ND aparezca en la lista de Movimientos
+      // Movimiento contable de la NC/ND (con su monto)
       if (esNC || esND) {
         try {
           const tipoMov = 'contabilizada';
@@ -826,9 +844,9 @@ export default function Tesoreria() {
           };
 
           await crearDoc('tesoreria', movimientoAuto);
-          console.log(`Movimiento autogenerado para ${conceptoMov}`);
+          console.log(`Movimiento contable creado para ${conceptoMov}`);
         } catch (errMov) {
-          console.error("Error al crear movimiento automático:", errMov);
+          console.error("Error al crear movimiento contable:", errMov);
         }
       }
 
@@ -837,7 +855,7 @@ export default function Tesoreria() {
       setNombreArchivoVenta('');
       alert(
         esNC
-          ? `Nota de Crédito registrada correctamente.\n- Total en negativo: $${Math.abs(totalFinal).toLocaleString('es-AR')}\n- Factura anulada: ${formDataVenta.comprobante_anula || 'no especificada'}\n- Movimiento generado en Tesorería`
+          ? `Nota de Crédito registrada correctamente.\n- Total en negativo: $${Math.abs(totalFinal).toLocaleString('es-AR')}\n- Factura anulada: ${formDataVenta.comprobante_anula || 'no especificada'}\n- Movimientos generados en Tesorería`
           : esND
           ? `Nota de Débito registrada correctamente.\n- Total: $${totalFinal.toLocaleString('es-AR')}\n- Movimiento generado en Tesorería`
           : "Factura de Venta registrada correctamente."
@@ -850,7 +868,6 @@ export default function Tesoreria() {
     }
   };
 
-  // 🔑 FIX: eliminar movimiento directo a Firestore
   const handleEliminarMovimiento = async (m) => {
     const mId = m.id || m.ID || m.Id;
     if (!mId) return;
@@ -868,15 +885,12 @@ export default function Tesoreria() {
     .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
 
   const totalEgresos = movimientos
-    .filter(m => {
-      const t = String(m.tipo || m.Tipo).toLowerCase();
-      return t === 'egreso';
-    })
+    .filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso')
     .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
 
   const balance = totalIngresos - totalEgresos;
 
-  // 🔑 FIX + NUEVO: filtro por proveedor + texto + tipo de movimiento
+  // 🔑 FIX: filtro por proveedor + texto + tipo de movimiento (incluye "anulada")
   const movimientosFiltrados = movimientos.filter(m => {
     const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
     const ref = String(m.referencia || m.Referencia || '').toLowerCase();
@@ -889,7 +903,6 @@ export default function Tesoreria() {
       matchProveedor = concepto.includes(nombreProv);
     }
 
-    // 🔑 NUEVO: filtro por tipo de movimiento
     let matchTipo = true;
     if (filtroTipoMovimiento) {
       const tipoMov = String(m.tipo || m.Tipo || '').toLowerCase();
@@ -899,7 +912,6 @@ export default function Tesoreria() {
     return matchTexto && matchProveedor && matchTipo;
   });
 
-  // 🔑 FIX: excluir facturas anuladas por NC de la lista de Facturas a Pagar
   const facturasAPagar = facturas.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
     if (estado === 'anulada') return false;
@@ -911,7 +923,6 @@ export default function Tesoreria() {
     return esPendiente && matchProveedor;
   });
 
-  // 🔑 FIX: excluir facturas anuladas por NC de la lista de Facturas a Cobrar
   const facturasACobrar = facturasVenta.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
     if (estado === 'anulada') return false;
@@ -920,7 +931,6 @@ export default function Tesoreria() {
     return estado === 'pendiente' || estado === 'pagado parcial';
   });
 
-  // 🔑 NUEVO: totales de facturas pendientes para los cuadros de arriba
   const totalFacturasAPagar = facturasAPagar.reduce((acc, f) => {
     return acc + (Number(f.total || f.Total || f.TOTAL || 0) || 0);
   }, 0);
@@ -941,6 +951,9 @@ export default function Tesoreria() {
     const anio = String(fecha).substring(0, 4);
     const tipo = String(m.tipo || m.Tipo).toLowerCase();
     const monto = Number(m.monto || m.Monto) || 0;
+
+    // 🔑 FIX: excluir tipo "anulada" del cash flow (informativo, monto $0)
+    if (tipo === 'anulada') return;
 
     if (tipo === 'ingreso' || tipo === 'contabilizada') {
       if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
@@ -1061,7 +1074,6 @@ export default function Tesoreria() {
         </div>
       </div>
 
-      {/* 🔑 Cuadros de Facturas Pendientes (Pagar / Cobrar / Neto) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-rose-200 shadow-sm flex items-center justify-between">
           <div>
@@ -1100,7 +1112,7 @@ export default function Tesoreria() {
 
         {activeTab === 'movimientos' && (
           <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
-            {/* 🔑 NUEVO: filtro por tipo (Ingreso / Egreso / Contabilizada) */}
+            {/* 🔑 FIX: filtro por tipo incluye "Anuladas" */}
             <select
               value={filtroTipoMovimiento}
               onChange={(e) => setFiltroTipoMovimiento(e.target.value)}
@@ -1110,6 +1122,7 @@ export default function Tesoreria() {
               <option value="Ingreso">Ingresos</option>
               <option value="Egreso">Egresos</option>
               <option value="contabilizada">Contabilizadas (NC/ND)</option>
+              <option value="anulada">Anuladas</option>
             </select>
 
             <select
@@ -1181,17 +1194,21 @@ export default function Tesoreria() {
                   const tipoInsumo = m.tipo_insumo || m.Tipo_insumo || '';
                   const contratoIdVal = m.contrato_id || m.Contrato_id || m.contratoid || '---';
                   const esContabilizada = tipo === 'contabilizada';
+                  const esAnulada = tipo === 'anulada';
 
                   return (
                     <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-4 text-slate-600 truncate">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
                       <td className="px-3 py-4">
+                        {/* 🔑 FIX: badge diferenciado para tipo "anulada" (gris oscuro) */}
                         <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${
-                          tipo === 'ingreso' || esContabilizada
+                          esAnulada
+                            ? 'bg-slate-300 text-slate-800'
+                            : tipo === 'ingreso' || esContabilizada
                             ? 'bg-emerald-100 text-emerald-800'
                             : 'bg-rose-100 text-rose-800'
                         }`}>
-                          {esContabilizada ? 'CONTABILIZADA' : tipo}
+                          {esAnulada ? 'ANULADA' : (esContabilizada ? 'CONTABILIZADA' : tipo)}
                         </span>
                       </td>
                       <td className="px-4 py-4 font-bold text-slate-900 break-words">{m.concepto || m.Concepto || '---'}</td>
@@ -1202,9 +1219,15 @@ export default function Tesoreria() {
                       </td>
                       <td className="px-3 py-4 uppercase text-slate-600 truncate">{m.medio_pago || m.Medio_pago || '---'}</td>
                       <td className={`px-4 py-4 text-right font-black whitespace-nowrap ${
-                        monto < 0 ? 'text-rose-600' : (tipo === 'ingreso' || esContabilizada) ? 'text-emerald-600' : 'text-slate-900'
+                        esAnulada
+                          ? 'text-slate-400 italic'
+                          : monto < 0
+                          ? 'text-rose-600'
+                          : (tipo === 'ingreso' || esContabilizada)
+                          ? 'text-emerald-600'
+                          : 'text-slate-900'
                       }`}>
-                        $ {monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        {esAnulada ? '—' : `$ ${monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                       </td>
                       <td className="px-3 py-4 text-right space-x-1">
                         <button onClick={() => handleEditarMovimiento(m)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
