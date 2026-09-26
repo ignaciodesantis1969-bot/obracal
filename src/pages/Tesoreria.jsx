@@ -24,6 +24,48 @@ const tipoMovimientoDesdeComprobante = (tipoComprobante) => {
   return 'Ingreso';
 };
 
+// 🔑 NUEVO: normaliza texto para comparar nombres de clientes/proveedores
+// (saca acentos, puntos, comas, "S.A.", "S.A.U.", "SRL", etc.)
+const normalizarNombre = (str) => {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(s\.?a\.?u?\.?|s\.?r\.?l\.?|sociedad anonima|sociedad de responsabilidad limitada)\b/gi, '')
+    .replace(/[.,;:()\-_/\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+// 🔑 NUEVO: mapea el string que devuelve Gemini a los valores canónicos del <select>
+const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR) => {
+  const t = String(tipoComprobanteOCR || '').toLowerCase();
+  const tf = String(tipoFacturaOCR || '').toLowerCase();
+
+  if (t.includes('nota de credito') || t.includes('nota de crédito') || t === 'nc') {
+    if (tf.includes('fce') || tf.includes('mipyme') || tf.includes('mipymes')) {
+      return tf.includes(' b') ? 'NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B' : 'NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
+    }
+    if (tf.includes(' b') || tf.endsWith('b')) return 'NOTA DE CREDITO B';
+    return 'NOTA DE CREDITO A';
+  }
+  if (t.includes('nota de debito') || t.includes('nota de débito') || t === 'nd') {
+    if (tf.includes('fce') || tf.includes('mipyme') || tf.includes('mipymes')) {
+      return tf.includes(' b') ? 'NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B' : 'NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A';
+    }
+    if (tf.includes(' b') || tf.endsWith('b')) return 'NOTA DE DEBITO B';
+    return 'NOTA DE DEBITO A';
+  }
+  if (t.includes('recibo')) {
+    return tf.includes(' b') ? 'RECIBO B' : 'RECIBO A';
+  }
+  // Factura (default)
+  if (tf.includes('fce') || tf.includes('mipyme') || tf.includes('mipymes')) {
+    return tf.includes(' b') ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B' : 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
+  }
+  if (tf.includes(' b') || tf.endsWith('b')) return 'FACTURA B';
+  return 'FACTURA A';
+};
+
 export default function Tesoreria() {
   // 🔑 NUEVO: leemos las 9 colecciones necesarias en paralelo
   const { data: movimientos } = useFirestoreCollection('tesoreria');
@@ -394,6 +436,7 @@ export default function Tesoreria() {
   };
 
   // ⚠️ OCR sigue usando Apps Script
+  // 🔑 FIX: ahora setea tipo_comprobante + match de cliente normalizado + aviso si no encuentra
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -435,14 +478,32 @@ export default function Tesoreria() {
           }
 
           if (data.success && !data.error) {
+            // 🔑 FIX: búsqueda de cliente más robusta (normaliza acentos, S.A., etc.)
             let clienteEncontradoId = '';
             const nombreClienteBusqueda = data.cliente || data.proveedor || '';
+
             if (nombreClienteBusqueda && clientes.length > 0) {
-              const cliMatch = clientes.find(c =>
-                (c.razon_social && c.razon_social.toLowerCase().includes(nombreClienteBusqueda.toLowerCase())) ||
-                (c.nombre && c.nombre.toLowerCase().includes(nombreClienteBusqueda.toLowerCase()))
+              const busquedaNorm = normalizarNombre(nombreClienteBusqueda);
+
+              // 1er intento: match exacto normalizado
+              let cliMatch = clientes.find(c =>
+                normalizarNombre(c.razon_social || c.nombre || '') === busquedaNorm
               );
-              if (cliMatch) clienteEncontradoId = cliMatch.id || cliMatch.ID || cliMatch.Id;
+
+              // 2do intento: uno contiene al otro (más flexible)
+              if (!cliMatch && busquedaNorm.length >= 3) {
+                cliMatch = clientes.find(c => {
+                  const cliNorm = normalizarNombre(c.razon_social || c.nombre || '');
+                  return cliNorm.includes(busquedaNorm) || busquedaNorm.includes(cliNorm);
+                });
+              }
+
+              if (cliMatch) {
+                clienteEncontradoId = cliMatch.id || cliMatch.ID || cliMatch.Id || '';
+                console.log('[OCR] Cliente matcheado:', cliMatch.razon_social || cliMatch.nombre);
+              } else {
+                console.warn('[OCR] No se pudo matchear el cliente. Gemini devolvió:', nombreClienteBusqueda);
+              }
             }
 
             const nCompDetectado = data.n_factura || data.numero_factura || data.nro_factura || data.numero_comp || '';
@@ -468,13 +529,23 @@ export default function Tesoreria() {
               descItem = data.concepto || data.descripcion;
             }
 
-            // 🔑 NUEVO: detectar si el OCR trae el comprobante que anula (para NC/ND)
             const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
+
+            // 🔑 FIX: mapear tipo_comprobante de Gemini al valor exacto del <select>
+            const tipoComprobanteMapeado = mapearTipoComprobante(
+              data.tipo_comprobante,
+              data.tipo_factura
+            );
+
+            console.log('[OCR] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
 
             setFormDataVenta(prev => ({
               ...prev,
+              // 🔑 FIX: ahora sí seteamos el tipo de comprobante
+              tipo_comprobante: tipoComprobanteMapeado,
               punto_venta: ptoVtaDetectado,
               numero_comp: nCompLimpio || prev.numero_comp,
+              // 🔑 FIX: cliente_id ahora viene del match normalizado
               cliente_id: clienteEncontradoId || prev.cliente_id,
               fecha_emision: formatearFechaParaInput(data.fecha || data.Fecha || data.FECHA) || prev.fecha_emision,
               fecha_vencimiento: formatearFechaParaInput(data.vencimiento || data.Vencimiento || data.VENCIMIENTO) || prev.fecha_vencimiento,
@@ -493,6 +564,16 @@ export default function Tesoreria() {
                 }
               ]
             }));
+
+            // 🔑 NUEVO: avisar al usuario si el OCR no pudo matchear el cliente
+            if (nombreClienteBusqueda && !clienteEncontradoId) {
+              setTimeout(() => {
+                alert(
+                  `⚠️ El OCR detectó el cliente "${nombreClienteBusqueda}" pero no se encontró en el sistema.\n\n` +
+                  `Seleccionalo manualmente en el formulario antes de guardar.`
+                );
+              }, 100);
+            }
 
             setIsFacturaVentaModalOpen(false);
             setPasoFacturaVenta('formulario');
@@ -1697,6 +1778,13 @@ export default function Tesoreria() {
                         <option value="RECIBO B">RECIBO B</option>
                       </optgroup>
                     </select>
+
+                    {/* 🔑 NUEVO: aviso si el tipo fue detectado por OCR */}
+                    {archivoBase64Venta && formDataVenta.tipo_comprobante && (
+                      <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Tipo detectado por IA: {formDataVenta.tipo_comprobante}
+                      </p>
+                    )}
 
                     {/* 🔑 NUEVO: aviso cuando es Nota de Crédito */}
                     {esNotaCredito(formDataVenta.tipo_comprobante) && (
