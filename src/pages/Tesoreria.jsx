@@ -1,6 +1,6 @@
 // src/pages/Tesoreria.jsx
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip } from 'lucide-react';
+import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip, Ban } from 'lucide-react';
 // 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
@@ -10,6 +10,18 @@ import { GOOGLE_SCRIPT_URL } from '@/api';
 // 🔑 NUEVO: detecta si un tipo de comprobante es Nota de Crédito (para signo negativo)
 const esNotaCredito = (tipoComprobante) => {
   return String(tipoComprobante || '').toUpperCase().includes('NOTA DE CREDITO');
+};
+
+// 🔑 NUEVO: detecta si un tipo de comprobante es Nota de Débito
+const esNotaDebito = (tipoComprobante) => {
+  return String(tipoComprobante || '').toUpperCase().includes('NOTA DE DEBITO');
+};
+
+// 🔑 NUEVO: determina el tipo de movimiento para tesorería según el comprobante
+const tipoMovimientoDesdeComprobante = (tipoComprobante) => {
+  if (esNotaCredito(tipoComprobante)) return 'contabilizada';
+  if (esNotaDebito(tipoComprobante)) return 'contabilizada';
+  return 'Ingreso';
 };
 
 export default function Tesoreria() {
@@ -81,7 +93,9 @@ export default function Tesoreria() {
     otros_tributos: 0,
     total: 0,
     archivo_url: '',
-    estado_pago: 'pendiente'
+    estado_pago: 'pendiente',
+    // 🔑 NUEVO: campo para Notas de Crédito/Débito (comprobante que anula)
+    comprobante_anula: ''
   });
 
   const presupuestosDisponibles = presupuestos.filter(p => {
@@ -104,7 +118,7 @@ export default function Tesoreria() {
       const listaRubrosJson = parsed.rubros || parsed.Rubros || [];
       const extraidos = listaRubrosJson.map(r => r.rubro || r.Rubro || r.nombre || r.Nombre).filter(Boolean);
       if (extraidos.length > 0) return extraidos;
-    } catch (e) { }
+    } catch (e) {}
 
     return [];
   };
@@ -182,15 +196,15 @@ export default function Tesoreria() {
         if (!Array.isArray(facturasAplicadasParsed) || facturasAplicadasParsed.length === 0) {
           facturasAplicadasParsed = [{ id: Date.now(), factura_id: '', monto: 0 }];
         }
-      } catch (e) { }
+      } catch (e) {}
     }
 
     const brutoOriginal = Number(m.monto || m.Monto || 0) +
-      Number(m.retencion_suss || m.Retencion_suss || 0) +
-      Number(m.retencion_iva || m.Retencion_iva || 0) +
-      Number(m.retencion_ganancias || m.Retencion_ganancias || 0) +
-      Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0) +
-      Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0);
+                          Number(m.retencion_suss || m.Retencion_suss || 0) +
+                          Number(m.retencion_iva || m.Retencion_iva || 0) +
+                          Number(m.retencion_ganancias || m.Retencion_ganancias || 0) +
+                          Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0) +
+                          Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0);
 
     setFormData({
       tipo: m.tipo || m.Tipo || 'Egreso',
@@ -319,10 +333,10 @@ export default function Tesoreria() {
   };
 
   const totalRetenciones = Number(formData.retencion_suss || 0) +
-    Number(formData.retencion_iva || 0) +
-    Number(formData.retencion_ganancias || 0) +
-    Number(formData.retencion_iibb_pba || 0) +
-    Number(formData.retencion_iibb_caba || 0);
+                         Number(formData.retencion_iva || 0) +
+                         Number(formData.retencion_ganancias || 0) +
+                         Number(formData.retencion_iibb_pba || 0) +
+                         Number(formData.retencion_iibb_caba || 0);
 
   const montoBrutoFacturas = Number(formData.monto || 0);
   const montoNetoEfectivo = Math.max(0, montoBrutoFacturas - totalRetenciones);
@@ -454,6 +468,9 @@ export default function Tesoreria() {
               descItem = data.concepto || data.descripcion;
             }
 
+            // 🔑 NUEVO: detectar si el OCR trae el comprobante que anula (para NC/ND)
+            const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
+
             setFormDataVenta(prev => ({
               ...prev,
               punto_venta: ptoVtaDetectado,
@@ -465,6 +482,7 @@ export default function Tesoreria() {
               iva_21: ivaVal || prev.iva_21,
               total: totalVal || prev.total,
               archivo_url: base64Data,
+              comprobante_anula: comprobanteAnulaDetectado || prev.comprobante_anula,
               items: [
                 {
                   id: Date.now(),
@@ -565,6 +583,7 @@ export default function Tesoreria() {
 
   // 🔑 FIX: guardar factura de venta directo a Firestore (con subida a Drive si hay base64)
   // 🔑 NUEVO: si es Nota de Crédito, guarda neto/iva/total en NEGATIVO automáticamente
+  // 🔑 NUEVO: si es NC, busca la factura original, la marca como 'anulada' y crea un movimiento
   const handleGuardarFacturaVenta = async (e) => {
     e.preventDefault();
     if (isSavingVenta) return;
@@ -579,6 +598,7 @@ export default function Tesoreria() {
 
       // 🔑 NUEVO: detectar si es Nota de Crédito para aplicar signo negativo
       const esNC = esNotaCredito(formDataVenta.tipo_comprobante);
+      const esND = esNotaDebito(formDataVenta.tipo_comprobante);
       const signo = esNC ? -1 : 1;
 
       const netoFinal = Number(formDataVenta.neto_gravado || 0) * signo;
@@ -595,21 +615,114 @@ export default function Tesoreria() {
         otros_tributos: otrosTributosFinal,
         total: totalFinal,
         archivo_url: archivoUrlFinal,
-        estado_pago: 'pendiente',
+        estado_pago: esNC ? 'anulada' : 'pendiente', // 🔑 la NC no es algo a cobrar
         es_nota_credito: esNC,
+        es_nota_debito: esND,
         items: JSON.stringify(formDataVenta.items)
       };
 
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVenta;
 
-      await crearDoc('facturas_ventas', datosLimpios);
+      // 🔑 Guardar la NC/Factura/ND primero
+      const nuevoDocId = await crearDoc('facturas_ventas', datosLimpios);
+
+      // 🔑 NUEVO: si es NC, buscar la factura que anula y marcarla como 'anulada'
+      if (esNC && formDataVenta.comprobante_anula) {
+        try {
+          const anulaLimpio = String(formDataVenta.comprobante_anula).trim();
+
+          // Parsear "00001-00000172" → punto_venta + numero_comp
+          let ptoVtaAnula = '';
+          let nCompAnula = '';
+          if (anulaLimpio.includes('-')) {
+            const partes = anulaLimpio.split('-');
+            ptoVtaAnula = partes[0].trim();
+            nCompAnula = partes[1].trim();
+          } else {
+            nCompAnula = anulaLimpio;
+          }
+
+          // Buscar la factura original (match exacto punto_venta + numero_comp, con fallback a solo numero_comp)
+          let facturaOriginal = facturasVenta.find(f => {
+            const fpv = String(f.punto_venta || '').trim();
+            const fnc = String(f.numero_comp || '').trim();
+            if (ptoVtaAnula && nCompAnula) {
+              return fpv === ptoVtaAnula && fnc === nCompAnula;
+            }
+            return fnc === nCompAnula;
+          });
+
+          if (!facturaOriginal && nCompAnula) {
+            // Fallback: buscar solo por numero_comp
+            facturaOriginal = facturasVenta.find(f =>
+              String(f.numero_comp || '').trim() === nCompAnula
+            );
+          }
+
+          if (facturaOriginal) {
+            const facturaOrigId = facturaOriginal.id || facturaOriginal.ID;
+            await actualizarDoc('facturas_ventas', facturaOrigId, {
+              estado_pago: 'anulada',
+              anulada_por_nc_id: nuevoDocId,
+              anulada_por_nc_numero: `${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`,
+              anulada_fecha: formDataVenta.fecha_emision
+            });
+            console.log(`Factura ${formDataVenta.comprobante_anula} marcada como anulada por NC ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`);
+          } else {
+            console.warn(`No se encontró la factura ${formDataVenta.comprobante_anula} para anular`);
+            alert(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} en el sistema. La Nota de Crédito se guardó pero la factura no se marcó como anulada.`);
+          }
+        } catch (errNC) {
+          console.error("Error al anular factura original:", errNC);
+        }
+      }
+
+      // 🔑 NUEVO: crear un movimiento automático para que la NC/ND aparezca en la lista de Movimientos
+      if (esNC || esND) {
+        try {
+          const tipoMov = 'contabilizada';
+          const conceptoMov = esNC
+            ? `Nota de Crédito ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`
+            : `Nota de Débito ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`;
+
+          const movimientoAuto = {
+            tipo: tipoMov,
+            fecha: formDataVenta.fecha_emision,
+            concepto: conceptoMov,
+            monto: totalFinal, // negativo para NC, positivo para ND
+            obra_id: '',
+            presupuesto_id: '',
+            contrato_id: '',
+            rubro_imputacion: '',
+            tipo_insumo: '',
+            medio_pago: '',
+            referencia: `Comprobante que anula: ${formDataVenta.comprobante_anula || '---'}`,
+            retencion_suss: 0,
+            retencion_iva: 0,
+            retencion_ganancias: 0,
+            retencion_iibb_pba: 0,
+            retencion_iibb_caba: 0,
+            facturas_aplicadas: JSON.stringify([]),
+            es_autogenerado: true,
+            factura_venta_id: nuevoDocId
+          };
+
+          await crearDoc('tesoreria', movimientoAuto);
+          console.log(`Movimiento autogenerado para ${conceptoMov}`);
+        } catch (errMov) {
+          console.error("Error al crear movimiento automático:", errMov);
+        }
+      }
 
       setIsFacturaVentaModalOpen(false);
       setArchivoBase64Venta('');
       setNombreArchivoVenta('');
-      alert(esNC
-        ? `Nota de Crédito registrada correctamente (total en negativo: $${totalFinal.toLocaleString('es-AR')})`
-        : "Factura de Venta registrada correctamente."
+      alert(
+        esNC
+          ? `Nota de Crédito registrada correctamente.\n- Total en negativo: $${Math.abs(totalFinal).toLocaleString('es-AR')}\n- Factura anulada: ${formDataVenta.comprobante_anula || 'no especificada'}\n- Movimiento generado en Tesorería`
+          : esND
+          ? `Nota de Débito registrada correctamente.\n- Total: $${totalFinal.toLocaleString('es-AR')}\n- Movimiento generado en Tesorería`
+          : "Factura de Venta registrada correctamente."
       );
     } catch (err) {
       console.error(err);
@@ -637,7 +750,10 @@ export default function Tesoreria() {
     .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
 
   const totalEgresos = movimientos
-    .filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso')
+    .filter(m => {
+      const t = String(m.tipo || m.Tipo).toLowerCase();
+      return t === 'egreso';
+    })
     .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
 
   const balance = totalIngresos - totalEgresos;
@@ -657,8 +773,10 @@ export default function Tesoreria() {
     return matchTexto && matchProveedor;
   });
 
+  // 🔑 FIX: excluir facturas anuladas por NC de la lista de Facturas a Pagar
   const facturasAPagar = facturas.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
+    if (estado === 'anulada') return false;
     const esPendiente = estado === 'pendiente' || estado === 'pagado parcial';
 
     const provId = String(f.proveedor_id || f.Proveedor_id || '');
@@ -667,8 +785,13 @@ export default function Tesoreria() {
     return esPendiente && matchProveedor;
   });
 
+  // 🔑 FIX: excluir facturas anuladas por NC de la lista de Facturas a Cobrar
   const facturasACobrar = facturasVenta.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
+    if (estado === 'anulada') return false;
+    // También excluir si es NC o ND (no son algo a cobrar)
+    if (f.es_nota_credito === true) return false;
+    if (f.es_nota_debito === true) return false;
     return estado === 'pendiente' || estado === 'pagado parcial';
   });
 
@@ -694,13 +817,18 @@ export default function Tesoreria() {
     const tipo = String(m.tipo || m.Tipo).toLowerCase();
     const monto = Number(m.monto || m.Monto) || 0;
 
-    if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
-    if (tipo === 'ingreso') cashFlowMensualMap[mesAnio].ingresos += monto;
-    if (tipo === 'egreso') cashFlowMensualMap[mesAnio].egresos += monto;
-
-    if (!cashFlowAnualMap[anio]) cashFlowAnualMap[anio] = { ingresos: 0, egresos: 0 };
-    if (tipo === 'ingreso') cashFlowAnualMap[anio].ingresos += monto;
-    if (tipo === 'egreso') cashFlowAnualMap[anio].egresos += monto;
+    // 🔑 Contabilizada suma a los ingresos (si el monto es positivo) o resta (si es negativo por NC)
+    if (tipo === 'ingreso' || tipo === 'contabilizada') {
+      if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
+      cashFlowMensualMap[mesAnio].ingresos += monto;
+      if (!cashFlowAnualMap[anio]) cashFlowAnualMap[anio] = { ingresos: 0, egresos: 0 };
+      cashFlowAnualMap[anio].ingresos += monto;
+    } else if (tipo === 'egreso') {
+      if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
+      cashFlowMensualMap[mesAnio].egresos += monto;
+      if (!cashFlowAnualMap[anio]) cashFlowAnualMap[anio] = { ingresos: 0, egresos: 0 };
+      cashFlowAnualMap[anio].egresos += monto;
+    }
   });
 
   const listaMensual = Object.keys(cashFlowMensualMap).sort().map(k => ({ periodo: k, ...cashFlowMensualMap[k] }));
@@ -750,7 +878,8 @@ export default function Tesoreria() {
               otros_tributos: 0,
               total: 0,
               archivo_url: '',
-              estado_pago: 'pendiente'
+              estado_pago: 'pendiente',
+              comprobante_anula: ''
             });
             setIsFacturaVentaModalOpen(true);
           }} className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
@@ -808,7 +937,7 @@ export default function Tesoreria() {
         </div>
       </div>
 
-      {/* 🔑 NUEVO: Cuadros de Facturas Pendientes (Pagar / Cobrar / Neto) */}
+      {/* 🔑 Cuadros de Facturas Pendientes (Pagar / Cobrar / Neto) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-rose-200 shadow-sm flex items-center justify-between">
           <div>
@@ -898,7 +1027,7 @@ export default function Tesoreria() {
               <thead>
                 <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                   <th className="w-24 px-3 py-4">Fecha</th>
-                  <th className="w-20 px-3 py-4">Tipo</th>
+                  <th className="w-28 px-3 py-4">Tipo</th>
                   <th className="w-auto px-4 py-4">Concepto</th>
                   <th className="w-32 px-3 py-4">Contrato ID</th>
                   <th className="w-40 px-3 py-4">Imputación / Rubro</th>
@@ -914,13 +1043,19 @@ export default function Tesoreria() {
                   const rubroImputacion = m.rubro_imputacion || m.Rubro_imputacion || '---';
                   const tipoInsumo = m.tipo_insumo || m.Tipo_insumo || '';
                   const contratoIdVal = m.contrato_id || m.Contrato_id || m.contratoid || '---';
+                  const esContabilizada = tipo === 'contabilizada';
 
                   return (
                     <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-4 text-slate-600 truncate">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
                       <td className="px-3 py-4">
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${tipo === 'ingreso' ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>
-                          {tipo}
+                        {/* 🔑 FIX: contabilizada con color verde (como ingreso) según lo pedido */}
+                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${
+                          tipo === 'ingreso' || esContabilizada
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-rose-100 text-rose-800'
+                        }`}>
+                          {esContabilizada ? 'CONTABILIZADA' : tipo}
                         </span>
                       </td>
                       <td className="px-4 py-4 font-bold text-slate-900 break-words">{m.concepto || m.Concepto || '---'}</td>
@@ -929,8 +1064,10 @@ export default function Tesoreria() {
                         <span className="font-semibold block truncate">{rubroImputacion}</span>
                         {tipoInsumo && <span className="text-[10px] text-slate-400 truncate block">{tipoInsumo}</span>}
                       </td>
-                      <td className="px-3 py-4 uppercase text-slate-600 truncate">{m.medio_pago || m.Medio_pago || 'transferencia'}</td>
-                      <td className={`px-4 py-4 text-right font-black whitespace-nowrap ${tipo === 'ingreso' ? 'text-emerald-600' : 'text-slate-900'}`}>
+                      <td className="px-3 py-4 uppercase text-slate-600 truncate">{m.medio_pago || m.Medio_pago || '---'}</td>
+                      <td className={`px-4 py-4 text-right font-black whitespace-nowrap ${
+                        monto < 0 ? 'text-rose-600' : (tipo === 'ingreso' || esContabilizada) ? 'text-emerald-600' : 'text-slate-900'
+                      }`}>
                         $ {monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="px-3 py-4 text-right space-x-1">
@@ -1196,25 +1333,25 @@ export default function Tesoreria() {
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">{editingId ? 'Editar Movimiento' : 'Nuevo Movimiento con Retenciones'}</h3>
-              <button onClick={() => setIsModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
 
             <form onSubmit={handleGuardarMovimiento} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo *</label>
-                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}>
+                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.tipo} onChange={(e) => setFormData({...formData, tipo: e.target.value})}>
                     <option value="Egreso">Egreso</option>
                     <option value="Ingreso">Ingreso</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha *</label>
-                  <input type="date" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.fecha} onChange={(e) => setFormData({ ...formData, fecha: e.target.value })} />
+                  <input type="date" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.fecha} onChange={(e) => setFormData({...formData, fecha: e.target.value})} />
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto *</label>
-                  <input type="text" required disabled={isSaving} placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.concepto} onChange={(e) => setFormData({ ...formData, concepto: e.target.value })} />
+                  <input type="text" required disabled={isSaving} placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
                 </div>
 
                 <div>
@@ -1223,7 +1360,7 @@ export default function Tesoreria() {
                     disabled={isSaving}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
                     value={formData.obra_id}
-                    onChange={(e) => setFormData({ ...formData, obra_id: e.target.value, presupuesto_id: '', rubro_imputacion: '' })}
+                    onChange={(e) => setFormData({...formData, obra_id: e.target.value, presupuesto_id: '', rubro_imputacion: ''})}
                   >
                     <option value="">Seleccione obra...</option>
                     {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.nombre || o.Nombre}</option>)}
@@ -1236,7 +1373,7 @@ export default function Tesoreria() {
                     disabled={isSaving || !formData.obra_id}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
                     value={formData.presupuesto_id}
-                    onChange={(e) => setFormData({ ...formData, presupuesto_id: e.target.value, rubro_imputacion: '' })}
+                    onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value, rubro_imputacion: ''})}
                   >
                     <option value="">{formData.obra_id ? 'Seleccione presupuesto...' : 'Primero seleccione obra...'}</option>
                     {presupuestosDisponibles.map(p => (
@@ -1253,7 +1390,7 @@ export default function Tesoreria() {
                     disabled={isSaving}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
                     value={formData.contrato_id}
-                    onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}
+                    onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}
                   >
                     <option value="">Seleccione contrato...</option>
                     {contratos.map(c => (
@@ -1270,7 +1407,7 @@ export default function Tesoreria() {
                     disabled={isSaving}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
                     value={formData.tipo_insumo}
-                    onChange={(e) => setFormData({ ...formData, tipo_insumo: e.target.value, rubro_imputacion: '' })}
+                    onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value, rubro_imputacion: ''})}
                   >
                     <option value="Materiales">Materiales</option>
                     <option value="Mano de Obra">Mano de Obra</option>
@@ -1287,7 +1424,7 @@ export default function Tesoreria() {
                       disabled={isSaving}
                       className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
                       value={formData.rubro_imputacion}
-                      onChange={(e) => setFormData({ ...formData, rubro_imputacion: e.target.value })}
+                      onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
                     >
                       <option value="">Seleccione gasto general...</option>
                       {gastosGeneralesConceptos.map((g, idx) => <option key={idx} value={g}>{g}</option>)}
@@ -1297,7 +1434,7 @@ export default function Tesoreria() {
                       disabled={isSaving || !formData.presupuesto_id}
                       className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
                       value={formData.rubro_imputacion}
-                      onChange={(e) => setFormData({ ...formData, rubro_imputacion: e.target.value })}
+                      onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
                     >
                       <option value="">{formData.presupuesto_id ? 'Seleccione rubro del presupuesto...' : 'Primero seleccione presupuesto...'}</option>
                       {rubrosDelPresupuesto.map((r, idx) => (
@@ -1309,11 +1446,11 @@ export default function Tesoreria() {
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto Bruto / Factura ($) *</label>
-                  <input type="number" step="0.01" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.monto} onChange={(e) => setFormData({ ...formData, monto: e.target.value })} />
+                  <input type="number" step="0.01" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Medio de Pago</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.medio_pago} onChange={(e) => setFormData({ ...formData, medio_pago: e.target.value })}>
+                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.medio_pago} onChange={(e) => setFormData({...formData, medio_pago: e.target.value})}>
                     <option value="transferencia">Transferencia</option>
                     <option value="efectivo">Efectivo</option>
                     <option value="cheque">Cheque</option>
@@ -1322,7 +1459,7 @@ export default function Tesoreria() {
                 </div>
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Referencia</label>
-                  <input type="text" disabled={isSaving} placeholder="N° cheque, transferencia..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.referencia} onChange={(e) => setFormData({ ...formData, referencia: e.target.value })} />
+                  <input type="text" disabled={isSaving} placeholder="N° cheque, transferencia..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.referencia} onChange={(e) => setFormData({...formData, referencia: e.target.value})} />
                 </div>
               </div>
 
@@ -1331,23 +1468,23 @@ export default function Tesoreria() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">SUSS ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_suss} onChange={(e) => setFormData({ ...formData, retencion_suss: e.target.value })} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_suss} onChange={(e) => setFormData({...formData, retencion_suss: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">IVA ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iva} onChange={(e) => setFormData({ ...formData, retencion_iva: e.target.value })} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iva} onChange={(e) => setFormData({...formData, retencion_iva: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">Ganancias ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_ganancias} onChange={(e) => setFormData({ ...formData, retencion_ganancias: e.target.value })} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_ganancias} onChange={(e) => setFormData({...formData, retencion_ganancias: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">IIBB PBA ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iibb_pba} onChange={(e) => setFormData({ ...formData, retencion_iibb_pba: e.target.value })} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iibb_pba} onChange={(e) => setFormData({...formData, retencion_iibb_pba: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-[11px] font-bold text-slate-600 mb-1">IIBB CABA ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iibb_caba} onChange={(e) => setFormData({ ...formData, retencion_iibb_caba: e.target.value })} />
+                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iibb_caba} onChange={(e) => setFormData({...formData, retencion_iibb_caba: e.target.value})} />
                   </div>
                   <div className="bg-amber-50 p-2 rounded-xl border border-amber-200 flex flex-col justify-center">
                     <span className="text-[10px] font-bold text-amber-800 uppercase">Neto Cash Flow:</span>
@@ -1390,25 +1527,29 @@ export default function Tesoreria() {
                             >
                               <option value="">Seleccionar factura...</option>
                               {String(formData.tipo).toLowerCase() === 'ingreso' ? (
-                                facturasVenta.map(f => {
-                                  const cli = clientes.find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
-                                  const facturaIdReal = f.id || f.ID;
-                                  return (
-                                    <option key={facturaIdReal} value={facturaIdReal}>
-                                      {f.tipo_comprobante || 'FAC'} ({f.numero_comp || ''}) - {cli?.razon_social || cli?.nombre || 'Cliente'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
-                                    </option>
-                                  );
-                                })
+                                facturasVenta
+                                  .filter(f => String(f.estado_pago || '').toLowerCase() !== 'anulada' && f.es_nota_credito !== true && f.es_nota_debito !== true)
+                                  .map(f => {
+                                    const cli = clientes.find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
+                                    const facturaIdReal = f.id || f.ID;
+                                    return (
+                                      <option key={facturaIdReal} value={facturaIdReal}>
+                                        {f.tipo_comprobante || 'FAC'} ({f.numero_comp || ''}) - {cli?.razon_social || cli?.nombre || 'Cliente'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
+                                      </option>
+                                    );
+                                  })
                               ) : (
-                                facturas.map(f => {
-                                  const prov = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
-                                  const facturaCompraIdReal = f.id || f.ID;
-                                  return (
-                                    <option key={facturaCompraIdReal} value={facturaCompraIdReal}>
-                                      {f.codigo || 'FAC'} - {prov?.razon_social || prov?.nombre || 'Proveedor'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
-                                    </option>
-                                  );
-                                })
+                                facturas
+                                  .filter(f => String(f.estado_pago || '').toLowerCase() !== 'anulada')
+                                  .map(f => {
+                                    const prov = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
+                                    const facturaCompraIdReal = f.id || f.ID;
+                                    return (
+                                      <option key={facturaCompraIdReal} value={facturaCompraIdReal}>
+                                        {f.codigo || 'FAC'} - {prov?.razon_social || prov?.nombre || 'Proveedor'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
+                                      </option>
+                                    );
+                                  })
                               )}
                             </select>
                           </td>
@@ -1443,13 +1584,14 @@ export default function Tesoreria() {
           </div>
         </div>
       )}
+
       {/* MODAL NUEVA FACTURA DE VENTA */}
       {isFacturaVentaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-sky-50">
               <h3 className="font-bold text-sky-950">+ Nueva Factura de Venta</h3>
-              <button onClick={() => setIsFacturaVentaModalOpen(false)} disabled={isSavingVenta} className="text-sky-400 hover:text-sky-700 disabled:opacity-50"><X className="w-5 h-5" /></button>
+              <button onClick={() => setIsFacturaVentaModalOpen(false)} disabled={isSavingVenta} className="text-sky-400 hover:text-sky-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
 
             {pasoFacturaVenta === 'subir' ? (
@@ -1561,22 +1703,43 @@ export default function Tesoreria() {
                       <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                         <FileText className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
                         <p className="text-[10px] font-bold text-amber-900">
-                          Este comprobante es una Nota de Crédito. Al guardar, los importes se registrarán en NEGATIVO automáticamente.
+                          Este comprobante es una Nota de Crédito. Al guardar, los importes se registrarán en NEGATIVO automáticamente y la factura que anula quedará marcada como ANULADA.
+                        </p>
+                      </div>
+                    )}
+
+                    {/* 🔑 NUEVO: campo comprobante que anula (solo para NC) */}
+                    {esNotaCredito(formDataVenta.tipo_comprobante) && (
+                      <div className="mt-2">
+                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                          Comprobante que Anula (Punto Venta-Número) *
+                        </label>
+                        <input
+                          type="text"
+                          required={esNotaCredito(formDataVenta.tipo_comprobante)}
+                          disabled={isSavingVenta}
+                          placeholder="Ej: 00001-00000172"
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100"
+                          value={formDataVenta.comprobante_anula}
+                          onChange={(e) => setFormDataVenta({ ...formDataVenta, comprobante_anula: e.target.value })}
+                        />
+                        <p className="text-[10px] text-slate-500 mt-1">
+                          Ingresá el punto de venta y número de la factura que esta Nota de Crédito anula. Formato: <strong>00001-00000172</strong>
                         </p>
                       </div>
                     )}
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Punto de Venta</label>
-                    <input type="text" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.punto_venta} onChange={(e) => setFormDataVenta({ ...formDataVenta, punto_venta: e.target.value })} />
+                    <input type="text" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.punto_venta} onChange={(e) => setFormDataVenta({...formDataVenta, punto_venta: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Comp. Nro *</label>
-                    <input type="text" required disabled={isSavingVenta} placeholder="Ej: 00000171" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.numero_comp} onChange={(e) => setFormDataVenta({ ...formDataVenta, numero_comp: e.target.value })} />
+                    <input type="text" required disabled={isSavingVenta} placeholder="Ej: 00000171" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.numero_comp} onChange={(e) => setFormDataVenta({...formDataVenta, numero_comp: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cliente *</label>
-                    <select required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({ ...formDataVenta, cliente_id: e.target.value })}>
+                    <select required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({...formDataVenta, cliente_id: e.target.value})}>
                       <option value="">Seleccione cliente...</option>
                       {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
                     </select>
@@ -1586,11 +1749,11 @@ export default function Tesoreria() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
-                    <input type="date" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.fecha_emision} onChange={(e) => setFormDataVenta({ ...formDataVenta, fecha_emision: e.target.value })} />
+                    <input type="date" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.fecha_emision} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_emision: e.target.value})} />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Vto. Pago</label>
-                    <input type="date" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({ ...formDataVenta, fecha_vencimiento: e.target.value })} />
+                    <input type="date" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_vencimiento: e.target.value})} />
                   </div>
                 </div>
 
@@ -1668,12 +1831,12 @@ export default function Tesoreria() {
                     <input type="number" step="0.01" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.iva_21} onChange={(e) => {
                       const iva = Number(e.target.value) || 0;
                       const total = Number(formDataVenta.neto_gravado) + iva + Number(formDataVenta.otros_tributos);
-                      setFormDataVenta({ ...formDataVenta, iva_21: iva, total: total });
+                      setFormDataVenta({...formDataVenta, iva_21: iva, total: total});
                     }} />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Total ($)</label>
-                    <input type="number" step="0.01" required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.total} onChange={(e) => setFormDataVenta({ ...formDataVenta, total: e.target.value })} />
+                    <input type="number" step="0.01" required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
                   </div>
                 </div>
 
