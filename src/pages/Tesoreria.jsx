@@ -41,15 +41,49 @@ const normalizarNumComp = (s) => {
   return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
 };
 
+// 🔑 NUEVO: infiere el origen de un movimiento (venta/compra) a partir de su concepto
+// para movimientos viejos que no tienen el campo `origen` guardado explícitamente
+const inferirOrigenMovimiento = (m) => {
+  if (m.origen) return m.origen;
+
+  const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
+  const tipo = String(m.tipo || m.Tipo || '').toLowerCase();
+
+  // Pago a proveedor → compra
+  if (concepto.startsWith('pago factura')) return 'compra';
+
+  // Cobro de cliente → venta
+  if (concepto.startsWith('cobro')) return 'venta';
+
+  // Nota de Crédito/Débito → distinguir por formato del comprobante
+  if (concepto.includes('nota de crédito') || concepto.includes('nota de credito') ||
+      concepto.includes('nota de débito') || concepto.includes('nota de debito')) {
+    // Extraer PV-NRO del concepto (ej "Nota de Crédito 00001-00000012" o "Nota de Crédito 0012-00008916")
+    const match = concepto.match(/(\d{3,5})-(\d{4,8})/);
+    if (match) {
+      const pv = match[1];
+      if (pv.length === 5) return 'venta';
+      if (pv.length === 4) return 'compra';
+    }
+    if (tipo.includes('anulad')) return 'venta';
+    const rubroImp = String(m.rubro_imputacion || '').trim();
+    if (rubroImp && rubroImp !== '---') return 'compra';
+    return 'venta';
+  }
+
+  // Anulación explícita → venta
+  if (tipo === 'anulada') return 'venta';
+
+  return '';
+};
+
 // 🔑 FIX: mapea el string que devuelve Gemini al valor canónico del <select>
 // 🔑 FIX: detecta electrónica por prefijo del nombre del archivo (NCE_, NDE_, FCE_)
-//          NOTA: \b no funciona con "_" porque _ es word char en regex. Usamos includes.
 const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
   const t = String(tipoComprobanteOCR || '').toLowerCase();
   const tf = String(tipoFacturaOCR || '').toLowerCase();
   const nf = String(nombreArchivo || '').toUpperCase();
 
-  // 🔑 FIX: detección por includes (más robusto que regex con \b)
   const esElectronica =
     nf.includes('NCE') || nf.includes('NDE') || nf.includes('FCE') ||
     nf.includes('NCA') || nf.includes('NDA') || nf.includes('FCA') ||
@@ -81,7 +115,6 @@ const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo
     return esTipoB ? 'RECIBO B' : 'RECIBO A';
   }
 
-  // Factura (default)
   if (esElectronica) {
     return esTipoB
       ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B'
@@ -108,6 +141,8 @@ export default function Tesoreria() {
   const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
   // 🔑 NUEVO: filtro por tipo de movimiento (Ingreso / Egreso / Contabilizada / Anulada)
   const [filtroTipoMovimiento, setFiltroTipoMovimiento] = useState('');
+  // 🔑 NUEVO: filtro por origen (venta / compra)
+  const [filtroOrigen, setFiltroOrigen] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -458,7 +493,6 @@ export default function Tesoreria() {
     }));
   };
 
-  // ⚠️ OCR sigue usando Apps Script
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -677,7 +711,6 @@ export default function Tesoreria() {
     }
   };
 
-  // 🔑 FIX: guardar factura de venta + movimiento de anulación si es NC
   const handleGuardarFacturaVenta = async (e) => {
     e.preventDefault();
     if (isSavingVenta) return;
@@ -769,7 +802,7 @@ export default function Tesoreria() {
             });
             console.log(`✅ Factura ${formDataVenta.comprobante_anula} marcada como anulada por NC ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`);
 
-            // 🔑 NUEVO: crear movimiento informativo de la anulación (monto $0, tipo "anulada")
+            // 🔑 Movimiento informativo de la anulación (monto $0, tipo "anulada")
             try {
               const tipoFacturaAnulada = facturaOriginal.tipo_comprobante || 'Factura';
               const pvFacturaAnulada = String(facturaOriginal.punto_venta || ptoVtaAnula || '').padStart(5, '0');
@@ -777,6 +810,7 @@ export default function Tesoreria() {
 
               const movimientoAnulacion = {
                 tipo: 'anulada',
+                origen: 'venta',       // 🔑 NUEVO
                 fecha: formDataVenta.fecha_emision,
                 concepto: `ANULACIÓN ${tipoFacturaAnulada} ${pvFacturaAnulada}-${nroFacturaAnulada}`,
                 monto: 0,
@@ -823,6 +857,7 @@ export default function Tesoreria() {
 
           const movimientoAuto = {
             tipo: tipoMov,
+            origen: 'venta',       // 🔑 NUEVO
             fecha: formDataVenta.fecha_emision,
             concepto: conceptoMov,
             monto: totalFinal,
@@ -890,7 +925,7 @@ export default function Tesoreria() {
 
   const balance = totalIngresos - totalEgresos;
 
-  // 🔑 FIX: filtro por proveedor + texto + tipo de movimiento (incluye "anulada")
+  // 🔑 FIX: filtro por proveedor + texto + tipo + origen (con inferencia)
   const movimientosFiltrados = movimientos.filter(m => {
     const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
     const ref = String(m.referencia || m.Referencia || '').toLowerCase();
@@ -905,11 +940,19 @@ export default function Tesoreria() {
 
     let matchTipo = true;
     if (filtroTipoMovimiento) {
-      const tipoMov = String(m.tipo || m.Tipo || '').toLowerCase();
-      matchTipo = tipoMov === filtroTipoMovimiento.toLowerCase();
+      // 🔑 Normalizar contabilizado → contabilizada
+      const tipoMov = String(m.tipo || m.Tipo || '').toLowerCase().replace(/o$/, 'a');
+      matchTipo = tipoMov === filtroTipoMovimiento.toLowerCase().replace(/o$/, 'a');
     }
 
-    return matchTexto && matchProveedor && matchTipo;
+    // 🔑 NUEVO: filtro por origen (con inferencia para movimientos viejos)
+    let matchOrigen = true;
+    if (filtroOrigen) {
+      const origenMov = inferirOrigenMovimiento(m);
+      matchOrigen = origenMov === filtroOrigen;
+    }
+
+    return matchTexto && matchProveedor && matchTipo && matchOrigen;
   });
 
   const facturasAPagar = facturas.filter(f => {
@@ -949,10 +992,10 @@ export default function Tesoreria() {
     if (!fecha) return;
     const mesAnio = String(fecha).substring(0, 7);
     const anio = String(fecha).substring(0, 4);
-    const tipo = String(m.tipo || m.Tipo).toLowerCase();
+    const tipo = String(m.tipo || m.Tipo).toLowerCase().replace(/o$/, 'a');
     const monto = Number(m.monto || m.Monto) || 0;
 
-    // 🔑 FIX: excluir tipo "anulada" del cash flow (informativo, monto $0)
+    // 🔑 Excluir tipo "anulada" del cash flow (informativo, monto $0)
     if (tipo === 'anulada') return;
 
     if (tipo === 'ingreso' || tipo === 'contabilizada') {
@@ -1112,7 +1155,7 @@ export default function Tesoreria() {
 
         {activeTab === 'movimientos' && (
           <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
-            {/* 🔑 FIX: filtro por tipo incluye "Anuladas" */}
+            {/* 🔑 Filtro por tipo */}
             <select
               value={filtroTipoMovimiento}
               onChange={(e) => setFiltroTipoMovimiento(e.target.value)}
@@ -1123,6 +1166,17 @@ export default function Tesoreria() {
               <option value="Egreso">Egresos</option>
               <option value="contabilizada">Contabilizadas (NC/ND)</option>
               <option value="anulada">Anuladas</option>
+            </select>
+
+            {/* 🔑 NUEVO: filtro por origen (ventas vs compras) */}
+            <select
+              value={filtroOrigen}
+              onChange={(e) => setFiltroOrigen(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500"
+            >
+              <option value="">Todos los Orígenes</option>
+              <option value="venta">Ventas (clientes)</option>
+              <option value="compra">Compras (proveedores)</option>
             </select>
 
             <select
@@ -1188,27 +1242,38 @@ export default function Tesoreria() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {movimientosFiltrados.map((m, index) => {
-                  const tipo = String(m.tipo || m.Tipo || 'Egreso').toLowerCase();
+                  const tipo = String(m.tipo || m.Tipo || 'Egreso').toLowerCase().replace(/o$/, 'a');
                   const monto = Number(m.monto || m.Monto) || 0;
                   const rubroImputacion = m.rubro_imputacion || m.Rubro_imputacion || '---';
                   const tipoInsumo = m.tipo_insumo || m.Tipo_insumo || '';
                   const contratoIdVal = m.contrato_id || m.Contrato_id || m.contratoid || '---';
                   const esContabilizada = tipo === 'contabilizada';
                   const esAnulada = tipo === 'anulada';
+                  const origenMov = inferirOrigenMovimiento(m);
+
+                  // 🔑 badge por tipo + origen
+                  let clasesBadge = 'bg-rose-100 text-rose-800';
+                  let labelBadge = tipo;
+                  if (esAnulada) {
+                    clasesBadge = 'bg-slate-300 text-slate-800';
+                    labelBadge = 'ANULADA';
+                  } else if (esContabilizada) {
+                    if (origenMov === 'compra') {
+                      clasesBadge = 'bg-amber-100 text-amber-800';
+                    } else {
+                      clasesBadge = 'bg-emerald-100 text-emerald-800';
+                    }
+                    labelBadge = 'CONTABILIZADA';
+                  } else if (tipo === 'ingreso') {
+                    clasesBadge = 'bg-emerald-100 text-emerald-800';
+                  }
 
                   return (
                     <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-4 text-slate-600 truncate">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
                       <td className="px-3 py-4">
-                        {/* 🔑 FIX: badge diferenciado para tipo "anulada" (gris oscuro) */}
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${
-                          esAnulada
-                            ? 'bg-slate-300 text-slate-800'
-                            : tipo === 'ingreso' || esContabilizada
-                            ? 'bg-emerald-100 text-emerald-800'
-                            : 'bg-rose-100 text-rose-800'
-                        }`}>
-                          {esAnulada ? 'ANULADA' : (esContabilizada ? 'CONTABILIZADA' : tipo)}
+                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${clasesBadge}`}>
+                          {labelBadge}
                         </span>
                       </td>
                       <td className="px-4 py-4 font-bold text-slate-900 break-words">{m.concepto || m.Concepto || '---'}</td>
@@ -1486,7 +1551,6 @@ export default function Tesoreria() {
         </div>
       )}
 
-      {/* MODAL NUEVO / EDITAR MOVIMIENTO */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-8">
@@ -1699,7 +1763,7 @@ export default function Tesoreria() {
                                   })
                               ) : (
                                 facturas
-                                  .filter(f => String(f.estado_pago || '').toLowerCase() !== 'anulada')
+                                  .filter(f => String(f.estado_pago || '').toLowerCase() !== 'anulada' && f.es_nota_credito !== true)
                                   .map(f => {
                                     const prov = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
                                     const facturaCompraIdReal = f.id || f.ID;
@@ -1744,7 +1808,6 @@ export default function Tesoreria() {
         </div>
       )}
 
-      {/* MODAL NUEVA FACTURA DE VENTA */}
       {isFacturaVentaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">

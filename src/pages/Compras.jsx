@@ -7,6 +7,61 @@ import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 // 🔑 FIX: Apps Script se usa SOLO para el OCR y para subir archivos a Drive
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
+// 🔑 NUEVO: normaliza texto para comparar nombres de proveedores (sin acentos, sin SA/SRL)
+const normalizarNombre = (str) => {
+  return String(str || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\b(s\.?a\.?u?\.?|s\.?r\.?l\.?|sociedad anonima|sociedad de responsabilidad limitada)\b/gi, '')
+    .replace(/[.,;:()\-_/\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+};
+
+// 🔑 NUEVO: normaliza un número de comprobante quitando ceros a la izquierda
+const normalizarNumComp = (s) => {
+  return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
+};
+
+// 🔑 NUEVO: mapea tipo de comprobante del OCR a valores canónicos del <select>
+const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
+  const t = String(tipoComprobanteOCR || '').toLowerCase();
+  const tf = String(tipoFacturaOCR || '').toLowerCase();
+  const nf = String(nombreArchivo || '').toUpperCase();
+
+  const esElectronica =
+    nf.includes('NCE') || nf.includes('NDE') || nf.includes('FCE') ||
+    nf.includes('NCA') || nf.includes('NDA') || nf.includes('FCA') ||
+    nf.includes('NCB') || nf.includes('NDB') || nf.includes('FCB') ||
+    nf.includes('ELECTRONICA') || nf.includes('MIPYME') ||
+    tf.includes('electronica') || tf.includes('fce') || tf.includes('mipyme');
+
+  const esTipoB = tf.includes(' b') || tf.endsWith('b') || /\bB\b/.test(nf);
+
+  if (t.includes('nota de credito') || t.includes('nota de crédito') || t === 'nc') {
+    if (esElectronica) {
+      return esTipoB ? 'Nota de Crédito Electrónica MiPyMEs (FCE) B' : 'Nota de Crédito Electrónica MiPyMEs (FCE) A';
+    }
+    return esTipoB ? 'Nota de Crédito B' : 'Nota de Crédito A';
+  }
+  if (t.includes('nota de debito') || t.includes('nota de débito') || t === 'nd') {
+    if (esElectronica) {
+      return esTipoB ? 'Nota de Débito Electrónica MiPyMEs (FCE) B' : 'Nota de Débito Electrónica MiPyMEs (FCE) A';
+    }
+    return esTipoB ? 'Nota de Débito B' : 'Nota de Débito A';
+  }
+  if (t.includes('ticket')) return 'Ticket';
+  if (t.includes('factura')) {
+    if (tf.includes(' c') || tf.endsWith('c')) return 'Factura C';
+    if (tf.includes(' b') || tf.endsWith('b')) return 'Factura B';
+    if (esElectronica) {
+      return esTipoB ? 'Factura de Crédito Electrónica MiPyMEs (FCE) B' : 'Factura de Crédito Electrónica MiPyMEs (FCE) A';
+    }
+    return 'Factura A';
+  }
+  return 'Factura A';
+};
+
 export default function Compras() {
   // 🔑 NUEVO: leemos las 7 colecciones necesarias en paralelo
   const { data: facturas } = useFirestoreCollection('facturas_compras');
@@ -55,7 +110,9 @@ export default function Compras() {
     persp_iibb_caba: 0,
     otros_impuestos: 0,
     total: 0,
-    archivo_url: ''
+    archivo_url: '',
+    // 🔑 NUEVO: campo para Notas de Crédito (comprobante que anula, opcional en compras)
+    comprobante_anula: ''
   });
 
   const [formDataOc, setFormDataOc] = useState({
@@ -247,7 +304,6 @@ export default function Compras() {
   };
 
   // 🔑 NUEVO: sube un base64 a Drive vía Apps Script y devuelve la URL pública.
-  // Devuelve string vacío si algo falla (no rompe el guardado).
   const subirArchivoADrive = async (base64, tabla) => {
     if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
     try {
@@ -272,6 +328,7 @@ export default function Compras() {
   };
 
   // ⚠️ OCR sigue usando Apps Script
+  // 🔑 FIX: ahora mapea tipo_comprobante correctamente + match de proveedor normalizado
   const handleArchivoSubido = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -280,10 +337,6 @@ export default function Compras() {
     const archivo = e.target.files[0];
     if (!archivo) return;
     setLocalLoading(true);
-
-    const nombreArchivo = archivo.name.toLowerCase();
-    const esNcArchivo = nombreArchivo.includes('nc') || nombreArchivo.includes('nota de credito') || nombreArchivo.includes('nota de crédito') || nombreArchivo.includes('credito');
-    const tipoNcSugerido = nombreArchivo.includes(' b') || nombreArchivo.includes('_b') || nombreArchivo.includes('-b') ? 'Nota de Crédito B' : 'Nota de Crédito A';
 
     try {
       const reader = new FileReader();
@@ -304,7 +357,6 @@ export default function Compras() {
           let data;
           try { data = JSON.parse(textoRespuesta); } catch (parseErr) { data = { success: false, error: "Respuesta no-JSON del servidor." }; }
 
-          // 🔑 FIX: si el OCR devolvió error, avisar al usuario y NO abrir el modal vacío
           if (!data || data.success === false) {
             const errMsg = (data && data.error) || "El OCR no pudo procesar el archivo.";
             alert("⚠️ Error al leer la factura:\n\n" + errMsg + "\n\nPodés cargar los datos manualmente.");
@@ -313,25 +365,65 @@ export default function Compras() {
             return;
           }
 
+          // 🔑 FIX: match de proveedor normalizado (sin acentos, sin SA/SRL)
           let proveedorEncontradoId = '';
-          if (data && data.proveedor && proveedores.length > 0) {
-            const provMatch = proveedores.find(p => {
+          const nombreProvBusqueda = data.proveedor || '';
+          if (nombreProvBusqueda && proveedores.length > 0) {
+            const busquedaNorm = normalizarNombre(nombreProvBusqueda);
+
+            let provMatch = proveedores.find(p => {
               const rSocial = buscarValorEnObjeto(p, ['razon_social', 'Razon_social', 'razonSocial']) || '';
               const nom = buscarValorEnObjeto(p, ['nombre', 'Nombre']) || '';
-              return rSocial.toLowerCase().includes(data.proveedor.toLowerCase()) || nom.toLowerCase().includes(data.proveedor.toLowerCase());
+              return normalizarNombre(rSocial) === busquedaNorm || normalizarNombre(nom) === busquedaNorm;
             });
-            if (provMatch) proveedorEncontradoId = buscarValorEnObjeto(provMatch, ['id', 'ID', 'Id']);
+
+            if (!provMatch && busquedaNorm.length >= 3) {
+              provMatch = proveedores.find(p => {
+                const rSocial = normalizarNombre(buscarValorEnObjeto(p, ['razon_social', 'Razon_social', 'razonSocial']) || '');
+                const nom = normalizarNombre(buscarValorEnObjeto(p, ['nombre', 'Nombre']) || '');
+                return rSocial.includes(busquedaNorm) || busquedaNorm.includes(rSocial) ||
+                       nom.includes(busquedaNorm) || busquedaNorm.includes(nom);
+              });
+            }
+
+            if (provMatch) {
+              proveedorEncontradoId = buscarValorEnObjeto(provMatch, ['id', 'ID', 'Id']);
+              console.log('[OCR-Compras] Proveedor matcheado:', buscarValorEnObjeto(provMatch, ['razon_social', 'nombre']));
+            } else {
+              console.warn('[OCR-Compras] No se pudo matchear el proveedor. Gemini devolvió:', nombreProvBusqueda);
+            }
           }
 
-          const tipoCompIA = data && (data.comprobante_tipo || data.tipo_comprobante || data.tipo);
-          const esNcIA = tipoCompIA && (tipoCompIA.toLowerCase().includes('nota de crédito') || tipoCompIA.toLowerCase().includes('nota de credito'));
-          const esNotaCreditoFinal = esNcArchivo || esNcIA;
-          let tipoComprobanteFinal = esNotaCreditoFinal ? tipoNcSugerido : (tipoCompIA || 'Factura A');
+          // 🔑 FIX: mapear tipo de comprobante del OCR al value canónico del <select>
+          const tipoComprobanteMapeado = mapearTipoComprobante(
+            data.tipo_comprobante,
+            data.tipo_factura,
+            archivo.name || ''
+          );
+          const esNotaCreditoFinal = String(tipoComprobanteMapeado).toLowerCase().includes('nota de crédito') ||
+                                     String(tipoComprobanteMapeado).toLowerCase().includes('nota de credito');
+
+          // 🔑 NUEVO: comprobante_anula detectado por OCR
+          const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
+
+          console.log('[OCR-Compras] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
+
+          // 🔑 NUEVO: extraer n_factura con parseo de punto de venta
+          const nCompDetectado = data.n_factura || data.numero_comp || data.numero_factura || '';
+          let ptoVtaDetectado = '';
+          let nCompLimpio = nCompDetectado;
+          if (nCompDetectado.includes('-')) {
+            const partes = nCompDetectado.split('-');
+            if (partes.length >= 2) {
+              ptoVtaDetectado = partes[0].trim();
+              nCompLimpio = partes[1].trim();
+            }
+          }
 
           setFormData(prev => ({
             ...prev,
-            comprobante_tipo: tipoComprobanteFinal,
-            n_factura: (data && (data.n_factura || data.numero_comp || data.numero_factura)) || prev.n_factura,
+            comprobante_tipo: tipoComprobanteMapeado,
+            n_factura: nCompLimpio || prev.n_factura,
             proveedor_id: proveedorEncontradoId || prev.proveedor_id,
             fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
             vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
@@ -343,12 +435,21 @@ export default function Compras() {
             persp_iibb_caba: Math.abs(Number(data && (data.persp_iibb_caba || data.percepcion_iibb_caba)) || prev.persp_iibb_caba),
             otros_impuestos: Math.abs(Number(data && data.otros_impuestos) || prev.otros_impuestos),
             total: Math.abs(Number(data && data.total) || prev.total),
-            archivo_url: base64Data // se sube a Drive recién al guardar
+            archivo_url: base64Data,
+            // 🔑 NUEVO: guardar comprobante_anula si vino del OCR
+            comprobante_anula: comprobanteAnulaDetectado || prev.comprobante_anula
           }));
+
+          // 🔑 NUEVO: avisar si el proveedor no matcheó
+          if (nombreProvBusqueda && !proveedorEncontradoId) {
+            setTimeout(() => {
+              alert(`⚠️ El OCR detectó el proveedor "${nombreProvBusqueda}" pero no se encontró en el sistema.\n\nSeleccionalo manualmente antes de guardar.`);
+            }, 100);
+          }
+
           setIsUploadModalOpen(false);
           setIsFacturaModalOpen(true);
         } catch (fetchErr) {
-          // 🔑 FIX: mostrar el error de red en vez de abrir el modal vacío silenciosamente
           console.error("Error en fetch OCR:", fetchErr);
           alert("⚠️ Error de conexión con el servidor OCR:\n\n" + (fetchErr.message || fetchErr.toString()) + "\n\nPodés cargar los datos manualmente.");
         } finally {
@@ -408,12 +509,14 @@ export default function Compras() {
       persp_iibb_caba: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_caba', 'Persp_iibb_caba', 'percepcion_iibb_caba']) || 0)),
       otros_impuestos: Math.abs(Number(buscarValorEnObjeto(f, ['otros_impuestos', 'Otros_impuestos']) || 0)),
       total: Math.abs(Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL']) || 0)),
-      archivo_url: buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || ''
+      archivo_url: buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || '',
+      // 🔑 NUEVO: cargar comprobante_anula si existe
+      comprobante_anula: buscarValorEnObjeto(f, ['comprobante_anula', 'Comprobante_anula']) || ''
     });
     setIsFacturaModalOpen(true);
   };
 
-  // 🔑 FIX: guardar factura directo a Firestore (con subida a Drive si hay base64)
+  // 🔑 FIX: guardar factura + si es NC crear movimiento en tesorería con origen 'compra'
   const handleGuardarFactura = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -421,7 +524,8 @@ export default function Compras() {
     try {
       const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
 
-      const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
+      const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
+                            String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
 
       const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
@@ -455,15 +559,58 @@ export default function Compras() {
         rubro_presupuesto: esPresupuestario || esContrato ? formData.rubro_imputacion : '',
         rubro: esPresupuestario || esContrato ? formData.rubro_imputacion : '',
         tipo_insumo: formData.tipo_insumo,
-        insumo: formData.tipo_insumo
+        insumo: formData.tipo_insumo,
+        // 🔑 NUEVO: flag para identificar NC
+        es_nota_credito: esNotaCredito,
+        // 🔑 NUEVO: guardar comprobante_anula (solo si es NC y hay valor)
+        comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : ''
       };
 
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
 
+      let nuevoDocId = editingId;
       if (editingId) {
         await actualizarDoc('facturas_compras', editingId, datosLimpios);
       } else {
-        await crearDoc('facturas_compras', datosLimpios);
+        nuevoDocId = await crearDoc('facturas_compras', datosLimpios);
+      }
+
+      // 🔑 NUEVO: si es NC → crear movimiento contable en tesorería con origen 'compra'
+      if (esNotaCredito && !editingId) {
+        try {
+          const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(formData.proveedor_id));
+          const nombreProv = provObj ? (buscarValorEnObjeto(provObj, ['razon_social', 'nombre']) || 'Proveedor') : 'Proveedor';
+
+          const conceptoMov = `Nota de Crédito ${formData.n_factura || 'S/N'} - ${nombreProv}`;
+
+          const movimientoAuto = {
+            tipo: 'contabilizada',
+            origen: 'compra',              // 🔑 NUEVO: para distinguir en el filtro de tesorería
+            fecha: formData.fecha,
+            concepto: conceptoMov,
+            monto: Math.abs(Number(formData.total) || 0) * -1,  // 🔑 NUEVO: monto NEGATIVO
+            obra_id: formData.obra_id || '',
+            presupuesto_id: formData.presupuesto_id || '',
+            contrato_id: formData.contrato_id || '',
+            rubro_imputacion: formData.rubro_imputacion || '',
+            tipo_insumo: formData.tipo_insumo || '',
+            medio_pago: '',
+            referencia: formData.comprobante_anula ? `Anula/ajusta: ${formData.comprobante_anula}` : 'NC parcial por devolución',
+            retencion_suss: 0,
+            retencion_iva: 0,
+            retencion_ganancias: 0,
+            retencion_iibb_pba: 0,
+            retencion_iibb_caba: 0,
+            facturas_aplicadas: JSON.stringify([]),
+            es_autogenerado: true,
+            factura_compra_id: nuevoDocId
+          };
+
+          await crearDoc('tesoreria', movimientoAuto);
+          console.log(`✅ Movimiento NC creado en tesorería (origen: compra): ${conceptoMov}`);
+        } catch (errMov) {
+          console.error("Error al crear movimiento automático:", errMov);
+        }
       }
 
       setIsFacturaModalOpen(false);
@@ -540,7 +687,6 @@ export default function Compras() {
     setIsOcModalOpen(true);
   };
 
-  // 🔑 FIX: guardar OC directo a Firestore (colección `ordenes_compra`)
   const handleGuardarOc = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -570,7 +716,6 @@ export default function Compras() {
     }
   };
 
-  // 🔑 FIX: eliminar OC directo a Firestore
   const handleEliminarOc = async (oc) => {
     const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
     if (!ocId || !window.confirm("¿Eliminar Orden de Compra?")) return;
@@ -622,7 +767,12 @@ export default function Compras() {
   }, [ordenesCompra, filtroProveedor, filtroFechaDesde, filtroFechaHasta, buscarValorEnObjeto]);
 
   const requiereObra = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
-  const requierePresupuesto = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';  return (
+  const requierePresupuesto = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
+
+  const esNotaCreditoForm = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
+                            String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
+
+  return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
@@ -672,7 +822,8 @@ export default function Compras() {
               persp_iibb_caba: 0,
               otros_impuestos: 0,
               total: 0,
-              archivo_url: ''
+              archivo_url: '',
+              comprobante_anula: ''
             });
             setIsUploadModalOpen(true);
           }} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer">
@@ -768,6 +919,9 @@ export default function Compras() {
                   const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo', 'archivourl']) || '';
                   const tipoGastoDisplay = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto', 'tipogasto']) || 'Presupuesto';
+                  const tipoCompDisplay = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
+                  const esNCRow = String(tipoCompDisplay).toLowerCase().includes('nota de crédito') ||
+                                  String(tipoCompDisplay).toLowerCase().includes('nota de credito');
 
                   const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro', 'rubroimputacion']);
                   const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon', 'tipoinsumo']);
@@ -777,14 +931,17 @@ export default function Compras() {
                   const rowKey = `${buscarValorEnObjeto(f, ['id', 'ID']) || codigoDisplay}-${numeroFacturaDisplay}-${index}`;
 
                   return (
-                    <tr key={rowKey} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
+                    <tr key={rowKey} className={`hover:bg-slate-50 transition-colors ${esNCRow ? 'bg-amber-50/40' : ''}`}>
+                      <td className="px-6 py-4 font-bold text-blue-600">
+                        {codigoDisplay}
+                        {esNCRow && <span className="ml-2 px-1.5 py-0.5 bg-amber-200 text-amber-900 text-[9px] font-bold rounded">NC</span>}
+                      </td>
                       <td className="px-4 py-4 font-semibold text-slate-800">{numeroFacturaDisplay}</td>
                       <td className="px-4 py-4"><span className="px-2 py-0.5 bg-amber-50 text-amber-800 font-bold rounded text-[10px]">{tipoGastoDisplay}</span></td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || prov?.Razon_social || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600 font-medium">{detalleDisplay}</td>
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaFactura)}</td>
-                      <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                      <td className={`px-4 py-4 text-right font-black ${totalVal < 0 ? 'text-rose-600' : 'text-slate-900'}`}>$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : estadoPago === 'contabilizado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{estadoPago}</span></td>
                       <td className="px-4 py-4 text-center">
                         {archivoLink && archivoLink !== 'Comprobante_Adjunto' ? (
@@ -1002,12 +1159,26 @@ export default function Compras() {
                       });
                     }}
                   >
-                    <option value="Factura A">Factura A</option>
-                    <option value="Factura B">Factura B</option>
-                    <option value="Factura C">Factura C</option>
-                    <option value="Nota de Crédito A">Nota de Crédito A</option>
-                    <option value="Nota de Crédito B">Nota de Crédito B</option>
-                    <option value="Ticket">Ticket</option>
+                    <optgroup label="── FACTURAS ──">
+                      <option value="Factura A">Factura A</option>
+                      <option value="Factura B">Factura B</option>
+                      <option value="Factura C">Factura C</option>
+                      <option value="Factura de Crédito Electrónica MiPyMEs (FCE) A">Factura de Crédito Electrónica MiPyMEs (FCE) A</option>
+                      <option value="Factura de Crédito Electrónica MiPyMEs (FCE) B">Factura de Crédito Electrónica MiPyMEs (FCE) B</option>
+                      <option value="Ticket">Ticket</option>
+                    </optgroup>
+                    <optgroup label="── NOTAS DE CRÉDITO ──">
+                      <option value="Nota de Crédito A">Nota de Crédito A</option>
+                      <option value="Nota de Crédito B">Nota de Crédito B</option>
+                      <option value="Nota de Crédito Electrónica MiPyMEs (FCE) A">Nota de Crédito Electrónica MiPyMEs (FCE) A</option>
+                      <option value="Nota de Crédito Electrónica MiPyMEs (FCE) B">Nota de Crédito Electrónica MiPyMEs (FCE) B</option>
+                    </optgroup>
+                    <optgroup label="── NOTAS DE DÉBITO ──">
+                      <option value="Nota de Débito A">Nota de Débito A</option>
+                      <option value="Nota de Débito B">Nota de Débito B</option>
+                      <option value="Nota de Débito Electrónica MiPyMEs (FCE) A">Nota de Débito Electrónica MiPyMEs (FCE) A</option>
+                      <option value="Nota de Débito Electrónica MiPyMEs (FCE) B">Nota de Débito Electrónica MiPyMEs (FCE) B</option>
+                    </optgroup>
                   </select>
                 </div>
                 <div>
@@ -1021,6 +1192,26 @@ export default function Compras() {
                     {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre'])}</option>)}
                   </select>
                 </div>
+
+                {/* 🔑 NUEVO: campo comprobante_anula visible solo para NC (opcional) */}
+                {esNotaCreditoForm && (
+                  <div className="sm:col-span-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+                    <label className="block text-xs font-bold text-amber-800 uppercase mb-1">
+                      Comprobante que Anula/Ajusta (Opcional)
+                    </label>
+                    <input
+                      type="text"
+                      disabled={isSaving}
+                      placeholder="Ej: 0012-00008916 (dejar vacío si es NC parcial por devolución)"
+                      className="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100"
+                      value={formData.comprobante_anula}
+                      onChange={(e) => setFormData({ ...formData, comprobante_anula: e.target.value })}
+                    />
+                    <p className="text-[10px] text-amber-700 mt-1">
+                      💡 Si es una NC parcial por devolución de ítems, podés dejarlo vacío. La factura original NO se marca como anulada; solo se registra la NC con su monto en negativo.
+                    </p>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra {requiereObra ? '*' : ''}</label>
