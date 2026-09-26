@@ -36,34 +36,59 @@ const normalizarNombre = (str) => {
     .trim();
 };
 
-// 🔑 NUEVO: mapea el string que devuelve Gemini a los valores canónicos del <select>
-const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR) => {
+// 🔑 NUEVO: normaliza un número de comprobante quitando ceros a la izquierda
+// (la NC trae "00000172" formato AFIP, pero en Firestore puede estar como "172")
+const normalizarNumComp = (s) => {
+  return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
+};
+
+// 🔑 FIX: mapea el string que devuelve Gemini al valor canónico del <select>
+// 🔑 NUEVO: detecta si es electrónica (FCE/NCE/NDE) por el nombre del archivo o por texto
+const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
   const t = String(tipoComprobanteOCR || '').toLowerCase();
   const tf = String(tipoFacturaOCR || '').toLowerCase();
+  const nf = String(nombreArchivo || '').toUpperCase();
+
+  // 🔑 NUEVO: detectar electrónica por el nombre del archivo (NCE_, NDE_, FCE_, etc.)
+  const esElectronica = /\b(NCE|NDE|FCE|NCA|NDA|FCA|NCB|NDB|FCB)\b/.test(nf)
+    || nf.includes('ELECTRONICA')
+    || nf.includes('MIPYME')
+    || tf.includes('electronica')
+    || tf.includes('fce')
+    || tf.includes('mipyme');
+
+  // Detectar tipo de letra (A o B) — por defecto A
+  const esTipoB = tf.includes(' b') || tf.endsWith('b') || /\bB\b/.test(nf);
 
   if (t.includes('nota de credito') || t.includes('nota de crédito') || t === 'nc') {
-    if (tf.includes('fce') || tf.includes('mipyme') || tf.includes('mipymes')) {
-      return tf.includes(' b') ? 'NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B' : 'NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
+    if (esElectronica) {
+      return esTipoB
+        ? 'NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B'
+        : 'NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
     }
-    if (tf.includes(' b') || tf.endsWith('b')) return 'NOTA DE CREDITO B';
-    return 'NOTA DE CREDITO A';
+    return esTipoB ? 'NOTA DE CREDITO B' : 'NOTA DE CREDITO A';
   }
+
   if (t.includes('nota de debito') || t.includes('nota de débito') || t === 'nd') {
-    if (tf.includes('fce') || tf.includes('mipyme') || tf.includes('mipymes')) {
-      return tf.includes(' b') ? 'NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B' : 'NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A';
+    if (esElectronica) {
+      return esTipoB
+        ? 'NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B'
+        : 'NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A';
     }
-    if (tf.includes(' b') || tf.endsWith('b')) return 'NOTA DE DEBITO B';
-    return 'NOTA DE DEBITO A';
+    return esTipoB ? 'NOTA DE DEBITO B' : 'NOTA DE DEBITO A';
   }
+
   if (t.includes('recibo')) {
-    return tf.includes(' b') ? 'RECIBO B' : 'RECIBO A';
+    return esTipoB ? 'RECIBO B' : 'RECIBO A';
   }
+
   // Factura (default)
-  if (tf.includes('fce') || tf.includes('mipyme') || tf.includes('mipymes')) {
-    return tf.includes(' b') ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B' : 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
+  if (esElectronica) {
+    return esTipoB
+      ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B'
+      : 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
   }
-  if (tf.includes(' b') || tf.endsWith('b')) return 'FACTURA B';
-  return 'FACTURA A';
+  return esTipoB ? 'FACTURA B' : 'FACTURA A';
 };
 
 export default function Tesoreria() {
@@ -83,6 +108,8 @@ export default function Tesoreria() {
 
   const [filtroProveedorMovimientos, setFiltroProveedorMovimientos] = useState('');
   const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
+  // 🔑 NUEVO: filtro por tipo de movimiento (Ingreso / Egreso / Contabilizada)
+  const [filtroTipoMovimiento, setFiltroTipoMovimiento] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -436,7 +463,8 @@ export default function Tesoreria() {
   };
 
   // ⚠️ OCR sigue usando Apps Script
-  // 🔑 FIX: ahora setea tipo_comprobante + match de cliente normalizado + aviso si no encuentra
+  // 🔑 FIX: setea tipo_comprobante + match de cliente normalizado + aviso si no encuentra
+  // 🔑 FIX: usa archivo.name (no nombreArchivoVenta) para detectar electrónica correctamente
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -485,12 +513,10 @@ export default function Tesoreria() {
             if (nombreClienteBusqueda && clientes.length > 0) {
               const busquedaNorm = normalizarNombre(nombreClienteBusqueda);
 
-              // 1er intento: match exacto normalizado
               let cliMatch = clientes.find(c =>
                 normalizarNombre(c.razon_social || c.nombre || '') === busquedaNorm
               );
 
-              // 2do intento: uno contiene al otro (más flexible)
               if (!cliMatch && busquedaNorm.length >= 3) {
                 cliMatch = clientes.find(c => {
                   const cliNorm = normalizarNombre(c.razon_social || c.nombre || '');
@@ -531,21 +557,20 @@ export default function Tesoreria() {
 
             const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
 
-            // 🔑 FIX: mapear tipo_comprobante de Gemini al valor exacto del <select>
+            // 🔑 FIX: pasamos archivo.name directo (no nombreArchivoVenta, que es asíncrono)
             const tipoComprobanteMapeado = mapearTipoComprobante(
               data.tipo_comprobante,
-              data.tipo_factura
+              data.tipo_factura,
+              archivo.name || ''
             );
 
             console.log('[OCR] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
 
             setFormDataVenta(prev => ({
               ...prev,
-              // 🔑 FIX: ahora sí seteamos el tipo de comprobante
               tipo_comprobante: tipoComprobanteMapeado,
               punto_venta: ptoVtaDetectado,
               numero_comp: nCompLimpio || prev.numero_comp,
-              // 🔑 FIX: cliente_id ahora viene del match normalizado
               cliente_id: clienteEncontradoId || prev.cliente_id,
               fecha_emision: formatearFechaParaInput(data.fecha || data.Fecha || data.FECHA) || prev.fecha_emision,
               fecha_vencimiento: formatearFechaParaInput(data.vencimiento || data.Vencimiento || data.VENCIMIENTO) || prev.fecha_vencimiento,
@@ -664,7 +689,7 @@ export default function Tesoreria() {
 
   // 🔑 FIX: guardar factura de venta directo a Firestore (con subida a Drive si hay base64)
   // 🔑 NUEVO: si es Nota de Crédito, guarda neto/iva/total en NEGATIVO automáticamente
-  // 🔑 NUEVO: si es NC, busca la factura original, la marca como 'anulada' y crea un movimiento
+  // 🔑 NUEVO: si es NC, busca la factura original (con match normalizado), la marca como 'anulada' y crea un movimiento
   const handleGuardarFacturaVenta = async (e) => {
     e.preventDefault();
     if (isSavingVenta) return;
@@ -696,7 +721,7 @@ export default function Tesoreria() {
         otros_tributos: otrosTributosFinal,
         total: totalFinal,
         archivo_url: archivoUrlFinal,
-        estado_pago: esNC ? 'anulada' : 'pendiente', // 🔑 la NC no es algo a cobrar
+        estado_pago: esNC ? 'anulada' : 'pendiente',
         es_nota_credito: esNC,
         es_nota_debito: esND,
         items: JSON.stringify(formDataVenta.items)
@@ -708,11 +733,12 @@ export default function Tesoreria() {
       const nuevoDocId = await crearDoc('facturas_ventas', datosLimpios);
 
       // 🔑 NUEVO: si es NC, buscar la factura que anula y marcarla como 'anulada'
+      // 🔑 FIX: match normalizado (quita ceros a la izquierda) porque la NC trae "00000172"
+      //          pero en Firestore la factura puede estar como "172"
       if (esNC && formDataVenta.comprobante_anula) {
         try {
           const anulaLimpio = String(formDataVenta.comprobante_anula).trim();
 
-          // Parsear "00001-00000172" → punto_venta + numero_comp
           let ptoVtaAnula = '';
           let nCompAnula = '';
           if (anulaLimpio.includes('-')) {
@@ -723,21 +749,32 @@ export default function Tesoreria() {
             nCompAnula = anulaLimpio;
           }
 
-          // Buscar la factura original (match exacto punto_venta + numero_comp, con fallback a solo numero_comp)
+          // 🔑 FIX: normalizar números antes de comparar
+          const ptoVtaAnulaNorm = normalizarNumComp(ptoVtaAnula);
+          const nCompAnulaNorm = normalizarNumComp(nCompAnula);
+
+          // 🔑 FIX: match por punto_venta + numero_comp (ambos normalizados),
+          //          excluyendo facturas ya anuladas y NC/ND
           let facturaOriginal = facturasVenta.find(f => {
-            const fpv = String(f.punto_venta || '').trim();
-            const fnc = String(f.numero_comp || '').trim();
-            if (ptoVtaAnula && nCompAnula) {
-              return fpv === ptoVtaAnula && fnc === nCompAnula;
+            if (String(f.estado_pago || '').toLowerCase() === 'anulada') return false;
+            if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
+
+            const fpvNorm = normalizarNumComp(f.punto_venta);
+            const fncNorm = normalizarNumComp(f.numero_comp);
+
+            if (ptoVtaAnulaNorm && nCompAnulaNorm) {
+              return fpvNorm === ptoVtaAnulaNorm && fncNorm === nCompAnulaNorm;
             }
-            return fnc === nCompAnula;
+            return fncNorm === nCompAnulaNorm;
           });
 
-          if (!facturaOriginal && nCompAnula) {
-            // Fallback: buscar solo por numero_comp
-            facturaOriginal = facturasVenta.find(f =>
-              String(f.numero_comp || '').trim() === nCompAnula
-            );
+          // 🔑 FIX: fallback solo por numero_comp si no matcheó punto_venta
+          if (!facturaOriginal && nCompAnulaNorm) {
+            facturaOriginal = facturasVenta.find(f => {
+              if (String(f.estado_pago || '').toLowerCase() === 'anulada') return false;
+              if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
+              return normalizarNumComp(f.numero_comp) === nCompAnulaNorm;
+            });
           }
 
           if (facturaOriginal) {
@@ -748,9 +785,9 @@ export default function Tesoreria() {
               anulada_por_nc_numero: `${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`,
               anulada_fecha: formDataVenta.fecha_emision
             });
-            console.log(`Factura ${formDataVenta.comprobante_anula} marcada como anulada por NC ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`);
+            console.log(`✅ Factura ${formDataVenta.comprobante_anula} marcada como anulada por NC ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`);
           } else {
-            console.warn(`No se encontró la factura ${formDataVenta.comprobante_anula} para anular`);
+            console.warn(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} para anular`);
             alert(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} en el sistema. La Nota de Crédito se guardó pero la factura no se marcó como anulada.`);
           }
         } catch (errNC) {
@@ -770,7 +807,7 @@ export default function Tesoreria() {
             tipo: tipoMov,
             fecha: formDataVenta.fecha_emision,
             concepto: conceptoMov,
-            monto: totalFinal, // negativo para NC, positivo para ND
+            monto: totalFinal,
             obra_id: '',
             presupuesto_id: '',
             contrato_id: '',
@@ -839,6 +876,7 @@ export default function Tesoreria() {
 
   const balance = totalIngresos - totalEgresos;
 
+  // 🔑 FIX + NUEVO: filtro por proveedor + texto + tipo de movimiento
   const movimientosFiltrados = movimientos.filter(m => {
     const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
     const ref = String(m.referencia || m.Referencia || '').toLowerCase();
@@ -851,7 +889,14 @@ export default function Tesoreria() {
       matchProveedor = concepto.includes(nombreProv);
     }
 
-    return matchTexto && matchProveedor;
+    // 🔑 NUEVO: filtro por tipo de movimiento
+    let matchTipo = true;
+    if (filtroTipoMovimiento) {
+      const tipoMov = String(m.tipo || m.Tipo || '').toLowerCase();
+      matchTipo = tipoMov === filtroTipoMovimiento.toLowerCase();
+    }
+
+    return matchTexto && matchProveedor && matchTipo;
   });
 
   // 🔑 FIX: excluir facturas anuladas por NC de la lista de Facturas a Pagar
@@ -870,7 +915,6 @@ export default function Tesoreria() {
   const facturasACobrar = facturasVenta.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
     if (estado === 'anulada') return false;
-    // También excluir si es NC o ND (no son algo a cobrar)
     if (f.es_nota_credito === true) return false;
     if (f.es_nota_debito === true) return false;
     return estado === 'pendiente' || estado === 'pagado parcial';
@@ -898,7 +942,6 @@ export default function Tesoreria() {
     const tipo = String(m.tipo || m.Tipo).toLowerCase();
     const monto = Number(m.monto || m.Monto) || 0;
 
-    // 🔑 Contabilizada suma a los ingresos (si el monto es positivo) o resta (si es negativo por NC)
     if (tipo === 'ingreso' || tipo === 'contabilizada') {
       if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
       cashFlowMensualMap[mesAnio].ingresos += monto;
@@ -1056,7 +1099,19 @@ export default function Tesoreria() {
         </div>
 
         {activeTab === 'movimientos' && (
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+          <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
+            {/* 🔑 NUEVO: filtro por tipo (Ingreso / Egreso / Contabilizada) */}
+            <select
+              value={filtroTipoMovimiento}
+              onChange={(e) => setFiltroTipoMovimiento(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500"
+            >
+              <option value="">Todos los Tipos</option>
+              <option value="Ingreso">Ingresos</option>
+              <option value="Egreso">Egresos</option>
+              <option value="contabilizada">Contabilizadas (NC/ND)</option>
+            </select>
+
             <select
               value={filtroProveedorMovimientos}
               onChange={(e) => setFiltroProveedorMovimientos(e.target.value)}
@@ -1067,6 +1122,7 @@ export default function Tesoreria() {
                 <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>
               ))}
             </select>
+
             <div className="relative flex-1 sm:w-60">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -1130,7 +1186,6 @@ export default function Tesoreria() {
                     <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-4 text-slate-600 truncate">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
                       <td className="px-3 py-4">
-                        {/* 🔑 FIX: contabilizada con color verde (como ingreso) según lo pedido */}
                         <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${
                           tipo === 'ingreso' || esContabilizada
                             ? 'bg-emerald-100 text-emerald-800'
@@ -1745,7 +1800,6 @@ export default function Tesoreria() {
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {/* 🔑 FIX: dropdown agrupado por categoría + 6 comprobantes FCE (NC y ND electrónicas) */}
                   <div className="sm:col-span-3">
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Comprobante *</label>
                     <select
@@ -1779,14 +1833,12 @@ export default function Tesoreria() {
                       </optgroup>
                     </select>
 
-                    {/* 🔑 NUEVO: aviso si el tipo fue detectado por OCR */}
                     {archivoBase64Venta && formDataVenta.tipo_comprobante && (
                       <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1">
                         <Check className="w-3 h-3" /> Tipo detectado por IA: {formDataVenta.tipo_comprobante}
                       </p>
                     )}
 
-                    {/* 🔑 NUEVO: aviso cuando es Nota de Crédito */}
                     {esNotaCredito(formDataVenta.tipo_comprobante) && (
                       <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                         <FileText className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
@@ -1796,7 +1848,6 @@ export default function Tesoreria() {
                       </div>
                     )}
 
-                    {/* 🔑 NUEVO: campo comprobante que anula (solo para NC) */}
                     {esNotaCredito(formDataVenta.tipo_comprobante) && (
                       <div className="mt-2">
                         <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
