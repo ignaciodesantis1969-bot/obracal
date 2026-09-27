@@ -1,6 +1,6 @@
 // src/pages/Tesoreria.jsx
 import React, { useState } from 'react';
-import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip, Ban } from 'lucide-react';
+import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip, Ban, AlertTriangle } from 'lucide-react';
 // 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
@@ -41,6 +41,48 @@ const normalizarNumComp = (s) => {
   return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
 };
 
+// 🔑 NUEVO: busca el mejor match por similitud real (no por .includes() ciego)
+// Devuelve { mejor, candidatos, scoreMejor }
+const buscarMejorMatch = (nombreOCR, lista) => {
+  if (!nombreOCR || !lista || lista.length === 0) {
+    return { mejor: null, candidatos: [], scoreMejor: 0 };
+  }
+
+  const normOCR = normalizarNombre(nombreOCR);
+  const palabrasOCR = normOCR.split(' ').filter(p => p.length >= 3);
+  if (palabrasOCR.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
+
+  const scored = lista.map(item => {
+    const nombreItem = item.razon_social || item.nombre || item.Razon_social || item.Nombre || '';
+    const normItem = normalizarNombre(nombreItem);
+    const palabrasItem = normItem.split(' ').filter(p => p.length >= 3);
+
+    const coincidencias = palabrasOCR.filter(w => normItem.includes(w)).length;
+    const scorePalabras = (coincidencias / palabrasOCR.length) * 100;
+
+    if (normOCR === normItem) return { item, nombre: nombreItem, score: 100 };
+
+    if (normItem.includes(normOCR) || normOCR.includes(normItem)) {
+      return { item, nombre: nombreItem, score: Math.min(95, scorePalabras + 20) };
+    }
+
+    return { item, nombre: nombreItem, score: scorePalabras };
+  }).filter(s => s.score >= 60);
+
+  scored.sort((a, b) => b.score - a.score);
+
+  if (scored.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
+
+  const top = scored[0];
+  const candidatos = scored.filter(s => (top.score - s.score) < 15);
+
+  return {
+    mejor: top.item,
+    candidatos: candidatos.map(c => c.item),
+    scoreMejor: top.score
+  };
+};
+
 // 🔑 NUEVO: infiere el origen de un movimiento (venta/compra) a partir de su concepto
 // para movimientos viejos que no tienen el campo `origen` guardado explícitamente
 const inferirOrigenMovimiento = (m) => {
@@ -58,7 +100,6 @@ const inferirOrigenMovimiento = (m) => {
   // Nota de Crédito/Débito → distinguir por formato del comprobante
   if (concepto.includes('nota de crédito') || concepto.includes('nota de credito') ||
       concepto.includes('nota de débito') || concepto.includes('nota de debito')) {
-    // Extraer PV-NRO del concepto (ej "Nota de Crédito 00001-00000012" o "Nota de Crédito 0012-00008916")
     const match = concepto.match(/(\d{3,5})-(\d{4,8})/);
     if (match) {
       const pv = match[1];
@@ -71,7 +112,6 @@ const inferirOrigenMovimiento = (m) => {
     return 'venta';
   }
 
-  // Anulación explícita → venta
   if (tipo === 'anulada') return 'venta';
 
   return '';
@@ -139,9 +179,7 @@ export default function Tesoreria() {
 
   const [filtroProveedorMovimientos, setFiltroProveedorMovimientos] = useState('');
   const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
-  // 🔑 NUEVO: filtro por tipo de movimiento (Ingreso / Egreso / Contabilizada / Anulada)
   const [filtroTipoMovimiento, setFiltroTipoMovimiento] = useState('');
-  // 🔑 NUEVO: filtro por origen (venta / compra)
   const [filtroOrigen, setFiltroOrigen] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -153,6 +191,10 @@ export default function Tesoreria() {
 
   const [archivoBase64Venta, setArchivoBase64Venta] = useState('');
   const [nombreArchivoVenta, setNombreArchivoVenta] = useState('');
+
+  // 🔑 NUEVO: candidatos de cliente cuando el match es ambiguo
+  const [candidatosCliente, setCandidatosCliente] = useState([]);
+  const [nombreClienteOCR, setNombreClienteOCR] = useState('');
 
   const [isSaving, setIsSaving] = useState(false);
   const [isSavingVenta, setIsSavingVenta] = useState(false);
@@ -493,6 +535,7 @@ export default function Tesoreria() {
     }));
   };
 
+  // 🔑 FIX: match de cliente con scoring + candidatos (mismo sistema que Compras)
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -534,30 +577,30 @@ export default function Tesoreria() {
           }
 
           if (data.success && !data.error) {
+            // 🔑 FIX: match con scoring + candidatos
             let clienteEncontradoId = '';
+            let candidatosFinales = [];
             const nombreClienteBusqueda = data.cliente || data.proveedor || '';
+            setNombreClienteOCR(nombreClienteBusqueda);
 
             if (nombreClienteBusqueda && clientes.length > 0) {
-              const busquedaNorm = normalizarNombre(nombreClienteBusqueda);
+              const { mejor, candidatos, scoreMejor } = buscarMejorMatch(nombreClienteBusqueda, clientes);
 
-              let cliMatch = clientes.find(c =>
-                normalizarNombre(c.razon_social || c.nombre || '') === busquedaNorm
-              );
+              console.log('[OCR] Buscando cliente:', nombreClienteBusqueda, '| Score mejor:', scoreMejor, '| Candidatos:', candidatos.length);
 
-              if (!cliMatch && busquedaNorm.length >= 3) {
-                cliMatch = clientes.find(c => {
-                  const cliNorm = normalizarNombre(c.razon_social || c.nombre || '');
-                  return cliNorm.includes(busquedaNorm) || busquedaNorm.includes(cliNorm);
-                });
-              }
-
-              if (cliMatch) {
-                clienteEncontradoId = cliMatch.id || cliMatch.ID || cliMatch.Id || '';
-                console.log('[OCR] Cliente matcheado:', cliMatch.razon_social || cliMatch.nombre);
+              if (mejor && candidatos.length === 1) {
+                clienteEncontradoId = mejor.id || mejor.ID || mejor.Id || '';
+                console.log('[OCR] Cliente matcheado (único):', mejor.razon_social || mejor.nombre);
+              } else if (mejor && candidatos.length > 1) {
+                candidatosFinales = candidatos;
+                clienteEncontradoId = mejor.id || mejor.ID || mejor.Id || '';
+                console.log('[OCR] Múltiples candidatos, mostrar selector. Mejor:', mejor.razon_social || mejor.nombre, '| Total:', candidatos.length);
               } else {
-                console.warn('[OCR] No se pudo matchear el cliente. Gemini devolvió:', nombreClienteBusqueda);
+                console.warn('[OCR] Sin match. Gemini devolvió:', nombreClienteBusqueda);
               }
             }
+
+            setCandidatosCliente(candidatosFinales);
 
             const nCompDetectado = data.n_factura || data.numero_factura || data.nro_factura || data.numero_comp || '';
             let ptoVtaDetectado = '00001';
@@ -616,11 +659,12 @@ export default function Tesoreria() {
               ]
             }));
 
-            if (nombreClienteBusqueda && !clienteEncontradoId) {
+            // Aviso SOLO si no hay candidatos
+            if (nombreClienteBusqueda && !clienteEncontradoId && candidatosFinales.length === 0) {
               setTimeout(() => {
                 alert(
                   `⚠️ El OCR detectó el cliente "${nombreClienteBusqueda}" pero no se encontró en el sistema.\n\n` +
-                  `Seleccionalo manualmente en el formulario antes de guardar.`
+                  `Creá el cliente primero desde la sección Clientes, o seleccionalo manualmente si ya existe con otro nombre.`
                 );
               }, 100);
             }
@@ -802,7 +846,6 @@ export default function Tesoreria() {
             });
             console.log(`✅ Factura ${formDataVenta.comprobante_anula} marcada como anulada por NC ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`);
 
-            // 🔑 Movimiento informativo de la anulación (monto $0, tipo "anulada")
             try {
               const tipoFacturaAnulada = facturaOriginal.tipo_comprobante || 'Factura';
               const pvFacturaAnulada = String(facturaOriginal.punto_venta || ptoVtaAnula || '').padStart(5, '0');
@@ -810,7 +853,7 @@ export default function Tesoreria() {
 
               const movimientoAnulacion = {
                 tipo: 'anulada',
-                origen: 'venta',       // 🔑 NUEVO
+                origen: 'venta',
                 fecha: formDataVenta.fecha_emision,
                 concepto: `ANULACIÓN ${tipoFacturaAnulada} ${pvFacturaAnulada}-${nroFacturaAnulada}`,
                 monto: 0,
@@ -847,7 +890,6 @@ export default function Tesoreria() {
         }
       }
 
-      // Movimiento contable de la NC/ND (con su monto)
       if (esNC || esND) {
         try {
           const tipoMov = 'contabilizada';
@@ -857,7 +899,7 @@ export default function Tesoreria() {
 
           const movimientoAuto = {
             tipo: tipoMov,
-            origen: 'venta',       // 🔑 NUEVO
+            origen: 'venta',
             fecha: formDataVenta.fecha_emision,
             concepto: conceptoMov,
             monto: totalFinal,
@@ -885,6 +927,8 @@ export default function Tesoreria() {
         }
       }
 
+      setCandidatosCliente([]);
+      setNombreClienteOCR('');
       setIsFacturaVentaModalOpen(false);
       setArchivoBase64Venta('');
       setNombreArchivoVenta('');
@@ -925,7 +969,6 @@ export default function Tesoreria() {
 
   const balance = totalIngresos - totalEgresos;
 
-  // 🔑 FIX: filtro por proveedor + texto + tipo + origen (con inferencia)
   const movimientosFiltrados = movimientos.filter(m => {
     const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
     const ref = String(m.referencia || m.Referencia || '').toLowerCase();
@@ -940,12 +983,10 @@ export default function Tesoreria() {
 
     let matchTipo = true;
     if (filtroTipoMovimiento) {
-      // 🔑 Normalizar contabilizado → contabilizada
       const tipoMov = String(m.tipo || m.Tipo || '').toLowerCase().replace(/o$/, 'a');
       matchTipo = tipoMov === filtroTipoMovimiento.toLowerCase().replace(/o$/, 'a');
     }
 
-    // 🔑 NUEVO: filtro por origen (con inferencia para movimientos viejos)
     let matchOrigen = true;
     if (filtroOrigen) {
       const origenMov = inferirOrigenMovimiento(m);
@@ -995,7 +1036,6 @@ export default function Tesoreria() {
     const tipo = String(m.tipo || m.Tipo).toLowerCase().replace(/o$/, 'a');
     const monto = Number(m.monto || m.Monto) || 0;
 
-    // 🔑 Excluir tipo "anulada" del cash flow (informativo, monto $0)
     if (tipo === 'anulada') return;
 
     if (tipo === 'ingreso' || tipo === 'contabilizada') {
@@ -1044,6 +1084,8 @@ export default function Tesoreria() {
             setPasoFacturaVenta('subir');
             setArchivoBase64Venta('');
             setNombreArchivoVenta('');
+            setCandidatosCliente([]);
+            setNombreClienteOCR('');
             setFormDataVenta({
               tipo_comprobante: 'FACTURA A',
               punto_venta: '00001',
@@ -1155,7 +1197,6 @@ export default function Tesoreria() {
 
         {activeTab === 'movimientos' && (
           <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
-            {/* 🔑 Filtro por tipo */}
             <select
               value={filtroTipoMovimiento}
               onChange={(e) => setFiltroTipoMovimiento(e.target.value)}
@@ -1168,7 +1209,6 @@ export default function Tesoreria() {
               <option value="anulada">Anuladas</option>
             </select>
 
-            {/* 🔑 NUEVO: filtro por origen (ventas vs compras) */}
             <select
               value={filtroOrigen}
               onChange={(e) => setFiltroOrigen(e.target.value)}
@@ -1251,7 +1291,6 @@ export default function Tesoreria() {
                   const esAnulada = tipo === 'anulada';
                   const origenMov = inferirOrigenMovimiento(m);
 
-                  // 🔑 badge por tipo + origen
                   let clasesBadge = 'bg-rose-100 text-rose-800';
                   let labelBadge = tipo;
                   if (esAnulada) {
@@ -1969,6 +2008,42 @@ export default function Tesoreria() {
                       {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
                     </select>
                   </div>
+
+                  {/* 🔑 NUEVO: aviso cuando hay múltiples candidatos de cliente */}
+                  {candidatosCliente.length > 1 && (
+                    <div className="sm:col-span-3 bg-amber-50 border-2 border-amber-400 rounded-lg px-4 py-3">
+                      <div className="flex items-start gap-2 mb-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-xs font-bold text-amber-900">
+                            El OCR detectó "<strong>{nombreClienteOCR}</strong>" — hay {candidatosCliente.length} clientes parecidos.
+                          </p>
+                          <p className="text-[10px] text-amber-700 mt-1">Elegí el correcto:</p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {candidatosCliente.map((cliCand) => {
+                          const cliIdCand = cliCand.id || cliCand.ID || cliCand.Id;
+                          const cliNomCand = cliCand.razon_social || cliCand.nombre || 'Cliente';
+                          const seleccionado = String(formDataVenta.cliente_id) === String(cliIdCand);
+                          return (
+                            <button
+                              key={cliIdCand}
+                              type="button"
+                              onClick={() => setFormDataVenta({ ...formDataVenta, cliente_id: cliIdCand })}
+                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors ${
+                                seleccionado
+                                  ? 'bg-amber-500 text-white border-amber-600'
+                                  : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-100'
+                              }`}
+                            >
+                              {seleccionado ? '✓ ' : ''}{cliNomCand}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

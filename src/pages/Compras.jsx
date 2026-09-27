@@ -1,6 +1,6 @@
 // src/pages/Compras.jsx
 import React, { useState, useMemo, useCallback } from 'react';
-import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart } from 'lucide-react';
+import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart, AlertTriangle } from 'lucide-react';
 // 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
@@ -21,6 +21,51 @@ const normalizarNombre = (str) => {
 // 🔑 NUEVO: normaliza un número de comprobante quitando ceros a la izquierda
 const normalizarNumComp = (s) => {
   return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
+};
+
+// 🔑 NUEVO: busca el mejor match por similitud real (no por .includes() ciego)
+// Devuelve { mejor, candidatos, scoreMejor }
+const buscarMejorMatch = (nombreOCR, lista) => {
+  if (!nombreOCR || !lista || lista.length === 0) {
+    return { mejor: null, candidatos: [], scoreMejor: 0 };
+  }
+
+  const normOCR = normalizarNombre(nombreOCR);
+  const palabrasOCR = normOCR.split(' ').filter(p => p.length >= 3);
+  if (palabrasOCR.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
+
+  const scored = lista.map(item => {
+    const nombreItem = item.razon_social || item.nombre || item.Razon_social || item.Nombre || '';
+    const normItem = normalizarNombre(nombreItem);
+    const palabrasItem = normItem.split(' ').filter(p => p.length >= 3);
+
+    // Score base: % de palabras del OCR que están en el nombre del item
+    const coincidencias = palabrasOCR.filter(w => normItem.includes(w)).length;
+    const scorePalabras = (coincidencias / palabrasOCR.length) * 100;
+
+    // Match exacto: 100
+    if (normOCR === normItem) return { item, nombre: nombreItem, score: 100 };
+
+    // Uno contiene al otro completo: +20 al score base (max 95)
+    if (normItem.includes(normOCR) || normOCR.includes(normItem)) {
+      return { item, nombre: nombreItem, score: Math.min(95, scorePalabras + 20) };
+    }
+
+    return { item, nombre: nombreItem, score: scorePalabras };
+  }).filter(s => s.score >= 60);
+
+  scored.sort((a, b) => b.score - a.score);
+
+  if (scored.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
+
+  const top = scored[0];
+  const candidatos = scored.filter(s => (top.score - s.score) < 15);
+
+  return {
+    mejor: top.item,
+    candidatos: candidatos.map(c => c.item),
+    scoreMejor: top.score
+  };
 };
 
 // 🔑 NUEVO: mapea tipo de comprobante del OCR a valores canónicos del <select>
@@ -88,6 +133,10 @@ export default function Compras() {
   const [localLoading, setLocalLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
+  // 🔑 NUEVO: candidatos de proveedor cuando el match es ambiguo
+  const [candidatosProveedor, setCandidatosProveedor] = useState([]);
+  const [nombreProveedorOCR, setNombreProveedorOCR] = useState('');
+
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
     comprobante_tipo: 'Factura A',
@@ -111,7 +160,6 @@ export default function Compras() {
     otros_impuestos: 0,
     total: 0,
     archivo_url: '',
-    // 🔑 NUEVO: campo para Notas de Crédito (comprobante que anula, opcional en compras)
     comprobante_anula: ''
   });
 
@@ -303,7 +351,6 @@ export default function Compras() {
     return `OC-${String(maxNum + 1).padStart(4, '0')}`;
   };
 
-  // 🔑 NUEVO: sube un base64 a Drive vía Apps Script y devuelve la URL pública.
   const subirArchivoADrive = async (base64, tabla) => {
     if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
     try {
@@ -328,7 +375,7 @@ export default function Compras() {
   };
 
   // ⚠️ OCR sigue usando Apps Script
-  // 🔑 FIX: ahora mapea tipo_comprobante correctamente + match de proveedor normalizado
+  // 🔑 FIX: match de proveedor con scoring + candidatos + UI de elección
   const handleArchivoSubido = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -365,36 +412,33 @@ export default function Compras() {
             return;
           }
 
-          // 🔑 FIX: match de proveedor normalizado (sin acentos, sin SA/SRL)
+          // 🔑 FIX: match con scoring + candidatos
           let proveedorEncontradoId = '';
+          let candidatosFinales = [];
           const nombreProvBusqueda = data.proveedor || '';
+          setNombreProveedorOCR(nombreProvBusqueda);
+
           if (nombreProvBusqueda && proveedores.length > 0) {
-            const busquedaNorm = normalizarNombre(nombreProvBusqueda);
+            const { mejor, candidatos, scoreMejor } = buscarMejorMatch(nombreProvBusqueda, proveedores);
 
-            let provMatch = proveedores.find(p => {
-              const rSocial = buscarValorEnObjeto(p, ['razon_social', 'Razon_social', 'razonSocial']) || '';
-              const nom = buscarValorEnObjeto(p, ['nombre', 'Nombre']) || '';
-              return normalizarNombre(rSocial) === busquedaNorm || normalizarNombre(nom) === busquedaNorm;
-            });
+            console.log('[OCR-Compras] Buscando proveedor:', nombreProvBusqueda, '| Score mejor:', scoreMejor, '| Candidatos:', candidatos.length);
 
-            if (!provMatch && busquedaNorm.length >= 3) {
-              provMatch = proveedores.find(p => {
-                const rSocial = normalizarNombre(buscarValorEnObjeto(p, ['razon_social', 'Razon_social', 'razonSocial']) || '');
-                const nom = normalizarNombre(buscarValorEnObjeto(p, ['nombre', 'Nombre']) || '');
-                return rSocial.includes(busquedaNorm) || busquedaNorm.includes(rSocial) ||
-                       nom.includes(busquedaNorm) || busquedaNorm.includes(nom);
-              });
-            }
-
-            if (provMatch) {
-              proveedorEncontradoId = buscarValorEnObjeto(provMatch, ['id', 'ID', 'Id']);
-              console.log('[OCR-Compras] Proveedor matcheado:', buscarValorEnObjeto(provMatch, ['razon_social', 'nombre']));
+            if (mejor && candidatos.length === 1) {
+              // 1 solo candidato claro → matchear directo
+              proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
+              console.log('[OCR-Compras] Proveedor matcheado (único):', mejor.razon_social || mejor.nombre);
+            } else if (mejor && candidatos.length > 1) {
+              // Múltiples candidatos → mostrar dropdown
+              candidatosFinales = candidatos;
+              proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']); // pre-seleccionar el mejor
+              console.log('[OCR-Compras] Múltiples candidatos, mostrar selector. Mejor:', mejor.razon_social || mejor.nombre, '| Total:', candidatos.length);
             } else {
-              console.warn('[OCR-Compras] No se pudo matchear el proveedor. Gemini devolvió:', nombreProvBusqueda);
+              console.warn('[OCR-Compras] Sin match. Gemini devolvió:', nombreProvBusqueda);
             }
           }
 
-          // 🔑 FIX: mapear tipo de comprobante del OCR al value canónico del <select>
+          setCandidatosProveedor(candidatosFinales);
+
           const tipoComprobanteMapeado = mapearTipoComprobante(
             data.tipo_comprobante,
             data.tipo_factura,
@@ -403,12 +447,10 @@ export default function Compras() {
           const esNotaCreditoFinal = String(tipoComprobanteMapeado).toLowerCase().includes('nota de crédito') ||
                                      String(tipoComprobanteMapeado).toLowerCase().includes('nota de credito');
 
-          // 🔑 NUEVO: comprobante_anula detectado por OCR
           const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
 
           console.log('[OCR-Compras] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
 
-          // 🔑 NUEVO: extraer n_factura con parseo de punto de venta
           const nCompDetectado = data.n_factura || data.numero_comp || data.numero_factura || '';
           let ptoVtaDetectado = '';
           let nCompLimpio = nCompDetectado;
@@ -436,14 +478,13 @@ export default function Compras() {
             otros_impuestos: Math.abs(Number(data && data.otros_impuestos) || prev.otros_impuestos),
             total: Math.abs(Number(data && data.total) || prev.total),
             archivo_url: base64Data,
-            // 🔑 NUEVO: guardar comprobante_anula si vino del OCR
             comprobante_anula: comprobanteAnulaDetectado || prev.comprobante_anula
           }));
 
-          // 🔑 NUEVO: avisar si el proveedor no matcheó
-          if (nombreProvBusqueda && !proveedorEncontradoId) {
+          // Aviso SOLO si NO hay candidatos (ni 1 ni varios)
+          if (nombreProvBusqueda && !proveedorEncontradoId && candidatosFinales.length === 0) {
             setTimeout(() => {
-              alert(`⚠️ El OCR detectó el proveedor "${nombreProvBusqueda}" pero no se encontró en el sistema.\n\nSeleccionalo manualmente antes de guardar.`);
+              alert(`⚠️ El OCR detectó el proveedor "${nombreProvBusqueda}" pero no se encontró en el sistema.\n\nCreá el proveedor primero desde la sección Proveedores, o seleccionalo manualmente si ya existe con otro nombre.`);
             }, 100);
           }
 
@@ -475,6 +516,8 @@ export default function Compras() {
   const handleEditarFacturaClick = (f) => {
     const realId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     setEditingId(realId);
+    setCandidatosProveedor([]); // limpiar candidatos al editar
+    setNombreProveedorOCR('');
 
     const fechaCruda = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
     const vencCrudo = buscarValorEnObjeto(f, ['vencimiento', 'Vencimiento', 'VENCIMIENTO']);
@@ -510,13 +553,11 @@ export default function Compras() {
       otros_impuestos: Math.abs(Number(buscarValorEnObjeto(f, ['otros_impuestos', 'Otros_impuestos']) || 0)),
       total: Math.abs(Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL']) || 0)),
       archivo_url: buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || '',
-      // 🔑 NUEVO: cargar comprobante_anula si existe
       comprobante_anula: buscarValorEnObjeto(f, ['comprobante_anula', 'Comprobante_anula']) || ''
     });
     setIsFacturaModalOpen(true);
   };
 
-  // 🔑 FIX: guardar factura + si es NC crear movimiento en tesorería con origen 'compra'
   const handleGuardarFactura = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -531,7 +572,6 @@ export default function Compras() {
       const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
       const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
 
-      // 🔑 NUEVO: subir el archivo a Drive si todavía es base64
       let archivoUrlFinal = formData.archivo_url || '';
       if (archivoUrlFinal && archivoUrlFinal.indexOf('data:') === 0) {
         archivoUrlFinal = await subirArchivoADrive(archivoUrlFinal, 'Facturas');
@@ -560,9 +600,7 @@ export default function Compras() {
         rubro: esPresupuestario || esContrato ? formData.rubro_imputacion : '',
         tipo_insumo: formData.tipo_insumo,
         insumo: formData.tipo_insumo,
-        // 🔑 NUEVO: flag para identificar NC
         es_nota_credito: esNotaCredito,
-        // 🔑 NUEVO: guardar comprobante_anula (solo si es NC y hay valor)
         comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : ''
       };
 
@@ -575,7 +613,6 @@ export default function Compras() {
         nuevoDocId = await crearDoc('facturas_compras', datosLimpios);
       }
 
-      // 🔑 NUEVO: si es NC → crear movimiento contable en tesorería con origen 'compra'
       if (esNotaCredito && !editingId) {
         try {
           const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(formData.proveedor_id));
@@ -585,10 +622,10 @@ export default function Compras() {
 
           const movimientoAuto = {
             tipo: 'contabilizada',
-            origen: 'compra',              // 🔑 NUEVO: para distinguir en el filtro de tesorería
+            origen: 'compra',
             fecha: formData.fecha,
             concepto: conceptoMov,
-            monto: Math.abs(Number(formData.total) || 0) * -1,  // 🔑 NUEVO: monto NEGATIVO
+            monto: Math.abs(Number(formData.total) || 0) * -1,
             obra_id: formData.obra_id || '',
             presupuesto_id: formData.presupuesto_id || '',
             contrato_id: formData.contrato_id || '',
@@ -613,6 +650,8 @@ export default function Compras() {
         }
       }
 
+      setCandidatosProveedor([]);
+      setNombreProveedorOCR('');
       setIsFacturaModalOpen(false);
     } catch (err) {
       alert("Error al guardar: " + err.message);
@@ -621,7 +660,6 @@ export default function Compras() {
     }
   };
 
-  // 🔑 FIX: eliminar factura directo a Firestore
   const handleEliminarFactura = async (f) => {
     const facturaId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     if (!facturaId) {
@@ -800,6 +838,8 @@ export default function Compras() {
           </button>
           <button onClick={() => {
             setEditingId(null);
+            setCandidatosProveedor([]);
+            setNombreProveedorOCR('');
             setFormData({
               codigo: generarSiguienteCodigoFactura(),
               comprobante_tipo: 'Factura A',
@@ -1193,7 +1233,42 @@ export default function Compras() {
                   </select>
                 </div>
 
-                {/* 🔑 NUEVO: campo comprobante_anula visible solo para NC (opcional) */}
+                {/* 🔑 NUEVO: aviso cuando hay múltiples candidatos */}
+                {candidatosProveedor.length > 1 && (
+                  <div className="sm:col-span-3 bg-amber-50 border-2 border-amber-400 rounded-lg px-4 py-3">
+                    <div className="flex items-start gap-2 mb-2">
+                      <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-xs font-bold text-amber-900">
+                          El OCR detectó "<strong>{nombreProveedorOCR}</strong>" — hay {candidatosProveedor.length} proveedores parecidos.
+                        </p>
+                        <p className="text-[10px] text-amber-700 mt-1">Elegí el correcto:</p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {candidatosProveedor.map((provCand) => {
+                        const provIdCand = buscarValorEnObjeto(provCand, ['id', 'ID']);
+                        const provNomCand = buscarValorEnObjeto(provCand, ['razon_social', 'nombre']);
+                        const seleccionado = String(formData.proveedor_id) === String(provIdCand);
+                        return (
+                          <button
+                            key={provIdCand}
+                            type="button"
+                            onClick={() => setFormData({ ...formData, proveedor_id: provIdCand })}
+                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors ${
+                              seleccionado
+                                ? 'bg-amber-500 text-white border-amber-600'
+                                : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-100'
+                            }`}
+                          >
+                            {seleccionado ? '✓ ' : ''}{provNomCand}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+
                 {esNotaCreditoForm && (
                   <div className="sm:col-span-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
                     <label className="block text-xs font-bold text-amber-800 uppercase mb-1">
