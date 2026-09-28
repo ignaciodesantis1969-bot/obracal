@@ -121,11 +121,8 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
 
   // ═══════════════════════════════════════════════════════════════════════
   // GUARDAR CAMBIOS + AUTO-ACOMODO POR DEPENDENCIAS
-  // 🔑 FIX: feriadosSet se calcula ADENTRO, no se toma del hook useGanttDrag
-  // (antes crasheaba por ReferenceError: Cannot access before initialization)
   // ═══════════════════════════════════════════════════════════════════════
   const guardarCambios = useCallback(async (cambios) => {
-    // 1) Snapshot para deshacer (solo de los cambios explícitos)
     const snapshotAnterior = cambios.map(c => {
       const tarea = tareas.find(t => t.id === c.tareaId);
       return {
@@ -136,7 +133,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       };
     });
 
-    // 2) Aplicar cambios optimistas locales (los explícitos)
     setTareasOptimistas(prev => {
       const nuevos = { ...prev };
       cambios.forEach(c => {
@@ -150,7 +146,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       return nuevos;
     });
 
-    // 3) 🔑 AUTO-ACOMODO: recalcular sucesoras
     const tareasPostCambio = tareas.map(t => {
       const cambio = cambios.find(c => c.tareaId === t.id);
       if (!cambio) return t;
@@ -162,14 +157,12 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       };
     });
 
-    // 🔑 La tarea "origen" es la primera que se movió explícitamente
     const tareaOrigenId = cambios[0]?.tareaId;
 
     let cambiosExtra = [];
     let movidas = [];
 
     if (tareaOrigenId) {
-      // 🔑 FIX: calcular feriados ADENTRO del callback (no depender del hook)
       const anioPlan = Number((plan?.fecha_inicio || '').slice(0, 4)) || new Date().getFullYear();
       const feriadosLocal = getFeriadosDelAnio(anioPlan, feriadosCustom);
 
@@ -188,7 +181,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       movidas = resultado.movidas || [];
     }
 
-    // 4) Aplicar cambios optimistas de las sucesoras
     if (cambiosExtra.length > 0) {
       setTareasOptimistas(prev => {
         const nuevos = { ...prev };
@@ -203,7 +195,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       });
     }
 
-    // 5) Snapshot extra para deshacer
     const snapshotExtra = cambiosExtra.map(c => {
       const tarea = tareas.find(t => t.id === c.tareaId);
       return {
@@ -214,7 +205,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       };
     });
 
-    // 6) Combinar y guardar en Firestore
     const cambiosFinales = [...cambios, ...cambiosExtra];
 
     try {
@@ -230,7 +220,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       });
       await batch.commit();
 
-      // 7) Toast
       const snapshotCompleto = [...snapshotAnterior, ...snapshotExtra];
 
       if (movidas.length > 0) {
@@ -285,12 +274,12 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       toast.error('Error al guardar cambios: ' + (err.message || ''), { duration: 6000 });
     }
   }, [tareas, mostrarToastUndo, handleUndo, plan, feriadosCustom]);
-  // 🔑 FIX: se quitaron las dependencias 'feriadosSet' del array de deps
 
   const {
     dragActivo,
     preview,
     conflicto,
+    conflictoWarning,     // 🔑 NUEVO: warning de predecesoras
     aviso,
     dependenciasAfectadas,
     iniciarDrag,
@@ -424,20 +413,32 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         )}
       </div>
 
-      {/* Banners */}
+      {/* 🔑 Banner rojo: conflicto bloqueante (duración < 1 día) */}
       {conflicto && (
         <div className="px-4 py-2 bg-rose-100 border-b-2 border-rose-400 text-rose-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
-          <span>⚠️ {conflicto.mensaje} — Soltá para cancelar</span>
+          <span>🚫 {conflicto.mensaje} — Soltá para cancelar</span>
         </div>
       )}
-      {!conflicto && aviso && (
+
+      {/* 🔑 Banner ámbar: warning de predecesoras (NO bloquea) */}
+      {!conflicto && conflictoWarning && (
+        <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
+          <AlertCircle className="w-3.5 h-3.5" />
+          <span>⚠️ {conflictoWarning.mensaje} — Se guardará igual</span>
+        </div>
+      )}
+
+      {/* 🔑 Banner ámbar: aviso de finde/feriado */}
+      {!conflicto && !conflictoWarning && aviso && (
         <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
           <span>📅 {aviso.mensaje}</span>
         </div>
       )}
-      {!conflicto && !aviso && dependenciasAfectadas.length > 0 && (
+
+      {/* 🔑 Banner azul: dependencias afectadas (solo informativo) */}
+      {!conflicto && !conflictoWarning && !aviso && dependenciasAfectadas.length > 0 && (
         <div className="px-4 py-2 bg-blue-100 border-b-2 border-blue-400 text-blue-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
           <span>
@@ -548,6 +549,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                             dragActivo={dragActivo}
                             preview={preview}
                             conflicto={conflicto}
+                            conflictoWarning={conflictoWarning}   // 🔑 NUEVO
                             aviso={aviso}
                             feriadosSet={feriadosSet}
                           />

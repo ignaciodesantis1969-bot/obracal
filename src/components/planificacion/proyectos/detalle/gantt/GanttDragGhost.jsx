@@ -5,11 +5,17 @@ import { formatearFechaLarga } from './useGanttCalculos';
 /**
  * Barra fantasma que muestra el preview durante el drag.
  * Fase 2.3: incluye aviso si la fecha cae en finde/feriado.
+ * 
+ * 🔑 Estados visuales:
+ *  - Normal: borde azul punteado
+ *  - Warning (predecesoras): borde ámbar punteado
+ *  - Bloqueo (duración < 1): borde rojo punteado
  */
 export default function GanttDragGhost({
   preview,
   alturaFila = 36,
-  tieneConflicto = false,
+  tieneConflicto = false,      // 🔑 bloqueo real
+  tieneWarning = false,        // 🔑 NUEVO: warning (no bloquea)
   fechaInicioNueva,
   fechaFinNueva,
   duracionNueva,
@@ -18,22 +24,34 @@ export default function GanttDragGhost({
 }) {
   if (!preview) return null;
 
-  const colorFondo = tieneConflicto ? '#fecaca' : '#bfdbfe';
-  const colorBorde = tieneConflicto ? '#dc2626' : '#2563eb';
+  // 🔑 Colores según el estado
+  let colorFondo = '#bfdbfe';   // azul default
+  let colorBorde = '#2563eb';
+
+  if (tieneConflicto) {
+    colorFondo = '#fecaca';     // rojo
+    colorBorde = '#dc2626';
+  } else if (tieneWarning) {
+    colorFondo = '#fef3c7';     // ámbar
+    colorBorde = '#f59e0b';
+  }
 
   const mostrarBadge = fechaInicioNueva && fechaFinNueva;
 
-  const colorBadge = tieneConflicto
-    ? '#7f1d1d'
-    : aviso
-      ? '#78350f'  // marrón si hay aviso de finde/feriado
-      : '#0f172a';
+  // 🔑 Colores del badge
+  let colorBadge = '#0f172a';
+  let colorBordeBadge = colorBorde;
 
-  const colorBordeBadge = tieneConflicto
-    ? '#dc2626'
-    : aviso
-      ? '#f59e0b'
-      : colorBorde;
+  if (tieneConflicto) {
+    colorBadge = '#7f1d1d';
+    colorBordeBadge = '#dc2626';
+  } else if (tieneWarning) {
+    colorBadge = '#78350f';
+    colorBordeBadge = '#f59e0b';
+  } else if (aviso) {
+    colorBadge = '#78350f';
+    colorBordeBadge = '#f59e0b';
+  }
 
   return (
     <div
@@ -101,8 +119,28 @@ export default function GanttDragGhost({
             </>
           )}
 
+          {/* 🔑 Aviso de conflicto bloqueante */}
+          {tieneConflicto && (
+            <>
+              <span style={{ color: '#64748b' }}>|</span>
+              <span style={{ color: '#fecaca', fontSize: '10px' }}>
+                ⚠️ Bloqueado
+              </span>
+            </>
+          )}
+
+          {/* 🔑 Aviso de warning (predecesoras) */}
+          {tieneWarning && !tieneConflicto && (
+            <>
+              <span style={{ color: '#64748b' }}>|</span>
+              <span style={{ color: '#fbbf24', fontSize: '10px' }}>
+                ⚠️ Antes de predecesora
+              </span>
+            </>
+          )}
+
           {/* Aviso de fin de semana / feriado */}
-          {aviso && (
+          {aviso && !tieneConflicto && !tieneWarning && (
             <>
               <span style={{ color: '#64748b' }}>|</span>
               <span style={{ color: '#fbbf24', fontSize: '10px' }}>
