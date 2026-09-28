@@ -14,7 +14,6 @@ import GanttBarra from './GanttBarra';
 import GanttFlechas from './GanttFlechas';
 import TareaDependenciasModal from './TareaDependenciasModal';
 import GanttSidebar from './GanttSidebar';
-// 🔑 FIX: helpers de fechas + recálculo por dependencias
 import {
   calcularFechaFin,
   getFeriadosDelAnio,
@@ -122,6 +121,8 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
 
   // ═══════════════════════════════════════════════════════════════════════
   // GUARDAR CAMBIOS + AUTO-ACOMODO POR DEPENDENCIAS
+  // 🔑 FIX: feriadosSet se calcula ADENTRO, no se toma del hook useGanttDrag
+  // (antes crasheaba por ReferenceError: Cannot access before initialization)
   // ═══════════════════════════════════════════════════════════════════════
   const guardarCambios = useCallback(async (cambios) => {
     // 1) Snapshot para deshacer (solo de los cambios explícitos)
@@ -150,7 +151,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     });
 
     // 3) 🔑 AUTO-ACOMODO: recalcular sucesoras
-    // Construir el estado "post cambio" para que el recálculo vea los nuevos valores
     const tareasPostCambio = tareas.map(t => {
       const cambio = cambios.find(c => c.tareaId === t.id);
       if (!cambio) return t;
@@ -162,20 +162,23 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       };
     });
 
-    // La tarea "origen" es la primera que se movió explícitamente
+    // 🔑 La tarea "origen" es la primera que se movió explícitamente
     const tareaOrigenId = cambios[0]?.tareaId;
 
     let cambiosExtra = [];
     let movidas = [];
 
-    if (tareaOrigenId && feriadosSet) {
+    if (tareaOrigenId) {
+      // 🔑 FIX: calcular feriados ADENTRO del callback (no depender del hook)
+      const anioPlan = Number((plan?.fecha_inicio || '').slice(0, 4)) || new Date().getFullYear();
+      const feriadosLocal = getFeriadosDelAnio(anioPlan, feriadosCustom);
+
       const resultado = recalcularFechasDelPlan(
         tareasPostCambio,
-        feriadosSet,
+        feriadosLocal,
         tareaOrigenId
       );
 
-      // Convertir mapa de cambios a array
       cambiosExtra = Object.entries(resultado.cambios || {}).map(([tareaId, data]) => ({
         tareaId,
         ...data,
@@ -200,7 +203,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       });
     }
 
-    // 5) Snapshot extra para deshacer (las sucesoras también)
+    // 5) Snapshot extra para deshacer
     const snapshotExtra = cambiosExtra.map(c => {
       const tarea = tareas.find(t => t.id === c.tareaId);
       return {
@@ -211,7 +214,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       };
     });
 
-    // 6) Combinar cambios y guardar en Firestore en un solo batch
+    // 6) Combinar y guardar en Firestore
     const cambiosFinales = [...cambios, ...cambiosExtra];
 
     try {
@@ -227,11 +230,10 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       });
       await batch.commit();
 
-      // 7) Toast informativo
+      // 7) Toast
       const snapshotCompleto = [...snapshotAnterior, ...snapshotExtra];
 
       if (movidas.length > 0) {
-        // Toast especial: hay auto-acomodo
         const toastId = toast.custom(
           (t) => (
             <div
@@ -275,7 +277,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       }
     } catch (err) {
       console.error('[GanttTab] Error en writeBatch:', err);
-      // Rollback de optimistas
       setTareasOptimistas(prev => {
         const nuevos = { ...prev };
         cambiosFinales.forEach(c => { delete nuevos[c.tareaId]; });
@@ -283,7 +284,8 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       });
       toast.error('Error al guardar cambios: ' + (err.message || ''), { duration: 6000 });
     }
-  }, [tareas, mostrarToastUndo, feriadosSet, handleUndo]);
+  }, [tareas, mostrarToastUndo, handleUndo, plan, feriadosCustom]);
+  // 🔑 FIX: se quitaron las dependencias 'feriadosSet' del array de deps
 
   const {
     dragActivo,
