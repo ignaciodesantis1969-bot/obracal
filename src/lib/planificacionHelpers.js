@@ -694,3 +694,218 @@ export function calcularPresupuestoMO(tarea, presupuesto) {
   console.log('[calcularPresupuestoMO] ✓ RESULTADO:', resultado);
   return resultado;
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// AUTO-ACOMODO: RECÁLCULO DE FECHAS POR DEPENDENCIAS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Recalcula las fechas de todas las tareas respetando las dependencias.
+ * 
+ * - La tarea origen (la que movió el usuario) mantiene sus fechas.
+ * - Las sucesoras se recalculan en cascada, respetando el tipo de dependencia.
+ * - Soporta FS, SS, FF, SF.
+ * - Con múltiples predecesoras, toma el MAX de las fechas calculadas.
+ * - Usa días hábiles (respeta feriados).
+ * 
+ * @param {Array} tareas - Array de tareas del plan
+ * @param {Set} feriadosSet - Set de feriados (YYYY-MM-DD)
+ * @param {string} tareaOrigenId - ID de la tarea que movió el usuario
+ * @returns {Object} { cambios: { [tareaId]: { fecha_inicio, fecha_fin } }, movidas: [...] }
+ */
+export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
+  if (!Array.isArray(tareas) || tareas.length === 0) {
+    return { cambios: {}, movidas: [] };
+  }
+
+  // ─── Indexar tareas ──────────────────────────────────────────────────
+  const tareasMap = new Map();
+  tareas.forEach(t => tareasMap.set(String(t.id), t));
+
+  // ─── Topological sort (Kahn) ─────────────────────────────────────────
+  // Necesitamos procesar tareas en orden de dependencia: primero las que
+  // no tienen predecesoras, después las que dependen de ellas, etc.
+  
+  const grafoSalida = new Map(); // tareaId → [ids de sucesoras]
+  const gradosEntrada = new Map(); // tareaId → cantidad de predecesoras
+
+  tareas.forEach(t => {
+    const id = String(t.id);
+    grafoSalida.set(id, []);
+    gradosEntrada.set(id, 0);
+  });
+
+  tareas.forEach(t => {
+    const id = String(t.id);
+    const preds = normalizarPredecesoras(t.predecesoras);
+    preds.forEach(p => {
+      const predId = String(p.tarea_id);
+      if (!tareasMap.has(predId)) return; // predecesora eliminada
+      grafoSalida.get(predId).push(id);
+      gradosEntrada.set(id, (gradosEntrada.get(id) || 0) + 1);
+    });
+  });
+
+  // Cola de tareas sin predecesoras pendientes
+  const cola = [];
+  gradosEntrada.forEach((grado, id) => {
+    if (grado === 0) cola.push(id);
+  });
+
+  const ordenTopologico = [];
+  while (cola.length > 0) {
+    const id = cola.shift();
+    ordenTopologico.push(id);
+
+    const sucesoras = grafoSalida.get(id) || [];
+    sucesoras.forEach(sucId => {
+      gradosEntrada.set(sucId, gradosEntrada.get(sucId) - 1);
+      if (gradosEntrada.get(sucId) === 0) {
+        cola.push(sucId);
+      }
+    });
+  }
+
+  // Si hay ciclos, algunas tareas no se procesan. Agregamos las faltantes al final.
+  tareas.forEach(t => {
+    const id = String(t.id);
+    if (!ordenTopologico.includes(id)) {
+      ordenTopologico.push(id);
+    }
+  });
+
+  // ─── Calcular fechas en orden topológico ─────────────────────────────
+  const cambios = {};
+  const movidas = [];
+  const origenStr = String(tareaOrigenId || '');
+
+  ordenTopologico.forEach(tareaId => {
+    const tarea = tareasMap.get(tareaId);
+    if (!tarea) return;
+
+    const preds = normalizarPredecesoras(tarea.predecesoras).filter(p => tareasMap.has(String(p.tarea_id)));
+    const duracion = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 1;
+    const fechaInicioActual = tarea.fecha_inicio || null;
+
+    // 🔑 Si es la tarea origen O no tiene predecesoras → respetar su fecha actual
+    if (tareaId === origenStr || preds.length === 0) {
+      // Si no tiene fecha, dejarla como está (o asignar una default)
+      return;
+    }
+
+    // 🔑 Calcular la fecha mínima permitida según cada predecesora
+    let fechaInicioMinima = null; // ISO YYYY-MM-DD
+    let fechaFinMinima = null;
+
+    preds.forEach(pred => {
+      const predTarea = tareasMap.get(String(pred.tarea_id));
+      if (!predTarea) return;
+
+      // Las fechas de la predecesora pueden haber sido recalculadas
+      const predCambio = cambios[String(pred.tarea_id)];
+      const predInicio = predCambio?.fecha_inicio || predTarea.fecha_inicio;
+      const predFin = predCambio?.fecha_fin || predTarea.fecha_fin;
+      if (!predInicio || !predFin) return;
+
+      const lag = Number(pred.lag) || 0;
+      const tipo = pred.tipo || 'FS';
+
+      let inicioCalculado = null;
+
+      switch (tipo) {
+        case 'FS':
+          // Sucesora empieza cuando termina predecesora + lag + 1 día
+          inicioCalculado = sumarDiasHabiles(predFin, 1 + lag, feriadosSet);
+          break;
+        case 'SS':
+          // Sucesora empieza cuando empieza predecesora + lag
+          inicioCalculado = sumarDiasHabiles(predInicio, lag, feriadosSet);
+          break;
+        case 'FF':
+          // Sucesora termina cuando termina predecesora + lag → inicio = fin - duracion
+          {
+            const finCalculado = sumarDiasHabiles(predFin, lag, feriadosSet);
+            inicioCalculado = restarDiasHabiles(finCalculado, duracion - 1, feriadosSet);
+          }
+          break;
+        case 'SF':
+          // Sucesora termina cuando empieza predecesora + lag → inicio = fin - duracion
+          {
+            const finCalculado = sumarDiasHabiles(predInicio, lag, feriadosSet);
+            inicioCalculado = restarDiasHabiles(finCalculado, duracion - 1, feriadosSet);
+          }
+          break;
+        default:
+          inicioCalculado = sumarDiasHabiles(predFin, 1 + lag, feriadosSet);
+      }
+
+      if (!inicioCalculado) return;
+
+      // Con múltiples predecesoras → MAX
+      if (!fechaInicioMinima || inicioCalculado > fechaInicioMinima) {
+        fechaInicioMinima = inicioCalculado;
+      }
+    });
+
+    if (!fechaInicioMinima) return; // no se pudo calcular
+
+    // 🔑 Recalcular fecha fin con la duración
+    const fechaFinCalculada = sumarDiasHabiles(fechaInicioMinima, duracion - 1, feriadosSet);
+
+    // 🔑 Solo agregar al cambio si efectivamente cambió
+    if (fechaInicioMinima !== fechaInicioActual) {
+      cambios[tareaId] = {
+        fecha_inicio: fechaInicioMinima,
+        fecha_fin: fechaFinCalculada,
+      };
+
+      // Solo agregar a "movidas" si NO es la origen
+      if (tareaId !== origenStr) {
+        movidas.push({
+          id: tareaId,
+          nombre: tarea.tarea_nombre,
+          fecha_inicio_anterior: fechaInicioActual,
+          fecha_inicio_nueva: fechaInicioMinima,
+        });
+      }
+    }
+  });
+
+  return { cambios, movidas };
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPERS DE DÍAS HÁBILES
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Suma N días hábiles a una fecha ISO.
+ * Si N = 0, devuelve la misma fecha.
+ */
+function sumarDiasHabiles(fechaIso, n, feriadosSet) {
+  if (!fechaIso) return fechaIso;
+  if (n === 0) return fechaIso;
+
+  const fecha = new Date(fechaIso + 'T00:00:00');
+  const step = n > 0 ? 1 : -1;
+  let contados = 0;
+  let iteraciones = 0;
+  const objetivo = Math.abs(n);
+  const MAX = 3650;
+
+  while (contados < objetivo && iteraciones < MAX) {
+    fecha.setDate(fecha.getDate() + step);
+    if (esDiaHabil(fecha, feriadosSet)) {
+      contados++;
+    }
+    iteraciones++;
+  }
+
+  return fecha.toISOString().slice(0, 10);
+}
+
+/**
+ * Resta N días hábiles a una fecha ISO.
+ */
+function restarDiasHabiles(fechaIso, n, feriadosSet) {
+  return sumarDiasHabiles(fechaIso, -n, feriadosSet);
+}

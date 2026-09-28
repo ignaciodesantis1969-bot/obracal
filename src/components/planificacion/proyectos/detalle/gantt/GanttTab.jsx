@@ -14,8 +14,12 @@ import GanttBarra from './GanttBarra';
 import GanttFlechas from './GanttFlechas';
 import TareaDependenciasModal from './TareaDependenciasModal';
 import GanttSidebar from './GanttSidebar';
-// 🔑 FIX: importar helpers de fechas (antes faltaba → error "calcularFechaFin is not defined")
-import { calcularFechaFin, getFeriadosDelAnio } from '@/lib/planificacionHelpers';
+// 🔑 FIX: helpers de fechas + recálculo por dependencias
+import {
+  calcularFechaFin,
+  getFeriadosDelAnio,
+  recalcularFechasDelPlan,
+} from '@/lib/planificacionHelpers';
 
 const ALTURA_FILA = 36;
 const DURACION_TOAST_DESHACER = 10000;
@@ -116,7 +120,11 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     }
   }, []);
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // GUARDAR CAMBIOS + AUTO-ACOMODO POR DEPENDENCIAS
+  // ═══════════════════════════════════════════════════════════════════════
   const guardarCambios = useCallback(async (cambios) => {
+    // 1) Snapshot para deshacer (solo de los cambios explícitos)
     const snapshotAnterior = cambios.map(c => {
       const tarea = tareas.find(t => t.id === c.tareaId);
       return {
@@ -127,6 +135,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       };
     });
 
+    // 2) Aplicar cambios optimistas locales (los explícitos)
     setTareasOptimistas(prev => {
       const nuevos = { ...prev };
       cambios.forEach(c => {
@@ -140,9 +149,74 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       return nuevos;
     });
 
+    // 3) 🔑 AUTO-ACOMODO: recalcular sucesoras
+    // Construir el estado "post cambio" para que el recálculo vea los nuevos valores
+    const tareasPostCambio = tareas.map(t => {
+      const cambio = cambios.find(c => c.tareaId === t.id);
+      if (!cambio) return t;
+      return {
+        ...t,
+        ...(cambio.fecha_inicio !== undefined && { fecha_inicio: cambio.fecha_inicio }),
+        ...(cambio.fecha_fin !== undefined && { fecha_fin: cambio.fecha_fin }),
+        ...(cambio.duracion_real_dias !== undefined && { duracion_real_dias: cambio.duracion_real_dias }),
+      };
+    });
+
+    // La tarea "origen" es la primera que se movió explícitamente
+    const tareaOrigenId = cambios[0]?.tareaId;
+
+    let cambiosExtra = [];
+    let movidas = [];
+
+    if (tareaOrigenId && feriadosSet) {
+      const resultado = recalcularFechasDelPlan(
+        tareasPostCambio,
+        feriadosSet,
+        tareaOrigenId
+      );
+
+      // Convertir mapa de cambios a array
+      cambiosExtra = Object.entries(resultado.cambios || {}).map(([tareaId, data]) => ({
+        tareaId,
+        ...data,
+        fecha_manual: false,
+      }));
+
+      movidas = resultado.movidas || [];
+    }
+
+    // 4) Aplicar cambios optimistas de las sucesoras
+    if (cambiosExtra.length > 0) {
+      setTareasOptimistas(prev => {
+        const nuevos = { ...prev };
+        cambiosExtra.forEach(c => {
+          nuevos[c.tareaId] = {
+            ...(nuevos[c.tareaId] || {}),
+            fecha_inicio: c.fecha_inicio,
+            fecha_fin: c.fecha_fin,
+          };
+        });
+        return nuevos;
+      });
+    }
+
+    // 5) Snapshot extra para deshacer (las sucesoras también)
+    const snapshotExtra = cambiosExtra.map(c => {
+      const tarea = tareas.find(t => t.id === c.tareaId);
+      return {
+        tareaId: c.tareaId,
+        fecha_inicio: tarea?.fecha_inicio,
+        fecha_fin: tarea?.fecha_fin,
+        duracion_real_dias: tarea?.duracion_real_dias,
+      };
+    });
+
+    // 6) Combinar cambios y guardar en Firestore en un solo batch
+    const cambiosFinales = [...cambios, ...cambiosExtra];
+
     try {
       const batch = writeBatch(db);
-      cambios.forEach(c => {
+      cambiosFinales.forEach(c => {
         const ref = doc(db, 'planificacion_tareas', c.tareaId);
         const data = {};
         if (c.fecha_inicio !== undefined) data.fecha_inicio = c.fecha_inicio;
@@ -152,17 +226,64 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         batch.update(ref, data);
       });
       await batch.commit();
-      mostrarToastUndo(cambios.length, snapshotAnterior);
+
+      // 7) Toast informativo
+      const snapshotCompleto = [...snapshotAnterior, ...snapshotExtra];
+
+      if (movidas.length > 0) {
+        // Toast especial: hay auto-acomodo
+        const toastId = toast.custom(
+          (t) => (
+            <div
+              className={cn(
+                'bg-slate-900 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3',
+                'border border-slate-700',
+                t.visible ? 'animate-enter' : 'animate-leave'
+              )}
+              style={{ minWidth: '380px', maxWidth: '520px' }}
+            >
+              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-bold">
+                  {cambios.length} cambio{cambios.length === 1 ? '' : 's'}
+                  {movidas.length > 0 && ` · ${movidas.length} movida${movidas.length === 1 ? '' : 's'} por dependencias`}
+                </p>
+                <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                  {movidas.slice(0, 3).map(m => m.nombre).join(', ')}
+                  {movidas.length > 3 && ` +${movidas.length - 3} más`}
+                </p>
+              </div>
+              <button
+                onClick={() => handleUndo(toastId, snapshotCompleto)}
+                className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-800 shrink-0"
+              >
+                <Undo2 className="w-3.5 h-3.5" />
+                Deshacer
+              </button>
+              <button
+                onClick={() => toast.dismiss(toastId)}
+                className="text-slate-500 hover:text-slate-300 shrink-0"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          ),
+          { duration: DURACION_TOAST_DESHACER, position: 'bottom-right' }
+        );
+      } else {
+        mostrarToastUndo(cambios.length, snapshotCompleto);
+      }
     } catch (err) {
       console.error('[GanttTab] Error en writeBatch:', err);
+      // Rollback de optimistas
       setTareasOptimistas(prev => {
         const nuevos = { ...prev };
-        cambios.forEach(c => { delete nuevos[c.tareaId]; });
+        cambiosFinales.forEach(c => { delete nuevos[c.tareaId]; });
         return nuevos;
       });
       toast.error('Error al guardar cambios: ' + (err.message || ''), { duration: 6000 });
     }
-  }, [tareas, mostrarToastUndo]);
+  }, [tareas, mostrarToastUndo, feriadosSet, handleUndo]);
 
   const {
     dragActivo,
@@ -213,10 +334,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     setTareaDependencias(tarea);
   }, []);
 
-  // 🔑 FIX: callback cuando se edita fecha en el sidebar
-  // - Usa feriados reales (custom de Firestore + hardcodeados)
-  // - Si cambia inicio → recalcula fin (mantiene duración)
-  // - Si cambia fin → recalcula duración
+  // 🔑 Callback cuando se edita fecha en el sidebar
   const handleCambiarFecha = useCallback(async (tareaId, campo, fechaIso) => {
     const tarea = tareasConCambios.find(t => t.id === tareaId);
     if (!tarea) return;
