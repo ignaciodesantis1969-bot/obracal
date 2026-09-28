@@ -777,68 +777,122 @@ export function buscarUsuarioPorId(usuarios, userId) {
   if (!Array.isArray(usuarios) || !userId) return null;
   return usuarios.find(u => String(u.id) === String(userId)) || null;
 }
-// ═══════════════════════════════════════════════════════════════════════════
-// PRESUPUESTO DE MANO DE OBRA POR TAREA (para comparación en asignación)
-// ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Calcula el presupuesto de MANO DE OBRA de una tarea según el presupuesto aprobado.
- *
- * Fórmula:
- *   = costo_unitario_MO  ×  cantidad_insumo_MO  ×  cantidad_tarea
- *
- * Ejemplo (tarea "Cordones de hormigón armado 15x15"):
- *   = 578245.976 × 0.077 × 13.5 = $601.086,69
- *
- * Match:
- *   - rubro: tarea.rubro_idx (fallback: tarea.recursos.rubro_idx)
- *   - tarea: tarea.recursos.subtareas[0].tarea_idx
- *   - insumo MO: por nombre (normalizado) + tipo "mano de obra"
- *
- * @param {Object} tarea - Doc de planificacion_tareas
- * @param {Object} presupuesto - Doc del presupuesto vinculado
- * @returns {number} Costo presupuestado de MO para esa tarea (0 si no se puede calcular)
- */
 export function calcularPresupuestoMO(tarea, presupuesto) {
-  if (!tarea || !presupuesto || !tarea.insumo_mo_nombre) return 0;
+  // 🔑 Debug: loguear siempre para diagnosticar
+  console.log('[calcularPresupuestoMO] ENTRADA:', {
+    tieneTarea: !!tarea,
+    tienePresupuesto: !!presupuesto,
+    insumo_mo_nombre: tarea?.insumo_mo_nombre,
+    cantidad: tarea?.cantidad,
+    rubro_idx_raiz: tarea?.rubro_idx,
+    recursos_tipo: Array.isArray(tarea?.recursos) ? 'array' : typeof tarea?.recursos,
+    recursos: tarea?.recursos,
+  });
 
-  // 1) Parsear items_detalle (puede venir como string o como objeto)
+  if (!tarea || !presupuesto || !tarea.insumo_mo_nombre) {
+    console.log('[calcularPresupuestoMO] → return 0 (falta tarea/presupuesto/insumo)');
+    return 0;
+  }
+
+  // 1) Parsear items_detalle
   let detalle = presupuesto.items_detalle || presupuesto.itemsDetalle;
   if (typeof detalle === 'string') {
-    try { detalle = JSON.parse(detalle); } catch { return 0; }
+    try { detalle = JSON.parse(detalle); } catch { 
+      console.log('[calcularPresupuestoMO] → return 0 (no se pudo parsear items_detalle)');
+      return 0; 
+    }
   }
   const rubros = Array.isArray(detalle?.rubros) ? detalle.rubros : [];
-  if (rubros.length === 0) return 0;
+  if (rubros.length === 0) {
+    console.log('[calcularPresupuestoMO] → return 0 (rubros vacío)', { detalle });
+    return 0;
+  }
 
-  // 2) Buscar el rubro por rubro_idx
-  const rubroIdx = Number(
-    tarea.rubro_idx ?? tarea.recursos?.rubro_idx ?? -1
-  );
-  if (rubroIdx < 0 || !rubros[rubroIdx]) return 0;
+  // 🔑 Buscar rubro_idx en varios lugares
+  let rubroIdx = Number(tarea.rubro_idx);
+  let fuenteRubroIdx = 'raiz';
+  
+  if (isNaN(rubroIdx) || rubroIdx < 0) {
+    // Fallback 1: dentro de recursos (si es array, buscar el elemento que lo tenga)
+    if (Array.isArray(tarea.recursos)) {
+      const elemConRubro = tarea.recursos.find(r => r && r.rubro_idx !== undefined);
+      if (elemConRubro) {
+        rubroIdx = Number(elemConRubro.rubro_idx);
+        fuenteRubroIdx = 'recursos[array].find()';
+      }
+    }
+    // Fallback 2: dentro de recursos (si es objeto/map)
+    if ((isNaN(rubroIdx) || rubroIdx < 0) && tarea.recursos && !Array.isArray(tarea.recursos)) {
+      if (tarea.recursos.rubro_idx !== undefined) {
+        rubroIdx = Number(tarea.recursos.rubro_idx);
+        fuenteRubroIdx = 'recursos.rubro_idx';
+      }
+    }
+  }
+  
+  console.log('[calcularPresupuestoMO] rubroIdx:', rubroIdx, '| fuente:', fuenteRubroIdx);
+
+  if (isNaN(rubroIdx) || rubroIdx < 0 || !rubros[rubroIdx]) {
+    console.log('[calcularPresupuestoMO] → return 0 (rubroIdx inválido)', { rubroIdx, rubrosLength: rubros.length });
+    return 0;
+  }
   const rubro = rubros[rubroIdx];
 
-  // 3) Buscar la tarea por tarea_idx (en recursos.subtareas[0])
-  const subtareas = Array.isArray(tarea.recursos?.subtareas) ? tarea.recursos.subtareas : [];
-  const tareaIdx = Number(subtareas[0]?.tarea_idx ?? -1);
-  if (tareaIdx < 0) return 0;
+  // 🔑 Buscar tarea_idx en varios lugares
+  let tareaIdx = -1;
+  if (Array.isArray(tarea.recursos)) {
+    const elemConSubtareas = tarea.recursos.find(r => r && Array.isArray(r.subtareas) && r.subtareas.length > 0);
+    if (elemConSubtareas) {
+      tareaIdx = Number(elemConSubtareas.subtareas[0]?.tarea_idx ?? -1);
+    }
+  }
+  if (tareaIdx < 0 && tarea.recursos?.subtareas) {
+    tareaIdx = Number(tarea.recursos.subtareas[0]?.tarea_idx ?? -1);
+  }
+  if (tareaIdx < 0 && Array.isArray(tarea.subtareas)) {
+    tareaIdx = Number(tarea.subtareas[0]?.tarea_idx ?? -1);
+  }
+
+  console.log('[calcularPresupuestoMO] tareaIdx:', tareaIdx);
+
+  if (tareaIdx < 0) {
+    console.log('[calcularPresupuestoMO] → return 0 (tareaIdx inválido)');
+    return 0;
+  }
 
   const tareas = Array.isArray(rubro.tareas) ? rubro.tareas : [];
-  if (!tareas[tareaIdx]) return 0;
+  if (!tareas[tareaIdx]) {
+    console.log('[calcularPresupuestoMO] → return 0 (tarea no existe en presupuesto)', { tareaIdx, tareasLength: tareas.length });
+    return 0;
+  }
   const tareaPresupuesto = tareas[tareaIdx];
 
-  // 4) Buscar el insumo MO por nombre + tipo
+  // 4) Buscar insumo MO
   const insumosTarea = Array.isArray(tareaPresupuesto.insumos) ? tareaPresupuesto.insumos : [];
   const buscado = normalizarTexto(tarea.insumo_mo_nombre);
   const insumoMO = insumosTarea.find(i =>
     normalizarTexto(i?.nombre || '') === buscado &&
     normalizarTexto(i?.tipo || '').includes('mano de obra')
   );
-  if (!insumoMO) return 0;
 
-  // 5) Calcular
+  console.log('[calcularPresupuestoMO] insumo encontrado:', insumoMO);
+
+  if (!insumoMO) {
+    console.log('[calcularPresupuestoMO] → return 0 (insumo MO no encontrado)');
+    return 0;
+  }
+
   const costoUnitarioMO = Number(insumoMO.costo_unitario) || 0;
   const cantidadInsumoMO = Number(insumoMO.cantidad) || 0;
   const cantidadTarea = Number(tarea.cantidad) || 0;
 
-  return costoUnitarioMO * cantidadInsumoMO * cantidadTarea;
+  const resultado = costoUnitarioMO * cantidadInsumoMO * cantidadTarea;
+  console.log('[calcularPresupuestoMO] ✓ RESULTADO:', {
+    costoUnitarioMO,
+    cantidadInsumoMO,
+    cantidadTarea,
+    resultado,
+  });
+
+  return resultado;
 }
