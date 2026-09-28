@@ -5,9 +5,6 @@
 // UTILIDADES DE TEXTO
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Normaliza texto para comparaciones (minúsculas, sin acentos, sin espacios extra)
- */
 export function normalizarTexto(str) {
   if (!str) return '';
   return String(str)
@@ -22,10 +19,6 @@ export function normalizarTexto(str) {
 // CALENDARIO Y DÍAS HÁBILES
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Feriados nacionales de Argentina (2025-2027 hardcoded por simplicidad)
- * Se pueden agregar más en la colección `feriados`
- */
 const FERIADOS_FIJOS = {
   2025: [
     '2025-01-01', '2025-02-24', '2025-02-25', '2025-03-24',
@@ -48,10 +41,6 @@ const FERIADOS_FIJOS = {
   ]
 };
 
-/**
- * Devuelve un Set con todas las fechas de feriados del año dado
- * Combina los hardcoded + los custom que pases
- */
 export function getFeriadosDelAnio(anio, feriadosCustom = []) {
   const base = FERIADOS_FIJOS[anio] || [];
   const custom = feriadosCustom
@@ -60,30 +49,21 @@ export function getFeriadosDelAnio(anio, feriadosCustom = []) {
   return new Set([...base, ...custom]);
 }
 
-/**
- * Verifica si una fecha es día hábil (lunes a viernes, no feriado)
- */
 export function esDiaHabil(fecha, feriadosSet) {
-  const dia = fecha.getDay(); // 0 = domingo, 6 = sábado
+  const dia = fecha.getDay();
   if (dia === 0 || dia === 6) return false;
-
   const iso = fecha.toISOString().slice(0, 10);
   if (feriadosSet && feriadosSet.has(iso)) return false;
-
   return true;
 }
 
-/**
- * Suma N días hábiles a una fecha de inicio.
- * El día de inicio NO cuenta. Arranca desde el día siguiente.
- */
 export function calcularFechaFin(fechaInicio, diasHabiles, feriadosSet) {
   if (!fechaInicio || diasHabiles <= 0) return fechaInicio;
 
   const cursor = new Date(fechaInicio + 'T00:00:00');
   let contados = 0;
   let iteraciones = 0;
-  const MAX_ITERACIONES = 3650; // 10 años
+  const MAX_ITERACIONES = 3650;
 
   while (contados < diasHabiles && iteraciones < MAX_ITERACIONES) {
     cursor.setDate(cursor.getDate() + 1);
@@ -96,9 +76,6 @@ export function calcularFechaFin(fechaInicio, diasHabiles, feriadosSet) {
   return cursor.toISOString().slice(0, 10);
 }
 
-/**
- * Cuenta días hábiles entre 2 fechas (inclusive el fin, exclusivo el inicio)
- */
 export function contarDiasHabiles(fechaInicio, fechaFin, feriadosSet) {
   if (!fechaInicio || !fechaFin) return 0;
   const inicio = new Date(fechaInicio + 'T00:00:00');
@@ -119,10 +96,6 @@ export function contarDiasHabiles(fechaInicio, fechaFin, feriadosSet) {
 // EXTRACCIÓN DE CUADRILLA
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Busca una cuadrilla en la lista de insumos por nombre.
- * Devuelve { composicion, personas, totalPersonas, costoDiario } o null
- */
 export function buscarCuadrillaPorNombre(nombreCuadrilla, insumos) {
   if (!nombreCuadrilla || !Array.isArray(insumos)) return null;
 
@@ -156,7 +129,7 @@ export function buscarCuadrillaPorNombre(nombreCuadrilla, insumos) {
     costoDiario: Number(match.costo_unitario || match.costo || 0),
     composicion,
     personas: items,
-    totalPersonas: totalPersonas || 1, // fallback mínimo 1
+    totalPersonas: totalPersonas || 1,
     viaticos: composicion.viaticos || { cantidad: 0, costo: 0 },
     porcentajeCargas: Number(composicion.porcentajeCargas || 0)
   };
@@ -166,36 +139,6 @@ export function buscarCuadrillaPorNombre(nombreCuadrilla, insumos) {
 // CÁLCULO DE TAREAS
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Calcula los días-hombre de una tarea a partir de su insumo de Mano de Obra.
- * 
- * 🔑 FIX: ahora multiplica por la CANTIDAD DE LA TAREA.
- * 
- * Interpretación correcta del insumo MO:
- *   - `insumoMO.cantidad` = días de cuadrilla POR UNIDAD de la tarea
- *   - `tarea.cantidad`    = cuántas unidades hay que ejecutar
- *   - `cuadrilla.totalPersonas` = cuántas personas componen la cuadrilla
- * 
- * Fórmula:
- *   diasCuadrillaTotales = tarea.cantidad × insumoMO.cantidad
- *   diasHombre           = diasCuadrillaTotales × operariosTeoricos
- * 
- * Ejemplo:
- *   Tarea: pintar 10 m² (tarea.cantidad = 10)
- *   Insumo MO: 0.5 día/m² (insumoMO.cantidad = 0.5)
- *   Cuadrilla: 4 personas
- *   → diasCuadrillaTotales = 10 × 0.5 = 5 días
- *   → diasHombre = 5 × 4 = 20 días-hombre
- * 
- * Devuelve {
- *   cantidadUnidadesTarea,  // cuántas unidades hay que ejecutar
- *   diasPorUnidad,          // días de cuadrilla por unidad
- *   cantidadDias,           // días TOTALES de cuadrilla (tarea.cantidad × insumoMO.cantidad)
- *   operariosTeoricos,      // personas en la cuadrilla
- *   diasHombre,             // cantidadDias × operariosTeoricos
- *   cuadrilla
- * }
- */
 export function calcularDiasHombreTarea(tarea, insumos) {
   const insumosTarea = Array.isArray(tarea?.insumos) ? tarea.insumos : [];
 
@@ -215,19 +158,12 @@ export function calcularDiasHombreTarea(tarea, insumos) {
     };
   }
 
-  // 🔑 FIX: cantidad de unidades de la tarea (ej: 10 m², 5 gl, 3 un)
   const cantidadUnidadesTarea = Number(tarea?.cantidad) || 1;
-
-  // 🔑 FIX: días de cuadrilla por unidad (ej: 0.5 día/m²)
   const diasPorUnidad = Number(insumoMO.cantidad) || 0;
-
-  // 🔑 FIX: días TOTALES de cuadrilla = unidades × días por unidad
   const cantidadDias = cantidadUnidadesTarea * diasPorUnidad;
 
   const cuadrilla = buscarCuadrillaPorNombre(insumoMO.nombre, insumos);
   const operariosTeoricos = cuadrilla?.totalPersonas || 1;
-
-  // 🔑 FIX: días-hombre = días totales de cuadrilla × operarios
   const diasHombre = cantidadDias * operariosTeoricos;
 
   return {
@@ -241,12 +177,6 @@ export function calcularDiasHombreTarea(tarea, insumos) {
   };
 }
 
-/**
- * Extrae todas las tareas del presupuesto aplanadas, con info de rubro.
- * Devuelve array de objetos:
- * { rubro_nombre, rubro_idx, tarea_nombre, tarea_idx, unidad, cantidad,
- *   insumo_mo_nombre, cantidad_dias, operarios_teoricos, dias_hombre, cuadrilla_id }
- */
 export function extraerTareasDelPresupuesto(presupuesto, insumos) {
   if (!presupuesto) return [];
 
@@ -273,12 +203,11 @@ export function extraerTareasDelPresupuesto(presupuesto, insumos) {
         unidad: t?.unidad || 'gl',
         cantidad: Number(t?.cantidad) || 1,
 
-        // 🔑 Datos de la MO (con la fórmula corregida)
         insumo_mo_nombre: calculo.cuadrilla?.nombre || '',
         cuadrilla_id: calculo.cuadrilla?.id || null,
         cantidad_unidades_tarea: calculo.cantidadUnidadesTarea,
         dias_por_unidad: calculo.diasPorUnidad,
-        cantidad_dias: calculo.cantidadDias,              // ← días TOTALES de cuadrilla
+        cantidad_dias: calculo.cantidadDias,
         operarios_teoricos: calculo.operariosTeoricos,
         dias_hombre: calculo.diasHombre,
         sin_mano_de_obra: calculo.sinManoDeObra
@@ -290,12 +219,9 @@ export function extraerTareasDelPresupuesto(presupuesto, insumos) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CREACIÓN DEL PLAN + COPIAR TAREAS
+// COLORES Y ESTADOS
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Paleta de colores predefinidos para los planes
- */
 export const COLORES_PLAN = [
   { id: 'amber',    hex: '#f59e0b' },
   { id: 'blue',     hex: '#3b82f6' },
@@ -307,9 +233,6 @@ export const COLORES_PLAN = [
   { id: 'orange',   hex: '#f97316' }
 ];
 
-/**
- * Estados disponibles para un plan
- */
 export const ESTADOS_PLAN = [
   { id: 'borrador',   label: 'Borrador',   color: 'bg-slate-100 text-slate-700' },
   { id: 'activo',     label: 'Activo',     color: 'bg-emerald-100 text-emerald-800' },
@@ -318,9 +241,6 @@ export const ESTADOS_PLAN = [
   { id: 'archivado',  label: 'Archivado',  color: 'bg-slate-200 text-slate-700' }
 ];
 
-/**
- * Estados disponibles para una tarea
- */
 export const ESTADOS_TAREA = [
   { id: 'no_iniciado', label: 'No iniciado', color: 'bg-slate-100 text-slate-700' },
   { id: 'en_curso',    label: 'En curso',    color: 'bg-blue-100 text-blue-800' },
@@ -329,13 +249,9 @@ export const ESTADOS_TAREA = [
 ];
 
 // ═══════════════════════════════════════════════════════════════════════════
-// ELIMINACIÓN DE PLANES (con cascada a tareas)
+// ELIMINACIÓN DE PLANES
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Elimina un plan + todas sus tareas asociadas.
- * Devuelve { ok, tareasEliminadas } o lanza error.
- */
 export async function eliminarPlanConTareas(planId, colecciones) {
   const { tareas, eliminarDoc, eliminarDocsFiltrados } = colecciones;
 
@@ -368,13 +284,9 @@ export async function eliminarPlanConTareas(planId, colecciones) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// HELPERS DE RECURSOS Y VALIDACIÓN (Paso 5B)
+// HELPERS DE RECURSOS Y VALIDACIÓN
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Obtiene el porcentaje de cargas sociales de una tarea,
- * leyendo la composición de su cuadrilla.
- */
 export function obtenerPorcentajeCargasDeTarea(tarea, insumos) {
   if (!tarea?.insumo_mo_nombre || !Array.isArray(insumos)) return 76;
 
@@ -394,12 +306,7 @@ export function obtenerPorcentajeCargasDeTarea(tarea, insumos) {
   }
 }
 
-/**
- * Calcula el costo diario real de un operario (sueldo + cargas).
- * 🔑 FIX: sanitiza todos los números (evita NaN)
- */
 export function calcularCostoDiarioOperario(operario, porcentajeCargas = 76) {
-  // 🔑 FIX: usar nullish coalescing en vez de || (para no pisar el 0 legítimo)
   const sueldoRaw = operario?.costo_en_mano ?? operario?.Costo_en_mano ?? operario?.salario ?? 0;
   const sueldoBaseNum = Number(sueldoRaw);
   const sueldoBase = isNaN(sueldoBaseNum) ? 0 : sueldoBaseNum;
@@ -413,11 +320,6 @@ export function calcularCostoDiarioOperario(operario, porcentajeCargas = 76) {
   return isNaN(total) ? 0 : Math.round(total * 100) / 100;
 }
 
-/**
- * Obtiene los subcontratos disponibles en una tarea específica.
- * Busca en los insumos del presupuesto dentro de la tarea.
- * Devuelve array de: { id, nombre, montoTotal, unidad, cantidad }
- */
 export function obtenerSubcontratosDeTarea(tarea, presupuesto) {
   if (!tarea || !presupuesto) return [];
 
@@ -449,10 +351,6 @@ export function obtenerSubcontratosDeTarea(tarea, presupuesto) {
     }));
 }
 
-/**
- * Valida que un operario no esté asignado a otra tarea
- * con rango de fechas solapado en el mismo plan.
- */
 export function validarSolapamientoOperario(operarioId, fechaInicio, fechaFin, tareasDelPlan, tareaActualId) {
   if (!operarioId || !fechaInicio || !fechaFin) {
     return { ok: true, conflicto: null };
@@ -475,7 +373,6 @@ export function validarSolapamientoOperario(operarioId, fechaInicio, fechaFin, t
     const tInicio = new Date(t.fecha_inicio + 'T00:00:00');
     const tFin = new Date(t.fecha_fin + 'T00:00:00');
 
-    // Detectar solapamiento (rangos inclusivos)
     const solapa = !(fin < tInicio || inicio > tFin);
     if (solapa) {
       return {
@@ -493,10 +390,6 @@ export function validarSolapamientoOperario(operarioId, fechaInicio, fechaFin, t
   return { ok: true, conflicto: null };
 }
 
-/**
- * Valida múltiples operarios contra las tareas del plan.
- * Devuelve { ok, conflictos: [...] } con todos los que fallan.
- */
 export function validarSolapamientoMultiple(operariosIds, fechaInicio, fechaFin, tareasDelPlan, tareaActualId) {
   const conflictos = [];
   for (const opId of operariosIds) {
@@ -507,18 +400,11 @@ export function validarSolapamientoMultiple(operariosIds, fechaInicio, fechaFin,
   }
   return { ok: conflictos.length === 0, conflictos };
 }
+
 // ═══════════════════════════════════════════════════════════════════════════
-// HELPERS DE DÍAS HÁBILES (Fase 2.3)
+// HELPERS DE DÍAS HÁBILES
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Ajusta una fecha al próximo día hábil si cae en fin de semana o feriado.
- * Si ya es día hábil, la devuelve sin cambios.
- * 
- * @param {string} fechaIso - Fecha en formato YYYY-MM-DD
- * @param {Set} feriadosSet - Set con fechas de feriados (YYYY-MM-DD)
- * @returns {string} Fecha ajustada en formato YYYY-MM-DD
- */
 export function ajustarADiaHabil(fechaIso, feriadosSet) {
   if (!fechaIso) return fechaIso;
 
@@ -534,11 +420,6 @@ export function ajustarADiaHabil(fechaIso, feriadosSet) {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * Ajusta una fecha al día hábil ANTERIOR si cae en fin de semana o feriado.
- * Útil para calcular cuándo termina realmente una tarea que empieza en un día hábil
- * y dura N días hábiles (el fin cae en día hábil, pero por las dudas).
- */
 export function ajustarADiaHabilAnterior(fechaIso, feriadosSet) {
   if (!fechaIso) return fechaIso;
 
@@ -554,12 +435,6 @@ export function ajustarADiaHabilAnterior(fechaIso, feriadosSet) {
   return d.toISOString().slice(0, 10);
 }
 
-/**
- * Cuenta cuántos días calendario hay entre 2 fechas, excluyendo fines de semana
- * y feriados.
- * 
- * @returns {number} Cantidad de días hábiles
- */
 export function contarDiasCalendarioHabiles(fechaIsoInicio, fechaIsoFin, feriadosSet) {
   if (!fechaIsoInicio || !fechaIsoFin) return 0;
 
@@ -578,9 +453,6 @@ export function contarDiasCalendarioHabiles(fechaIsoInicio, fechaIsoFin, feriado
   return contador;
 }
 
-/**
- * Verifica si una fecha cae en fin de semana (sábado o domingo).
- */
 export function esFinDeSemana(fechaIso) {
   if (!fechaIso) return false;
   const d = new Date(fechaIso + 'T00:00:00');
@@ -588,24 +460,15 @@ export function esFinDeSemana(fechaIso) {
   return dia === 0 || dia === 6;
 }
 
-/**
- * Verifica si una fecha es feriado.
- */
 export function esFeriado(fechaIso, feriadosSet) {
   if (!fechaIso || !feriadosSet) return false;
   return feriadosSet.has(fechaIso);
 }
+
 // ═══════════════════════════════════════════════════════════════════════════
-// HELPERS DE DEPENDENCIAS (Fase 3.1)
+// HELPERS DE DEPENDENCIAS
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Tipos de dependencia entre tareas (estándar de project management):
- * - FS (Finish-to-Start): B empieza cuando termina A. ← el más común
- * - SS (Start-to-Start):   B empieza cuando empieza A
- * - FF (Finish-to-Finish): B termina cuando termina A
- * - SF (Start-to-Finish):  B termina cuando empieza A (raro)
- */
 export const TIPOS_DEPENDENCIA = [
   { id: 'FS', label: 'Fin → Inicio', descripcion: 'La sucesora empieza cuando termina la predecesora', icono: '→' },
   { id: 'SS', label: 'Inicio → Inicio', descripcion: 'Ambas empiezan al mismo tiempo', icono: '⇉' },
@@ -613,33 +476,15 @@ export const TIPOS_DEPENDENCIA = [
   { id: 'SF', label: 'Inicio → Fin', descripcion: 'La sucesora termina cuando empieza la predecesora (raro)', icono: '→' },
 ];
 
-/**
- * Normaliza el array `predecesoras` de una tarea al formato nuevo:
- *   [{ tarea_id: "xxx", tipo: "FS", lag: 0 }]
- * 
- * Acepta:
- *   - Viejo: ["id1", "id2"]                    → strings sueltos
- *   - Nuevo: [{ tarea_id, tipo, lag }]         → ya normalizado
- *   - Mixto: ["id1", { tarea_id: "id2", ... }] → ambos convivendo
- * 
- * @param {Array} predecesorasRaw - El array crudo de la tarea
- * @returns {Array} Array normalizado con estructura nueva
- */
 export function normalizarPredecesoras(predecesorasRaw) {
   if (!Array.isArray(predecesorasRaw)) return [];
 
   return predecesorasRaw
     .map((p) => {
-      // Formato viejo: string con el ID
       if (typeof p === 'string') {
-        return {
-          tarea_id: p,
-          tipo: 'FS',
-          lag: 0,
-        };
+        return { tarea_id: p, tipo: 'FS', lag: 0 };
       }
 
-      // Formato nuevo: objeto con tarea_id
       if (p && typeof p === 'object') {
         const tareaId = p.tarea_id || p.id || p.tareaId;
         if (!tareaId) return null;
@@ -659,42 +504,21 @@ export function normalizarPredecesoras(predecesorasRaw) {
     .filter(Boolean);
 }
 
-/**
- * Extrae solo los IDs de las predecesoras (útil para buscar tareas).
- * Acepta ambos formatos.
- * 
- * @param {Array} predecesorasRaw
- * @returns {string[]} Array de IDs
- */
 export function obtenerIdsPredecesoras(predecesorasRaw) {
   return normalizarPredecesoras(predecesorasRaw).map(p => p.tarea_id);
 }
 
-/**
- * Verifica si una tarea tiene una predecesora específica.
- * Acepta ambos formatos.
- */
 export function tienePredecesora(predecesorasRaw, tareaId) {
   const ids = obtenerIdsPredecesoras(predecesorasRaw);
   return ids.some(id => String(id) === String(tareaId));
 }
 
-/**
- * Detecta si agregar una nueva predecesora generaría un ciclo.
- * 
- * @param {string} tareaId - ID de la tarea que va a recibir la nueva predecesora
- * @param {string} nuevaPredecesoraId - ID de la tarea que se quiere agregar como predecesora
- * @param {Array} todasLasTareas - Array completo de tareas del plan
- * @returns {Object} { tieneCiclo: boolean, camino: string[] }
- */
 export function detectarCiclo(tareaId, nuevaPredecesoraId, todasLasTareas) {
   if (!tareaId || !nuevaPredecesoraId) return { tieneCiclo: false, camino: [] };
   if (String(tareaId) === String(nuevaPredecesoraId)) {
     return { tieneCiclo: true, camino: [tareaId, tareaId] };
   }
 
-  // BFS: desde la nueva predecesora, seguir sus predecesoras.
-  // Si llegamos a la tarea original → ciclo.
   const visitados = new Set();
   const cola = [{ id: String(nuevaPredecesoraId), camino: [String(nuevaPredecesoraId)] }];
 
@@ -703,16 +527,13 @@ export function detectarCiclo(tareaId, nuevaPredecesoraId, todasLasTareas) {
     if (visitados.has(actual.id)) continue;
     visitados.add(actual.id);
 
-    // ¿Llegamos a la tarea original?
     if (actual.id === String(tareaId)) {
       return { tieneCiclo: true, camino: [String(tareaId), ...actual.camino] };
     }
 
-    // Buscar la tarea actual en el listado
     const tareaActual = todasLasTareas.find(t => String(t.id) === actual.id);
     if (!tareaActual) continue;
 
-    // Seguir sus predecesoras
     const preds = obtenerIdsPredecesoras(tareaActual.predecesoras);
     preds.forEach(predId => {
       if (!visitados.has(predId)) {
@@ -727,41 +548,26 @@ export function detectarCiclo(tareaId, nuevaPredecesoraId, todasLasTareas) {
   return { tieneCiclo: false, camino: [] };
 }
 
-/**
- * Devuelve el mensaje legible del tipo de dependencia.
- */
 export function labelTipoDependencia(tipo) {
   const t = TIPOS_DEPENDENCIA.find(x => x.id === tipo);
   return t ? t.label : 'Fin → Inicio';
 }
+
 // ═══════════════════════════════════════════════════════════════════════════
-// HELPERS DE RESPONSABLES (Fase 1 — Asignación de responsables)
+// HELPERS DE RESPONSABLES
 // ═══════════════════════════════════════════════════════════════════════════
 
-/**
- * Roles que pueden ser asignados como responsables de un plan/presupuesto.
- * Son los roles "de gestión" que supervisan obra.
- */
 export const ROLES_RESPONSABLES = [
   { id: 'jefe_obra',     label: 'Jefe de Obra',   color: 'bg-blue-100 text-blue-800' },
   { id: 'admin',         label: 'Admin',          color: 'bg-rose-100 text-rose-800' },
   { id: 'administrador', label: 'Administrador',  color: 'bg-rose-100 text-rose-800' },
 ];
 
-/**
- * Devuelve el label legible de un rol.
- */
 export function labelRolResponsable(rolId) {
   const r = ROLES_RESPONSABLES.find(x => x.id === String(rolId || '').toLowerCase());
   return r ? r.label : rolId || 'Sin rol';
 }
 
-/**
- * Filtra la lista de usuarios dejando solo los que pueden ser responsables.
- * 
- * @param {Array} usuarios - Lista de usuarios del sistema
- * @returns {Array} Usuarios filtrados (jefe_obra, admin, administrador)
- */
 export function usuariosResponsables(usuarios) {
   if (!Array.isArray(usuarios)) return [];
   return usuarios.filter(u => {
@@ -770,99 +576,99 @@ export function usuariosResponsables(usuarios) {
   });
 }
 
-/**
- * Busca un usuario por id en la lista.
- */
 export function buscarUsuarioPorId(usuarios, userId) {
   if (!Array.isArray(usuarios) || !userId) return null;
   return usuarios.find(u => String(u.id) === String(userId)) || null;
 }
-export function calcularPresupuestoMO(tarea, presupuesto) {
-  // 🔑 Debug: loguear siempre para diagnosticar
-  console.log('[calcularPresupuestoMO] ENTRADA:', {
-    tieneTarea: !!tarea,
-    tienePresupuesto: !!presupuesto,
-    insumo_mo_nombre: tarea?.insumo_mo_nombre,
-    cantidad: tarea?.cantidad,
-    rubro_idx_raiz: tarea?.rubro_idx,
-    recursos_tipo: Array.isArray(tarea?.recursos) ? 'array' : typeof tarea?.recursos,
-    recursos: tarea?.recursos,
-  });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PRESUPUESTO DE MANO DE OBRA POR TAREA
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Calcula el presupuesto de MANO DE OBRA de una tarea según el presupuesto aprobado.
+ *
+ * Fórmula:
+ *   = costo_unitario_MO × cantidad_insumo_MO × cantidad_tarea
+ *
+ * Ejemplo ("Cordones de hormigón armado 15x15"):
+ *   = 578245.976 × 0.077 × 13.5 = $601.086,69
+ *
+ * Match:
+ *   - rubro: tarea.rubro_idx (fallback: tarea.recursos.rubro_idx o recursos[].rubro_idx)
+ *   - tarea: busca en múltiples ubicaciones (subtareas, tarea_id, tarea_idx)
+ *   - insumo MO: por nombre (normalizado) + tipo "mano de obra"
+ */
+export function calcularPresupuestoMO(tarea, presupuesto) {
   if (!tarea || !presupuesto || !tarea.insumo_mo_nombre) {
-    console.log('[calcularPresupuestoMO] → return 0 (falta tarea/presupuesto/insumo)');
     return 0;
   }
 
   // 1) Parsear items_detalle
   let detalle = presupuesto.items_detalle || presupuesto.itemsDetalle;
   if (typeof detalle === 'string') {
-    try { detalle = JSON.parse(detalle); } catch { 
-      console.log('[calcularPresupuestoMO] → return 0 (no se pudo parsear items_detalle)');
-      return 0; 
-    }
+    try { detalle = JSON.parse(detalle); } catch { return 0; }
   }
   const rubros = Array.isArray(detalle?.rubros) ? detalle.rubros : [];
-  if (rubros.length === 0) {
-    console.log('[calcularPresupuestoMO] → return 0 (rubros vacío)', { detalle });
-    return 0;
-  }
+  if (rubros.length === 0) return 0;
 
-  // 🔑 Buscar rubro_idx en varios lugares
+  // 2) Buscar rubro_idx en varios lugares
   let rubroIdx = Number(tarea.rubro_idx);
-  let fuenteRubroIdx = 'raiz';
-  
   if (isNaN(rubroIdx) || rubroIdx < 0) {
-    // Fallback 1: dentro de recursos (si es array, buscar el elemento que lo tenga)
     if (Array.isArray(tarea.recursos)) {
       const elemConRubro = tarea.recursos.find(r => r && r.rubro_idx !== undefined);
-      if (elemConRubro) {
-        rubroIdx = Number(elemConRubro.rubro_idx);
-        fuenteRubroIdx = 'recursos[array].find()';
-      }
+      if (elemConRubro) rubroIdx = Number(elemConRubro.rubro_idx);
     }
-    // Fallback 2: dentro de recursos (si es objeto/map)
     if ((isNaN(rubroIdx) || rubroIdx < 0) && tarea.recursos && !Array.isArray(tarea.recursos)) {
       if (tarea.recursos.rubro_idx !== undefined) {
         rubroIdx = Number(tarea.recursos.rubro_idx);
-        fuenteRubroIdx = 'recursos.rubro_idx';
       }
     }
   }
-  
-  console.log('[calcularPresupuestoMO] rubroIdx:', rubroIdx, '| fuente:', fuenteRubroIdx);
 
-  if (isNaN(rubroIdx) || rubroIdx < 0 || !rubros[rubroIdx]) {
-    console.log('[calcularPresupuestoMO] → return 0 (rubroIdx inválido)', { rubroIdx, rubrosLength: rubros.length });
-    return 0;
-  }
+  if (isNaN(rubroIdx) || rubroIdx < 0 || !rubros[rubroIdx]) return 0;
   const rubro = rubros[rubroIdx];
 
-  // 🔑 Buscar tarea_idx en varios lugares
+  // 3) 🔑 Buscar tarea_idx en TODOS los lugares posibles (FIX)
   let tareaIdx = -1;
-  if (Array.isArray(tarea.recursos)) {
+  let fuenteTareaIdx = 'ninguna';
+
+  // Fuente 1: tarea.subtareas (raíz del doc)
+  if (Array.isArray(tarea.subtareas) && tarea.subtareas[0]?.tarea_idx !== undefined) {
+    tareaIdx = Number(tarea.subtareas[0].tarea_idx);
+    fuenteTareaIdx = 'tarea.subtareas[0]';
+  }
+  // Fuente 2: tarea.recursos.subtareas (si recursos es un objeto/map)
+  else if (tarea.recursos && !Array.isArray(tarea.recursos) && Array.isArray(tarea.recursos.subtareas)) {
+    tareaIdx = Number(tarea.recursos.subtareas[0]?.tarea_idx ?? -1);
+    fuenteTareaIdx = 'tarea.recursos.subtareas[0]';
+  }
+  // Fuente 3: dentro de recursos (si es array y algún elemento tiene subtareas)
+  else if (Array.isArray(tarea.recursos)) {
     const elemConSubtareas = tarea.recursos.find(r => r && Array.isArray(r.subtareas) && r.subtareas.length > 0);
     if (elemConSubtareas) {
       tareaIdx = Number(elemConSubtareas.subtareas[0]?.tarea_idx ?? -1);
+      fuenteTareaIdx = 'recursos[array].find(subtareas)[0]';
     }
   }
-  if (tareaIdx < 0 && tarea.recursos?.subtareas) {
-    tareaIdx = Number(tarea.recursos.subtareas[0]?.tarea_idx ?? -1);
+  // Fuente 4: tarea.tarea_id (fallback antiguo)
+  if (tareaIdx < 0 && tarea.tarea_id !== undefined) {
+    tareaIdx = Number(tarea.tarea_id);
+    fuenteTareaIdx = 'tarea.tarea_id';
   }
-  if (tareaIdx < 0 && Array.isArray(tarea.subtareas)) {
-    tareaIdx = Number(tarea.subtareas[0]?.tarea_idx ?? -1);
+  // Fuente 5: tarea.tarea_idx (fallback más antiguo)
+  if (tareaIdx < 0 && tarea.tarea_idx !== undefined) {
+    tareaIdx = Number(tarea.tarea_idx);
+    fuenteTareaIdx = 'tarea.tarea_idx';
   }
 
-  console.log('[calcularPresupuestoMO] tareaIdx:', tareaIdx);
+  console.log('[calcularPresupuestoMO] tareaIdx:', tareaIdx, '| fuente:', fuenteTareaIdx);
 
-  if (tareaIdx < 0) {
-    console.log('[calcularPresupuestoMO] → return 0 (tareaIdx inválido)');
-    return 0;
-  }
+  if (tareaIdx < 0) return 0;
 
   const tareas = Array.isArray(rubro.tareas) ? rubro.tareas : [];
   if (!tareas[tareaIdx]) {
-    console.log('[calcularPresupuestoMO] → return 0 (tarea no existe en presupuesto)', { tareaIdx, tareasLength: tareas.length });
+    console.log('[calcularPresupuestoMO] → tarea no existe en presupuesto. tareaIdx:', tareaIdx, '| tareasLength:', tareas.length);
     return 0;
   }
   const tareaPresupuesto = tareas[tareaIdx];
@@ -875,10 +681,8 @@ export function calcularPresupuestoMO(tarea, presupuesto) {
     normalizarTexto(i?.tipo || '').includes('mano de obra')
   );
 
-  console.log('[calcularPresupuestoMO] insumo encontrado:', insumoMO);
-
   if (!insumoMO) {
-    console.log('[calcularPresupuestoMO] → return 0 (insumo MO no encontrado)');
+    console.log('[calcularPresupuestoMO] → insumo MO no encontrado en la tarea del presupuesto');
     return 0;
   }
 
@@ -887,12 +691,6 @@ export function calcularPresupuestoMO(tarea, presupuesto) {
   const cantidadTarea = Number(tarea.cantidad) || 0;
 
   const resultado = costoUnitarioMO * cantidadInsumoMO * cantidadTarea;
-  console.log('[calcularPresupuestoMO] ✓ RESULTADO:', {
-    costoUnitarioMO,
-    cantidadInsumoMO,
-    cantidadTarea,
-    resultado,
-  });
-
+  console.log('[calcularPresupuestoMO] ✓ RESULTADO:', resultado);
   return resultado;
 }
