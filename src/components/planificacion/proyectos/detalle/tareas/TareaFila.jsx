@@ -1,5 +1,6 @@
+// src/components/planificacion/proyectos/detalle/tareas/TareaFila.jsx
 import React, { useMemo } from 'react';
-import { Users, DollarSign, Pencil } from 'lucide-react';
+import { Users, DollarSign, Pencil, AlertTriangle } from 'lucide-react';
 
 export default function TareaFila({ tarea, personal = [], insumos = [], onEditar }) {
   // 🔑 Recursos asignados a esta tarea
@@ -33,6 +34,9 @@ export default function TareaFila({ tarea, personal = [], insumos = [], onEditar
 
   const duracion = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 0;
   const costo = Number(tarea.costo_total) || 0;
+  const presupuestoMO = Number(tarea.presupuesto_mo_tarea) || 0;
+  const excedido = presupuestoMO > 0 && costo > presupuestoMO;
+  const diferencia = excedido ? (costo - presupuestoMO) : 0;
   const tieneRecursos = recursosAsignados.length > 0;
 
   return (
@@ -71,20 +75,33 @@ export default function TareaFila({ tarea, personal = [], insumos = [], onEditar
         </span>
       </div>
 
-      {/* 🔑 Costo + Recursos + Editar */}
+      {/* 🔑 Costo + Alertas + Recursos + Editar */}
       <div className="col-span-2 flex items-center justify-end gap-2">
-        {/* Costo */}
-        <span
-          className={`font-bold font-mono text-[11px] ${costo > 0 ? 'text-slate-800' : 'text-slate-400'}`}
-          title={`Costo total: $${costo.toLocaleString('es-AR')}`}
-        >
-          $ {costo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-        </span>
+        {/* 🔑 Costo con alerta si excedido */}
+        <div className="flex items-center gap-1">
+          {excedido && (
+            <AlertTriangle
+              className="w-3.5 h-3.5 text-rose-600 shrink-0"
+              title={`Excedido por $${diferencia.toLocaleString('es-AR', { maximumFractionDigits: 0 })}`}
+            />
+          )}
+          <span
+            className={`font-bold font-mono text-[11px] ${
+              excedido ? 'text-rose-700' : costo > 0 ? 'text-slate-800' : 'text-slate-400'
+            }`}
+            title={
+              presupuestoMO > 0
+                ? `Costo: $${costo.toLocaleString('es-AR')} / Presupuesto MO: $${presupuestoMO.toLocaleString('es-AR')}`
+                : `Costo: $${costo.toLocaleString('es-AR')}`
+            }
+          >
+            $ {costo.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+          </span>
+        </div>
 
         {/* Avatares de recursos */}
         {tieneRecursos ? (
           <div className="flex items-center -space-x-1">
-            {/* Operarios (avatares con inicial) */}
             {operariosAsignados.slice(0, 2).map((r, idx) => (
               <div
                 key={`op-${idx}`}
@@ -95,7 +112,6 @@ export default function TareaFila({ tarea, personal = [], insumos = [], onEditar
               </div>
             ))}
 
-            {/* Subcontratos (icono $ azul) */}
             {subcontratosAsignados.slice(0, 1).map((r, idx) => (
               <div
                 key={`sub-${idx}`}
@@ -106,7 +122,6 @@ export default function TareaFila({ tarea, personal = [], insumos = [], onEditar
               </div>
             ))}
 
-            {/* Contador si hay más de 3 */}
             {recursosAsignados.length > 3 && (
               <div className="w-6 h-6 rounded-full bg-slate-300 text-slate-700 text-[9px] font-black flex items-center justify-center border-2 border-white">
                 +{recursosAsignados.length - 3}

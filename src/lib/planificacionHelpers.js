@@ -777,3 +777,68 @@ export function buscarUsuarioPorId(usuarios, userId) {
   if (!Array.isArray(usuarios) || !userId) return null;
   return usuarios.find(u => String(u.id) === String(userId)) || null;
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// PRESUPUESTO DE MANO DE OBRA POR TAREA (para comparación en asignación)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Calcula el presupuesto de MANO DE OBRA de una tarea según el presupuesto aprobado.
+ *
+ * Fórmula:
+ *   = costo_unitario_MO  ×  cantidad_insumo_MO  ×  cantidad_tarea
+ *
+ * Ejemplo (tarea "Cordones de hormigón armado 15x15"):
+ *   = 578245.976 × 0.077 × 13.5 = $601.086,69
+ *
+ * Match:
+ *   - rubro: tarea.rubro_idx (fallback: tarea.recursos.rubro_idx)
+ *   - tarea: tarea.recursos.subtareas[0].tarea_idx
+ *   - insumo MO: por nombre (normalizado) + tipo "mano de obra"
+ *
+ * @param {Object} tarea - Doc de planificacion_tareas
+ * @param {Object} presupuesto - Doc del presupuesto vinculado
+ * @returns {number} Costo presupuestado de MO para esa tarea (0 si no se puede calcular)
+ */
+export function calcularPresupuestoMO(tarea, presupuesto) {
+  if (!tarea || !presupuesto || !tarea.insumo_mo_nombre) return 0;
+
+  // 1) Parsear items_detalle (puede venir como string o como objeto)
+  let detalle = presupuesto.items_detalle || presupuesto.itemsDetalle;
+  if (typeof detalle === 'string') {
+    try { detalle = JSON.parse(detalle); } catch { return 0; }
+  }
+  const rubros = Array.isArray(detalle?.rubros) ? detalle.rubros : [];
+  if (rubros.length === 0) return 0;
+
+  // 2) Buscar el rubro por rubro_idx
+  const rubroIdx = Number(
+    tarea.rubro_idx ?? tarea.recursos?.rubro_idx ?? -1
+  );
+  if (rubroIdx < 0 || !rubros[rubroIdx]) return 0;
+  const rubro = rubros[rubroIdx];
+
+  // 3) Buscar la tarea por tarea_idx (en recursos.subtareas[0])
+  const subtareas = Array.isArray(tarea.recursos?.subtareas) ? tarea.recursos.subtareas : [];
+  const tareaIdx = Number(subtareas[0]?.tarea_idx ?? -1);
+  if (tareaIdx < 0) return 0;
+
+  const tareas = Array.isArray(rubro.tareas) ? rubro.tareas : [];
+  if (!tareas[tareaIdx]) return 0;
+  const tareaPresupuesto = tareas[tareaIdx];
+
+  // 4) Buscar el insumo MO por nombre + tipo
+  const insumosTarea = Array.isArray(tareaPresupuesto.insumos) ? tareaPresupuesto.insumos : [];
+  const buscado = normalizarTexto(tarea.insumo_mo_nombre);
+  const insumoMO = insumosTarea.find(i =>
+    normalizarTexto(i?.nombre || '') === buscado &&
+    normalizarTexto(i?.tipo || '').includes('mano de obra')
+  );
+  if (!insumoMO) return 0;
+
+  // 5) Calcular
+  const costoUnitarioMO = Number(insumoMO.costo_unitario) || 0;
+  const cantidadInsumoMO = Number(insumoMO.cantidad) || 0;
+  const cantidadTarea = Number(tarea.cantidad) || 0;
+
+  return costoUnitarioMO * cantidadInsumoMO * cantidadTarea;
+}

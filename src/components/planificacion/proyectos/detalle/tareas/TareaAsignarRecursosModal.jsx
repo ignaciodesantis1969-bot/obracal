@@ -1,6 +1,7 @@
+// src/components/planificacion/proyectos/detalle/tareas/TareaAsignarRecursosModal.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import toast from 'react-hot-toast';
-import { Users, DollarSign, AlertTriangle, Loader2, Save } from 'lucide-react';
+import { Users, DollarSign, AlertTriangle, Loader2, Save, Clock, CheckCircle2 } from 'lucide-react';
 import Modal from '../../../shared/Modal';
 import TareaOperarioItem from './TareaOperarioItem';
 import TareaSubcontratoItem from './TareaSubcontratoItem';
@@ -11,6 +12,7 @@ import {
   validarSolapamientoOperario,
   calcularFechaFin,
   getFeriadosDelAnio,
+  calcularPresupuestoMO,
 } from '@/lib/planificacionHelpers';
 
 export default function TareaAsignarRecursosModal({
@@ -26,10 +28,10 @@ export default function TareaAsignarRecursosModal({
 }) {
   const [operariosSeleccionados, setOperariosSeleccionados] = useState([]);
   const [subcontratosSeleccionados, setSubcontratosSeleccionados] = useState([]);
-  const [diasManuales, setDiasManuales] = useState(0);
+  const [duracionElegida, setDuracionElegida] = useState(1);
   const [isSaving, setIsSaving] = useState(false);
 
-  // 🔑 FIX: % de cargas — protegido con optional chaining
+  // 🔑 % de cargas — protegido con optional chaining
   const porcentajeCargas = useMemo(() => {
     if (!tarea?.insumo_mo_nombre || !Array.isArray(insumos)) return 76;
     const cuadrilla = insumos.find(i =>
@@ -47,7 +49,7 @@ export default function TareaAsignarRecursosModal({
     }
   }, [tarea, insumos]);
 
-  // 🔑 FIX: composición de la cuadrilla — protegido
+  // 🔑 Composición de la cuadrilla
   const composicionCuadrilla = useMemo(() => {
     if (!tarea?.insumo_mo_nombre || !Array.isArray(insumos)) return { personas: [], total: 0 };
     const cuadrilla = insumos.find(i =>
@@ -67,7 +69,7 @@ export default function TareaAsignarRecursosModal({
     }
   }, [tarea, insumos]);
 
-  // 🔑 Subcontratos de esta tarea — protegido
+  // 🔑 Subcontratos de esta tarea
   const subcontratosDisponibles = useMemo(() => {
     if (!tarea || !presupuesto) return [];
     return obtenerSubcontratosDeTarea(tarea, presupuesto);
@@ -79,14 +81,19 @@ export default function TareaAsignarRecursosModal({
 
     const recursos = Array.isArray(tarea.recursos) ? tarea.recursos : [];
     const operariosIds = recursos.filter(r => r.tipo === 'operario').map(r => String(r.id));
-    const subs = recursos.filter(r => r.tipo === 'subcontrato').map(r => ({
-      id: r.subcontrato_id || r.id,
-      diasAsignados: Number(r.dias_asignados) || 1,
-    }));
+    const subs = recursos
+      .filter(r => r.tipo === 'subcontrato')
+      .map(r => ({ id: r.subcontrato_id || r.id, diasAsignados: Number(r.dias_asignados) || 1 }));
 
     setOperariosSeleccionados(operariosIds);
     setSubcontratosSeleccionados(subs);
-    setDiasManuales(Number(tarea.duracion_manual_dias) || 0);
+
+    // 🔑 Duración: priorizar la que ya está guardada en la tarea
+    const duracionGuardada = Number(tarea.duracion_real_dias) || 0;
+    const duracionManualGuardada = Number(tarea.duracion_manual_dias) || 0;
+    const duracionInicial = duracionGuardada || duracionManualGuardada || 1;
+
+    setDuracionElegida(duracionInicial);
     setIsSaving(false);
   }, [isOpen, tarea]);
 
@@ -116,7 +123,7 @@ export default function TareaAsignarRecursosModal({
     );
   };
 
-  // 🔑 FIX: validar solapamiento — protegido con optional chaining
+  // 🔑 Validar solapamiento
   const conflictos = useMemo(() => {
     if (!tarea) return [];
     const lista = [];
@@ -140,75 +147,72 @@ export default function TareaAsignarRecursosModal({
     return lista;
   }, [operariosSeleccionados, tarea, tareasDelPlan, personal]);
 
-  // 🔑 FIX: cálculos — recalcula totalDiasHombre desde datos crudos (no confía en el campo guardado)
+  // 🔑 Presupuesto MO de la tarea (para comparación)
+  const presupuestoMO = useMemo(() => {
+    if (!tarea || !presupuesto) return 0;
+    return calcularPresupuestoMO(tarea, presupuesto);
+  }, [tarea, presupuesto]);
+
+  // 🔑 Cálculos principales
   const calculos = useMemo(() => {
-    // 🔑 FIX: recalcular días-hombre desde los campos base.
-    // El campo `total_dias_hombre` guardado en Firestore puede estar desactualizado
-    // (bug antiguo: no multiplicaba por cantidad de tarea).
     const cantidadDiasTeoricos = Number(tarea?.cantidad_dias_teoricos) || 0;
     const operariosTeoricos = Number(tarea?.operarios_teoricos) || composicionCuadrilla.total || 0;
 
-    // 🔑 Cálculo primario: días teóricos × operarios teóricos
     let totalDiasHombre = cantidadDiasTeoricos * operariosTeoricos;
-
-    // 🔑 Fallback: si por algún motivo da 0, usar el campo guardado (aunque sea viejo)
     if (totalDiasHombre === 0) {
       totalDiasHombre = Number(tarea?.total_dias_hombre) || 0;
     }
 
     const operariosCount = operariosSeleccionados.length;
 
-    // Si tiene operarios asignados → recalcula duración
-    let duracionOperarios = 0;
-    if (operariosCount > 0 && totalDiasHombre > 0) {
-      duracionOperarios = Math.ceil(totalDiasHombre / operariosCount);
-    }
-
-    // Si tiene subcontratos → toma el máximo de los días asignados
-    let duracionSubcontratos = 0;
-    if (subcontratosSeleccionados.length > 0) {
-      duracionSubcontratos = Math.max(...subcontratosSeleccionados.map(s => Number(s.diasAsignados) || 0));
-    }
-
-    // Duración final: la máxima entre operarios y subcontratos
-    let duracionFinal = Math.max(duracionOperarios, duracionSubcontratos);
-
-    // Si no hay ni operarios ni subcontratos → usa días manuales
-    if (duracionFinal === 0 && diasManuales > 0) {
-      duracionFinal = diasManuales;
-    }
-
-    // Fallback: la duración teórica
-    if (duracionFinal === 0) {
-      duracionFinal = Number(tarea?.duracion_real_dias) || cantidadDiasTeoricos || 1;
-    }
-
-    // Costo total
+    // 🔑 Costo operarios = Σ(costo diario) × duración elegida
     let costoOperarios = 0;
     operariosSeleccionados.forEach(opId => {
       const op = personal.find(p => String(p.id || p.ID) === String(opId));
       if (op) {
-        costoOperarios += calcularCostoDiarioOperario(op, porcentajeCargas) * duracionFinal;
+        costoOperarios += calcularCostoDiarioOperario(op, porcentajeCargas) * duracionElegida;
       }
     });
 
+    // 🔑 Costo subcontratos (días asignados × nada → el monto es total, sin diario)
     let costoSubcontratos = 0;
     subcontratosSeleccionados.forEach(s => {
       const sub = subcontratosDisponibles.find(x => x.id === s.id);
       if (sub) costoSubcontratos += Number(sub.montoTotal) || 0;
     });
 
+    // 🔑 Duración final para fecha_fin (operarios y subcontratos)
+    let duracionFinal = duracionElegida;
+    if (subcontratosSeleccionados.length > 0) {
+      const maxSub = Math.max(...subcontratosSeleccionados.map(s => Number(s.diasAsignados) || 0));
+      duracionFinal = Math.max(duracionElegida, maxSub);
+    }
+
     return {
       totalDiasHombre,
       operariosCount,
-      duracionOperarios,
-      duracionSubcontratos,
       duracionFinal,
       costoOperarios,
       costoSubcontratos,
       costoTotal: costoOperarios + costoSubcontratos,
     };
-  }, [tarea, operariosSeleccionados, subcontratosSeleccionados, diasManuales, personal, porcentajeCargas, subcontratosDisponibles, composicionCuadrilla.total]);
+  }, [
+    tarea, operariosSeleccionados, subcontratosSeleccionados, duracionElegida,
+    personal, porcentajeCargas, subcontratosDisponibles, composicionCuadrilla.total,
+  ]);
+
+  // 🔑 Comparación con presupuesto
+  const comparacion = useMemo(() => {
+    if (presupuestoMO <= 0) {
+      return { disponible: false, excedido: false, diferencia: 0 };
+    }
+    const diferencia = calculos.costoOperarios - presupuestoMO;
+    return {
+      disponible: true,
+      excedido: diferencia > 0,
+      diferencia,
+    };
+  }, [presupuestoMO, calculos.costoOperarios]);
 
   // 🔑 Guardar
   const handleGuardar = async () => {
@@ -219,8 +223,13 @@ export default function TareaAsignarRecursosModal({
       return;
     }
 
-    if (operariosSeleccionados.length > composicionCuadrilla.total) {
+    if (operariosSeleccionados.length > composicionCuadrilla.total && composicionCuadrilla.total > 0) {
       toast.error(`No podés asignar más de ${composicionCuadrilla.total} operarios (composición de la cuadrilla)`);
+      return;
+    }
+
+    if (duracionElegida <= 0) {
+      toast.error('La duración debe ser mayor a 0 días');
       return;
     }
 
@@ -269,9 +278,9 @@ export default function TareaAsignarRecursosModal({
         duracion_real_dias: calculos.duracionFinal,
         fecha_fin: nuevaFechaFin,
         costo_total: calculos.costoTotal,
-        duracion_manual_dias: (operariosSeleccionados.length === 0 && subcontratosSeleccionados.length === 0)
-          ? diasManuales
-          : 0,
+        // 🔑 NUEVO: guardar el presupuesto MO para que TareaFila pueda comparar
+        presupuesto_mo_tarea: presupuestoMO,
+        duracion_manual_dias: operariosSeleccionados.length === 0 ? duracionElegida : 0,
       });
 
       toast.success('¡Asignación guardada!', { id: toastId });
@@ -285,10 +294,8 @@ export default function TareaAsignarRecursosModal({
     }
   };
 
-  // 🔑 FIX: return null DESPUÉS de los hooks (Reglas de Hooks)
+  // 🔑 return null DESPUÉS de los hooks (Reglas de Hooks)
   if (!tarea) return null;
-
-  const sinOperariosNiSubcontratos = operariosSeleccionados.length === 0 && subcontratosSeleccionados.length === 0;
 
   return (
     <Modal
@@ -316,6 +323,39 @@ export default function TareaAsignarRecursosModal({
               </span>
             )}
           </div>
+        </div>
+
+        {/* 🔑 NUEVO: Duración manual — siempre visible */}
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
+          <div className="flex items-center gap-2">
+            <Clock className="w-4 h-4 text-amber-600" />
+            <p className="text-xs font-black text-amber-900 uppercase">
+              Duración de la tarea
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <label className="text-xs font-bold text-slate-700">Días:</label>
+            <input
+              type="number"
+              min="0.5"
+              step="0.5"
+              value={duracionElegida}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                if (isNaN(val)) return;
+                // Redondear a múltiplo de 0.5, mínimo 0.5
+                const redondeado = Math.max(0.5, Math.round(val * 2) / 2);
+                setDuracionElegida(redondeado);
+              }}
+              className="w-24 bg-white border border-amber-300 rounded-lg px-3 py-1.5 text-sm font-black text-center outline-none focus:border-amber-500"
+            />
+            <span className="text-[10px] text-slate-500">
+              (pasos de 0.5 · mín 0.5)
+            </span>
+          </div>
+          <p className="text-[10px] text-amber-800">
+            💡 Elegí cuántos días dura la tarea según tu planificación. El costo se calcula en base a esta duración.
+          </p>
         </div>
 
         {/* Operarios */}
@@ -373,25 +413,6 @@ export default function TareaAsignarRecursosModal({
           </div>
         )}
 
-        {/* Duración manual (solo si no hay MO ni subcontrato) */}
-        {composicionCuadrilla.total === 0 && subcontratosDisponibles.length === 0 && (
-          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
-            <p className="text-xs font-bold text-amber-900">
-              Esta tarea no tiene mano de obra ni subcontrato. Ingresá la duración manualmente.
-            </p>
-            <div className="flex items-center gap-2">
-              <label className="text-xs font-bold text-slate-700">Días:</label>
-              <input
-                type="number"
-                min="1"
-                value={diasManuales}
-                onChange={(e) => setDiasManuales(Math.max(1, Number(e.target.value) || 1))}
-                className="w-20 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-black text-center outline-none focus:border-amber-500"
-              />
-            </div>
-          </div>
-        )}
-
         {/* Conflictos */}
         {conflictos.length > 0 && (
           <div className="bg-rose-50 border border-rose-300 rounded-xl p-4 space-y-2">
@@ -411,6 +432,54 @@ export default function TareaAsignarRecursosModal({
           </div>
         )}
 
+        {/* 🔑 NUEVO: Comparación con presupuesto MO */}
+        {comparacion.disponible && calculos.operariosCount > 0 && (
+          <div className={`border rounded-xl p-4 space-y-2 ${
+            comparacion.excedido
+              ? 'bg-rose-50 border-rose-300'
+              : 'bg-emerald-50 border-emerald-300'
+          }`}>
+            <div className="flex items-center gap-2">
+              {comparacion.excedido ? (
+                <AlertTriangle className="w-4 h-4 text-rose-700" />
+              ) : (
+                <CheckCircle2 className="w-4 h-4 text-emerald-700" />
+              )}
+              <p className={`text-xs font-black uppercase ${
+                comparacion.excedido ? 'text-rose-900' : 'text-emerald-900'
+              }`}>
+                {comparacion.excedido ? 'Costo excedido' : 'Dentro del presupuesto'}
+              </p>
+            </div>
+            <div className="space-y-1 text-xs">
+              <div className="flex justify-between">
+                <span className="text-slate-600">Presupuesto MO tarea:</span>
+                <strong className="font-mono text-slate-900">
+                  $ {presupuestoMO.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                </strong>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-600">Costo operarios (plan):</span>
+                <strong className="font-mono text-slate-900">
+                  $ {calculos.costoOperarios.toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                </strong>
+              </div>
+              <div className={`flex justify-between pt-1 border-t ${
+                comparacion.excedido ? 'border-rose-300' : 'border-emerald-300'
+              }`}>
+                <span className={comparacion.excedido ? 'text-rose-800 font-bold' : 'text-emerald-800 font-bold'}>
+                  {comparacion.excedido ? 'Excedido por:' : 'Margen disponible:'}
+                </span>
+                <strong className={`font-mono ${
+                  comparacion.excedido ? 'text-rose-900' : 'text-emerald-900'
+                }`}>
+                  $ {Math.abs(comparacion.diferencia).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                </strong>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Resumen */}
         <div className="bg-slate-900 text-white rounded-xl p-4 space-y-2">
           <p className="text-[10px] font-black text-slate-400 uppercase">Resumen</p>
@@ -420,7 +489,7 @@ export default function TareaAsignarRecursosModal({
               <strong className="ml-2">{calculos.operariosCount}</strong>
             </div>
             <div>
-              <span className="text-slate-400">Duración real:</span>
+              <span className="text-slate-400">Duración:</span>
               <strong className="ml-2 text-amber-400">{calculos.duracionFinal} días</strong>
             </div>
             <div>
