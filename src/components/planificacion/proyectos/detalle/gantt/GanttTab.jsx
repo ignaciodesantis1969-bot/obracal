@@ -10,11 +10,12 @@ import { actualizarDoc } from '@/lib/firestoreHelpers';
 import { NIVELES_ZOOM, useGanttCalculos } from './useGanttCalculos';
 import { useGanttDrag } from './useGanttDrag';
 import GanttHeader from './GanttHeader';
-import { FilaRubro, FilaTarea } from './GanttSidebar';
 import GanttBarra from './GanttBarra';
 import GanttFlechas from './GanttFlechas';
 import TareaDependenciasModal from './TareaDependenciasModal';
 import GanttSidebar from './GanttSidebar';
+// 🔑 FIX: importar helpers de fechas (antes faltaba → error "calcularFechaFin is not defined")
+import { calcularFechaFin, getFeriadosDelAnio } from '@/lib/planificacionHelpers';
 
 const ALTURA_FILA = 36;
 const DURACION_TOAST_DESHACER = 10000;
@@ -212,22 +213,33 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     setTareaDependencias(tarea);
   }, []);
 
-  // 🔑 Callback cuando se edita fecha en el sidebar
+  // 🔑 FIX: callback cuando se edita fecha en el sidebar
+  // - Usa feriados reales (custom de Firestore + hardcodeados)
+  // - Si cambia inicio → recalcula fin (mantiene duración)
+  // - Si cambia fin → recalcula duración
   const handleCambiarFecha = useCallback(async (tareaId, campo, fechaIso) => {
     const tarea = tareasConCambios.find(t => t.id === tareaId);
     if (!tarea) return;
 
+    const anio = Number(String(fechaIso).slice(0, 4)) || new Date().getFullYear();
+    const feriadosReales = getFeriadosDelAnio(anio, feriadosCustom);
+
     const cambios = [{ tareaId, [campo]: fechaIso, fecha_manual: true }];
 
-    // Si cambia inicio, recalcular fin (mantener duración)
     if (campo === 'fecha_inicio' && tarea.duracion_real_dias) {
-      const feriadosSet = new Set(); // simplificado; podrías usar el real
-      const nuevaFechaFin = calcularFechaFin(fechaIso, tarea.duracion_real_dias, feriadosSet);
+      const nuevaFechaFin = calcularFechaFin(fechaIso, tarea.duracion_real_dias, feriadosReales);
       cambios[0].fecha_fin = nuevaFechaFin;
     }
 
+    if (campo === 'fecha_fin' && tarea.fecha_inicio) {
+      const inicioMs = new Date(tarea.fecha_inicio + 'T00:00:00').getTime();
+      const finMs = new Date(fechaIso + 'T00:00:00').getTime();
+      const duracionDias = Math.max(1, Math.round((finMs - inicioMs) / (1000 * 60 * 60 * 24)));
+      cambios[0].duracion_real_dias = duracionDias;
+    }
+
     await guardarCambios(cambios);
-  }, [tareasConCambios, guardarCambios]);
+  }, [tareasConCambios, guardarCambios, feriadosCustom]);
 
   const handleGuardarDependencias = useCallback(async (tareaId, predecesoras) => {
     const tareaOriginal = tareas.find(t => t.id === tareaId);
