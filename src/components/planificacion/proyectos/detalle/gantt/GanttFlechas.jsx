@@ -3,11 +3,11 @@ import React, { useMemo } from 'react';
 
 const COLOR_FLECHA = '#64748b';
 const COLOR_FLECHA_ACTIVA = '#f59e0b';
-const GROSOR = 1.5;
-const GROSOR_ACTIVA = 2.5;
+const GROSOR = 1;             // 🔑 antes 1.5
+const GROSOR_ACTIVA = 1.5;    // 🔑 antes 2.5
 
-const TRAMO_SALIDA = 10;
-const TRAMO_ENTRADA = 6;
+const TRAMO_SALIDA = 6;       // 🔑 antes 10
+const TRAMO_ENTRADA = 4;      // 🔑 antes 6
 
 export default function GanttFlechas({
   flechas = [],
@@ -53,8 +53,8 @@ export default function GanttFlechas({
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
-          markerWidth="6"
-          markerHeight="6"
+          markerWidth="4"
+          markerHeight="4"
           orient="auto-start-reverse"
         >
           <path d="M 0 0 L 10 5 L 0 10 z" fill={COLOR_FLECHA} />
@@ -64,8 +64,8 @@ export default function GanttFlechas({
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
-          markerWidth="7"
-          markerHeight="7"
+          markerWidth="5"
+          markerHeight="5"
           orient="auto-start-reverse"
         >
           <path d="M 0 0 L 10 5 L 0 10 z" fill={COLOR_FLECHA_ACTIVA} />

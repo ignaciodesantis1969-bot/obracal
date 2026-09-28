@@ -1,12 +1,18 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttSidebar.jsx
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, ChevronRight, Users, FolderKanban, Link as LinkIcon } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { COLORES_ESTADO } from './useGanttCalculos';
 import { obtenerIdsPredecesoras } from '@/lib/planificacionHelpers';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// COMPONENTE DEFAULT (compatibilidad hacia atrás)
+// ANCHOS DE COLUMNA (deben coincidir con GanttHeader)
+// ═══════════════════════════════════════════════════════════════════════════
+export const ANCHO_COL_TAREA = 320;   // nombre de la tarea
+export const ANCHO_COL_FECHA = 90;    // inicio y fin (cada uno)
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
 // ═══════════════════════════════════════════════════════════════════════════
 
 export default function GanttSidebar({
@@ -16,22 +22,46 @@ export default function GanttSidebar({
   tareaHoverId,
   onToggleRubro,
   onAbrirDependencias,
+  onCambiarFecha,          // 🔑 NUEVO: (tareaId, campo, fechaIso) => void
 }) {
   if (!filas || filas.length === 0) {
     return (
-      <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-300 flex items-center justify-center p-4">
+      <div
+        className="shrink-0 bg-slate-50 border-r border-slate-300 flex items-center justify-center p-4"
+        style={{ width: `${ANCHO_COL_TAREA + ANCHO_COL_FECHA * 2}px` }}
+      >
         <p className="text-xs text-slate-400 text-center">Sin tareas para mostrar</p>
       </div>
     );
   }
 
+  const anchoTotal = ANCHO_COL_TAREA + ANCHO_COL_FECHA * 2;
+
   return (
-    <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-300">
+    <div className="shrink-0 bg-slate-50 border-r border-slate-300" style={{ width: `${anchoTotal}px` }}>
+      {/* Header con columnas alineadas al GanttHeader */}
       <div
-        className="border-b-2 border-slate-300 px-3 flex items-center bg-slate-200"
+        className="border-b-2 border-slate-300 bg-slate-200 flex items-stretch"
         style={{ height: `${44 + alturaFila * 1.5}px` }}
       >
-        <p className="text-[10px] font-black text-slate-700 uppercase">Rubro / Tarea</p>
+        <div
+          className="px-3 flex items-center border-r border-slate-300"
+          style={{ width: `${ANCHO_COL_TAREA}px` }}
+        >
+          <p className="text-[10px] font-black text-slate-700 uppercase">Rubro / Tarea</p>
+        </div>
+        <div
+          className="flex items-center justify-center border-r border-slate-300"
+          style={{ width: `${ANCHO_COL_FECHA}px` }}
+        >
+          <p className="text-[10px] font-black text-slate-700 uppercase">Inicio</p>
+        </div>
+        <div
+          className="flex items-center justify-center"
+          style={{ width: `${ANCHO_COL_FECHA}px` }}
+        >
+          <p className="text-[10px] font-black text-slate-700 uppercase">Fin</p>
+        </div>
       </div>
 
       <div>
@@ -44,32 +74,149 @@ export default function GanttSidebar({
               key={fila._key}
               style={{ height: `${alturaFila}px` }}
               className={cn(
-                'border-b overflow-hidden transition-colors',
+                'border-b overflow-hidden transition-colors flex items-stretch',
                 isRubro ? 'bg-slate-100 border-slate-300' : 'border-slate-200',
                 isHover && !isRubro && 'bg-amber-100',
                 isHover && isRubro && 'bg-blue-100'
               )}
             >
-              {isRubro ? (
-                <FilaRubro
-                  rubro={fila}
-                  alturaFila={alturaFila}
-                  onClick={() => onToggleRubro?.(fila.nombre)}
-                />
-              ) : (
-                <FilaTarea
-                  tarea={fila}
-                  alturaFila={alturaFila}
-                  esHover={isHover}
-                  onHover={onHoverTarea}
-                  onAbrirDependencias={onAbrirDependencias}
-                />
+              {/* Columna nombre */}
+              <div
+                className="border-r border-slate-200"
+                style={{ width: `${ANCHO_COL_TAREA}px` }}
+              >
+                {isRubro ? (
+                  <FilaRubro
+                    rubro={fila}
+                    alturaFila={alturaFila}
+                    onClick={() => onToggleRubro?.(fila.nombre)}
+                  />
+                ) : (
+                  <FilaTarea
+                    tarea={fila}
+                    alturaFila={alturaFila}
+                    esHover={isHover}
+                    onHover={onHoverTarea}
+                    onAbrirDependencias={onAbrirDependencias}
+                  />
+                )}
+              </div>
+
+              {/* Columnas de fecha — solo tareas, rubros van vacíos */}
+              {!isRubro && (
+                <>
+                  <CeldaFechaEditable
+                    valor={fila.fecha_inicio}
+                    onCambiar={(nuevaFecha) => onCambiarFecha?.(fila.id, 'fecha_inicio', nuevaFecha)}
+                    ancho={ANCHO_COL_FECHA}
+                  />
+                  <CeldaFechaEditable
+                    valor={fila.fecha_fin}
+                    onCambiar={(nuevaFecha) => onCambiarFecha?.(fila.id, 'fecha_fin', nuevaFecha)}
+                    ancho={ANCHO_COL_FECHA}
+                  />
+                </>
+              )}
+              {isRubro && (
+                <>
+                  <div
+                    className="border-r border-slate-300 bg-slate-100"
+                    style={{ width: `${ANCHO_COL_FECHA}px` }}
+                  />
+                  <div
+                    className="bg-slate-100"
+                    style={{ width: `${ANCHO_COL_FECHA}px` }}
+                  />
+                </>
               )}
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CELDA DE FECHA EDITABLE
+// ═══════════════════════════════════════════════════════════════════════════
+
+function CeldaFechaEditable({ valor, onCambiar, ancho }) {
+  const [editando, setEditando] = useState(false);
+  const [valorLocal, setValorLocal] = useState(valor || '');
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    setValorLocal(valor || '');
+  }, [valor]);
+
+  useEffect(() => {
+    if (editando && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select?.();
+    }
+  }, [editando]);
+
+  const confirmar = () => {
+    setEditando(false);
+    if (valorLocal && valorLocal !== valor) {
+      onCambiar?.(valorLocal);
+    }
+  };
+
+  const cancelar = () => {
+    setValorLocal(valor || '');
+    setEditando(false);
+  };
+
+  const formatearFechaCorta = (iso) => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso + 'T00:00:00');
+      const dia = String(d.getDate()).padStart(2, '0');
+      const mes = String(d.getMonth() + 1).padStart(2, '0');
+      const anio = String(d.getFullYear()).slice(-2);
+      return `${dia}/${mes}/${anio}`;
+    } catch {
+      return iso;
+    }
+  };
+
+  if (editando) {
+    return (
+      <div
+        className="flex items-center justify-center px-1 border-r border-slate-200 bg-amber-50"
+        style={{ width: `${ancho}px` }}
+      >
+        <input
+          ref={inputRef}
+          type="date"
+          value={valorLocal}
+          onChange={(e) => setValorLocal(e.target.value)}
+          onBlur={confirmar}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') confirmar();
+            if (e.key === 'Escape') cancelar();
+          }}
+          className="w-full text-[10px] font-bold text-slate-800 bg-white border border-amber-400 rounded px-1 py-0.5 outline-none"
+        />
+      </div>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => setEditando(true)}
+      className={cn(
+        'flex items-center justify-center border-r border-slate-200 text-[10px] font-bold transition-colors cursor-pointer',
+        valor ? 'text-slate-700 hover:bg-amber-100' : 'text-slate-400 hover:bg-slate-200 italic'
+      )}
+      style={{ width: `${ancho}px` }}
+      title={valor ? `Click para editar (${valor})` : 'Click para asignar fecha'}
+    >
+      {formatearFechaCorta(valor)}
+    </button>
   );
 }
 
@@ -116,7 +263,7 @@ export function FilaRubro({ rubro, alturaFila = 36, onClick }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// FILA DE TAREA (con botón de dependencias)
+// FILA DE TAREA
 // ═══════════════════════════════════════════════════════════════════════════
 
 export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover, onAbrirDependencias }) {
@@ -127,7 +274,6 @@ export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover, onAbrirDep
     ? tarea.recursos.filter(r => r.tipo === 'operario').length
     : 0;
 
-  // 🔑 Contar predecesoras
   const predsCount = obtenerIdsPredecesoras(tarea.predecesoras).length;
 
   return (
@@ -174,7 +320,6 @@ export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover, onAbrirDep
         </div>
       </div>
 
-      {/* 🔑 Botón de dependencias */}
       {onAbrirDependencias && (
         <button
           type="button"

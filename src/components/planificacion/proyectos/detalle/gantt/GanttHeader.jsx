@@ -4,7 +4,6 @@ import { Calendar } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { NIVELES_ZOOM } from './useGanttCalculos';
 
-// 🔑 Altura de la barra superior (fija) — debe coincidir con GanttSidebar
 export const ALTURA_BARRA_SUPERIOR_HEADER = 44;
 
 export default function GanttHeader({
@@ -19,7 +18,7 @@ export default function GanttHeader({
   return (
     <div className="flex flex-col bg-white border-b border-slate-200 sticky top-0 z-20">
 
-      {/* ─── Barra superior: título + zoom (altura FIJA para alinear con sidebar) */}
+      {/* Barra superior: título + zoom */}
       <div
         className="flex items-center justify-between px-3 border-b border-slate-100 bg-slate-50"
         style={{ height: `${ALTURA_BARRA_SUPERIOR_HEADER}px` }}
@@ -47,7 +46,7 @@ export default function GanttHeader({
         </div>
       </div>
 
-      {/* ─── Eje temporal ─────────────────────────────────────────────── */}
+      {/* Eje temporal */}
       <div
         className="relative overflow-hidden"
         style={{ height: `${alturaFila * 1.5}px` }}

@@ -12,18 +12,16 @@ import { useGanttDrag } from './useGanttDrag';
 import GanttHeader from './GanttHeader';
 import { FilaRubro, FilaTarea } from './GanttSidebar';
 import GanttBarra from './GanttBarra';
-import GanttTooltip from './GanttTooltip';
 import GanttFlechas from './GanttFlechas';
 import TareaDependenciasModal from './TareaDependenciasModal';
+import GanttSidebar from './GanttSidebar';
 
 const ALTURA_FILA = 36;
-const ALTURA_HEADER_GANTT = 44 + ALTURA_FILA * 1.5;
 const DURACION_TOAST_DESHACER = 10000;
 
 export default function GanttTab({ plan, tareas = [], personal = [], insumos = [] }) {
   const [nivelZoomId, setNivelZoomId] = useState('semanas');
   const [tareaHoverId, setTareaHoverId] = useState(null);
-  const [tooltip, setTooltip] = useState({ tarea: null, posicion: null });
   const [rubrosColapsados, setRubrosColapsados] = useState(new Set());
   const [tareasOptimistas, setTareasOptimistas] = useState({});
   const [tareaDependencias, setTareaDependencias] = useState(null);
@@ -50,7 +48,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     rubrosColapsados
   );
 
-  // ─── Toast persistente con botón Deshacer ─────────────────────────────
+  // ─── Toast con Deshacer ────────────────────────────────────────────────
   const mostrarToastUndo = useCallback((cantidad, snapshot) => {
     const toastId = toast.custom(
       (t) => (
@@ -86,16 +84,12 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
           </button>
         </div>
       ),
-      {
-        duration: DURACION_TOAST_DESHACER,
-        position: 'bottom-right',
-      }
+      { duration: DURACION_TOAST_DESHACER, position: 'bottom-right' }
     );
   }, []);
 
   const handleUndo = useCallback(async (toastId, snapshot) => {
     toast.dismiss(toastId);
-
     try {
       const batch = writeBatch(db);
       snapshot.forEach(s => {
@@ -106,14 +100,11 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         if (s.duracion_real_dias !== undefined) data.duracion_real_dias = s.duracion_real_dias;
         batch.update(ref, data);
       });
-
       await batch.commit();
 
       setTareasOptimistas(prev => {
         const nuevo = { ...prev };
-        snapshot.forEach(s => {
-          delete nuevo[s.tareaId];
-        });
+        snapshot.forEach(s => { delete nuevo[s.tareaId]; });
         return nuevo;
       });
 
@@ -159,17 +150,13 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         if (c.fecha_manual !== undefined) data.fecha_manual = c.fecha_manual;
         batch.update(ref, data);
       });
-
       await batch.commit();
-
       mostrarToastUndo(cambios.length, snapshotAnterior);
     } catch (err) {
       console.error('[GanttTab] Error en writeBatch:', err);
       setTareasOptimistas(prev => {
         const nuevos = { ...prev };
-        cambios.forEach(c => {
-          delete nuevos[c.tareaId];
-        });
+        cambios.forEach(c => { delete nuevos[c.tareaId]; });
         return nuevos;
       });
       toast.error('Error al guardar cambios: ' + (err.message || ''), { duration: 6000 });
@@ -197,17 +184,14 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
 
   useEffect(() => {
     if (!dragActivo) return;
-
     const handleMouseMove = (e) => actualizarDrag(e);
     const handleMouseUp = (e) => terminarDrag(e);
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') cancelarDrag();
     };
-
     window.addEventListener('mousemove', handleMouseMove);
     window.addEventListener('mouseup', handleMouseUp);
     window.addEventListener('keydown', handleKeyDown);
-
     return () => {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
@@ -224,91 +208,39 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     });
   };
 
-  const handleTooltipMove = (e, tarea) => {
-    setTooltip({ tarea, posicion: { x: e.clientX, y: e.clientY } });
-  };
-
-  const handleLeave = () => {
-    setTareaHoverId(null);
-    setTooltip({ tarea: null, posicion: null });
-  };
-
   const handleAbrirDependencias = useCallback((tarea) => {
     setTareaDependencias(tarea);
   }, []);
+
+  // 🔑 Callback cuando se edita fecha en el sidebar
+  const handleCambiarFecha = useCallback(async (tareaId, campo, fechaIso) => {
+    const tarea = tareasConCambios.find(t => t.id === tareaId);
+    if (!tarea) return;
+
+    const cambios = [{ tareaId, [campo]: fechaIso, fecha_manual: true }];
+
+    // Si cambia inicio, recalcular fin (mantener duración)
+    if (campo === 'fecha_inicio' && tarea.duracion_real_dias) {
+      const feriadosSet = new Set(); // simplificado; podrías usar el real
+      const nuevaFechaFin = calcularFechaFin(fechaIso, tarea.duracion_real_dias, feriadosSet);
+      cambios[0].fecha_fin = nuevaFechaFin;
+    }
+
+    await guardarCambios(cambios);
+  }, [tareasConCambios, guardarCambios]);
 
   const handleGuardarDependencias = useCallback(async (tareaId, predecesoras) => {
     const tareaOriginal = tareas.find(t => t.id === tareaId);
     if (!tareaOriginal) throw new Error('Tarea no encontrada');
 
-    const snapshot = [{
-      tareaId,
-      predecesoras: tareaOriginal.predecesoras || [],
-    }];
-
     setTareasOptimistas(prev => ({
       ...prev,
-      [tareaId]: {
-        ...(prev[tareaId] || {}),
-        predecesoras,
-      },
+      [tareaId]: { ...(prev[tareaId] || {}), predecesoras },
     }));
 
     try {
       await actualizarDoc('planificacion_tareas', tareaId, { predecesoras });
-
-      const toastId = toast.custom(
-        (t) => (
-          <div
-            className={cn(
-              'bg-slate-900 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3',
-              'border border-slate-700',
-              t.visible ? 'animate-enter' : 'animate-leave'
-            )}
-            style={{ minWidth: '340px', maxWidth: '460px' }}
-          >
-            <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-bold">Dependencias guardadas</p>
-              <p className="text-[10px] text-slate-400 mt-0.5">
-                {predecesoras.length} predecesora{predecesoras.length === 1 ? '' : 's'}
-              </p>
-            </div>
-            <button
-              onClick={async () => {
-                toast.dismiss(toastId);
-                try {
-                  await actualizarDoc('planificacion_tareas', tareaId, {
-                    predecesoras: snapshot[0].predecesoras,
-                  });
-                  setTareasOptimistas(prev => {
-                    const nuevo = { ...prev };
-                    delete nuevo[tareaId];
-                    return nuevo;
-                  });
-                  toast.success('Dependencias revertidas', { duration: 2000 });
-                } catch (err) {
-                  toast.error('Error al revertir: ' + (err.message || ''));
-                }
-              }}
-              className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-800 shrink-0"
-            >
-              <Undo2 className="w-3.5 h-3.5" />
-              Deshacer
-            </button>
-            <button
-              onClick={() => toast.dismiss(toastId)}
-              className="text-slate-500 hover:text-slate-300 shrink-0"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-        ),
-        {
-          duration: 10000,
-          position: 'bottom-right',
-        }
-      );
+      toast.success(`Dependencias guardadas (${predecesoras.length})`, { duration: 3000 });
     } catch (err) {
       setTareasOptimistas(prev => {
         const nuevo = { ...prev };
@@ -360,23 +292,19 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         )}
       </div>
 
-      {/* Banner de conflicto */}
+      {/* Banners */}
       {conflicto && (
         <div className="px-4 py-2 bg-rose-100 border-b-2 border-rose-400 text-rose-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
           <span>⚠️ {conflicto.mensaje} — Soltá para cancelar</span>
         </div>
       )}
-
-      {/* Banner de aviso */}
       {!conflicto && aviso && (
         <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
           <span>📅 {aviso.mensaje}</span>
         </div>
       )}
-
-      {/* Banner de dependencias afectadas */}
       {!conflicto && !aviso && dependenciasAfectadas.length > 0 && (
         <div className="px-4 py-2 bg-blue-100 border-b-2 border-blue-400 text-blue-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -393,49 +321,17 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
       <div className="overflow-auto" style={{ height: '70vh', minHeight: '400px' }}>
         <div className="flex min-w-fit">
 
-          {/* Sidebar */}
-          <div className="w-80 shrink-0 bg-slate-50 border-r border-slate-300 sticky left-0 z-30">
-            <div
-              className="border-b-2 border-slate-300 px-3 flex items-center bg-slate-200 sticky top-0 z-10"
-              style={{ height: `${ALTURA_HEADER_GANTT}px` }}
-            >
-              <p className="text-[10px] font-black text-slate-700 uppercase">Rubro / Tarea</p>
-            </div>
-
-            {filas.map((fila) => {
-              const isRubro = fila._tipo === 'rubro';
-              const hoverKey = isRubro ? `rubro-${fila.nombre}` : fila.id;
-              const isHover = tareaHoverId === hoverKey;
-
-              return (
-                <div
-                  key={fila._key}
-                  style={{ height: `${ALTURA_FILA}px` }}
-                  className={cn(
-                    'border-b transition-colors',
-                    isRubro ? 'bg-slate-100 border-slate-300' : 'border-slate-200',
-                    isHover && !isRubro && 'bg-amber-100',
-                    isHover && isRubro && 'bg-blue-100'
-                  )}
-                >
-                  {isRubro ? (
-                    <FilaRubro
-                      rubro={fila}
-                      alturaFila={ALTURA_FILA}
-                      onClick={() => toggleRubro(fila.nombre)}
-                    />
-                  ) : (
-                    <FilaTarea
-                      tarea={fila}
-                      alturaFila={ALTURA_FILA}
-                      esHover={isHover}
-                      onHover={setTareaHoverId}
-                      onAbrirDependencias={handleAbrirDependencias}
-                    />
-                  )}
-                </div>
-              );
-            })}
+          {/* Sidebar con columnas de fecha */}
+          <div className="sticky left-0 z-30">
+            <GanttSidebar
+              filas={filas}
+              alturaFila={ALTURA_FILA}
+              onHoverTarea={setTareaHoverId}
+              tareaHoverId={tareaHoverId}
+              onToggleRubro={toggleRubro}
+              onAbrirDependencias={handleAbrirDependencias}
+              onCambiarFecha={handleCambiarFecha}
+            />
           </div>
 
           {/* Gantt */}
@@ -453,7 +349,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
               </div>
 
               <div className="relative">
-                {/* Grilla (capa 0) */}
+                {/* Grilla */}
                 <div
                   className="absolute top-0 left-0 pointer-events-none flex"
                   style={{
@@ -467,9 +363,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                       key={`grid-${tick.iso}-${idx}`}
                       className={cn(
                         'border-r shrink-0 h-full',
-                        tick.esFinde
-                          ? 'bg-slate-100 border-slate-200'
-                          : 'border-slate-200',
+                        tick.esFinde ? 'bg-slate-100 border-slate-200' : 'border-slate-200',
                         tick.esInicioMes && 'border-l-2 border-l-slate-400'
                       )}
                       style={{ width: `${tick.anchoPx}px` }}
@@ -477,7 +371,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                   ))}
                 </div>
 
-                {/* Flechas (capa 5) */}
+                {/* Flechas */}
                 <GanttFlechas
                   flechas={flechas}
                   anchoTotal={anchoTotal}
@@ -485,7 +379,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                   hoverKey={tareaHoverId}
                 />
 
-                {/* Filas (fondos en capa 1, contenido en capa 10) */}
+                {/* Filas */}
                 <div className="relative" style={{ zIndex: 10 }}>
                   {filas.map((fila) => {
                     const isRubro = fila._tipo === 'rubro';
@@ -501,7 +395,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                           isRubro ? 'border-slate-300' : 'border-slate-200'
                         )}
                       >
-                        {/* 🔑 Fondo de fila en capa baja (por debajo del SVG de flechas) */}
                         <div
                           className={cn(
                             'absolute inset-0',
@@ -512,15 +405,13 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                           style={{ zIndex: 1 }}
                         />
 
-                        {/* Contenido (barras) en capa media */}
                         <div className="relative" style={{ zIndex: 10 }}>
                           <GanttBarra
                             fila={fila}
                             alturaFila={ALTURA_FILA}
                             esHover={isHover}
                             onHover={setTareaHoverId}
-                            onLeave={handleLeave}
-                            onTooltipMove={isRubro ? undefined : handleTooltipMove}
+                            onLeave={() => setTareaHoverId(null)}
                             onIniciarDrag={isRubro ? undefined : iniciarDrag}
                             dragActivo={dragActivo}
                             preview={preview}
@@ -539,11 +430,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
           </div>
         </div>
       </div>
-
-      {/* Tooltip */}
-      {!dragActivo && (
-        <GanttTooltip tarea={tooltip.tarea} posicion={tooltip.posicion} />
-      )}
 
       {/* Modal de dependencias */}
       {tareaDependencias && (
