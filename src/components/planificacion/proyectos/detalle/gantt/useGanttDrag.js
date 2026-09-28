@@ -19,6 +19,12 @@ import {
  * Hook que maneja la lógica del drag de barras del Gantt.
  * Fase 2.3: snap a días hábiles + validación de feriados.
  * Fase 3.1: compatible con estructura nueva de predecesoras.
+ * 
+ * 🔑 FIX (esta versión): 
+ *  - Se eliminó la cascada manual de dependencias (ahora lo hace
+ *    `recalcularFechasDelPlan` en `guardarCambios` desde GanttTab).
+ *  - El conflicto de predecesoras ahora es WARNING (permite el drag)
+ *    en vez de bloquear.
  */
 export function useGanttDrag({
   filas = [],
@@ -49,42 +55,59 @@ export function useGanttDrag({
   }, [preview, filas]);
 
   // ─── Conflicto actual ──────────────────────────────────────────────────
+  // 🔑 FIX: Ahora es solo un AVISO (warning). Permite guardar igual.
   const conflicto = useMemo(() => {
     if (!preview || !filas.length) return null;
     const tarea = filas.find(f => f.id === preview.tareaId);
     if (!tarea || tarea._tipo !== 'tarea') return null;
 
-    // Duración mínima 1 día
+    // Duración mínima 1 día — este SÍ bloquea (no tiene sentido duración 0)
     if (preview.duracionDelta < 0 && (tarea._duracionDias + preview.duracionDelta) < 1) {
       return {
         tipo: 'duracion',
+        blocking: true,
         mensaje: 'La duración mínima es 1 día',
       };
     }
 
-    // Predecesoras (solo FS aplica para bloqueo simple)
+    // Predecesoras — ahora es WARNING, no bloquea
     const predsIds = obtenerIdsPredecesoras(tarea.predecesoras);
     if (predsIds.length > 0) {
       const nuevaFechaInicio = sumarDias(tarea.fecha_inicio, preview.offsetDiasDelta);
       let fechaFinMaxPreds = null;
+      let predNombreMax = '';
       for (const predId of predsIds) {
         const pred = filas.find(f => String(f.id) === String(predId));
         if (pred && pred.fecha_fin) {
           if (!fechaFinMaxPreds || pred.fecha_fin > fechaFinMaxPreds) {
             fechaFinMaxPreds = pred.fecha_fin;
+            predNombreMax = pred.tarea_nombre || 'predecesora';
           }
         }
       }
       if (fechaFinMaxPreds && nuevaFechaInicio <= fechaFinMaxPreds) {
         return {
           tipo: 'predecesora',
-          mensaje: `No puede empezar antes del ${fechaFinMaxPreds} (fin de su predecesora)`,
+          blocking: false, // 🔑 ya no bloquea
+          mensaje: `Advertencia: empieza antes del fin de "${predNombreMax}" (${fechaFinMaxPreds})`,
         };
       }
     }
 
     return null;
   }, [preview, filas]);
+
+  // 🔑 Separar el conflicto bloqueante (duración < 1 día) del warning
+  const conflictoBloqueante = useMemo(() => {
+    if (!conflicto) return null;
+    return conflicto.blocking ? conflicto : null;
+  }, [conflicto]);
+
+  // 🔑 El warning es lo que se muestra en el banner amarillo
+  const conflictoWarning = useMemo(() => {
+    if (!conflicto) return null;
+    return !conflicto.blocking ? conflicto : null;
+  }, [conflicto]);
 
   // ─── Iniciar drag ──────────────────────────────────────────────────────
   const iniciarDrag = useCallback((e, tarea, tipoDrag = 'mover') => {
@@ -186,7 +209,13 @@ export function useGanttDrag({
     if (!drag || !prev) return;
 
     if (prev.offsetDiasDelta === 0 && prev.duracionDelta === 0) return;
-    if (conflicto) return;
+
+    // 🔑 Solo bloquea si hay conflicto BLOQUEANTE (duración < 1 día).
+    // Los warnings de predecesoras permiten guardar.
+    if (conflictoBloqueante) {
+      console.warn('[useGanttDrag] Drag bloqueado por conflicto:', conflictoBloqueante.mensaje);
+      return;
+    }
 
     const tarea = filas.find(f => f.id === drag.tareaId);
     if (!tarea) return;
@@ -234,27 +263,10 @@ export function useGanttDrag({
       });
     }
 
-    // Cascada: mover también dependencias
-    if (drag.tipo === 'mover' && dependenciasAfectadas.length > 0) {
-      const offsetAplicado = prev.offsetDiasDelta;
-      dependenciasAfectadas.forEach((dep) => {
-        const nuevaFechaInicio = ajustarADiaHabil(
-          sumarDias(dep.fecha_inicio, offsetAplicado),
-          feriadosSet
-        );
-        const nuevaFechaFin = calcularFechaFin(
-          nuevaFechaInicio,
-          dep._duracionDias,
-          feriadosSet
-        );
-
-        cambios.push({
-          tareaId: dep.id,
-          fecha_inicio: nuevaFechaInicio,
-          fecha_fin: nuevaFechaFin,
-        });
-      });
-    }
+    // 🔑 FIX: se eliminó la cascada manual de dependencias.
+    // Ahora `guardarCambios` (en GanttTab) recalcula todas las sucesoras
+    // con `recalcularFechasDelPlan`, respetando tipos de dependencia (FS/SS/FF/SF),
+    // feriados, y propagando multi-nivel. Evita duplicación y desincronización.
 
     if (typeof guardarCambios === 'function' && cambios.length > 0) {
       try {
@@ -263,7 +275,7 @@ export function useGanttDrag({
         console.error('[useGanttDrag] Error al guardar:', err);
       }
     }
-  }, [dragActivo, preview, conflicto, filas, dependenciasAfectadas, guardarCambios, feriadosSet]);
+  }, [dragActivo, preview, conflictoBloqueante, filas, guardarCambios, feriadosSet]);
 
   // ─── Cancelar drag ─────────────────────────────────────────────────────
   const cancelarDrag = useCallback(() => {
@@ -275,7 +287,10 @@ export function useGanttDrag({
   return {
     dragActivo,
     preview,
-    conflicto,
+    // 🔑 `conflicto` ahora expone solo el bloqueante (para el banner rojo).
+    // Los warnings de predecesoras van por `aviso` (banner amarillo).
+    conflicto: conflictoBloqueante,
+    conflictoWarning,
     aviso,
     dependenciasAfectadas,
     iniciarDrag,
