@@ -22,7 +22,8 @@ export default function GanttBarra({
   onIniciarDrag,
   dragActivo,
   preview,
-  conflicto,
+  conflicto,           // 🔑 ahora solo es el BLOQUEANTE (duración < 1)
+  conflictoWarning,    // 🔑 NUEVO: warning por predecesoras (no bloquea)
   aviso,
   feriadosSet,
 }) {
@@ -49,6 +50,7 @@ export default function GanttBarra({
       dragActivo={dragActivo}
       preview={preview}
       conflicto={conflicto}
+      conflictoWarning={conflictoWarning}
       aviso={aviso}
       feriadosSet={feriadosSet}
     />
@@ -122,6 +124,7 @@ function BarraTarea({
   dragActivo,
   preview,
   conflicto,
+  conflictoWarning,
   aviso,
   feriadosSet,
 }) {
@@ -209,6 +212,10 @@ function BarraTarea({
         ? 'cursor-grab'
         : '';
 
+  // 🔑 Determinar el tipo de halo durante el drag
+  const tieneBloqueo = esLaQueSeArrastra && conflicto;
+  const tieneWarning = esLaQueSeArrastra && !conflicto && conflictoWarning;
+
   return (
     <div
       className="relative"
@@ -220,10 +227,25 @@ function BarraTarea({
       }}
       onMouseMove={handleMouseMoveInterno}
     >
-      {/* Halo rojo si hay conflicto */}
-      {esLaQueSeArrastra && conflicto && (
+      {/* 🔑 Halo ROJO si hay conflicto bloqueante (duración < 1) */}
+      {tieneBloqueo && (
         <div
-          className="absolute rounded ring-4 ring-rose-400 pointer-events-none"
+          className="absolute rounded ring-4 ring-rose-500 pointer-events-none"
+          style={{
+            left: `${previewActual?.offsetPx ?? tarea._offsetPx}px`,
+            top: '50%',
+            width: `${previewActual?.anchoPx ?? anchoBarra}px`,
+            height: `${alturaFila * 0.38 + 8}px`,
+            transform: 'translateY(-50%)',
+            zIndex: 25,
+          }}
+        />
+      )}
+
+      {/* 🔑 Halo ÁMBAR si hay warning (violación de predecesoras, no bloquea) */}
+      {tieneWarning && (
+        <div
+          className="absolute rounded ring-4 ring-amber-400 pointer-events-none"
           style={{
             left: `${previewActual?.offsetPx ?? tarea._offsetPx}px`,
             top: '50%',
@@ -241,6 +263,7 @@ function BarraTarea({
           preview={previewActual}
           alturaFila={alturaFila}
           tieneConflicto={!!conflicto}
+          tieneWarning={!!conflictoWarning}
           fechaInicioNueva={fechasPreview?.inicio}
           fechaFinNueva={fechasPreview?.fin}
           duracionNueva={fechasPreview?.duracion}
