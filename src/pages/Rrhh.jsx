@@ -7,6 +7,16 @@ import { crearDoc, actualizarDoc, eliminarDoc, eliminarDocsFiltrados } from '@/l
 // 🔑 FIX: Apps Script solo se usa para subir archivos a Drive
 import { GOOGLE_SCRIPT_URL } from '@/api';
 
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPERS DE FORMATO DE MONEDA
+// ═══════════════════════════════════════════════════════════════════════════
+
+// 🔑 NUEVO: formato estándar de moneda para toda la app (es-AR, 2 decimales, miles con punto)
+const formatearMoneda = (valor) => {
+  const num = Number(valor) || 0;
+  return num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 export default function Rrhh() {
   // 🔑 NUEVO: leemos todas las colecciones necesarias en paralelo
   const { data: personalInicial } = useFirestoreCollection('personal');
@@ -71,7 +81,8 @@ export default function Rrhh() {
 
   const [personalSalarios, setPersonalSalarios] = useState(procesarPersonalInicial(safePersonal));
 
-  const [multiplicadorParitaria, setMultiplicadorParitaria] = useState('');
+  // 🔑 CAMBIO: ahora es "variación porcentual" (ej: 1.9 = +1.9%, -5 = -5%)
+  const [variacionParitaria, setVariacionParitaria] = useState('');
   const [mesAcuerdoGlobal, setMesAcuerdoGlobal] = useState('Agosto 2026');
 
   const [vistaCuadrilla, setVistaCuadrilla] = useState('lista');
@@ -80,7 +91,6 @@ export default function Rrhh() {
   const [porcentajeCargas, setPorcentajeCargas] = useState(76.00);
   const [cuadrillaItems, setCuadrillaItems] = useState([]);
   const [viaticosCuadrilla, setViaticosCuadrilla] = useState({ cantidad: 1, costo: 0 });
-  // 🔑 NUEVO: detectar si la cuadrilla editada no tiene composición guardada
   const [cuadrillaSinComposicion, setCuadrillaSinComposicion] = useState(false);
 
   const [editingCargaId, setEditingCargaId] = useState(null);
@@ -336,16 +346,37 @@ export default function Rrhh() {
     }
   };
 
+  // 🔑 CAMBIO: ahora el input es "variación %" (ej: 1.9 = +1.9%, -5 = -5%).
+  // El factor se calcula como: factor = 1 + (variacion / 100).
   const handleAplicarParitariaMasiva = async () => {
-    const mult = Number(multiplicadorParitaria);
-    if (!mult || mult <= 0) {
-      alert("Ingresa un multiplicador válido (ej: 1.05 para un 5% de aumento).");
+    const variacion = Number(variacionParitaria);
+    if (isNaN(variacion)) {
+      alert("Ingresá una variación válida en % (ej: 1.9 para +1.9%, -5 para -5%).");
       return;
     }
 
+    const factor = 1 + (variacion / 100);
+
+    if (factor <= 0) {
+      alert("La variación ingresada deja el factor en 0 o negativo. Verificá el valor.");
+      return;
+    }
+
+    // Confirmación con preview de un salario de ejemplo
+    const ejemplo = personalSalarios.find(p => Number(p.costo_en_mano) > 0);
+    let msg = `Se va a aplicar una variación de ${variacion > 0 ? '+' : ''}${variacion}% a TODOS los salarios.\n\nFactor: ×${factor.toFixed(4)}\n`;
+    if (ejemplo) {
+      const antes = Number(ejemplo.costo_en_mano) || 0;
+      const despues = Math.round(antes * factor * 100) / 100;
+      msg += `Ejemplo: ${ejemplo.nombre || ejemplo.Nombre}\n  $${formatearMoneda(antes)} → $${formatearMoneda(despues)}\n\n`;
+    }
+    msg += "¿Continuar?";
+
+    if (!window.confirm(msg)) return;
+
     const nuevosSalarios = personalSalarios.map(p => ({
       ...p,
-      costo_en_mano: Math.round((Number(p.costo_en_mano) || 0) * mult * 100) / 100,
+      costo_en_mano: Math.round((Number(p.costo_en_mano) || 0) * factor * 100) / 100,
       mes_acuerdo: mesAcuerdoGlobal
     }));
 
@@ -403,7 +434,6 @@ export default function Rrhh() {
       return;
     }
 
-    // 🔑 NUEVO: si no tiene operarios, avisar y confirmar
     if (cuadrillaItems.length === 0) {
       const ok = window.confirm(
         "⚠️ La cuadrilla no tiene operarios cargados.\n\n" +
@@ -442,7 +472,6 @@ export default function Rrhh() {
     }
   };
 
-  // 🔑 FIX: reconstruir composición si el insumo viejo no tiene items
   const handleEditarCuadrilla = (cuadrillaIns) => {
     const cId = cuadrillaIns.id || cuadrillaIns.ID;
     const cNombre = cuadrillaIns.nombre_del_articulo || cuadrillaIns.nombre || '';
@@ -458,13 +487,11 @@ export default function Rrhh() {
         setCuadrillaItems(descParsed.items);
         tieneComposicion = true;
       } else {
-        // 🔑 La cuadrilla vieja NO tiene composición → dejar vacío + avisar
         setCuadrillaItems([]);
         tieneComposicion = false;
       }
       if (descParsed.viaticos) setViaticosCuadrilla(descParsed.viaticos);
     } catch {
-      // Si la descripción es texto plano (formato viejo)
       setCuadrillaItems([]);
       tieneComposicion = false;
     }
@@ -479,7 +506,7 @@ export default function Rrhh() {
     setPorcentajeCargas(76.00);
     setCuadrillaItems([]);
     setViaticosCuadrilla({ cantidad: 1, costo: 0 });
-    setCuadrillaSinComposicion(false); // 🔑 NUEVO: es nueva, no marcar como "sin composición"
+    setCuadrillaSinComposicion(false);
     setVistaCuadrilla('editor');
   };
 
@@ -1481,7 +1508,7 @@ export default function Rrhh() {
                 <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b">
                   <div>
                     <h3 className="text-sm font-extrabold text-slate-900 uppercase">Salarios Acordados por Personal (Base Vigente)</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Modifica manualmente cada salario/mes o aplica un multiplicador general por paritaria.</p>
+                    <p className="text-xs text-slate-500 mt-0.5">Modifica manualmente cada salario/mes o aplica una variación porcentual general por paritaria.</p>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2 bg-amber-50 px-4 py-2.5 rounded-xl border border-amber-200">
@@ -1492,13 +1519,18 @@ export default function Rrhh() {
                       onChange={(e) => setMesAcuerdoGlobal(e.target.value)}
                       className="w-32 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-bold text-amber-900 outline-none focus:border-amber-500 shadow-sm"
                     />
-                    <span className="text-xs font-bold text-amber-900 ml-2">Multiplicador:</span>
-                    <input
-                      type="number" step="0.001" placeholder="Ej: 1.05"
-                      value={multiplicadorParitaria}
-                      onChange={(e) => setMultiplicadorParitaria(e.target.value)}
-                      className="w-20 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-black text-amber-900 text-center outline-none focus:border-amber-500 shadow-sm"
-                    />
+                    <div className="flex flex-col">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-bold text-amber-900 ml-2">Variación (%):</span>
+                        <input
+                          type="number" step="0.1" placeholder="Ej: 1.9"
+                          value={variacionParitaria}
+                          onChange={(e) => setVariacionParitaria(e.target.value)}
+                          className="w-20 bg-white border border-amber-300 rounded-lg px-2 py-1 text-xs font-black text-amber-900 text-center outline-none focus:border-amber-500 shadow-sm"
+                        />
+                      </div>
+                      <span className="text-[10px] text-amber-700 mt-0.5 ml-2">Positivo = aumento. Negativo = reducción.</span>
+                    </div>
                     <button
                       onClick={handleAplicarParitariaMasiva}
                       className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-xs shadow-sm cursor-pointer flex items-center gap-1"
@@ -1592,7 +1624,7 @@ export default function Rrhh() {
                               </span>
                             </td>
                             <td className="px-4 py-4 text-right font-black text-blue-600">
-                              $ {cCosto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              $ {formatearMoneda(cCosto)}
                             </td>
                             <td className="px-6 py-4 text-right space-x-2">
                               <button onClick={() => handleEditarCuadrilla(c)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Modificar"><Edit2 className="w-3.5 h-3.5" /></button>
@@ -1623,7 +1655,6 @@ export default function Rrhh() {
                 </button>
               </div>
 
-              {/* 🔑 NUEVO: banner si la cuadrilla no tiene composición */}
               {cuadrillaSinComposicion && (
                 <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 flex items-start gap-3">
                   <div className="bg-amber-100 p-2 rounded-lg shrink-0">
@@ -1689,7 +1720,7 @@ export default function Rrhh() {
                             <td className="px-4 py-2 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
                             <td className="px-4 py-2 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
                             <td className="px-4 py-2 text-right font-black text-blue-600">
-                              $ {Number(p.costo_en_mano || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                              $ {formatearMoneda(p.costo_en_mano)}
                             </td>
                             <td className="px-4 py-2 text-right">
                               <button
@@ -1756,10 +1787,10 @@ export default function Rrhh() {
                           />
                         </td>
                         <td className="px-4 py-3 text-right font-mono text-slate-600">
-                          $ {item.cargasSocialesUnitarias.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          $ {formatearMoneda(item.cargasSocialesUnitarias)}
                         </td>
                         <td className="px-4 py-3 text-right font-black text-slate-900">
-                          $ {item.subtotalTotal.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          $ {formatearMoneda(item.subtotalTotal)}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <button
@@ -1793,7 +1824,7 @@ export default function Rrhh() {
                         />
                       </td>
                       <td className="px-4 py-3 text-right font-black text-amber-900" colSpan={2}>
-                        $ {totalViaticos.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        $ {formatearMoneda(totalViaticos)}
                       </td>
                     </tr>
                   </tbody>
@@ -1808,7 +1839,7 @@ export default function Rrhh() {
                 <div className="text-right">
                   <span className="text-xs text-slate-400 uppercase font-bold block">COSTO DIARIO CUADRILLA</span>
                   <span className="text-2xl font-black text-amber-400">
-                    $ {costoDiarioCuadrilla.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    $ {formatearMoneda(costoDiarioCuadrilla)}
                   </span>
                 </div>
               </div>
@@ -2002,7 +2033,7 @@ export default function Rrhh() {
                 className="flex items-center gap-2 px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white rounded-xl font-bold text-xs shadow-sm cursor-pointer"
               >
                 {guardandoCarga ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
-                {guardandoCarga ? 'Registrando...' : (editingCargaId ? 'Actualizar Carga' : `Registrar Carga de Sueldos ($ ${totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2 })})`)}
+                {guardandoCarga ? 'Registrando...' : (editingCargaId ? 'Actualizar Carga' : `Registrar Carga de Sueldos ($ ${formatearMoneda(totalGeneralCarga)})`)}
               </button>
             </div>
 
@@ -2048,7 +2079,7 @@ export default function Rrhh() {
                         />
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-blue-600">
-                        $ {Number(item.costoDiario).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                        $ {formatearMoneda(item.costoDiario)}
                       </td>
                       <td className="px-4 py-3 text-center">
                         <input
@@ -2073,7 +2104,7 @@ export default function Rrhh() {
                         />
                       </td>
                       <td className="px-4 py-3 text-right font-black text-slate-900">
-                        $ {item.totalOperario.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        $ {formatearMoneda(item.totalOperario)}
                       </td>
                     </tr>
                   ))}
@@ -2089,7 +2120,7 @@ export default function Rrhh() {
               <div className="text-right">
                 <span className="text-xs text-slate-400 uppercase font-bold block">TOTAL GENERAL A PAGAR / IMPUTAR</span>
                 <span className="text-2xl font-black text-amber-400">
-                  $ {totalGeneralCarga.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  $ {formatearMoneda(totalGeneralCarga)}
                 </span>
               </div>
             </div>
@@ -2123,7 +2154,7 @@ export default function Rrhh() {
               </div>
               <div className="flex items-center gap-4">
                 <span className="text-2xl font-black text-blue-700">
-                  $ {totalCargasSociales.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  $ {formatearMoneda(totalCargasSociales)}
                 </span>
                 <button
                   onClick={handleRegistrarCargasSociales}
@@ -2226,7 +2257,7 @@ export default function Rrhh() {
                           {cTipo === 'OBRA' ? cObraId : 'N/A'}
                         </td>
                         <td className="px-4 py-4 text-right font-black text-blue-600">
-                          $ {cTotal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                          $ {formatearMoneda(cTotal)}
                         </td>
                         <td className="px-6 py-4 text-right space-x-1">
                           <button
@@ -2418,3 +2449,4 @@ export default function Rrhh() {
     </div>
   );
 }
+    // ═════════════════════════════════════════════════════════════ CONTINÚA EN BLOQUE 2 ═════════════════════════════════════════════════════════════════════════════════
