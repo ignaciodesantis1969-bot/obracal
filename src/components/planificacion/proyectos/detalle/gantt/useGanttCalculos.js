@@ -136,7 +136,14 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       console.log('[CPM] Total tareas:', tareas.length);
 
 
-      
+      console.log('[CPM-INPUT]', tareas.map(t => ({
+      nombre: t.tarea_nombre,
+      duracion_real_dias: t.duracion_real_dias,
+      cantidad_dias_teoricos: t.cantidad_dias_teoricos,
+      fi: t.fecha_inicio,
+      ff: t.fecha_fin,
+      })));    
+    
     // ─── Agrupar por rubro ──────────────────────────────────────────────
     const rubrosMap = new Map();
 
