@@ -640,15 +640,10 @@ export function calcularPresupuestoMO(tarea, presupuesto) {
     fuenteTareaIdx = 'tarea.tarea_idx';
   }
 
-  console.log('[calcularPresupuestoMO] tareaIdx:', tareaIdx, '| fuente:', fuenteTareaIdx);
-
   if (tareaIdx < 0) return 0;
 
   const tareas = Array.isArray(rubro.tareas) ? rubro.tareas : [];
-  if (!tareas[tareaIdx]) {
-    console.log('[calcularPresupuestoMO] → tarea no existe en presupuesto. tareaIdx:', tareaIdx, '| tareasLength:', tareas.length);
-    return 0;
-  }
+  if (!tareas[tareaIdx]) return 0;
   const tareaPresupuesto = tareas[tareaIdx];
 
   const insumosTarea = Array.isArray(tareaPresupuesto.insumos) ? tareaPresupuesto.insumos : [];
@@ -658,18 +653,13 @@ export function calcularPresupuestoMO(tarea, presupuesto) {
     normalizarTexto(i?.tipo || '').includes('mano de obra')
   );
 
-  if (!insumoMO) {
-    console.log('[calcularPresupuestoMO] → insumo MO no encontrado en la tarea del presupuesto');
-    return 0;
-  }
+  if (!insumoMO) return 0;
 
   const costoUnitarioMO = Number(insumoMO.costo_unitario) || 0;
   const cantidadInsumoMO = Number(insumoMO.cantidad) || 0;
   const cantidadTarea = Number(tarea.cantidad) || 0;
 
-  const resultado = costoUnitarioMO * cantidadInsumoMO * cantidadTarea;
-  console.log('[calcularPresupuestoMO] ✓ RESULTADO:', resultado);
-  return resultado;
+  return costoUnitarioMO * cantidadInsumoMO * cantidadTarea;
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -678,7 +668,7 @@ export function calcularPresupuestoMO(tarea, presupuesto) {
 
 /**
  * Suma N días hábiles a una fecha ISO.
- * 🔑 FIX: soporta n = 0 → devuelve la misma fecha.
+ * Soporta n = 0 → devuelve la misma fecha.
  */
 function sumarDiasHabiles(fechaIso, n, feriadosSet) {
   if (!fechaIso) return fechaIso;
@@ -711,29 +701,16 @@ function restarDiasHabiles(fechaIso, n, feriadosSet) {
 
 /**
  * Recalcula las fechas de todas las tareas respetando las dependencias.
- * 
- * - La tarea origen (la que movió el usuario) mantiene sus fechas.
- * - Las sucesoras se recalculan en cascada, respetando el tipo de dependencia.
- * - Soporta FS, SS, FF, SF.
- * - Con múltiples predecesoras, toma el MAX de las fechas calculadas.
- * - Usa días hábiles (respeta feriados).
- * - 🔑 FIX: maneja duraciones decimales (0.5, 1.5, etc.) redondeando a 1 para el cálculo de fechas.
- * 
- * @param {Array} tareas - Array de tareas del plan
- * @param {Set} feriadosSet - Set de feriados (YYYY-MM-DD)
- * @param {string} tareaOrigenId - ID de la tarea que movió el usuario
- * @returns {Object} { cambios: { [tareaId]: { fecha_inicio, fecha_fin } }, movidas: [...] }
  */
 export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
   if (!Array.isArray(tareas) || tareas.length === 0) {
     return { cambios: {}, movidas: [] };
   }
 
-  // Indexar tareas
   const tareasMap = new Map();
   tareas.forEach(t => tareasMap.set(String(t.id), t));
 
-  // ─── Topological sort (Kahn) ─────────────────────────────────────────
+  // Topological sort (Kahn)
   const grafoSalida = new Map();
   const gradosEntrada = new Map();
 
@@ -773,7 +750,6 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
     });
   }
 
-  // Si hay ciclos, agregar las tareas faltantes al final
   tareas.forEach(t => {
     const id = String(t.id);
     if (!ordenTopologico.includes(id)) {
@@ -781,7 +757,6 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
     }
   });
 
-  // ─── Calcular fechas en orden topológico ─────────────────────────────
   const cambios = {};
   const movidas = [];
   const origenStr = String(tareaOrigenId || '');
@@ -794,13 +769,10 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
     const duracion = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 1;
     const fechaInicioActual = tarea.fecha_inicio || null;
 
-    // 🔑 Si es la tarea origen O no tiene predecesoras → respetar su fecha actual
     if (tareaId === origenStr || preds.length === 0) {
       return;
     }
 
-    // 🔑 Duración efectiva para el cálculo de fechas (mínimo 1 día)
-    // Las tareas de 0.5 días se computan como 1 día completo para el cálculo de fecha_fin
     const duracionParaFechas = Math.max(1, Math.ceil(duracion));
 
     let fechaInicioMinima = null;
@@ -821,22 +793,18 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
 
       switch (tipo) {
         case 'FS':
-          // Sucesora empieza cuando termina predecesora + lag + 1 día
           inicioCalculado = sumarDiasHabiles(predFin, 1 + lag, feriadosSet);
           break;
         case 'SS':
-          // Sucesora empieza cuando empieza predecesora + lag
           inicioCalculado = sumarDiasHabiles(predInicio, lag, feriadosSet);
           break;
         case 'FF':
-          // Sucesora termina cuando termina predecesora + lag → inicio = fin - duracion
           {
             const finCalculado = sumarDiasHabiles(predFin, lag, feriadosSet);
             inicioCalculado = restarDiasHabiles(finCalculado, duracionParaFechas - 1, feriadosSet);
           }
           break;
         case 'SF':
-          // Sucesora termina cuando empieza predecesora + lag → inicio = fin - duracion
           {
             const finCalculado = sumarDiasHabiles(predInicio, lag, feriadosSet);
             inicioCalculado = restarDiasHabiles(finCalculado, duracionParaFechas - 1, feriadosSet);
@@ -848,7 +816,6 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
 
       if (!inicioCalculado) return;
 
-      // Con múltiples predecesoras → MAX
       if (!fechaInicioMinima || inicioCalculado > fechaInicioMinima) {
         fechaInicioMinima = inicioCalculado;
       }
@@ -856,10 +823,8 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
 
     if (!fechaInicioMinima) return;
 
-    // 🔑 Recalcular fecha fin con la duración (ya redondeada)
     const fechaFinCalculada = sumarDiasHabiles(fechaInicioMinima, duracionParaFechas - 1, feriadosSet);
 
-    // 🔑 Solo agregar al cambio si efectivamente cambió
     if (fechaInicioMinima !== fechaInicioActual) {
       cambios[tareaId] = {
         fecha_inicio: fechaInicioMinima,
@@ -879,32 +844,21 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
 
   return { cambios, movidas };
 }
+
 // ═══════════════════════════════════════════════════════════════════════════
 // CAMINO CRÍTICO (CPM)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
- * Calcula el camino crítico del plan usando el método CPM (Critical Path Method).
+ * Calcula el camino crítico del plan usando CPM.
  * 
- * - Forward pass: usamos las fechas actuales (ya están calculadas por recalcularFechasDelPlan).
- * - Backward pass: calculamos las fechas más tardías sin atrasar el proyecto.
- * - Holgura: días de margen entre fecha temprana y tardía.
- * - Tareas críticas: holgura = 0.
- * 
- * @param {Array} tareas - Array de tareas del plan
- * @param {Set} feriadosSet - Set de feriados (YYYY-MM-DD)
- * @returns {Object} {
- *   criticas: Set<string>,
- *   holguras: { [tareaId]: number },
- *   fechaFinProyecto: string | null,
- * }
+ * 🔑 DEBUG TEMPORAL: logs por tarea en el bloque 4.
  */
 export function calcularCaminoCritico(tareas, feriadosSet) {
   if (!Array.isArray(tareas) || tareas.length === 0) {
     return { criticas: new Set(), holguras: {}, fechaFinProyecto: null };
   }
 
-  // Indexar tareas
   const tareasMap = new Map();
   tareas.forEach(t => tareasMap.set(String(t.id), t));
 
@@ -945,7 +899,6 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
     });
   }
 
-  // Si hay ciclos, agregar las tareas faltantes al final (no se procesarán bien)
   tareas.forEach(t => {
     const id = String(t.id);
     if (!ordenTopologico.includes(id)) ordenTopologico.push(id);
@@ -965,10 +918,9 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
   }
 
   // ─── 3) Backward pass ─────────────────────────────────────────────────
-  const lateFinishMap = new Map(); // tareaId → fecha tardía de fin (ISO)
-  const lateStartMap = new Map();  // tareaId → fecha tardía de inicio (ISO)
+  const lateFinishMap = new Map();
+  const lateStartMap = new Map();
 
-  // Procesar en orden topológico INVERTIDO (de las últimas a las primeras)
   const ordenInverso = [...ordenTopologico].reverse();
 
   ordenInverso.forEach(tareaId => {
@@ -983,10 +935,8 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
     let lateFinish = null;
 
     if (sucesoras.length === 0) {
-      // Sin sucesoras → late_finish = fecha fin del proyecto
       lateFinish = fechaFinProyecto;
     } else {
-      // Con sucesoras → late_finish = MIN del "límite" que impone cada sucesora
       let minLimite = null;
 
       sucesoras.forEach(sucId => {
@@ -1009,27 +959,18 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
 
         switch (tipo) {
           case 'FS':
-            // Sucesora empieza después de que termina la predecesora
-            // → predecesora debe terminar antes del late_start de la sucesora - lag - 1
             limite = sumarDiasHabiles(sucLateStart, -(1 + lag), feriadosSet);
             break;
           case 'SS':
-            // Sucesora empieza junto con la predecesora
-            // → predecesora debe empezar antes del late_start de la sucesora - lag
-            // Convertimos a un límite de late_finish: late_start + duración - 1
             {
               const lateStartLimite = sumarDiasHabiles(sucLateStart, -lag, feriadosSet);
               limite = sumarDiasHabiles(lateStartLimite, duracionParaFechas - 1, feriadosSet);
             }
             break;
           case 'FF':
-            // Sucesora termina junto con la predecesora
-            // → predecesora debe terminar antes del late_finish de la sucesora - lag
             limite = sumarDiasHabiles(sucLateFinish, -lag, feriadosSet);
             break;
           case 'SF':
-            // Sucesora termina junto con el inicio de la predecesora
-            // → predecesora debe empezar antes del late_finish de la sucesora - lag
             {
               const lateStartLimite = sumarDiasHabiles(sucLateFinish, -lag, feriadosSet);
               limite = sumarDiasHabiles(lateStartLimite, duracionParaFechas - 1, feriadosSet);
@@ -1053,6 +994,7 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
   });
 
   // ─── 4) Calcular holguras y marcar críticas ──────────────────────────
+  // 🔑 DEBUG TEMPORAL: logs por tarea
   const holguras = {};
   const criticas = new Set();
 
@@ -1060,22 +1002,31 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
     const tareaId = String(t.id);
     const earlyStart = t.fecha_inicio;
     const lateStart = lateStartMap.get(tareaId);
+    const lateFinish = lateFinishMap.get(tareaId);
 
     if (!earlyStart || !lateStart) {
       holguras[tareaId] = 0;
       return;
     }
 
-    // Holgura en días hábiles (puede dar 0, 1, 2, ...)
     const holguraDias = contarDiasCalendarioHabiles(earlyStart, lateStart, feriadosSet) - 1;
-    // El "-1" es porque contarDiasCalendarioHabiles incluye ambos extremos si son iguales
-
-    // Si lateStart < earlyStart (no debería pasar), holgura = 0
     const holgura = Math.max(0, holguraDias);
+
+    // 🔑 DEBUG TEMPORAL
+    console.log(`[CPM] ${t.tarea_nombre}`, {
+      id: tareaId,
+      earlyStart,
+      earlyFinish: t.fecha_fin,
+      lateStart,
+      lateFinish,
+      duracion: t.duracion_real_dias,
+      holgura,
+      preds: normalizarPredecesoras(t.predecesoras).map(p => p.tarea_id),
+      sucesoras: (grafoSalida.get(tareaId) || []),
+    });
 
     holguras[tareaId] = holgura;
 
-    // Es crítica si holgura = 0
     if (holgura === 0) {
       criticas.add(tareaId);
     }
