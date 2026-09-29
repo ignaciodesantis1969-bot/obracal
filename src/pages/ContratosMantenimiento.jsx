@@ -1,6 +1,6 @@
 // src/pages/ContratosMantenimiento.jsx
 import { useState, useEffect, useMemo, Fragment } from 'react';
-import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload, Key, User } from 'lucide-react';
+import { ShieldCheck, Plus, Search, Edit2, Trash2, MapPin, X, Loader2, Eye, ArrowLeft, Calculator, FileText, DollarSign, TrendingUp, AlertCircle, Calendar, CheckCircle2, Upload, Key, User, Award } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { useAuth } from '@/hooks/useAuth';
@@ -95,6 +95,10 @@ export default function ContratosMantenimiento() {
   const [ajustesAplicados, setAjustesAplicados] = useState([]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
+  // 🔑 NUEVO: flag y mes del primer certificado
+  const [primerCertificadoHecho, setPrimerCertificadoHecho] = useState(false);
+  const [primerCertificadoMes, setPrimerCertificadoMes] = useState('');
+
   useEffect(() => {
     if (contratoDetalle) {
       const desc = contratoDetalle.descripcion || '';
@@ -104,6 +108,10 @@ export default function ContratosMantenimiento() {
       let pNombre = 'Juan Pérez';
       let cCargo = 'Supervisor de Planta';
       let cNombre = 'Carlos Gómez';
+
+      // 🔑 NUEVO: reset de flags al cambiar de contrato
+      setPrimerCertificadoHecho(false);
+      setPrimerCertificadoMes('');
 
       if (desc.includes('---DATOS_SICE_INTEGRAL---')) {
         try {
@@ -117,6 +125,9 @@ export default function ContratosMantenimiento() {
           if (jsonData.proveedorNombre) pNombre = jsonData.proveedorNombre;
           if (jsonData.clienteCargo) cCargo = jsonData.clienteCargo;
           if (jsonData.clienteNombre) cNombre = jsonData.clienteNombre;
+          // 🔑 NUEVO: leer flags del primer certificado
+          if (jsonData.primerCertificadoHecho === true) setPrimerCertificadoHecho(true);
+          if (jsonData.primerCertificadoMes) setPrimerCertificadoMes(String(jsonData.primerCertificadoMes));
         } catch (e) {}
       } else if (desc.includes('---DATOS_POLINOMICA---')) {
         try {
@@ -169,7 +180,10 @@ export default function ContratosMantenimiento() {
         proveedorCargo: newProvCargo !== undefined ? newProvCargo : proveedorCargo,
         proveedorNombre: newProvNom !== undefined ? newProvNom : proveedorNombre,
         clienteCargo: newCliCargo !== undefined ? newCliCargo : clienteCargo,
-        clienteNombre: newCliNom !== undefined ? newCliNom : clienteNombre
+        clienteNombre: newCliNom !== undefined ? newCliNom : clienteNombre,
+        // 🔑 NUEVO: persistir flags del primer certificado
+        primerCertificadoHecho,
+        primerCertificadoMes
       });
       const nuevaDescripcionCompleta = `${descActual}\n---DATOS_SICE_INTEGRAL---${payloadDataJson}`;
 
@@ -181,7 +195,8 @@ export default function ContratosMantenimiento() {
     }
   };
 
-  const guardarCambiosPolinomicaEnServidor = async (nuevosRegistros, nuevosAjustes) => {
+  // 🔑 FIX: acepta opts para persistir los flags del 1er certificado sin pisarlos
+  const guardarCambiosPolinomicaEnServidor = async (nuevosRegistros, nuevosAjustes, opts = {}) => {
     if (!contratoDetalle) return;
     try {
       let descActual = contratoDetalle.descripcion || '';
@@ -191,6 +206,14 @@ export default function ContratosMantenimiento() {
         descActual = descActual.split('---DATOS_POLINOMICA---')[0].trim();
       }
 
+      // 🔑 NUEVO: permitir override de los flags desde opts
+      const flagHecho = opts.primerCertificadoHecho !== undefined
+        ? opts.primerCertificadoHecho
+        : primerCertificadoHecho;
+      const flagMes = opts.primerCertificadoMes !== undefined
+        ? opts.primerCertificadoMes
+        : primerCertificadoMes;
+
       const payloadDataJson = JSON.stringify({
         registros: nuevosRegistros,
         ajustes: nuevosAjustes || ajustesAplicados,
@@ -199,7 +222,10 @@ export default function ContratosMantenimiento() {
         proveedorCargo: proveedorCargo,
         proveedorNombre: proveedorNombre,
         clienteCargo: clienteCargo,
-        clienteNombre: clienteNombre
+        clienteNombre: clienteNombre,
+        // 🔑 NUEVO: persistir flags del primer certificado
+        primerCertificadoHecho: flagHecho,
+        primerCertificadoMes: flagMes
       });
       const nuevaDescripcionCompleta = `${descActual}\n---DATOS_SICE_INTEGRAL---${payloadDataJson}`;
 
@@ -387,6 +413,21 @@ export default function ContratosMantenimiento() {
     setCargando(true);
     try {
       let descClean = formData.descripcion || '';
+
+      // 🔑 FIX: preservar primerCertificadoHecho/Mes si estamos editando un contrato existente
+      let flagHecho = false;
+      let flagMes = '';
+      if (contratoEditando) {
+        const descExistente = contratoEditando.descripcion || '';
+        if (descExistente.includes('---DATOS_SICE_INTEGRAL---')) {
+          try {
+            const jsonExistente = JSON.parse(descExistente.split('---DATOS_SICE_INTEGRAL---')[1]);
+            flagHecho = jsonExistente.primerCertificadoHecho === true;
+            flagMes = jsonExistente.primerCertificadoMes || '';
+          } catch (e) {}
+        }
+      }
+
       const payloadDataJson = JSON.stringify({
         registros: contratoEditando ? registrosMeses : [
           { mes: 'Mes 1 (Base) - Julio 2026', uocra: 5817, ipc: 0, dolar: 1489 },
@@ -399,7 +440,10 @@ export default function ContratosMantenimiento() {
         proveedorCargo: formData.proveedorCargo,
         proveedorNombre: formData.proveedorNombre,
         clienteCargo: formData.clienteCargo,
-        clienteNombre: formData.clienteNombre
+        clienteNombre: formData.clienteNombre,
+        // 🔑 NUEVO: persistir flags del primer certificado
+        primerCertificadoHecho: flagHecho,
+        primerCertificadoMes: flagMes
       });
 
       const descripcionFinal = `${descClean}\n---DATOS_SICE_INTEGRAL---\n${payloadDataJson}`;
@@ -475,7 +519,8 @@ export default function ContratosMantenimiento() {
     }
     return true;
   });
-    const procesarMesesPolinomica = () => {
+
+  const procesarMesesPolinomica = () => {
     let acumuladoTotal = 0;
     let cicloAcumulado = 0;
     let resultados = [];
@@ -543,10 +588,68 @@ export default function ContratosMantenimiento() {
     guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes);
   };
 
+  // 🔑 NUEVO: marcar el 1er certificado (con lógica A/B)
+  const marcarPrimerCertificado = () => {
+    if (!registrosMeses || registrosMeses.length < 2) {
+      alert("Necesitás al menos un mes posterior al mes base para marcar el 1er certificado.");
+      return;
+    }
+
+    const ultimo = mesesProcesados[mesesProcesados.length - 1];
+    const mesCertificado = ultimo.mes;
+    const cicloAlMomento = ultimo.cicloAcumulado;
+    const supera5 = cicloAlMomento > 5.0;
+
+    setPrimerCertificadoHecho(true);
+    setPrimerCertificadoMes(mesCertificado);
+
+    let nuevosAjustes = ajustesAplicados;
+
+    if (supera5) {
+      // Caso A: pasó el 5% → aplicar el ajuste correspondiente a ese mes
+      const yaExiste = ajustesAplicados.some(a => a.mes === mesCertificado);
+      if (!yaExiste) {
+        const nuevoAjuste = {
+          mes: mesCertificado,
+          cicloAcumulado: cicloAlMomento,
+          acumuladoTotal: ultimo.acumuladoTotal,
+          indice: 1 + (cicloAlMomento / 100)
+        };
+        nuevosAjustes = [...ajustesAplicados, nuevoAjuste];
+        setAjustesAplicados(nuevosAjustes);
+      }
+      alert(`✅ 1er Certificado marcado para "${mesCertificado}".\nSe aplicó el ajuste con índice +${cicloAlMomento.toFixed(2)}% (superó el 5%).`);
+    } else {
+      // Caso B: no pasó el 5% → solo marcar el flag, el ciclo sigue acumulando
+      alert(`✅ 1er Certificado marcado para "${mesCertificado}".\nEl acumulado al momento es +${cicloAlMomento.toFixed(2)}% (no superó el 5%).\nEl ciclo sigue acumulando: cuando supere el 5%, vas a poder aplicar el ajuste desde "Cálculo de Horas (HH)".`);
+    }
+
+    // 🔑 Persistir TODO en una sola escritura
+    guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes, {
+      primerCertificadoHecho: true,
+      primerCertificadoMes: mesCertificado
+    });
+  };
+
   const eliminarAjusteAplicado = (indexAjuste) => {
+    const ajusteEliminado = ajustesAplicados[indexAjuste];
     const nuevosAjustes = ajustesAplicados.filter((_, i) => i !== indexAjuste);
     setAjustesAplicados(nuevosAjustes);
-    guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes);
+
+    // 🔑 NUEVO: si el ajuste eliminado correspondía al 1er certificado, resetear el flag
+    let flagHecho = primerCertificadoHecho;
+    let flagMes = primerCertificadoMes;
+    if (primerCertificadoMes && ajusteEliminado && ajusteEliminado.mes === primerCertificadoMes) {
+      flagHecho = false;
+      flagMes = '';
+      setPrimerCertificadoHecho(false);
+      setPrimerCertificadoMes('');
+    }
+
+    guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes, {
+      primerCertificadoHecho: flagHecho,
+      primerCertificadoMes: flagMes
+    });
   };
 
   if (contratoDetalle) {
@@ -590,6 +693,12 @@ export default function ContratosMantenimiento() {
                 )}
                 <h1 className="text-xl font-black text-slate-800">{contratoDetalle.nombre_contrato || 'Contrato sin nombre'}</h1>
                 <span className="text-xs font-semibold px-2.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg">{contratoDetalle.estado}</span>
+                {/* 🔑 NUEVO: chip del 1er certificado */}
+                {primerCertificadoHecho && (
+                  <span className="text-xs font-bold px-2.5 py-0.5 bg-emerald-500/10 text-emerald-700 rounded-full border border-emerald-500/30 flex items-center gap-1">
+                    <Award className="w-3.5 h-3.5" /> 1er Certificado: {primerCertificadoMes || '—'}
+                  </span>
+                )}
               </div>
               <p className="text-slate-500 text-xs mt-1">Cliente: <strong className="text-slate-700">{contratoDetalle.cliente}</strong> • Ubicación: <strong className="text-slate-700">{contratoDetalle.ubicacion}</strong> • Mes Base: <strong className="text-slate-700">{formatearMesBase(contratoDetalle.mes_base)}</strong></p>
             </div>
@@ -888,7 +997,8 @@ export default function ContratosMantenimiento() {
           </div>
         )}
 
-        {subTabDetalle === 'polinomica' && (
+  {/* ⬇️⬇️⬇️ AQUÍ EMPIEZA EL BLOQUE 2/2 ⬇️⬇️⬇️ */}
+          {subTabDetalle === 'polinomica' && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
               <div className="border-b border-slate-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -904,6 +1014,37 @@ export default function ContratosMantenimiento() {
                   <span>Variación Total: {polinomioAcumuladoTotal.toFixed(2)}%</span>
                 </div>
               </div>
+
+              {/* 🔑 NUEVO: bloque del 1er certificado */}
+              {!primerCertificadoHecho ? (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <Award className="w-6 h-6 text-blue-600 shrink-0" />
+                    <div>
+                      <h4 className="font-bold text-slate-900 text-sm">Marcar el 1er Certificado del contrato</h4>
+                      <p className="text-xs text-slate-600 mt-0.5">
+                        {mesesProcesados.length > 1 && mesesProcesados[mesesProcesados.length - 1].cicloAcumulado > 5
+                          ? <>El acumulado al último mes cargado (<strong>{mesesProcesados[mesesProcesados.length - 1].mes}</strong>) es <strong className="text-red-600">+{mesesProcesados[mesesProcesados.length - 1].cicloAcumulado.toFixed(2)}%</strong> (superó el 5%). Al marcar el 1er certificado se aplicará el ajuste y el ciclo volverá a 0.</>
+                          : <>El acumulado actual no superó el 5%. Al marcar el 1er certificado se dejará registrado ese mes como origen, y el ciclo seguirá acumulando hasta superar el umbral.</>
+                        }
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={marcarPrimerCertificado}
+                    className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl text-xs transition-all shadow-md cursor-pointer flex items-center gap-2 whitespace-nowrap"
+                  >
+                    <Award className="w-4 h-4" /> 1er Certificado
+                  </button>
+                </div>
+              ) : (
+                <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-2xl flex items-center justify-between text-emerald-800 text-sm">
+                  <div className="flex items-center gap-3">
+                    <Award className="w-5 h-5 text-emerald-600 shrink-0" />
+                    <span>1er Certificado registrado en <strong>{primerCertificadoMes || '—'}</strong>. Si eliminás el ajuste asociado en "Cálculo de Horas (HH)", podrás volver a marcarlo.</span>
+                  </div>
+                </div>
+              )}
 
               <form onSubmit={agregarMesPolinomica} className="bg-slate-50 p-4 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-5 gap-3 items-end">
                 <div>
