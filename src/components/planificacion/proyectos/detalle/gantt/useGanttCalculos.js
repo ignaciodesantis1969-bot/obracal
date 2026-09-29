@@ -128,7 +128,15 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
     // ─── 🔑 CPM: Calcular camino crítico ────────────────────────────────
     const { criticas: tareasCriticas, holguras: holgurasTareas, fechaFinProyecto } =
       calcularCaminoCritico(tareas, new Set());
+      
 
+      console.log('[CPM] Tareas críticas:', Array.from(tareasCriticas));
+      console.log('[CPM] Holguras:', holgurasTareas);
+      console.log('[CPM] Fin proyecto:', fechaFinProyecto);
+      console.log('[CPM] Total tareas:', tareas.length);
+
+
+      
     // ─── Agrupar por rubro ──────────────────────────────────────────────
     const rubrosMap = new Map();
 
