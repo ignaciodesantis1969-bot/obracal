@@ -1,6 +1,6 @@
 // src/components/planificacion/proyectos/detalle/gantt/useGanttCalculos.js
 import { useMemo } from 'react';
-import { normalizarPredecesoras } from '@/lib/planificacionHelpers';
+import { normalizarPredecesoras, calcularCaminoCritico } from '@/lib/planificacionHelpers';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -109,6 +109,8 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
         anchoTotal: 30 * nivelZoom.pxPorDia,
         flechas: [],
         alturaFila: 36,
+        tareasCriticas: new Set(),
+        fechaFinProyecto: null,
       };
     }
 
@@ -122,6 +124,10 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
     const inicioIso = sumarDias(minIso, -3);
     const finIso = sumarDias(maxIso, 3);
     const totalDias = Math.max(diasEntre(inicioIso, finIso), 1);
+
+    // ─── 🔑 CPM: Calcular camino crítico ────────────────────────────────
+    const { criticas: tareasCriticas, holguras: holgurasTareas, fechaFinProyecto } =
+      calcularCaminoCritico(tareas, new Set());
 
     // ─── Agrupar por rubro ──────────────────────────────────────────────
     const rubrosMap = new Map();
@@ -176,6 +182,11 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       const rubroDuracionDias = Math.max(diasEntre(rubroFechaMin, rubroFechaMax), 1);
       const rubroColapsado = rubrosColapsados.has(rubro.nombre);
 
+      // 🔑 CPM: contador de tareas críticas dentro del rubro
+      const tareasCriticasDelRubro = tareasOrdenadas.filter(t =>
+        tareasCriticas.has(String(t.id))
+      ).length;
+
       filas.push({
         _tipo: 'rubro',
         _key: `rubro-${rubro.nombre}`,
@@ -188,6 +199,8 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
         fechaInicio: rubroFechaMin,
         fechaFin: rubroFechaMax,
         duracionDias: rubroDuracionDias,
+        // 🔑 CPM
+        tareasCriticas: tareasCriticasDelRubro,
         _offsetPx: rubroOffsetDias * nivelZoom.pxPorDia,
         _anchoPx: Math.max(rubroDuracionDias * nivelZoom.pxPorDia, 8),
         _offsetDias: rubroOffsetDias,
@@ -215,6 +228,8 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
           const offsetDias = inicio ? diasEntre(inicioIso, inicio) : 0;
           const duracionDias = inicio ? Math.max(diasEntre(inicio, fin), 1) : 1;
 
+          const tareaIdStr = String(t.id);
+
           filas.push({
             _tipo: 'tarea',
             ...t,
@@ -224,6 +239,9 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
             _offsetDias: offsetDias,
             _duracionDias: duracionDias,
             _rubroPadre: rubro.nombre,
+            // 🔑 CPM
+            _esCritica: tareasCriticas.has(tareaIdStr),
+            _holgura: holgurasTareas[tareaIdStr] ?? 0,
           });
         });
       }
@@ -306,6 +324,9 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       anchoTotal: totalDias * nivelZoom.pxPorDia,
       flechas,
       alturaFila: ALTURA_FILA,
+      // 🔑 CPM
+      tareasCriticas,
+      fechaFinProyecto,
     };
   }, [tareas, nivelZoom, rubrosColapsados]);
 }

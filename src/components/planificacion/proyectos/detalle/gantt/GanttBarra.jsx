@@ -22,10 +22,11 @@ export default function GanttBarra({
   onIniciarDrag,
   dragActivo,
   preview,
-  conflicto,           // 🔑 ahora solo es el BLOQUEANTE (duración < 1)
-  conflictoWarning,    // 🔑 NUEVO: warning por predecesoras (no bloquea)
+  conflicto,
+  conflictoWarning,
   aviso,
   feriadosSet,
+  mostrarCriticas = true,   // 🔑 NUEVO
 }) {
   if (fila._tipo === 'rubro') {
     return (
@@ -53,6 +54,7 @@ export default function GanttBarra({
       conflictoWarning={conflictoWarning}
       aviso={aviso}
       feriadosSet={feriadosSet}
+      mostrarCriticas={mostrarCriticas}
     />
   );
 }
@@ -127,6 +129,7 @@ function BarraTarea({
   conflictoWarning,
   aviso,
   feriadosSet,
+  mostrarCriticas = true,   // 🔑 NUEVO
 }) {
   const porcentajeAvance = Number(tarea.porcentaje_avance) || 0;
   const anchoBarra = Math.max(tarea._anchoPx, 12);
@@ -216,6 +219,9 @@ function BarraTarea({
   const tieneBloqueo = esLaQueSeArrastra && conflicto;
   const tieneWarning = esLaQueSeArrastra && !conflicto && conflictoWarning;
 
+  // 🔑 CPM: ¿mostrar borde rojo?
+  const mostrarBordeCritico = tarea._esCritica && mostrarCriticas;
+
   return (
     <div
       className="relative"
@@ -288,7 +294,10 @@ function BarraTarea({
           width: `${anchoBarra}px`,
           height: `${alturaFila * 0.38}px`,
           transform: 'translateY(-50%)',
-          border: '2px solid #2563eb',
+          // 🔑 CPM: borde rojo si es crítica (y está activado el toggle)
+          border: mostrarBordeCritico
+            ? '2px solid #dc2626'
+            : '2px solid #2563eb',
           overflow: 'hidden',
         }}
       >

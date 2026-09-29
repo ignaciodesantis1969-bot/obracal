@@ -879,3 +879,207 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
 
   return { cambios, movidas };
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// CAMINO CRÍTICO (CPM)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Calcula el camino crítico del plan usando el método CPM (Critical Path Method).
+ * 
+ * - Forward pass: usamos las fechas actuales (ya están calculadas por recalcularFechasDelPlan).
+ * - Backward pass: calculamos las fechas más tardías sin atrasar el proyecto.
+ * - Holgura: días de margen entre fecha temprana y tardía.
+ * - Tareas críticas: holgura = 0.
+ * 
+ * @param {Array} tareas - Array de tareas del plan
+ * @param {Set} feriadosSet - Set de feriados (YYYY-MM-DD)
+ * @returns {Object} {
+ *   criticas: Set<string>,
+ *   holguras: { [tareaId]: number },
+ *   fechaFinProyecto: string | null,
+ * }
+ */
+export function calcularCaminoCritico(tareas, feriadosSet) {
+  if (!Array.isArray(tareas) || tareas.length === 0) {
+    return { criticas: new Set(), holguras: {}, fechaFinProyecto: null };
+  }
+
+  // Indexar tareas
+  const tareasMap = new Map();
+  tareas.forEach(t => tareasMap.set(String(t.id), t));
+
+  // ─── 1) Topological sort (Kahn) ─────────────────────────────────────
+  const grafoSalida = new Map();
+  const gradosEntrada = new Map();
+
+  tareas.forEach(t => {
+    const id = String(t.id);
+    grafoSalida.set(id, []);
+    gradosEntrada.set(id, 0);
+  });
+
+  tareas.forEach(t => {
+    const id = String(t.id);
+    const preds = normalizarPredecesoras(t.predecesoras);
+    preds.forEach(p => {
+      const predId = String(p.tarea_id);
+      if (!tareasMap.has(predId)) return;
+      grafoSalida.get(predId).push(id);
+      gradosEntrada.set(id, (gradosEntrada.get(id) || 0) + 1);
+    });
+  });
+
+  const cola = [];
+  gradosEntrada.forEach((grado, id) => {
+    if (grado === 0) cola.push(id);
+  });
+
+  const ordenTopologico = [];
+  while (cola.length > 0) {
+    const id = cola.shift();
+    ordenTopologico.push(id);
+    const sucesoras = grafoSalida.get(id) || [];
+    sucesoras.forEach(sucId => {
+      gradosEntrada.set(sucId, gradosEntrada.get(sucId) - 1);
+      if (gradosEntrada.get(sucId) === 0) cola.push(sucId);
+    });
+  }
+
+  // Si hay ciclos, agregar las tareas faltantes al final (no se procesarán bien)
+  tareas.forEach(t => {
+    const id = String(t.id);
+    if (!ordenTopologico.includes(id)) ordenTopologico.push(id);
+  });
+
+  // ─── 2) Fecha fin del proyecto = MAX(fecha_fin) ──────────────────────
+  let fechaFinProyecto = null;
+  tareas.forEach(t => {
+    if (!t.fecha_fin) return;
+    if (!fechaFinProyecto || t.fecha_fin > fechaFinProyecto) {
+      fechaFinProyecto = t.fecha_fin;
+    }
+  });
+
+  if (!fechaFinProyecto) {
+    return { criticas: new Set(), holguras: {}, fechaFinProyecto: null };
+  }
+
+  // ─── 3) Backward pass ─────────────────────────────────────────────────
+  const lateFinishMap = new Map(); // tareaId → fecha tardía de fin (ISO)
+  const lateStartMap = new Map();  // tareaId → fecha tardía de inicio (ISO)
+
+  // Procesar en orden topológico INVERTIDO (de las últimas a las primeras)
+  const ordenInverso = [...ordenTopologico].reverse();
+
+  ordenInverso.forEach(tareaId => {
+    const tarea = tareasMap.get(tareaId);
+    if (!tarea) return;
+
+    const duracion = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 1;
+    const duracionParaFechas = Math.max(1, Math.ceil(duracion));
+
+    const sucesoras = (grafoSalida.get(tareaId) || []).filter(sucId => tareasMap.has(sucId));
+
+    let lateFinish = null;
+
+    if (sucesoras.length === 0) {
+      // Sin sucesoras → late_finish = fecha fin del proyecto
+      lateFinish = fechaFinProyecto;
+    } else {
+      // Con sucesoras → late_finish = MIN del "límite" que impone cada sucesora
+      let minLimite = null;
+
+      sucesoras.forEach(sucId => {
+        const sucTarea = tareasMap.get(sucId);
+        if (!sucTarea) return;
+
+        const predRef = normalizarPredecesoras(sucTarea.predecesoras)
+          .find(p => String(p.tarea_id) === String(tareaId));
+        if (!predRef) return;
+
+        const lag = Number(predRef.lag) || 0;
+        const tipo = predRef.tipo || 'FS';
+
+        const sucLateStart = lateStartMap.get(sucId);
+        const sucLateFinish = lateFinishMap.get(sucId);
+
+        if (!sucLateStart || !sucLateFinish) return;
+
+        let limite = null;
+
+        switch (tipo) {
+          case 'FS':
+            // Sucesora empieza después de que termina la predecesora
+            // → predecesora debe terminar antes del late_start de la sucesora - lag - 1
+            limite = sumarDiasHabiles(sucLateStart, -(1 + lag), feriadosSet);
+            break;
+          case 'SS':
+            // Sucesora empieza junto con la predecesora
+            // → predecesora debe empezar antes del late_start de la sucesora - lag
+            // Convertimos a un límite de late_finish: late_start + duración - 1
+            {
+              const lateStartLimite = sumarDiasHabiles(sucLateStart, -lag, feriadosSet);
+              limite = sumarDiasHabiles(lateStartLimite, duracionParaFechas - 1, feriadosSet);
+            }
+            break;
+          case 'FF':
+            // Sucesora termina junto con la predecesora
+            // → predecesora debe terminar antes del late_finish de la sucesora - lag
+            limite = sumarDiasHabiles(sucLateFinish, -lag, feriadosSet);
+            break;
+          case 'SF':
+            // Sucesora termina junto con el inicio de la predecesora
+            // → predecesora debe empezar antes del late_finish de la sucesora - lag
+            {
+              const lateStartLimite = sumarDiasHabiles(sucLateFinish, -lag, feriadosSet);
+              limite = sumarDiasHabiles(lateStartLimite, duracionParaFechas - 1, feriadosSet);
+            }
+            break;
+          default:
+            limite = sumarDiasHabiles(sucLateStart, -(1 + lag), feriadosSet);
+        }
+
+        if (!limite) return;
+        if (!minLimite || limite < minLimite) minLimite = limite;
+      });
+
+      lateFinish = minLimite || fechaFinProyecto;
+    }
+
+    const lateStart = sumarDiasHabiles(lateFinish, -(duracionParaFechas - 1), feriadosSet);
+
+    lateFinishMap.set(tareaId, lateFinish);
+    lateStartMap.set(tareaId, lateStart);
+  });
+
+  // ─── 4) Calcular holguras y marcar críticas ──────────────────────────
+  const holguras = {};
+  const criticas = new Set();
+
+  tareas.forEach(t => {
+    const tareaId = String(t.id);
+    const earlyStart = t.fecha_inicio;
+    const lateStart = lateStartMap.get(tareaId);
+
+    if (!earlyStart || !lateStart) {
+      holguras[tareaId] = 0;
+      return;
+    }
+
+    // Holgura en días hábiles (puede dar 0, 1, 2, ...)
+    const holguraDias = contarDiasCalendarioHabiles(earlyStart, lateStart, feriadosSet) - 1;
+    // El "-1" es porque contarDiasCalendarioHabiles incluye ambos extremos si son iguales
+
+    // Si lateStart < earlyStart (no debería pasar), holgura = 0
+    const holgura = Math.max(0, holguraDias);
+
+    holguras[tareaId] = holgura;
+
+    // Es crítica si holgura = 0
+    if (holgura === 0) {
+      criticas.add(tareaId);
+    }
+  });
+
+  return { criticas, holguras, fechaFinProyecto };
+}

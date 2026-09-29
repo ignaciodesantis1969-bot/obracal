@@ -8,8 +8,8 @@ import { obtenerIdsPredecesoras } from '@/lib/planificacionHelpers';
 // ═══════════════════════════════════════════════════════════════════════════
 // ANCHOS DE COLUMNA (deben coincidir con GanttHeader)
 // ═══════════════════════════════════════════════════════════════════════════
-export const ANCHO_COL_TAREA = 320;   // nombre de la tarea
-export const ANCHO_COL_FECHA = 90;    // inicio y fin (cada uno)
+export const ANCHO_COL_TAREA = 320;
+export const ANCHO_COL_FECHA = 90;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // COMPONENTE PRINCIPAL
@@ -22,7 +22,8 @@ export default function GanttSidebar({
   tareaHoverId,
   onToggleRubro,
   onAbrirDependencias,
-  onCambiarFecha,          // 🔑 NUEVO: (tareaId, campo, fechaIso) => void
+  onCambiarFecha,
+  mostrarCriticas = true,   // 🔑 NUEVO
 }) {
   if (!filas || filas.length === 0) {
     return (
@@ -90,6 +91,7 @@ export default function GanttSidebar({
                     rubro={fila}
                     alturaFila={alturaFila}
                     onClick={() => onToggleRubro?.(fila.nombre)}
+                    mostrarCriticas={mostrarCriticas}   // 🔑 NUEVO
                   />
                 ) : (
                   <FilaTarea
@@ -98,6 +100,7 @@ export default function GanttSidebar({
                     esHover={isHover}
                     onHover={onHoverTarea}
                     onAbrirDependencias={onAbrirDependencias}
+                    mostrarCriticas={mostrarCriticas}   // 🔑 NUEVO
                   />
                 )}
               </div>
@@ -153,15 +156,17 @@ function CeldaFechaEditable({ valor, onCambiar, ancho }) {
   useEffect(() => {
     if (editando && inputRef.current) {
       inputRef.current.focus();
-      inputRef.current.select?.();
+      inputRef.current.showPicker?.();
     }
   }, [editando]);
 
-  const confirmar = () => {
-    setEditando(false);
-    if (valorLocal && valorLocal !== valor) {
-      onCambiar?.(valorLocal);
+  const handleChange = (e) => {
+    const nuevaFecha = e.target.value;
+    setValorLocal(nuevaFecha);
+    if (nuevaFecha && nuevaFecha !== valor) {
+      onCambiar?.(nuevaFecha);
     }
+    setTimeout(() => setEditando(false), 100);
   };
 
   const cancelar = () => {
@@ -192,10 +197,9 @@ function CeldaFechaEditable({ valor, onCambiar, ancho }) {
           ref={inputRef}
           type="date"
           value={valorLocal}
-          onChange={(e) => setValorLocal(e.target.value)}
-          onBlur={confirmar}
+          onChange={handleChange}
+          onBlur={() => setTimeout(() => setEditando(false), 150)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') confirmar();
             if (e.key === 'Escape') cancelar();
           }}
           className="w-full text-[10px] font-bold text-slate-800 bg-white border border-amber-400 rounded px-1 py-0.5 outline-none"
@@ -224,7 +228,7 @@ function CeldaFechaEditable({ valor, onCambiar, ancho }) {
 // FILA DE RUBRO
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function FilaRubro({ rubro, alturaFila = 36, onClick }) {
+export function FilaRubro({ rubro, alturaFila = 36, onClick, mostrarCriticas = true }) {
   const IconoChevron = rubro._colapsado ? ChevronRight : ChevronDown;
 
   return (
@@ -253,6 +257,12 @@ export function FilaRubro({ rubro, alturaFila = 36, onClick }) {
               {Math.round(rubro.diasHombreTotal)} dh
             </span>
           )}
+          {/* 🔑 CPM: contador de críticas del rubro */}
+          {mostrarCriticas && Number(rubro.tareasCriticas) > 0 && (
+            <span className="text-[9px] text-rose-700 font-black">
+              {rubro.tareasCriticas}/{rubro.totalTareas} críticas
+            </span>
+          )}
         </div>
       </div>
       <span className="text-[10px] font-bold text-slate-600 shrink-0">
@@ -266,7 +276,14 @@ export function FilaRubro({ rubro, alturaFila = 36, onClick }) {
 // FILA DE TAREA
 // ═══════════════════════════════════════════════════════════════════════════
 
-export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover, onAbrirDependencias }) {
+export function FilaTarea({
+  tarea,
+  alturaFila = 36,
+  esHover,
+  onHover,
+  onAbrirDependencias,
+  mostrarCriticas = true,   // 🔑 NUEVO
+}) {
   const estadoKey = String(tarea.estado || 'no_iniciado').toLowerCase();
   const color = COLORES_ESTADO[estadoKey] || COLORES_ESTADO.no_iniciado;
 
@@ -275,6 +292,8 @@ export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover, onAbrirDep
     : 0;
 
   const predsCount = obtenerIdsPredecesoras(tarea.predecesoras).length;
+
+  const esCritica = tarea._esCritica && mostrarCriticas;
 
   return (
     <div
@@ -287,19 +306,31 @@ export function FilaTarea({ tarea, alturaFila = 36, esHover, onHover, onAbrirDep
     >
       <div
         className="w-2 h-2 rounded-full shrink-0"
-        style={{ backgroundColor: color.border }}
-        title={color.label}
+        style={{ backgroundColor: esCritica ? '#dc2626' : color.border }}
+        title={esCritica ? 'Tarea crítica' : color.label}
       />
       <div className="min-w-0 flex-1">
-        <p
-          className={cn(
-            'text-[11px] font-bold truncate leading-tight',
-            esHover ? 'text-amber-900' : 'text-slate-800'
+        <div className="flex items-center gap-1">
+          <p
+            className={cn(
+              'text-[11px] font-bold truncate leading-tight',
+              esHover
+                ? 'text-amber-900'
+                : esCritica
+                  ? 'text-rose-700'
+                  : 'text-slate-800'
+            )}
+            title={tarea.tarea_nombre}
+          >
+            {tarea.tarea_nombre || '---'}
+          </p>
+          {/* 🔑 CPM: badge CRÍTICA */}
+          {esCritica && (
+            <span className="shrink-0 text-[8px] font-black text-white bg-rose-600 rounded px-1 py-0.5 leading-none uppercase">
+              Crítica
+            </span>
           )}
-          title={tarea.tarea_nombre}
-        >
-          {tarea.tarea_nombre || '---'}
-        </p>
+        </div>
         <div className="flex items-center gap-2 leading-tight">
           {Number(tarea.total_dias_hombre) > 0 && (
             <span className="text-[9px] text-slate-600 font-semibold">

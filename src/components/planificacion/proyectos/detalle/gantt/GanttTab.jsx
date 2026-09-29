@@ -30,6 +30,22 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
   const [tareasOptimistas, setTareasOptimistas] = useState({});
   const [tareaDependencias, setTareaDependencias] = useState(null);
 
+  // 🔑 CPM: toggle "Ver críticas" persistido en localStorage
+  const [mostrarCriticas, setMostrarCriticas] = useState(() => {
+    try {
+      const guardado = localStorage.getItem('gantt_mostrar_criticas');
+      return guardado === null ? true : guardado === 'true';
+    } catch {
+      return true;
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('gantt_mostrar_criticas', String(mostrarCriticas));
+    } catch {}
+  }, [mostrarCriticas]);
+
   const { data: feriadosFs } = useFirestoreCollection('feriados');
   const feriadosCustom = useMemo(
     () => (Array.isArray(feriadosFs) ? feriadosFs : []),
@@ -46,7 +62,8 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     });
   }, [tareas, tareasOptimistas]);
 
-  const { rango, filas, ticks, anchoTotal, flechas } = useGanttCalculos(
+  // 🔑 CPM: recibir tareasCriticas del hook
+  const { rango, filas, ticks, anchoTotal, flechas, tareasCriticas } = useGanttCalculos(
     tareasConCambios,
     nivelZoom,
     rubrosColapsados
@@ -279,7 +296,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     dragActivo,
     preview,
     conflicto,
-    conflictoWarning,     // 🔑 NUEVO: warning de predecesoras
+    conflictoWarning,
     aviso,
     dependenciasAfectadas,
     iniciarDrag,
@@ -325,7 +342,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     setTareaDependencias(tarea);
   }, []);
 
-  // 🔑 Callback cuando se edita fecha en el sidebar
   const handleCambiarFecha = useCallback(async (tareaId, campo, fechaIso) => {
     const tarea = tareasConCambios.find(t => t.id === tareaId);
     if (!tarea) return;
@@ -404,16 +420,44 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
               <span><b className="text-slate-700">{flechas.length}</b> dependencias</span>
             </>
           )}
+          {/* 🔑 CPM: contador de críticas en el header */}
+          {mostrarCriticas && tareasCriticas && tareasCriticas.size > 0 && (
+            <>
+              <span className="text-slate-300">|</span>
+              <span className="text-rose-700 font-bold">
+                <b>{tareasCriticas.size}</b> críticas
+              </span>
+            </>
+          )}
         </div>
-        {tareasSinFecha.length > 0 && (
-          <div className="flex items-center gap-1 text-amber-700">
-            <AlertCircle className="w-3 h-3" />
-            <span>{tareasSinFecha.length} sin fechas</span>
-          </div>
-        )}
+
+        <div className="flex items-center gap-3">
+          {tareasSinFecha.length > 0 && (
+            <div className="flex items-center gap-1 text-amber-700">
+              <AlertCircle className="w-3 h-3" />
+              <span>{tareasSinFecha.length} sin fechas</span>
+            </div>
+          )}
+
+          {/* 🔑 CPM: toggle Ver críticas */}
+          <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={mostrarCriticas}
+              onChange={(e) => setMostrarCriticas(e.target.checked)}
+              className="w-3 h-3 cursor-pointer accent-rose-600"
+            />
+            <span className={cn(
+              'text-[10px] font-bold uppercase transition-colors',
+              mostrarCriticas ? 'text-rose-700' : 'text-slate-500'
+            )}>
+              Ver críticas
+            </span>
+          </label>
+        </div>
       </div>
 
-      {/* 🔑 Banner rojo: conflicto bloqueante (duración < 1 día) */}
+      {/* Banner rojo: conflicto bloqueante */}
       {conflicto && (
         <div className="px-4 py-2 bg-rose-100 border-b-2 border-rose-400 text-rose-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -421,7 +465,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       )}
 
-      {/* 🔑 Banner ámbar: warning de predecesoras (NO bloquea) */}
+      {/* Banner ámbar: warning de predecesoras */}
       {!conflicto && conflictoWarning && (
         <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -429,7 +473,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       )}
 
-      {/* 🔑 Banner ámbar: aviso de finde/feriado */}
+      {/* Banner ámbar: aviso de finde/feriado */}
       {!conflicto && !conflictoWarning && aviso && (
         <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -437,7 +481,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       )}
 
-      {/* 🔑 Banner azul: dependencias afectadas (solo informativo) */}
+      {/* Banner azul: dependencias afectadas */}
       {!conflicto && !conflictoWarning && !aviso && dependenciasAfectadas.length > 0 && (
         <div className="px-4 py-2 bg-blue-100 border-b-2 border-blue-400 text-blue-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -464,6 +508,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
               onToggleRubro={toggleRubro}
               onAbrirDependencias={handleAbrirDependencias}
               onCambiarFecha={handleCambiarFecha}
+              mostrarCriticas={mostrarCriticas}
             />
           </div>
 
@@ -549,9 +594,10 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                             dragActivo={dragActivo}
                             preview={preview}
                             conflicto={conflicto}
-                            conflictoWarning={conflictoWarning}   // 🔑 NUEVO
+                            conflictoWarning={conflictoWarning}
                             aviso={aviso}
                             feriadosSet={feriadosSet}
+                            mostrarCriticas={mostrarCriticas}
                           />
                         </div>
                       </div>
