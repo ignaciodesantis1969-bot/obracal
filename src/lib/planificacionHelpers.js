@@ -700,6 +700,27 @@ function restarDiasHabiles(fechaIso, n, feriadosSet) {
 }
 
 /**
+ * 🔑 NUEVO: Calcula la duración REAL en días hábiles entre dos fechas ISO (inclusive ambos).
+ * Se usa para el CPM, en vez de confiar en `duracion_real_dias` que puede estar desactualizado.
+ */
+function calcularDuracionRealEnDiasHabiles(fechaInicioISO, fechaFinISO, feriadosSet) {
+  if (!fechaInicioISO || !fechaFinISO) return 1;
+
+  const inicio = new Date(fechaInicioISO + 'T00:00:00');
+  const fin = new Date(fechaFinISO + 'T00:00:00');
+  if (fin < inicio) return 1;
+
+  let contador = 0;
+  const cursor = new Date(inicio);
+  while (cursor <= fin) {
+    if (esDiaHabil(cursor, feriadosSet)) contador++;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  return Math.max(1, contador);
+}
+
+/**
  * Recalcula las fechas de todas las tareas respetando las dependencias.
  */
 export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
@@ -852,7 +873,8 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
 /**
  * Calcula el camino crítico del plan usando CPM.
  * 
- * 🔑 DEBUG TEMPORAL: logs por tarea en el bloque 4.
+ * 🔑 FIX CRÍTICO: la duración se calcula desde las fechas reales (`fecha_inicio` → `fecha_fin`),
+ * no desde `duracion_real_dias` (que puede estar desactualizado cuando se mueven fechas).
  */
 export function calcularCaminoCritico(tareas, feriadosSet) {
   if (!Array.isArray(tareas) || tareas.length === 0) {
@@ -927,8 +949,12 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
     const tarea = tareasMap.get(tareaId);
     if (!tarea) return;
 
-    const duracion = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 1;
-    const duracionParaFechas = Math.max(1, Math.ceil(duracion));
+    // 🔑 FIX: duración en días hábiles reales entre fecha_inicio y fecha_fin
+    const duracionParaFechas = calcularDuracionRealEnDiasHabiles(
+      tarea.fecha_inicio,
+      tarea.fecha_fin,
+      feriadosSet
+    );
 
     const sucesoras = (grafoSalida.get(tareaId) || []).filter(sucId => tareasMap.has(sucId));
 
@@ -994,7 +1020,6 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
   });
 
   // ─── 4) Calcular holguras y marcar críticas ──────────────────────────
-  // 🔑 DEBUG TEMPORAL: logs por tarea
   const holguras = {};
   const criticas = new Set();
 
@@ -1002,28 +1027,15 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
     const tareaId = String(t.id);
     const earlyStart = t.fecha_inicio;
     const lateStart = lateStartMap.get(tareaId);
-    const lateFinish = lateFinishMap.get(tareaId);
 
     if (!earlyStart || !lateStart) {
       holguras[tareaId] = 0;
       return;
     }
 
+    // Holgura = días hábiles entre earlyStart y lateStart, menos 1 (porque el mismo día cuenta como 0)
     const holguraDias = contarDiasCalendarioHabiles(earlyStart, lateStart, feriadosSet) - 1;
     const holgura = Math.max(0, holguraDias);
-
-    // 🔑 DEBUG TEMPORAL
-    console.log(`[CPM] ${t.tarea_nombre}`, {
-      id: tareaId,
-      earlyStart,
-      earlyFinish: t.fecha_fin,
-      lateStart,
-      lateFinish,
-      duracion: t.duracion_real_dias,
-      holgura,
-      preds: normalizarPredecesoras(t.predecesoras).map(p => p.tarea_id),
-      sucesoras: (grafoSalida.get(tareaId) || []),
-    });
 
     holguras[tareaId] = holgura;
 

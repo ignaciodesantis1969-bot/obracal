@@ -12,7 +12,6 @@ export const NIVELES_ZOOM = {
   meses:   { id: 'meses',   label: 'Meses',   pxPorDia: 3,  unidadTicks: 'mes' },
 };
 
-// 🎨 Colores (celeste pálido con bordes más oscuros)
 export const COLORES_ESTADO = {
   no_iniciado: { bg: '#dbeafe', border: '#93c5fd', label: 'No iniciado' },
   en_curso:    { bg: '#bae6fd', border: '#0ea5e9', label: 'En curso' },
@@ -128,22 +127,7 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
     // ─── 🔑 CPM: Calcular camino crítico ────────────────────────────────
     const { criticas: tareasCriticas, holguras: holgurasTareas, fechaFinProyecto } =
       calcularCaminoCritico(tareas, new Set());
-      
 
-      console.log('[CPM] Tareas críticas:', Array.from(tareasCriticas));
-      console.log('[CPM] Holguras:', holgurasTareas);
-      console.log('[CPM] Fin proyecto:', fechaFinProyecto);
-      console.log('[CPM] Total tareas:', tareas.length);
-
-
-      console.log('[CPM-INPUT]', tareas.map(t => ({
-      nombre: t.tarea_nombre,
-      duracion_real_dias: t.duracion_real_dias,
-      cantidad_dias_teoricos: t.cantidad_dias_teoricos,
-      fi: t.fecha_inicio,
-      ff: t.fecha_fin,
-      })));    
-    
     // ─── Agrupar por rubro ──────────────────────────────────────────────
     const rubrosMap = new Map();
 
@@ -197,7 +181,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       const rubroDuracionDias = Math.max(diasEntre(rubroFechaMin, rubroFechaMax), 1);
       const rubroColapsado = rubrosColapsados.has(rubro.nombre);
 
-      // 🔑 CPM: contador de tareas críticas dentro del rubro
       const tareasCriticasDelRubro = tareasOrdenadas.filter(t =>
         tareasCriticas.has(String(t.id))
       ).length;
@@ -214,7 +197,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
         fechaInicio: rubroFechaMin,
         fechaFin: rubroFechaMax,
         duracionDias: rubroDuracionDias,
-        // 🔑 CPM
         tareasCriticas: tareasCriticasDelRubro,
         _offsetPx: rubroOffsetDias * nivelZoom.pxPorDia,
         _anchoPx: Math.max(rubroDuracionDias * nivelZoom.pxPorDia, 8),
@@ -254,7 +236,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
             _offsetDias: offsetDias,
             _duracionDias: duracionDias,
             _rubroPadre: rubro.nombre,
-            // 🔑 CPM
             _esCritica: tareasCriticas.has(tareaIdStr),
             _holgura: holgurasTareas[tareaIdStr] ?? 0,
           });
@@ -265,12 +246,11 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
     const ticks = generarTicks(inicioIso, finIso, nivelZoom);
 
     // ═══════════════════════════════════════════════════════════════════
-    // 🔑 Fase 3.1: Calcular datos para las flechas de dependencia
+    // Fase 3.1: Calcular datos para las flechas de dependencia
     // ═══════════════════════════════════════════════════════════════════
     const ALTURA_FILA = 36;
     const flechas = [];
 
-    // Mapa de tareaId → índice de fila (para calcular Y)
     const filaIdxPorTarea = new Map();
     filas.forEach((f, idx) => {
       if (f._tipo === 'tarea') {
@@ -339,7 +319,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       anchoTotal: totalDias * nivelZoom.pxPorDia,
       flechas,
       alturaFila: ALTURA_FILA,
-      // 🔑 CPM
       tareasCriticas,
       fechaFinProyecto,
     };
