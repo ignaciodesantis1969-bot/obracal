@@ -2,7 +2,7 @@
 import React from 'react';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CONSTANTES VISUALES (estilo MS Project)
+// CONSTANTES VISUALES
 // ═══════════════════════════════════════════════════════════════════════════
 
 const COLOR_FLECHA = '#64748b';
@@ -11,9 +11,9 @@ const COLOR_FLECHA_ACTIVA = '#f59e0b';
 const GROSOR = 1.2;
 const GROSOR_ACTIVA = 1.8;
 
-const GAP_CODO = 8;
-const RADIO_CODO = 5;
-const TRAMO_ENTRADA = 5;
+const GAP_CODO = 8;        // distancia horizontal del codo al borde de salida
+const RADIO_CODO = 5;      // radio de las esquinas redondeadas
+const OFFSET_LLEGADA = 10; // offset horizontal de la llegada respecto al borde de la barra destino
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTRUCCIÓN DE PATHS
@@ -22,59 +22,64 @@ const TRAMO_ENTRADA = 5;
 /**
  * Genera el path SVG para una flecha según su tipo de dependencia.
  *
- * Tipos:
- *  - FS: Fin → Inicio   (sale del der. de la pred, entra al izq. de la suc)
- *  - SS: Inicio → Inicio (sale del izq. de la pred, entra al izq. de la suc)
- *  - FF: Fin → Fin       (sale del der. de la pred, entra al der. de la suc)
- *  - SF: Inicio → Fin    (sale del izq. de la pred, entra al der. de la suc)
+ * En los 4 tipos la flecha SIEMPRE baja y aterriza sobre el borde SUPERIOR
+ * de la barra destino (la punta apunta hacia abajo).
+ *
+ * - FS: sale del borde der. de pred, llega cerca del borde izq. de suc
+ * - SS: sale del borde izq. de pred, llega cerca del borde izq. de suc
+ * - FF: sale del borde der. de pred, llega cerca del borde der. de suc
+ * - SF: sale del borde izq. de pred, llega cerca del borde der. de suc
  */
 function construirPath(flecha) {
-  const { x1, y1, x2, y2, tipo } = flecha;
+  const { x1, y1, x2, y2, tipo, xDestinoBordeIzq, xDestinoBordeDer } = flecha;
 
-  // ─── Caso 1: misma fila (y1 == y2) → línea recta horizontal ───────────
-  if (Math.abs(y1 - y2) < 0.5) {
-    return `M ${x1} ${y1} L ${x2} ${y2}`;
-  }
+  // ─── Punto de llegada: borde superior de la barra destino ─────────────
+  // yTopDestino = y2 - alturaBarra/2. Como no tenemos la altura exacta acá,
+  // usamos y2 - 7 (aprox la mitad de la altura visual de la barra).
+  const yTopDestino = y2 - 7;
 
-  // ─── Caso 2: codo en L invertida con esquinas redondeadas ─────────────
+  // Posición horizontal de la punta de flecha:
+  //   FS / SS → cerca del borde IZQUIERDO de la barra destino
+  //   FF / SF → cerca del borde DERECHO de la barra destino
+  const esEntradaPorIzquierda = (tipo === 'FS' || tipo === 'SS' || !tipo);
+  const xLlegada = esEntradaPorIzquierda
+    ? (xDestinoBordeIzq ?? x2) + OFFSET_LLEGADA
+    : (xDestinoBordeDer ?? x2) - OFFSET_LLEGADA;
+
+  // ─── Dirección del codo ────────────────────────────────────────────────
+  // FS / FF → codo a la DERECHA del origen
+  // SS / SF → codo a la IZQUIERDA del origen
   const haciaDerecha = (tipo === 'FS' || tipo === 'FF' || !tipo);
-  const entraPorIzquierda = (tipo === 'FS' || tipo === 'SS' || !tipo);
+  const xCodo = haciaDerecha ? x1 + GAP_CODO : x1 - GAP_CODO;
 
-  const xEntrada = entraPorIzquierda ? x2 - TRAMO_ENTRADA : x2 + TRAMO_ENTRADA;
-
-  // 🔑 FIX: calcular xCodo limitando para que no se pase del borde de entrada
-  // del destino. Sin esto, en FS el codo puede quedar a la derecha del borde
-  // izquierdo de la sucesora y la flecha "retrocede" mal.
-  let xCodo;
-  if (haciaDerecha) {
-    // Codo a la derecha del origen, pero siempre a la izquierda del punto de entrada
-    xCodo = Math.min(x1 + GAP_CODO, xEntrada - GAP_CODO);
-    // Si el origen está muy pegado al destino, dejar al menos un mínimo
-    if (xCodo < x1) xCodo = x1 + 1;
-  } else {
-    // Codo a la izquierda del origen, pero siempre a la derecha del punto de entrada
-    xCodo = Math.max(x1 - GAP_CODO, xEntrada + GAP_CODO);
-    if (xCodo > x1) xCodo = x1 - 1;
+  // ─── Caso especial: misma fila (y1 ≈ y2) ──────────────────────────────
+  // Línea horizontal recta (raro, pero puede pasar).
+  if (Math.abs(y1 - y2) < 0.5) {
+    return `M ${x1} ${y1} L ${xLlegada} ${y1}`;
   }
 
-  // Radio efectivo (no más grande que los tramos disponibles)
-  const tramoHorizontal1 = Math.abs(xCodo - x1);
-  const tramoVertical = Math.abs(y2 - y1);
-  const tramoHorizontal2 = Math.abs(xEntrada - xCodo);
-  const r = Math.min(RADIO_CODO, tramoHorizontal1, tramoVertical / 2, tramoHorizontal2);
+  // ─── Geometría del codo ───────────────────────────────────────────────
+  const tramoHorizontal = Math.abs(xCodo - x1);
+  const tramoVertical = Math.abs(yTopDestino - y1);
+  const r = Math.min(RADIO_CODO, tramoHorizontal, tramoVertical / 2);
 
-  // Direcciones
-  const dirY = y2 > y1 ? 1 : -1;
-  const dirXEntrada = entraPorIzquierda ? 1 : -1;
+  const dirY = yTopDestino > y1 ? 1 : -1;   // baja (+1) o sube (-1)
   const dirXCodoSalida = haciaDerecha ? 1 : -1;
 
+  // ─── Path ─────────────────────────────────────────────────────────────
+  // M x1 y1                          → sale del borde de la pred
+  // L (xCodo - r*dir) y1             → tramo horizontal corto
+  // Q xCodo y1, xCodo (y1 + r*dirY)  → curva superior
+  // L xCodo yTopDestino              → baja vertical hasta el borde sup. del destino
+  // L xLlegada yTopDestino           → tramo horizontal final (hacia el offset de llegada)
+  // L xLlegada y2                    → BAJA un poquito más para "clavar" la flecha
   const path = [
     `M ${x1} ${y1}`,
     `L ${xCodo - r * dirXCodoSalida} ${y1}`,
     `Q ${xCodo} ${y1} ${xCodo} ${y1 + r * dirY}`,
-    `L ${xCodo} ${y2 - r * dirY}`,
-    `Q ${xCodo} ${y2} ${xCodo + r * dirXEntrada} ${y2}`,
-    `L ${x2} ${y2}`,
+    `L ${xCodo} ${yTopDestino}`,
+    `L ${xLlegada} ${yTopDestino}`,
+    `L ${xLlegada} ${y2}`,
   ].join(' ');
 
   return path;
