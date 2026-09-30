@@ -310,6 +310,9 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
           y1: yOrigen,
           x2: xDestino,
           y2: yDestino,
+          // 🔑 NUEVO: bordes reales de la barra destino (para ubicar la punta de flecha)
+          xDestinoBordeIzq: filaDestino._offsetPx,
+          xDestinoBordeDer: filaDestino._offsetPx + filaDestino._anchoPx,
           origenId: filaOrigen.id,
           destinoId: filaDestino.id,
         });
