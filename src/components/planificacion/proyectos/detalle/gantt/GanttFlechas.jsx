@@ -1,13 +1,87 @@
 // src/components/planificacion/proyectos/detalle/gantt/GanttFlechas.jsx
-import React, { useMemo } from 'react';
+import React from 'react';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONSTANTES VISUALES (estilo MS Project — captura 2)
+// ═══════════════════════════════════════════════════════════════════════════
 
 const COLOR_FLECHA = '#64748b';
 const COLOR_FLECHA_ACTIVA = '#f59e0b';
-const GROSOR = 1;             // 🔑 antes 1.5
-const GROSOR_ACTIVA = 1.5;    // 🔑 antes 2.5
 
-const TRAMO_SALIDA = 6;       // 🔑 antes 10
-const TRAMO_ENTRADA = 4;      // 🔑 antes 6
+const GROSOR = 1.2;              // trazo fino, estilo captura 2
+const GROSOR_ACTIVA = 1.8;       // cuando está en hover
+
+const GAP_CODO = 8;              // distancia horizontal del codo al borde de la barra
+const RADIO_CODO = 5;            // radio de las esquinas redondeadas
+const TRAMO_ENTRADA = 5;         // largo del tramo final antes de la punta
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CONSTRUCCIÓN DE PATHS
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Genera el path SVG para una flecha según su tipo de dependencia.
+ *
+ * Tipos:
+ *  - FS: Fin → Inicio  (sale del der. de la pred, entra al izq. de la suc)
+ *  - SS: Inicio → Inicio (sale del izq. de la pred, entra al izq. de la suc)
+ *  - FF: Fin → Fin      (sale del der. de la pred, entra al der. de la suc)
+ *  - SF: Inicio → Fin   (sale del izq. de la pred, entra al der. de la suc)
+ */
+function construirPath(flecha) {
+  const { x1, y1, x2, y2, tipo } = flecha;
+
+  // ─── Caso 1: misma fila (y1 == y2) → línea recta horizontal ───────────
+  if (Math.abs(y1 - y2) < 2) {
+    return `M ${x1} ${y1} L ${x2} ${y2}`;
+  }
+
+  // ─── Caso 2: codo en L invertida con esquinas redondeadas ─────────────
+  // Dirección del codo según tipo:
+  //   FS / FF → codo a la DERECHA del origen (x codo = x1 + GAP_CODO)
+  //   SS / SF → codo a la IZQUIERDA del origen (x codo = x1 - GAP_CODO)
+  const haciaDerecha = (tipo === 'FS' || tipo === 'FF' || !tipo);
+  const xCodo = haciaDerecha ? x1 + GAP_CODO : x1 - GAP_CODO;
+
+  // Dirección de entrada según tipo:
+  //   FS / SS → entra desde la IZQUIERDA del destino (x2 - TRAMO_ENTRADA)
+  //   FF / SF → entra desde la DERECHA del destino (x2 + TRAMO_ENTRADA)
+  const entraPorIzquierda = (tipo === 'FS' || tipo === 'SS' || !tipo);
+  const xEntrada = entraPorIzquierda ? x2 - TRAMO_ENTRADA : x2 + TRAMO_ENTRADA;
+
+  // Radio efectivo (no más grande que los tramos disponibles)
+  const tramoHorizontal1 = Math.abs(xCodo - x1);
+  const tramoVertical = Math.abs(y2 - y1);
+  const tramoHorizontal2 = Math.abs(xEntrada - xCodo);
+  const r = Math.min(RADIO_CODO, tramoHorizontal1, tramoVertical / 2, tramoHorizontal2);
+
+  // Direcciones
+  const dirY = y2 > y1 ? 1 : -1;                    // baja o sube
+  const dirXEntrada = entraPorIzquierda ? 1 : -1;   // el tramo final va hacia el destino
+  const dirXCodoSalida = haciaDerecha ? 1 : -1;     // el tramo inicial se aleja del origen
+
+  // Construcción del path:
+  //  M x1 y1
+  //  → L (xCodo - r*signo) y1        (tramo horizontal inicial)
+  //  → Q xCodo y1,  xCodo (y1 + r*dirY)   (curva esquina superior)
+  //  → L xCodo (y2 - r*dirY)         (tramo vertical)
+  //  → Q xCodo y2,  (xCodo + r*signoEntrada) y2   (curva esquina inferior)
+  //  → L x2 y2                       (tramo horizontal final, hacia el destino)
+  const path = [
+    `M ${x1} ${y1}`,
+    `L ${xCodo - r * dirXCodoSalida} ${y1}`,
+    `Q ${xCodo} ${y1} ${xCodo} ${y1 + r * dirY}`,
+    `L ${xCodo} ${y2 - r * dirY}`,
+    `Q ${xCodo} ${y2} ${xCodo + r * dirXEntrada} ${y2}`,
+    `L ${x2} ${y2}`,
+  ].join(' ');
+
+  return path;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPONENTE PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════════════
 
 export default function GanttFlechas({
   flechas = [],
@@ -15,24 +89,11 @@ export default function GanttFlechas({
   altoTotal = 0,
   hoverKey = null,
 }) {
-  const gruposPorOrigen = useMemo(() => {
-    const mapa = new Map();
-    flechas.forEach(f => {
-      const key = String(f.origenId);
-      if (!mapa.has(key)) {
-        mapa.set(key, {
-          origenId: f.origenId,
-          xSalida: f.x1,
-          ySalida: f.y1,
-          flechas: [],
-        });
-      }
-      mapa.get(key).flechas.push(f);
-    });
-    return Array.from(mapa.values());
-  }, [flechas]);
-
   if (!flechas.length || anchoTotal <= 0 || altoTotal <= 0) return null;
+
+  // Necesitamos padding para que las flechas que se salen un poco del área
+  // se vean igual (overflow visible).
+  const PADDING = 20;
 
   return (
     <svg
@@ -46,84 +107,57 @@ export default function GanttFlechas({
         zIndex: 20,
         overflow: 'visible',
       }}
+      viewBox={`${-PADDING} ${-PADDING} ${anchoTotal + PADDING * 2} ${altoTotal + PADDING * 2}`}
     >
       <defs>
+        {/* Punta de flecha normal */}
         <marker
           id="arrowhead"
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
-          markerWidth="4"
-          markerHeight="4"
-          orient="auto-start-reverse"
+          markerWidth="5"
+          markerHeight="5"
+          orient="auto"
         >
           <path d="M 0 0 L 10 5 L 0 10 z" fill={COLOR_FLECHA} />
         </marker>
+
+        {/* Punta de flecha activa (hover) */}
         <marker
           id="arrowhead-activa"
           viewBox="0 0 10 10"
           refX="9"
           refY="5"
-          markerWidth="5"
-          markerHeight="5"
-          orient="auto-start-reverse"
+          markerWidth="6"
+          markerHeight="6"
+          orient="auto"
         >
           <path d="M 0 0 L 10 5 L 0 10 z" fill={COLOR_FLECHA_ACTIVA} />
         </marker>
       </defs>
 
-      {gruposPorOrigen.map((grupo) => {
-        const xRiel = grupo.xSalida + TRAMO_SALIDA;
+      {flechas.map((flecha) => {
+        const flechaActiva =
+          hoverKey === String(flecha.destinoId) ||
+          hoverKey === String(flecha.origenId);
 
-        const ysSalida = grupo.flechas.map(f => f.y1);
-        const ysLlegada = grupo.flechas.map(f => f.y2);
-        const yMax = Math.max(...ysSalida, ...ysLlegada);
+        const color = flechaActiva ? COLOR_FLECHA_ACTIVA : COLOR_FLECHA;
+        const grosor = flechaActiva ? GROSOR_ACTIVA : GROSOR;
 
-        const grupoActivo = hoverKey === String(grupo.origenId)
-          || grupo.flechas.some(f => hoverKey === String(f.destinoId));
-
-        const colorRiel = grupoActivo ? COLOR_FLECHA_ACTIVA : COLOR_FLECHA;
-        const grosorRiel = grupoActivo ? GROSOR_ACTIVA : GROSOR;
+        const path = construirPath(flecha);
 
         return (
-          <g key={`grupo-${grupo.origenId}`}>
-            <path
-              d={`M ${grupo.xSalida} ${grupo.ySalida} L ${xRiel} ${grupo.ySalida} L ${xRiel} ${yMax}`}
-              fill="none"
-              stroke={colorRiel}
-              strokeWidth={grosorRiel}
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-
-            {grupo.flechas.map((flecha) => {
-              const flechaActiva = hoverKey === String(flecha.destinoId) || grupoActivo;
-              const color = flechaActiva ? COLOR_FLECHA_ACTIVA : COLOR_FLECHA;
-              const grosor = flechaActiva ? GROSOR_ACTIVA : GROSOR;
-
-              const xEntrada = flecha.x2 - TRAMO_ENTRADA;
-              const yEntrada = flecha.y2;
-
-              const pathCodo = [
-                `M ${xRiel} ${yEntrada}`,
-                `L ${xEntrada} ${yEntrada}`,
-                `L ${flecha.x2} ${yEntrada}`,
-              ].join(' ');
-
-              return (
-                <path
-                  key={flecha.id}
-                  d={pathCodo}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={grosor}
-                  markerEnd={flechaActiva ? 'url(#arrowhead-activa)' : 'url(#arrowhead)'}
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              );
-            })}
-          </g>
+          <path
+            key={flecha.id}
+            d={path}
+            fill="none"
+            stroke={color}
+            strokeWidth={grosor}
+            markerEnd={flechaActiva ? 'url(#arrowhead-activa)' : 'url(#arrowhead)'}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         );
       })}
     </svg>
