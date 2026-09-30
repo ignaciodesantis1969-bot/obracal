@@ -1,6 +1,7 @@
 // src/components/planificacion/proyectos/detalle/gantt/useGanttCalculos.js
 import { useMemo } from 'react';
-import { normalizarPredecesoras, calcularCaminoCritico } from '@/lib/planificacionHelpers';
+// 🔑 FIX: importar calcularDuracionInclusiva para duración inclusiva de barras
+import { normalizarPredecesoras, calcularCaminoCritico, calcularDuracionInclusiva } from '@/lib/planificacionHelpers';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTANTES
@@ -178,7 +179,8 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       if (!rubroFechaMax) rubroFechaMax = rubroFechaMin;
 
       const rubroOffsetDias = diasEntre(inicioIso, rubroFechaMin);
-      const rubroDuracionDias = Math.max(diasEntre(rubroFechaMin, rubroFechaMax), 1);
+      // 🔑 FIX: duración inclusiva (contar ambos extremos). 13/10 → 15/10 = 3 días.
+      const rubroDuracionDias = Math.max(calcularDuracionInclusiva(rubroFechaMin, rubroFechaMax), 1);
       const rubroColapsado = rubrosColapsados.has(rubro.nombre);
 
       const tareasCriticasDelRubro = tareasOrdenadas.filter(t =>
@@ -207,7 +209,8 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
           const inicio = t.fecha_inicio || rubroFechaMin;
           const fin = t.fecha_fin || t.fecha_inicio || inicio;
           const offsetDias = diasEntre(rubroFechaMin, inicio);
-          const duracionDias = Math.max(diasEntre(inicio, fin), 1);
+          // 🔑 FIX: duración inclusiva (contar ambos extremos).
+          const duracionDias = Math.max(calcularDuracionInclusiva(inicio, fin), 1);
           return {
             id: t.id,
             nombre: t.tarea_nombre,
@@ -223,7 +226,8 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
           const inicio = t.fecha_inicio;
           const fin = t.fecha_fin || t.fecha_inicio;
           const offsetDias = inicio ? diasEntre(inicioIso, inicio) : 0;
-          const duracionDias = inicio ? Math.max(diasEntre(inicio, fin), 1) : 1;
+          // 🔑 FIX: duración inclusiva (contar ambos extremos).
+          const duracionDias = inicio ? Math.max(calcularDuracionInclusiva(inicio, fin), 1) : 1;
 
           const tareaIdStr = String(t.id);
 

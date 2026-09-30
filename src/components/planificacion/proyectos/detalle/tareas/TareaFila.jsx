@@ -1,6 +1,8 @@
 // src/components/planificacion/proyectos/detalle/tareas/TareaFila.jsx
 import React, { useMemo } from 'react';
 import { Users, DollarSign, Pencil, AlertTriangle } from 'lucide-react';
+// 🔑 NUEVO: para calcular duración inclusiva desde las fechas
+import { calcularDuracionInclusiva } from '@/lib/planificacionHelpers';
 
 export default function TareaFila({ tarea, personal = [], insumos = [], onEditar }) {
   // 🔑 Recursos asignados a esta tarea
@@ -32,7 +34,15 @@ export default function TareaFila({ tarea, personal = [], insumos = [], onEditar
     }
   };
 
-  const duracion = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 0;
+  // 🔑 FIX: duración calculada desde las fechas (inclusiva, ambos extremos).
+  // Si el campo guardado es fraccional (< 1 día, ej: 0.2 d, 0.5 d), lo respetamos
+  // para no perder granularidad en el listado.
+  const duracionDesdeFechas = calcularDuracionInclusiva(tarea.fecha_inicio, tarea.fecha_fin);
+  const duracionGuardada = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 0;
+  const duracion = (duracionGuardada > 0 && duracionGuardada < 1)
+    ? duracionGuardada
+    : duracionDesdeFechas;
+
   const costo = Number(tarea.costo_total) || 0;
   const presupuestoMO = Number(tarea.presupuesto_mo_tarea) || 0;
   const excedido = presupuestoMO > 0 && costo > presupuestoMO;

@@ -1046,3 +1046,24 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
 
   return { criticas, holguras, fechaFinProyecto };
 }
+// ═══════════════════════════════════════════════════════════════════════════
+// 🔑 NUEVO: DURACIÓN INCLUSIVA (días corridos, contando ambos extremos)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Calcula la duración en días CORRIDOS entre dos fechas ISO, contando AMBOS extremos.
+ * Ej: 13/10 → 15/10 = 3 días (13, 14, 15).
+ * Si la fecha fin es anterior a la inicio, devuelve 1 (mínimo).
+ * 
+ * Se usa para renderizar el ancho de barras en el Gantt y para calcular
+ * la duración mostrada en el listado de tareas cuando no hay valor fraccional guardado.
+ */
+export function calcularDuracionInclusiva(fechaInicioISO, fechaFinISO) {
+  if (!fechaInicioISO || !fechaFinISO) return 1;
+  const inicio = new Date(fechaInicioISO + 'T00:00:00');
+  const fin = new Date(fechaFinISO + 'T00:00:00');
+  if (isNaN(inicio.getTime()) || isNaN(fin.getTime())) return 1;
+  if (fin < inicio) return 1;
+  const dias = Math.round((fin - inicio) / (1000 * 60 * 60 * 24)) + 1;
+  return Math.max(1, dias);
+}
