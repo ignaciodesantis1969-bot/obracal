@@ -2,18 +2,18 @@
 import React from 'react';
 
 // ═══════════════════════════════════════════════════════════════════════════
-// CONSTANTES VISUALES (estilo MS Project — captura 2)
+// CONSTANTES VISUALES (estilo MS Project)
 // ═══════════════════════════════════════════════════════════════════════════
 
 const COLOR_FLECHA = '#64748b';
 const COLOR_FLECHA_ACTIVA = '#f59e0b';
 
-const GROSOR = 1.2;              // trazo fino, estilo captura 2
-const GROSOR_ACTIVA = 1.8;       // cuando está en hover
+const GROSOR = 1.2;
+const GROSOR_ACTIVA = 1.8;
 
-const GAP_CODO = 8;              // distancia horizontal del codo al borde de la barra
-const RADIO_CODO = 5;            // radio de las esquinas redondeadas
-const TRAMO_ENTRADA = 5;         // largo del tramo final antes de la punta
+const GAP_CODO = 8;
+const RADIO_CODO = 5;
+const TRAMO_ENTRADA = 5;
 
 // ═══════════════════════════════════════════════════════════════════════════
 // CONSTRUCCIÓN DE PATHS
@@ -32,20 +32,22 @@ function construirPath(flecha) {
   const { x1, y1, x2, y2, tipo } = flecha;
 
   // ─── Caso 1: misma fila (y1 == y2) → línea recta horizontal ───────────
-  if (Math.abs(y1 - y2) < 2) {
+  // 🔑 FIX: umbral reducido a 0.5px para evitar falsos positivos cuando
+  // las filas están contiguas pero con pequeña diferencia vertical.
+  if (Math.abs(y1 - y2) < 0.5) {
     return `M ${x1} ${y1} L ${x2} ${y2}`;
   }
 
   // ─── Caso 2: codo en L invertida con esquinas redondeadas ─────────────
   // Dirección del codo según tipo:
-  //   FS / FF → codo a la DERECHA del origen (x codo = x1 + GAP_CODO)
-  //   SS / SF → codo a la IZQUIERDA del origen (x codo = x1 - GAP_CODO)
+  //   FS / FF → codo a la DERECHA del origen
+  //   SS / SF → codo a la IZQUIERDA del origen
   const haciaDerecha = (tipo === 'FS' || tipo === 'FF' || !tipo);
   const xCodo = haciaDerecha ? x1 + GAP_CODO : x1 - GAP_CODO;
 
   // Dirección de entrada según tipo:
-  //   FS / SS → entra desde la IZQUIERDA del destino (x2 - TRAMO_ENTRADA)
-  //   FF / SF → entra desde la DERECHA del destino (x2 + TRAMO_ENTRADA)
+  //   FS / SS → entra desde la IZQUIERDA del destino
+  //   FF / SF → entra desde la DERECHA del destino
   const entraPorIzquierda = (tipo === 'FS' || tipo === 'SS' || !tipo);
   const xEntrada = entraPorIzquierda ? x2 - TRAMO_ENTRADA : x2 + TRAMO_ENTRADA;
 
@@ -56,17 +58,17 @@ function construirPath(flecha) {
   const r = Math.min(RADIO_CODO, tramoHorizontal1, tramoVertical / 2, tramoHorizontal2);
 
   // Direcciones
-  const dirY = y2 > y1 ? 1 : -1;                    // baja o sube
-  const dirXEntrada = entraPorIzquierda ? 1 : -1;   // el tramo final va hacia el destino
-  const dirXCodoSalida = haciaDerecha ? 1 : -1;     // el tramo inicial se aleja del origen
+  const dirY = y2 > y1 ? 1 : -1;
+  const dirXEntrada = entraPorIzquierda ? 1 : -1;
+  const dirXCodoSalida = haciaDerecha ? 1 : -1;
 
   // Construcción del path:
   //  M x1 y1
-  //  → L (xCodo - r*signo) y1        (tramo horizontal inicial)
+  //  → L (xCodo - r*signo) y1             (tramo horizontal inicial)
   //  → Q xCodo y1,  xCodo (y1 + r*dirY)   (curva esquina superior)
-  //  → L xCodo (y2 - r*dirY)         (tramo vertical)
-  //  → Q xCodo y2,  (xCodo + r*signoEntrada) y2   (curva esquina inferior)
-  //  → L x2 y2                       (tramo horizontal final, hacia el destino)
+  //  → L xCodo (y2 - r*dirY)              (tramo vertical)
+  //  → Q xCodo y2,  (xCodo + r*signoEntrada) y2  (curva esquina inferior)
+  //  → L x2 y2                            (tramo horizontal final)
   const path = [
     `M ${x1} ${y1}`,
     `L ${xCodo - r * dirXCodoSalida} ${y1}`,
@@ -91,10 +93,6 @@ export default function GanttFlechas({
 }) {
   if (!flechas.length || anchoTotal <= 0 || altoTotal <= 0) return null;
 
-  // Necesitamos padding para que las flechas que se salen un poco del área
-  // se vean igual (overflow visible).
-  const PADDING = 20;
-
   return (
     <svg
       style={{
@@ -107,7 +105,6 @@ export default function GanttFlechas({
         zIndex: 20,
         overflow: 'visible',
       }}
-      viewBox={`${-PADDING} ${-PADDING} ${anchoTotal + PADDING * 2} ${altoTotal + PADDING * 2}`}
     >
       <defs>
         {/* Punta de flecha normal */}
