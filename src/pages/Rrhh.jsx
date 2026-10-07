@@ -969,6 +969,19 @@ export default function Rrhh() {
       alert("Error al eliminar la carga: " + (err.message || ''));
     }
   };
+  // 🔑 NUEVO: ordenar historial de cargas por fecha DESC (más reciente primero).
+  // Desempate por _creadoEn DESC si dos cargas tienen la misma fecha.
+  const cargasHorasOrdenadas = React.useMemo(() => {
+    return [...cargasHorasLista].sort((a, b) => {
+      const fechaA = String(a.fecha || a.Fecha || '');
+      const fechaB = String(b.fecha || b.Fecha || '');
+      if (fechaA !== fechaB) return fechaB.localeCompare(fechaA);
+
+      const creadoA = a._creadoEn?.seconds || a._creadoEn?.toMillis?.() || 0;
+      const creadoB = b._creadoEn?.seconds || b._creadoEn?.toMillis?.() || 0;
+      return creadoB - creadoA;
+    });
+  }, [cargasHorasLista]);
 
   const personalFiltrado = personalSalarios.filter(p => {
     const nombre = String(p.nombre || p.Nombre || '').toLowerCase();
@@ -2210,7 +2223,7 @@ export default function Rrhh() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {cargasHorasLista.map((c, idx) => {
+                    {cargasHorasOrdenadas.map((c, idx) => {
                     const cId = c.id || c.ID || idx;
                     const cTipoReg = String(c.tipo_registro || c.Tipo_registro || 'Sueldos').trim();
                     const cTipo = String(c.tipo_proyecto || (c.contrato_mantenimiento_id ? 'contrato' : 'obra')).toUpperCase();
