@@ -229,10 +229,21 @@ export default function Presupuestos() {
     }
   };
 
+  // 🔑 Actualizar versión: se puede desde Borrador, Entregado o Rechazado.
+  // NUNCA desde Aprobado. La v2 SIEMPRE se crea en Borrador.
   const handleActualizarPresupuestoVersion = async (presupuestoActual) => {
+    // 🔑 FIX: bloquear generación desde presupuestos aprobados
+    const estadoOriginal = String(presupuestoActual?.estado_presupuesto || presupuestoActual?.estado || 'borrador').toLowerCase();
+    if (estadoOriginal === 'aprobado') {
+      alert('⚠️ No se puede generar una nueva versión de un presupuesto Aprobado. Solo se puede versionar desde Borrador, Entregado o Rechazado.');
+      return;
+    }
+
     if (!window.confirm(`¿Desea actualizar los precios de este presupuesto y generar una nueva versión basada en los costos actuales de los insumos?`)) return;
 
-    setIsLoading(true);
+    // 🔑 FIX: se eliminó setIsLoading(true/false) porque no existe como estado en este componente.
+    // isLoading es un valor derivado de los hooks de Firestore (loadingPres, loadingObras, etc.),
+    // no un estado propio. Llamar a setIsLoading rompía el handler con ReferenceError.
     try {
       let versionActualStr = String(presupuestoActual.version || '').toLowerCase();
       if (!versionActualStr || versionActualStr === 'undefined') {
@@ -318,6 +329,7 @@ export default function Presupuestos() {
       const nombreBaseLimPIO = (presupuestoActual.nombre || '').replace(/\s*\(v\d+\)\s*$/i, '').trim();
       const nombreNuevaVersion = `${nombreBaseLimPIO} (${nuevaVersionStr})`;
 
+      // 🔑 FIX: la v2 SIEMPRE se crea en Borrador, independiente del estado del original
       const datosNuevaVersion = {
         codigo: presupuestoActual.codigo,
         nombre: nombreNuevaVersion,
@@ -330,6 +342,10 @@ export default function Presupuestos() {
         costo_directo: nuevoCostoDirecto,
         precio_venta: nuevoPrecioVenta,
         items_detalle: JSON.stringify(estructuraCompletaNueva),
+        // 🔑 FIX: heredar datos del presupuesto original (responsable + OC + contactos)
+        orden_compra: presupuestoActual.orden_compra || '',
+        responsable_cliente: presupuestoActual.responsable_cliente || '',
+        responsable_proveedor: presupuestoActual.responsable_proveedor || '',
         responsable_id: presupuestoActual.responsable_id || '',
         responsable_nombre: presupuestoActual.responsable_nombre || '',
         responsable_email: presupuestoActual.responsable_email || '',
@@ -339,12 +355,13 @@ export default function Presupuestos() {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVersion;
       await crearDoc('presupuestos', datosLimpios);
 
-      alert(`¡Se ha generado la versión ${nuevaVersionStr} exitosamente con los precios actualizados!`);
+      // 🔑 NUEVO: llevar al usuario al tab donde aparece la nueva versión (siempre Espacio de Trabajo)
+      setActiveTab('workspace');
+
+      alert(`¡Se ha generado la versión ${nuevaVersionStr} exitosamente con los precios actualizados!\n\nLa vas a encontrar en la pestaña "Espacio de Trabajo" con estado "Borrador".`);
     } catch (err) {
       console.error("Error al actualizar versión del presupuesto:", err);
       alert("Ocurrió un error al procesar la actualización.");
-    } finally {
-      setIsLoading(false);
     }
   };
 
@@ -679,13 +696,16 @@ export default function Presupuestos() {
                     </td>
                     <td className="w-[5%] px-2 py-4 text-right">
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => handleActualizarPresupuestoVersion(p)}
-                          className="p-1.5 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 hover:border-blue-300 rounded-lg shadow-sm transition-all flex items-center justify-center"
-                          title="Actualizar Precios y Generar Nueva Versión"
-                        >
-                          <RefreshCw className="w-3.5 h-3.5" />
-                        </button>
+                        {/* 🔑 FIX: el botón de versión no aparece en presupuestos aprobados */}
+                        {estadoActual !== 'aprobado' && (
+                          <button
+                            onClick={() => handleActualizarPresupuestoVersion(p)}
+                            className="p-1.5 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 hover:border-blue-300 rounded-lg shadow-sm transition-all flex items-center justify-center"
+                            title="Actualizar Precios y Generar Nueva Versión"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         <Link
                           to={`/presupuestos/${p.id}`}
                           className="p-1.5 text-slate-600 hover:text-amber-600 bg-white border border-slate-200 hover:border-amber-300 rounded-lg shadow-sm transition-all flex items-center justify-center"
