@@ -413,15 +413,49 @@ export default function CertificadoHorasHombreTab({
           throw new Error(resultado.error || 'Error desconocido del servidor');
         }
 
+        // 🔑 FIX: validar que la respuesta sea del guardar_certificado_horas, no del doGet genérico
+        if (resultado?.status === 'online' && !resultado?.pdf_url && !resultado?.pdfUrl) {
+          throw new Error("Apps Script devolvió la respuesta default del doGet en vez de procesar guardar_certificado_horas. Verificar el deploy del Web App.");
+        }
+
         pdfUrlFinal = resultado?.pdf_url || resultado?.pdfUrl || resultado?.url || '';
         certificadoNroFinal = resultado?.certificado_nro || certificadoNro;
 
-        if (pdfUrlFinal || String(certificadoNroFinal) !== String(certificadoNro)) {
-          await actualizarDoc('certificaciones_horas', docId, {
-            pdf_url: pdfUrlFinal,
-            certificado_nro: certificadoNroFinal
-          });
-          console.info('[CertificadoHH] ✅ Doc actualizado con PDF:', pdfUrlFinal);
+        // 🔑 FIX: filtrar URLs placeholder o inválidas antes de guardar en Firestore.
+        const esUrlValida =
+          pdfUrlFinal &&
+          typeof pdfUrlFinal === 'string' &&
+          pdfUrlFinal.startsWith('http') &&
+          pdfUrlFinal.length > 30 &&
+          !pdfUrlFinal.includes('goo.gl/9p2vKg') &&
+          !pdfUrlFinal.includes('goo.gl/9p2');
+
+        // 🔑 FIX especial de HH: si el certificado_nro cambió (Apps Script lo renumeró),
+        // igual guardamos ese cambio aunque la URL del PDF falle.
+        const numeroCambio = String(certificadoNroFinal) !== String(certificadoNro);
+
+        if (!esUrlValida && !numeroCambio) {
+          throw new Error(
+            "El servidor no devolvió una URL de PDF válida. Respuesta: " +
+            JSON.stringify(resultado).substring(0, 200)
+          );
+        }
+
+        if (esUrlValida) {
+          console.info('[CertificadoHH] ✅ PDF generado:', pdfUrlFinal);
+        } else {
+          console.warn('[CertificadoHH] ⚠️ PDF inválido pero el número de certificado cambió. Guardando solo el número.');
+          pdfUrlFinal = '';
+        }
+
+        // PASO 3: Actualizar el doc (con PDF si es válido, y/o con certificado_nro si cambió)
+        if (esUrlValida || numeroCambio) {
+          const updateData = {};
+          if (esUrlValida) updateData.pdf_url = pdfUrlFinal;
+          if (numeroCambio) updateData.certificado_nro = certificadoNroFinal;
+
+          await actualizarDoc('certificaciones_horas', docId, updateData);
+          console.info('[CertificadoHH] ✅ Doc actualizado:', updateData);
         }
       } catch (pdfErr) {
         console.warn('[CertificadoHH] ⚠️ Falló la generación de PDF:', pdfErr);

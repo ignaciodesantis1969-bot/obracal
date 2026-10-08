@@ -402,17 +402,42 @@ export default function CertificacionesTab({
           throw new Error(resultado?.error || "Error desconocido devuelto por el servidor.");
         }
 
+        // 🔑 FIX: validar que la respuesta sea del guardarCertificado, no del doGet genérico
+        if (resultado?.status === 'online' && !resultado?.pdfUrl && !resultado?.pdf_url) {
+          throw new Error("Apps Script devolvió la respuesta default del doGet en vez de procesar guardarCertificado. Verificar el deploy del Web App.");
+        }
+
         pdfUrlFinal = resultado?.pdfUrl || resultado?.pdf_url || resultado?.url || resultado?.link || '';
+
+        // 🔑 FIX: filtrar URLs placeholder o inválidas antes de guardar en Firestore.
+        // El Apps Script, cuando falla o cae al doGet, puede devolver:
+        //   - "https://goo.gl/9p2vKg" (placeholder histórico de Google)
+        //   - strings vacíos
+        //   - URLs con formato raro
+        // Solo guardamos si la URL parece válida y apunta a Drive/Google.
+        const esUrlValida =
+          pdfUrlFinal &&
+          typeof pdfUrlFinal === 'string' &&
+          pdfUrlFinal.startsWith('http') &&
+          pdfUrlFinal.length > 30 &&
+          !pdfUrlFinal.includes('goo.gl/9p2vKg') &&
+          !pdfUrlFinal.includes('goo.gl/9p2');
+
+        if (!esUrlValida) {
+          throw new Error(
+            "El servidor no devolvió una URL de PDF válida. Respuesta: " +
+            JSON.stringify(resultado).substring(0, 200)
+          );
+        }
+
         console.info('[Certificaciones AO] ✅ PDF generado:', pdfUrlFinal);
 
-        // PASO 3: Actualizar el doc con el PDF
-        if (pdfUrlFinal) {
-          await actualizarDoc('certificados', docId, {
-            pdf_url: pdfUrlFinal,
-            pdfUrl: pdfUrlFinal
-          });
-          console.info('[Certificaciones AO] ✅ Doc actualizado con PDF');
-        }
+        // PASO 3: Actualizar el doc con el PDF (solo si la URL es válida)
+        await actualizarDoc('certificados', docId, {
+          pdf_url: pdfUrlFinal,
+          pdfUrl: pdfUrlFinal
+        });
+        console.info('[Certificaciones AO] ✅ Doc actualizado con PDF');
       } catch (pdfErr) {
         console.error('[Certificaciones AO] ⚠️ Falló generación de PDF:', pdfErr);
         pdfFallo = true;
