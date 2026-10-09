@@ -1,9 +1,8 @@
 // src/pages/PresupuestoDetalle.jsx
-import React, { useState, useEffect, useMemo } from 'react'; // 🔑 NUEVO: useMemo
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronRight, FileText } from 'lucide-react';
+import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronUp, ChevronRight, FileText, CheckSquare, Square, ListChecks } from 'lucide-react';
 import { exportarPresupuestoExcel, exportarPresupuestoPDF } from '../utils/exportUtils';
-// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL
 // 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc } from '@/lib/firestoreHelpers';
@@ -39,7 +38,7 @@ export default function PresupuestoDetalle() {
     return clientes.find(c => String(c.id).trim() === String(clienteId || '').trim()) || {};
   }, [clientes, obra]);
 
-  // 🔑 NUEVO: aplanar el maestro de tareas (misma lógica que antes)
+  // 🔑 NUEVO: aplanar el maestro de tareas
   const maestroTareas = useMemo(() => {
     let tareasPlanas = [];
     if (Array.isArray(maestroRaw)) {
@@ -80,7 +79,7 @@ export default function PresupuestoDetalle() {
     impuestos: "El precio indicado en la cotización no contempla el impuesto I.V.A.",
     plazo: "Se estima un tiempo de obra de 130 días hábiles (Aproximadamente 6 meses corridos).",
     condiciones: "Acopio de materiales de 40 % de presente presupuesto y saldo en Certificaciones mensuales.\nEl saldo a certificar mensualmente se ajustara de acuerdo a las variaciones que sufrieran por un lado los salarios, a partir del convenio colectivo de trabajo del año 1993 y/o cualquier otro aumento de salarios, sea este remunerativo o no y el aumento de los materiales; expresado esto en la columna CONSTRUCCION de los índices publicados por la C.A.C. . Se consideró para la elaboración de éste presupuesto, los jornales pagados por nuestra empresa durante el mes de Agosto de 2026; no incluye posible aumento de ley con homologación posterior a la fecha del presente presupuesto y de aplicación retroactiva. Índice Base para el calculo del ajuste del saldo; Índice C.A.C. correspondiente a CONSTRUCCION del mes de JULIO 2026.",
-    consideraciones: "El presente presupuesto considera y incluye la elaboración y presentación de la siguiente documentación del personal afectado al servicio: Formulario 931 de Declaración Jurada ante la AFIP; Comprobantes de Pagos 931; Comprobantes de pagos sindicales; Cláusulas de no repetición; Estudios anuales de ley básicos (Examen común de Sangre, Radiografía de Tórax, Ecografía, Agudeza Visual, Agudeza auditiva, Examen Físico Clínico); Altas tempranas; Certificado de cobertura de Seguro de Vida Obligatorio (el mismo no incluye nómina, la cual se desprende del Formulario 931); Recibos de sueldo del personal afectado.\nConsidera personal de Seguridad y Higiene permanente, visitas de ley. También un programa de seguridad aprobado por ART. mientras se ejecutan estos trabajos.",
+    consideraciones: "El presente presupuesto considera y incluye la elaboración y presentación de la siguiente documentación del personal afectado al servicio: Formulario 931 de Declaración Jurada ante la AFIP; Comprobantes de Pagos 931; Comprobantes de pagos sindicales; Cláusulas de no repetición; Estudios anuales de ley básicos (Examen común de Sangre, Radiografía de Tórax, Ecografía, Agudeza Visual, Agudeza auditiva, Examen Físico Clínico); Altas tempranas; Certificado de cobertura de Seguro de Vida Obligatorio (el mismo no incluye nómina, la cual se desprende del Formulario 931); Recibos de sueldo del personal afectado.\nConsidera personal de Seguridad e Higiene permanente, visitas de ley. También un programa de seguridad aprobado por ART. mientras se ejecutan estos trabajos.",
     exclusiones: ""
   });
 
@@ -92,6 +91,9 @@ export default function PresupuestoDetalle() {
     costo_unitario: 0,
     insumos: ''
   });
+
+  // 🔑 NUEVO (cambio c): estado para multi-select de tareas desde el Maestro
+  const [tareasSeleccionadas, setTareasSeleccionadas] = useState([]);
 
   const [gastosGeneralesInsumos, setGastosGeneralesInsumos] = useState([]);
   const [porcentajeComisionVenta, setPorcentajeComisionVenta] = useState(0);
@@ -133,7 +135,6 @@ export default function PresupuestoDetalle() {
       itemsParseados = [];
     }
 
-    // Comercial embebido
     if (comercialParseado) {
       if (Array.isArray(comercialParseado.gastos_generales_insumos)) {
         setGastosGeneralesInsumos(comercialParseado.gastos_generales_insumos);
@@ -151,7 +152,6 @@ export default function PresupuestoDetalle() {
         setNotasPresupuesto(prev => ({ ...prev, ...comercialParseado.notas }));
       }
     } else {
-      // Fallbacks a campos planos (presupuestos viejos)
       if (presupuesto.gastos_generales_insumos) {
         try {
           const gg = typeof presupuesto.gastos_generales_insumos === 'string'
@@ -323,7 +323,6 @@ export default function PresupuestoDetalle() {
     return `R${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  // 🔑 FIX: crear rubro en Firestore (colección `rubros` + actualizar presupuesto)
   const handleCrearRubro = async (e) => {
     e.preventDefault();
     if (isSavingRubro) return;
@@ -350,7 +349,6 @@ export default function PresupuestoDetalle() {
       setItemsDetalle(nuevos);
       await guardarEstructuraPresupuesto(nuevos);
 
-      // 🔑 FIX: crear el rubro en Firestore con crearDoc
       await crearDoc('rubros', {
         codigo: codigoGenerado,
         nombre: nombreRubroUpper,
@@ -379,6 +377,7 @@ export default function PresupuestoDetalle() {
     }
   };
 
+  // 🔑 FIX (cambio c): ahora puede agregar 1 tarea (manual o editada) o N tareas (multi-select)
   const handleGuardarTarea = async (e) => {
     e.preventDefault();
     if (isSavingTarea) return;
@@ -387,6 +386,70 @@ export default function PresupuestoDetalle() {
       alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
+
+    // 🔑 Si hay tareas seleccionadas del Maestro → modo multi-agregar
+    const modoMultiSelect = tareasSeleccionadas.length > 0 && !editingTarea;
+
+    if (modoMultiSelect) {
+      if (!nuevaTarea.rubro) {
+        alert("Seleccione un rubro antes de agregar las tareas.");
+        return;
+      }
+
+      setIsSavingTarea(true);
+      try {
+        const nuevasTareas = tareasSeleccionadas.map((tareaMt, idx) => {
+          // Parsear los insumos del Maestro
+          let insDetalleParsed = tareaMt.insumos_detalle || tareaMt.Insumos_detalle || [];
+          if (typeof insDetalleParsed === 'string' && insDetalleParsed.trim()) {
+            try { insDetalleParsed = JSON.parse(insDetalleParsed); } catch { insDetalleParsed = []; }
+          }
+
+          const insumosEstructurados = insDetalleParsed.map(ins => {
+            const insEncontrado = insumosList.find(i => String(i.id) === String(ins.id || ins.insumo_id));
+            return {
+              id: ins.id || ins.insumo_id || '',
+              nombre: ins.nombre || ins.nombre_del_articulo || ins.concepto || '',
+              tipo: insEncontrado?.tipo || ins.tipo || 'Material',
+              unidad: ins.unidad || 'gl',
+              cantidad: Number(ins.cantidad) || 1,
+              costo_unitario: Number(ins.costo_unitario) || Number(ins.costo) || 0
+            };
+          });
+
+          return {
+            id: Date.now() + idx,
+            tarea: tareaMt.tarea || '',
+            unidad: tareaMt.unidad || 'm2',
+            cantidad: 1,
+            costo_unitario: Number(tareaMt.costo_estimado || tareaMt.costo_unitario) || 0,
+            insumos: insumosEstructurados
+          };
+        });
+
+        const nuevosItems = itemsDetalle.map(r => {
+          if (r.rubro === nuevaTarea.rubro) {
+            return { ...r, tareas: [...r.tareas, ...nuevasTareas] };
+          }
+          return r;
+        });
+
+        setItemsDetalle(nuevosItems);
+        await guardarEstructuraPresupuesto(nuevosItems);
+        setIsTareaModalOpen(false);
+        setEditingTarea(null);
+        setTareasSeleccionadas([]);
+        setNuevaTarea({ rubro: '', tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
+        return;
+      } catch (err) {
+        console.error("Error al guardar tareas múltiples:", err);
+        alert("Hubo un error al guardar las tareas.");
+      } finally {
+        setIsSavingTarea(false);
+      }
+    }
+
+    // 🔑 Modo individual (1 tarea) — el flujo original
     if (!nuevaTarea.rubro || !nuevaTarea.tarea) {
       alert("Complete el rubro y el nombre de la tarea.");
       return;
@@ -434,6 +497,7 @@ export default function PresupuestoDetalle() {
       await guardarEstructuraPresupuesto(nuevosItems);
       setIsTareaModalOpen(false);
       setEditingTarea(null);
+      setTareasSeleccionadas([]);
       setNuevaTarea({ rubro: '', tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
     } catch (err) {
       console.error("Error al guardar tarea:", err);
@@ -457,6 +521,7 @@ export default function PresupuestoDetalle() {
       insumos: tarea.insumos || ''
     });
     setEditingTarea(tarea);
+    setTareasSeleccionadas([]);
     setIsTareaModalOpen(true);
   };
 
@@ -480,7 +545,34 @@ export default function PresupuestoDetalle() {
     }
   };
 
-  // 🔑 FIX: crear gasto general → crearDoc en `insumos` + actualizar estado local
+  // 🔑 NUEVO (cambio d): mover tarea arriba/abajo dentro de su rubro
+  const handleMoverTarea = (nombreRubro, tareaId, direccion) => {
+    if (!esBorrador) {
+      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
+      return;
+    }
+
+    const nuevos = itemsDetalle.map(r => {
+      if (r.rubro !== nombreRubro) return r;
+
+      const tareas = [...(r.tareas || [])];
+      const idxActual = tareas.findIndex(t => t.id === tareaId);
+      if (idxActual === -1) return r;
+
+      const idxNuevo = direccion === 'arriba' ? idxActual - 1 : idxActual + 1;
+      if (idxNuevo < 0 || idxNuevo >= tareas.length) return r;
+
+      const temp = tareas[idxActual];
+      tareas[idxActual] = tareas[idxNuevo];
+      tareas[idxNuevo] = temp;
+
+      return { ...r, tareas };
+    });
+
+    setItemsDetalle(nuevos);
+    guardarEstructuraPresupuesto(nuevos);
+  };
+
   const handleCrearGastoGeneral = async (e) => {
     e.preventDefault();
     if (!esBorrador) return;
@@ -570,6 +662,25 @@ export default function PresupuestoDetalle() {
     return rubroMaestro === rubroSeleccionado && m.tarea !== '---';
   });
 
+  // 🔑 NUEVO (cambio c): helpers para multi-select
+  const toggleTareaSeleccionada = (tareaMt) => {
+    setTareasSeleccionadas(prev => {
+      const existe = prev.some(t => String(t.id) === String(tareaMt.id));
+      if (existe) {
+        return prev.filter(t => String(t.id) !== String(tareaMt.id));
+      }
+      return [...prev, tareaMt];
+    });
+  };
+
+  const seleccionarTodasLasTareas = () => {
+    setTareasSeleccionadas(maestroTareasFiltradas);
+  };
+
+  const deseleccionarTodasLasTareas = () => {
+    setTareasSeleccionadas([]);
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -650,6 +761,7 @@ export default function PresupuestoDetalle() {
             onClick={() => {
               if (itemsDetalle.length === 0) { alert("Cree un rubro primero."); return; }
               setEditingTarea(null);
+              setTareasSeleccionadas([]);
               setNuevaTarea({ rubro: itemsDetalle[0].rubro, tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
               setIsTareaModalOpen(true);
             }}
@@ -774,7 +886,7 @@ export default function PresupuestoDetalle() {
                               </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                              {tareasDelRubro.map(t => {
+                              {tareasDelRubro.map((t, tIdx) => {
                                 const cant = Number(t.cantidad) || 0;
                                 const cUnit = Number(t.costo_unitario) || 0;
                                 const cTot = cant * cUnit;
@@ -805,6 +917,24 @@ export default function PresupuestoDetalle() {
                                     <td className="w-[14%] px-4 py-3 text-right">
                                       {esBorrador && (
                                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                          {/* 🔑 NUEVO (cambio d): flechas para reordenar */}
+                                          <button
+                                            onClick={() => handleMoverTarea(nombreRubro, t.id, 'arriba')}
+                                            disabled={tIdx === 0}
+                                            className="p-1 text-slate-500 hover:text-blue-600 bg-white border rounded shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
+                                            title="Subir tarea"
+                                          >
+                                            <ChevronUp className="w-3.5 h-3.5"/>
+                                          </button>
+                                          <button
+                                            onClick={() => handleMoverTarea(nombreRubro, t.id, 'abajo')}
+                                            disabled={tIdx === tareasDelRubro.length - 1}
+                                            className="p-1 text-slate-500 hover:text-blue-600 bg-white border rounded shadow-sm disabled:opacity-30 disabled:cursor-not-allowed"
+                                            title="Bajar tarea"
+                                          >
+                                            <ChevronDown className="w-3.5 h-3.5"/>
+                                          </button>
+
                                           <button onClick={() => handleEditarTareaClick(nombreRubro, t)} className="p-1 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm" title="Modificar Tarea">
                                             <Edit2 className="w-3.5 h-3.5"/>
                                           </button>
@@ -1366,12 +1496,12 @@ export default function PresupuestoDetalle() {
 
       {isTareaModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden">
             <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
               <h3 className="font-bold text-slate-900">{editingTarea ? 'Modificar Tarea' : 'Agregar Nueva Tarea'}</h3>
-              <button onClick={() => setIsTareaModalOpen(false)} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
+              <button onClick={() => { setIsTareaModalOpen(false); setTareasSeleccionadas([]); }} className="text-slate-400 hover:text-slate-700"><X className="w-5 h-5"/></button>
             </div>
-            <form onSubmit={handleGuardarTarea} className="p-6 space-y-4">
+            <form onSubmit={handleGuardarTarea} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar Rubro *</label>
                 <select
@@ -1391,117 +1521,161 @@ export default function PresupuestoDetalle() {
                 </select>
               </div>
 
+              {/* 🔑 NUEVO (cambio c): multi-select del Maestro */}
               {!editingTarea && (
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cargar desde el Maestro (para el rubro seleccionado)</label>
-                  <select
-                    className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
-                    onChange={(e) => {
-                      const tareaMt = maestroTareas.find(m => String(m.id) === String(e.target.value));
-                      if (tareaMt) {
-                        let insDetalleParsed = tareaMt.insumos_detalle || tareaMt.Insumos_detalle || [];
-                        if (typeof insDetalleParsed === 'string' && insDetalleParsed.trim()) {
-                          try { insDetalleParsed = JSON.parse(insDetalleParsed); } catch { insDetalleParsed = []; }
-                        }
-
-                        const insumosEstructurados = insDetalleParsed.map(ins => {
-                          const insEncontrado = insumosList.find(i => String(i.id) === String(ins.id || ins.insumo_id));
-                          return {
-                            id: ins.id || ins.insumo_id || '',
-                            nombre: ins.nombre || ins.nombre_del_articulo || ins.concepto || '',
-                            tipo: insEncontrado?.tipo || ins.tipo || 'Material',
-                            unidad: ins.unidad || 'gl',
-                            cantidad: Number(ins.cantidad) || 1,
-                            costo_unitario: Number(ins.costo_unitario) || Number(ins.costo) || 0
-                          };
-                        });
-
-                        setNuevaTarea({
-                          ...nuevaTarea,
-                          rubro: tareaMt.rubro || nuevaTarea.rubro,
-                          tarea: tareaMt.tarea || '',
-                          unidad: tareaMt.unidad || 'm2',
-                          costo_unitario: Number(tareaMt.costo_estimado || tareaMt.costo_unitario) || 0,
-                          insumos: insumosEstructurados
-                        });
-                      }
-                    }}
-                  >
-                    <option value="">Elegir plantilla del Maestro de Tareas...</option>
-                    {maestroTareasFiltradas.map(m => (
-                      <option key={m.id} value={m.id}>{m.tarea} ($ {Math.round(Number(m.costo_estimado || 0)).toLocaleString('es-AR')})</option>
-                    ))}
-                  </select>
+                <div className="border border-amber-300 bg-amber-50/40 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <ListChecks className="w-4 h-4 text-amber-600" />
+                      <h4 className="text-xs font-black text-amber-900 uppercase">Cargar varias tareas del Maestro</h4>
+                    </div>
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <button
+                        type="button"
+                        onClick={seleccionarTodasLasTareas}
+                        disabled={maestroTareasFiltradas.length === 0}
+                        className="px-2 py-1 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 disabled:cursor-not-allowed text-white rounded font-bold cursor-pointer"
+                      >
+                        Todas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={deseleccionarTodasLasTareas}
+                        disabled={tareasSeleccionadas.length === 0}
+                        className="px-2 py-1 bg-slate-400 hover:bg-slate-500 disabled:bg-slate-200 disabled:cursor-not-allowed text-white rounded font-bold cursor-pointer"
+                      >
+                        Ninguna
+                      </button>
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-amber-800">
+                    Marcá las tareas que querés agregar. Se van a agregar todas juntas al presupuesto con los valores por defecto del Maestro.
+                  </p>
+                  <div className="max-h-56 overflow-y-auto border border-amber-200 rounded-lg bg-white divide-y divide-slate-100">
+                    {!nuevaTarea.rubro ? (
+                      <div className="p-4 text-xs text-slate-400 italic text-center">Primero seleccioná un rubro.</div>
+                    ) : maestroTareasFiltradas.length === 0 ? (
+                      <div className="p-4 text-xs text-slate-400 italic text-center">No hay tareas en el Maestro para este rubro.</div>
+                    ) : (
+                      maestroTareasFiltradas.map(m => {
+                        const marcada = tareasSeleccionadas.some(t => String(t.id) === String(m.id));
+                        return (
+                          <div
+                            key={m.id}
+                            onClick={() => toggleTareaSeleccionada(m)}
+                            className={`flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors ${marcada ? 'bg-amber-50' : 'hover:bg-slate-50'}`}
+                          >
+                            {marcada ? (
+                              <CheckSquare className="w-4 h-4 text-amber-600 shrink-0" />
+                            ) : (
+                              <Square className="w-4 h-4 text-slate-400 shrink-0" />
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <p className="text-xs font-bold text-slate-800 truncate">{m.tarea}</p>
+                              <div className="flex gap-2 text-[10px] text-slate-500 mt-0.5">
+                                <span className="uppercase">{m.unidad || 'un'}</span>
+                                <span className="font-bold text-amber-700">$ {Number(m.costo_estimado || 0).toLocaleString('es-AR')}/{m.unidad || 'un'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                  {tareasSeleccionadas.length > 0 && (
+                    <p className="text-[11px] font-bold text-amber-900 bg-amber-100 px-3 py-1.5 rounded-lg">
+                      {tareasSeleccionadas.length} tarea{tareasSeleccionadas.length === 1 ? '' : 's'} seleccionada{tareasSeleccionadas.length === 1 ? '' : 's'} para agregar
+                    </p>
+                  )}
                 </div>
               )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de la Tarea *</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Descripción de la tarea"
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
-                  value={nuevaTarea.tarea}
-                  onChange={(e) => setNuevaTarea({...nuevaTarea, tarea: e.target.value})}
-                />
-              </div>
+              {/* Nombre de la tarea — solo si no hay multi-select activo */}
+              {!editingTarea && tareasSeleccionadas.length === 0 && (
+                <div className="text-center py-2 text-[11px] text-slate-400 italic">
+                  — O cargá una tarea manualmente —
+                </div>
+              )}
 
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Insumos / Materiales</label>
-                <input
-                  type="text"
-                  placeholder="Ej: Cemento, Arena, Hierro..."
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
-                  value={typeof nuevaTarea.insumos === 'string' ? nuevaTarea.insumos : (Array.isArray(nuevaTarea.insumos) ? nuevaTarea.insumos.map(i => i.nombre).join(', ') : '')}
-                  onChange={(e) => setNuevaTarea({...nuevaTarea, insumos: e.target.value})}
-                />
-              </div>
+              {(!tareasSeleccionadas.length || editingTarea) && (
+                <>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Nombre de la Tarea *</label>
+                    <input
+                      type="text"
+                      required={tareasSeleccionadas.length === 0}
+                      placeholder="Descripción de la tarea"
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
+                      value={nuevaTarea.tarea}
+                      onChange={(e) => setNuevaTarea({...nuevaTarea, tarea: e.target.value})}
+                    />
+                  </div>
 
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Unidad</label>
-                  <select
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none"
-                    value={nuevaTarea.unidad}
-                    onChange={(e) => setNuevaTarea({...nuevaTarea, unidad: e.target.value})}
-                  >
-                    <option value="m2">m²</option>
-                    <option value="m3">m³</option>
-                    <option value="ml">ml</option>
-                    <option value="un">un</option>
-                    <option value="gl">gl</option>
-                    <option value="hs">hs</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cantidad / Cómputo</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none font-bold"
-                    value={nuevaTarea.cantidad}
-                    onChange={(e) => setNuevaTarea({...nuevaTarea, cantidad: e.target.value})}
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Unit. ($)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none font-bold"
-                    value={nuevaTarea.costo_unitario}
-                    onChange={(e) => setNuevaTarea({...nuevaTarea, costo_unitario: e.target.value})}
-                  />
-                </div>
-              </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Insumos / Materiales</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Cemento, Arena, Hierro..."
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500"
+                      value={typeof nuevaTarea.insumos === 'string' ? nuevaTarea.insumos : (Array.isArray(nuevaTarea.insumos) ? nuevaTarea.insumos.map(i => i.nombre).join(', ') : '')}
+                      onChange={(e) => setNuevaTarea({...nuevaTarea, insumos: e.target.value})}
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Unidad</label>
+                      <select
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none"
+                        value={nuevaTarea.unidad}
+                        onChange={(e) => setNuevaTarea({...nuevaTarea, unidad: e.target.value})}
+                      >
+                        <option value="m2">m²</option>
+                        <option value="m3">m³</option>
+                        <option value="ml">ml</option>
+                        <option value="un">un</option>
+                        <option value="gl">gl</option>
+                        <option value="hs">hs</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cantidad / Cómputo</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        required={tareasSeleccionadas.length === 0}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none font-bold"
+                        value={nuevaTarea.cantidad}
+                        onChange={(e) => setNuevaTarea({...nuevaTarea, cantidad: e.target.value})}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Costo Unit. ($)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        required={tareasSeleccionadas.length === 0}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none font-bold"
+                        value={nuevaTarea.costo_unitario}
+                        onChange={(e) => setNuevaTarea({...nuevaTarea, costo_unitario: e.target.value})}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
 
               <div className="flex justify-end gap-2 pt-2 border-t">
-                <button type="button" onClick={() => setIsTareaModalOpen(false)} disabled={isSavingTarea} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
+                <button type="button" onClick={() => { setIsTareaModalOpen(false); setTareasSeleccionadas([]); }} disabled={isSavingTarea} className="px-4 py-2 text-sm text-slate-600 disabled:opacity-50">Cancelar</button>
                 <button type="submit" disabled={isSavingTarea} className="px-5 py-2 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-lg text-sm font-semibold flex items-center gap-2">
-                  {isSavingTarea ? <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</> : (editingTarea ? 'Actualizar Tarea' : 'Guardar Tarea')}
+                  {isSavingTarea ? (
+                    <><Loader2 className="w-4 h-4 animate-spin"/> Guardando...</>
+                  ) : editingTarea ? (
+                    'Actualizar Tarea'
+                  ) : tareasSeleccionadas.length > 0 ? (
+                    `Agregar ${tareasSeleccionadas.length} tarea${tareasSeleccionadas.length === 1 ? '' : 's'}`
+                  ) : (
+                    'Guardar Tarea'
+                  )}
                 </button>
               </div>
             </form>
