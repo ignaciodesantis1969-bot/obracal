@@ -1,10 +1,11 @@
 // src/pages/Insumos.jsx
 import { useState } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2 } from 'lucide-react';
-// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL (ya no se usa)
 // 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+// 🔑 NUEVO: combo con búsqueda para proveedores
+import BuscadorSelect from '@/components/BuscadorSelect';
 
 export default function Insumos() {
   // 🔑 NUEVO: leemos insumos + proveedores en paralelo desde Firestore
@@ -34,12 +35,10 @@ export default function Insumos() {
   });
 
   // 🔑 NUEVO: autogenera INS### basándose en el mayor número existente
-  // (antes usaba lista.length + 1, lo cual rompía si borrabas alguno en el medio)
   const generarCodigoAutomatico = (listaInsumos) => {
     let maxNum = 0;
     (listaInsumos || []).forEach(i => {
       const cod = String(i.codigo || '').toUpperCase().trim();
-      // Acepta "INS001", "INS1", "INS-001", y también códigos con formato PROV-INS
       const match = cod.match(/INS-?0*(\d+)$/);
       if (match) {
         const num = parseInt(match[1], 10);
@@ -85,7 +84,6 @@ export default function Insumos() {
   };
 
   // 🔑 FIX: guardado directo a Firestore (create / update)
-  // 🛡️ bloqueo anti doble clic con isSaving
   const handleGuardar = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -96,7 +94,6 @@ export default function Insumos() {
         ...nuevoInsumo,
         categoria: nuevoInsumo.tipo
       };
-      // 🔑 FIX: limpiar campos internos de Firestore (los que empiezan con _) y el id
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosAGuardar;
 
       if (editingId) {
@@ -108,7 +105,6 @@ export default function Insumos() {
       setNuevoInsumo({ codigo: '', nombre: '', tipo: 'Material', proveedor_id: '', unidad: 'un', costo_unitario: '', estado: 'activo' });
       setEditingId(null);
       setIsFormOpen(false);
-      // Firestore actualiza la lista en tiempo real vía onSnapshot.
     } catch (err) {
       console.error("Error al guardar insumo:", err);
       alert("Error al guardar: " + (err.message || 'Error desconocido'));
@@ -132,6 +128,12 @@ export default function Insumos() {
     const prov = proveedores.find(p => String(p.id) === String(proveedorId));
     return prov ? (prov.razon_social || prov.nombre) : '—';
   };
+
+  // 🔑 NUEVO: preparar opciones de proveedores para el BuscadorSelect
+  const opcionesProveedores = (proveedores || []).map(p => ({
+    id: p.id,
+    label: `${p.codigo ? p.codigo + ' - ' : ''}${p.razon_social || p.nombre || 'Sin nombre'}`
+  }));
 
   const totalMaterial = insumos.filter(i => (i.tipo || i.categoria || '').toLowerCase() === 'material').length;
   const totalManoDeObra = insumos.filter(i => (i.tipo || i.categoria || '').toLowerCase().includes('mano')).length;
@@ -212,16 +214,15 @@ export default function Insumos() {
             <span>{editingId ? 'Modificar Insumo' : 'Registrar Nuevo Insumo'}</span>
           </h2>
           <form onSubmit={handleGuardar} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <select
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm"
+            {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
+            <BuscadorSelect
+              opciones={opcionesProveedores}
               value={nuevoInsumo.proveedor_id}
-              onChange={(e) => setNuevoInsumo({ ...nuevoInsumo, proveedor_id: e.target.value })}
-            >
-              <option value="">Seleccionar Proveedor (Opcional)...</option>
-              {proveedores.map(p => (
-                <option key={p.id} value={p.id}>{p.codigo ? `${p.codigo} - ` : ''}{p.razon_social || p.nombre}</option>
-              ))}
-            </select>
+              onChange={(nuevoId) => setNuevoInsumo({ ...nuevoInsumo, proveedor_id: nuevoId })}
+              placeholder="Seleccionar Proveedor (Opcional)..."
+              minChars={3}
+              disabled={isSaving}
+            />
             <input
               type="text"
               placeholder="Código automático"
@@ -308,16 +309,16 @@ export default function Insumos() {
             />
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
-            <select
-              value={filtroProveedor}
-              onChange={(e) => setFiltroProveedor(e.target.value)}
-              className="bg-slate-50 border border-slate-300 rounded-lg px-4 py-2.5 text-sm text-slate-700 outline-none focus:border-amber-500 font-semibold"
-            >
-              <option value="">Todos los proveedores</option>
-              {proveedores.map(p => (
-                <option key={p.id} value={p.id}>{p.razon_social || p.nombre}</option>
-              ))}
-            </select>
+            {/* 🔑 FIX: filtro de proveedor también usa BuscadorSelect */}
+            <div className="min-w-[200px]">
+              <BuscadorSelect
+                opciones={[{ id: '', label: 'Todos los proveedores' }, ...opcionesProveedores]}
+                value={filtroProveedor}
+                onChange={setFiltroProveedor}
+                placeholder="Todos los proveedores"
+                minChars={3}
+              />
+            </div>
             <select
               value={filtroTipo}
               onChange={(e) => setFiltroTipo(e.target.value)}
