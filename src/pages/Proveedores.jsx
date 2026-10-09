@@ -1,14 +1,17 @@
 // src/pages/Proveedores.jsx
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2, X, Filter } from 'lucide-react';
-// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL (ya no se usa)
 // 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+// 🔑 NUEVO: combo con búsqueda para rubros
+import BuscadorSelect from '@/components/BuscadorSelect';
 
 export default function Proveedores() {
   // 🔑 NUEVO: lectura en tiempo real desde Firestore (colección `proveedores`)
   const { data: proveedores, loading: isLoading, error: errorFirestore } = useFirestoreCollection('proveedores');
+  // 🔑 NUEVO: leemos la colección `rubros` para el combo de selección
+  const { data: rubrosFs } = useFirestoreCollection('rubros');
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRubro, setSelectedRubro] = useState('');
@@ -70,14 +73,12 @@ export default function Proveedores() {
         codigo: codigoActual,
         estado: 'Activo'
       };
-      // 🔑 FIX: limpiar campos internos de Firestore (los que empiezan con _)
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = proveedorConCodigo;
 
       await crearDoc('proveedores', datosLimpios);
 
       setIsModalOpen(false);
       setNuevoProveedor({ codigo: '', razon_social: '', rubro: '', cuit: '', telefono: '', email: '', contacto: '' });
-      // Firestore actualiza la lista en tiempo real vía onSnapshot.
     } catch (err) {
       console.error("Error:", err);
       alert("Error al crear proveedor: " + (err.message || ''));
@@ -93,14 +94,12 @@ export default function Proveedores() {
 
     setIsSavingUpdate(true);
     try {
-      // 🔑 FIX: limpiar campos internos (_creadoEn, _actualizadoEn) y el id antes de actualizar
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = editingProveedor;
 
       await actualizarDoc('proveedores', id, datosLimpios);
 
       setIsEditModalOpen(false);
       setEditingProveedor(null);
-      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error("Error:", err);
       alert("Error al actualizar proveedor: " + (err.message || ''));
@@ -114,22 +113,26 @@ export default function Proveedores() {
     if (!window.confirm("¿Estás seguro de eliminar este proveedor?")) return;
     try {
       await eliminarDoc('proveedores', id);
-      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error("Error al eliminar:", err);
       alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
-  // Obtener lista única de rubros para el desplegable de filtro
-  const rubrosUnicos = [...new Set(
-    proveedores.map(p => String(p.rubro || p.Rubro || '').trim()).filter(Boolean)
-  )].sort();
+  // 🔑 NUEVO: combinamos rubros del maestro + rubros que ya usaron los proveedores
+  // (así no perdemos rubros viejos que ya no están en el maestro)
+  const rubrosUnicos = [...new Set([
+    ...(rubrosFs || []).map(r => String(r.nombre || r.Nombre || '').trim().toUpperCase()).filter(Boolean),
+    ...(proveedores || []).map(p => String(p.rubro || p.Rubro || '').trim().toUpperCase()).filter(Boolean)
+  ])].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+  // 🔑 NUEVO: opciones para el BuscadorSelect (rubros)
+  const opcionesRubros = rubrosUnicos.map(r => ({ id: r, label: r }));
 
   // Filtrado combinado por texto y por rubro seleccionado
   const proveedoresFiltrados = proveedores.filter(p => {
     const razonSocial = String(p.razon_social || p.nombre || '').toLowerCase();
-    const rubro = String(p.rubro || p.Rubro || '').trim();
+    const rubro = String(p.rubro || p.Rubro || '').trim().toUpperCase();
     const codigo = String(p.codigo || '').toLowerCase();
     const query = searchTerm.toLowerCase();
 
@@ -137,7 +140,7 @@ export default function Proveedores() {
       razonSocial.includes(query) ||
       rubro.toLowerCase().includes(query) ||
       codigo.includes(query);
-    const matchesRubro = !selectedRubro || rubro.toLowerCase() === selectedRubro.toLowerCase();
+    const matchesRubro = !selectedRubro || rubro === selectedRubro.toUpperCase();
 
     return matchesSearch && matchesRubro;
   });
@@ -196,19 +199,15 @@ export default function Proveedores() {
           />
         </div>
 
-        {/* Filtro por Rubro */}
-        <div className="flex items-center gap-2 bg-white px-4 py-2.5 rounded-2xl border border-slate-300 shadow-sm w-full md:w-72 shrink-0">
-          <Filter className="w-4 h-4 text-slate-400 shrink-0" />
-          <select
+        {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
+        <div className="w-full md:w-80 shrink-0">
+          <BuscadorSelect
+            opciones={[{ id: '', label: 'Todos los Rubros' }, ...opcionesRubros]}
             value={selectedRubro}
-            onChange={(e) => setSelectedRubro(e.target.value)}
-            className="w-full bg-transparent outline-none text-xs font-semibold text-slate-700 uppercase cursor-pointer"
-          >
-            <option value="">Todos los Rubros</option>
-            {rubrosUnicos.map((rubro, idx) => (
-              <option key={idx} value={rubro}>{rubro}</option>
-            ))}
-          </select>
+            onChange={setSelectedRubro}
+            placeholder="Todos los Rubros"
+            minChars={3}
+          />
         </div>
       </div>
 
@@ -324,13 +323,21 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
+                {/* 🔑 FIX: reemplazado <input text> por BuscadorSelect (permite escribir uno nuevo) */}
+                <BuscadorSelect
+                  opciones={opcionesRubros}
+                  value={nuevoProveedor.rubro}
+                  onChange={(nuevoRubro) => setNuevoProveedor({ ...nuevoProveedor, rubro: nuevoRubro })}
+                  placeholder="Seleccionar Rubro..."
+                  minChars={3}
+                  disabled={isSavingCreate}
+                />
                 <input
                   type="text"
-                  required
-                  placeholder="Ej: Materiales de Construcción"
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold"
+                  placeholder="O escribí un nuevo rubro aquí..."
+                  className="w-full mt-2 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold uppercase"
                   value={nuevoProveedor.rubro}
-                  onChange={(e) => setNuevoProveedor({ ...nuevoProveedor, rubro: e.target.value })}
+                  onChange={(e) => setNuevoProveedor({ ...nuevoProveedor, rubro: e.target.value.toUpperCase() })}
                 />
               </div>
 
@@ -435,12 +442,21 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
+                {/* 🔑 FIX: reemplazado <input text> por BuscadorSelect */}
+                <BuscadorSelect
+                  opciones={opcionesRubros}
+                  value={editingProveedor.rubro || editingProveedor.Rubro || ''}
+                  onChange={(nuevoRubro) => setEditingProveedor({ ...editingProveedor, rubro: nuevoRubro })}
+                  placeholder="Seleccionar Rubro..."
+                  minChars={3}
+                  disabled={isSavingUpdate}
+                />
                 <input
                   type="text"
-                  required
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold"
+                  placeholder="O escribí un nuevo rubro aquí..."
+                  className="w-full mt-2 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm outline-none focus:border-amber-500 font-semibold uppercase"
                   value={editingProveedor.rubro || editingProveedor.Rubro || ''}
-                  onChange={(e) => setEditingProveedor({ ...editingProveedor, rubro: e.target.value })}
+                  onChange={(e) => setEditingProveedor({ ...editingProveedor, rubro: e.target.value.toUpperCase() })}
                 />
               </div>
 
