@@ -88,10 +88,12 @@ export default function TareaAsignarRecursosModal({
     setOperariosSeleccionados(operariosIds);
     setSubcontratosSeleccionados(subs);
 
-    // 🔑 Duración: priorizar la que ya está guardada en la tarea
+    // 🔑 FIX: Duración — prioridad al valor guardado. Si nunca se tocó,
+    // arranca con los días teóricos del presupuesto.
     const duracionGuardada = Number(tarea.duracion_real_dias) || 0;
     const duracionManualGuardada = Number(tarea.duracion_manual_dias) || 0;
-    const duracionInicial = duracionGuardada || duracionManualGuardada || 1;
+    const duracionTeoricaPresupuesto = Number(tarea.cantidad_dias_teoricos) || 0;
+    const duracionInicial = duracionGuardada || duracionManualGuardada || duracionTeoricaPresupuesto || 1;
 
     setDuracionElegida(duracionInicial);
     setIsSaving(false);
@@ -278,9 +280,10 @@ export default function TareaAsignarRecursosModal({
         duracion_real_dias: calculos.duracionFinal,
         fecha_fin: nuevaFechaFin,
         costo_total: calculos.costoTotal,
-        // 🔑 NUEVO: guardar el presupuesto MO para que TareaFila pueda comparar
+        // 🔑 Guardar el presupuesto MO para que TareaFila pueda comparar
         presupuesto_mo_tarea: presupuestoMO,
-        duracion_manual_dias: operariosSeleccionados.length === 0 ? duracionElegida : 0,
+        // 🔑 FIX: guardar la duración manual SIEMPRE (marca que el usuario la ajustó)
+        duracion_manual_dias: duracionElegida,
       });
 
       toast.success('¡Asignación guardada!', { id: toastId });
@@ -325,7 +328,7 @@ export default function TareaAsignarRecursosModal({
           </div>
         </div>
 
-        {/* 🔑 NUEVO: Duración manual — siempre visible */}
+        {/* 🔑 Duración manual — siempre visible */}
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
           <div className="flex items-center gap-2">
             <Clock className="w-4 h-4 text-amber-600" />
@@ -354,7 +357,7 @@ export default function TareaAsignarRecursosModal({
             </span>
           </div>
           <p className="text-[10px] text-amber-800">
-            💡 Elegí cuántos días dura la tarea según tu planificación. El costo se calcula en base a esta duración.
+            💡 Duración precargada desde el presupuesto ({tarea.cantidad_dias_teoricos || 0} d). Modificala si tu planificación real es distinta: el costo de la tarea se recalcula en base a esta duración.
           </p>
         </div>
 
@@ -432,7 +435,7 @@ export default function TareaAsignarRecursosModal({
           </div>
         )}
 
-        {/* 🔑 NUEVO: Comparación con presupuesto MO */}
+        {/* 🔑 Comparación con presupuesto MO */}
         {comparacion.disponible && calculos.operariosCount > 0 && (
           <div className={`border rounded-xl p-4 space-y-2 ${
             comparacion.excedido
