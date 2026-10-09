@@ -1,14 +1,14 @@
 // src/pages/TareasTemplate.jsx
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Copy, Search, Download, Loader2, FolderPlus, Clock, ChevronDown, ChevronUp, X, Filter } from 'lucide-react';
-// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL
 // 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+// 🔑 NUEVO: combo con búsqueda para rubros
+import BuscadorSelect from '@/components/BuscadorSelect';
 
 export default function TareasTemplate() {
   // 🔑 NUEVO: leemos las 3 colecciones necesarias en paralelo
-  // OJO: la colección en Firestore se llama 'maestro' (no 'MaestroTareasRubros')
   const { data: items, loading: loadingItems } = useFirestoreCollection('maestro');
   const { data: insumosDisponibles, loading: loadingInsumos } = useFirestoreCollection('insumos');
   const { data: rubrosList, loading: loadingRubros } = useFirestoreCollection('rubros');
@@ -49,9 +49,7 @@ export default function TareasTemplate() {
       const inicialAbiertos = {};
       rubrosUnicos.forEach(r => { inicialAbiertos[r] = true; });
       setRubrosAbiertos(prev => {
-        // Solo setear si está vacío, para no pisar el estado del usuario cada vez que cambian los datos
         if (Object.keys(prev).length === 0) return inicialAbiertos;
-        // Sino, agregar los rubros nuevos sin tocar los existentes
         const merged = { ...inicialAbiertos, ...prev };
         return merged;
       });
@@ -142,7 +140,6 @@ export default function TareasTemplate() {
     setActiveForm('tarea');
   };
 
-  // 🔑 FIX: duplicar tarea directo a Firestore con crearDoc
   const handleDuplicarTarea = async (item) => {
     const nombreActual = item.tarea || '';
     const nuevoNombre = window.prompt("Ingrese el nombre para la nueva tarea duplicada:", `${nombreActual} (Copia)`);
@@ -173,7 +170,6 @@ export default function TareasTemplate() {
 
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = itemADuplicar;
       await crearDoc('maestro', datosLimpios);
-      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error(err);
       alert("Error al duplicar la tarea: " + (err.message || ''));
@@ -219,7 +215,6 @@ export default function TareasTemplate() {
         setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
         setEditingId(null);
         setActiveForm(null);
-        // Firestore actualiza la lista en tiempo real.
         return;
       }
 
@@ -233,7 +228,6 @@ export default function TareasTemplate() {
         insumos_detalle: JSON.stringify(formData.insumos_asociados)
       };
 
-      // 🔑 FIX: limpiar campos internos antes de guardar
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = itemAGuardar;
 
       if (editingId) {
@@ -245,7 +239,6 @@ export default function TareasTemplate() {
       setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
       setEditingId(null);
       setActiveForm(null);
-      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error(err);
       alert("Error al guardar: " + (err.message || ''));
@@ -254,7 +247,6 @@ export default function TareasTemplate() {
     }
   };
 
-  // 🔑 FIX: eliminación de tarea directo a Firestore
   const handleEliminar = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar este registro?")) return;
     try {
@@ -265,7 +257,6 @@ export default function TareasTemplate() {
     }
   };
 
-  // 🔑 FIX: eliminar rubro global → buscar por nombre en colección 'rubros' y eliminar el doc
   const handleEliminarRubroGlobal = async (rubroName) => {
     if (!window.confirm(`¿Estás seguro de eliminar el rubro "${rubroName}"? Esto lo borrará de la lista general.`)) return;
 
@@ -289,7 +280,10 @@ export default function TareasTemplate() {
   const listaRubrosUnicos = [...new Set([
     ...items.map(i => String(i.rubro || 'GENERAL').toUpperCase()),
     ...rubrosList.map(r => String(r.nombre || r.Nombre || '').toUpperCase())
-  ])].filter(Boolean);
+  ])].filter(Boolean).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+  // 🔑 NUEVO: opciones para el BuscadorSelect (rubros)
+  const opcionesRubros = listaRubrosUnicos.map(r => ({ id: r, label: r }));
 
   const insumosFiltradosBusqueda = insumosDisponibles.filter(i =>
     (i.nombre || '').toLowerCase().includes(busquedaInsumo.toLowerCase())
@@ -315,6 +309,26 @@ export default function TareasTemplate() {
     return rubroMatches || hasMatchingTask;
   });
 
+  // 🔑 NUEVO (fix b): abrir modal "Nueva Tarea" pre-cargando el rubro filtrado
+  const handleNuevaTarea = () => {
+    setActiveForm('tarea');
+    setEditingId(null);
+    // Si hay un filtro activo, precargamos ese rubro. Si no, el primero de la lista.
+    const rubroPorDefecto = selectedRubro
+      ? selectedRubro.toUpperCase()
+      : (listaRubrosUnicos[0] || '');
+    setFormData({
+      rubro: rubroPorDefecto,
+      tarea: '',
+      unidad: 'm2',
+      descripcion: '',
+      costo_estimado: 0,
+      hs_mo: '',
+      insumos_asociados: [],
+      estado: 'activo'
+    });
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -330,7 +344,7 @@ export default function TareasTemplate() {
             <FolderPlus className="w-4 h-4" /> Nuevo Rubro
           </button>
           <button
-            onClick={() => { setActiveForm('tarea'); setEditingId(null); setFormData({rubro: listaRubrosUnicos[0] || '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: []}); }}
+            onClick={handleNuevaTarea}
             className="flex items-center gap-2 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" /> Nueva Tarea
@@ -350,18 +364,15 @@ export default function TareasTemplate() {
           />
         </div>
 
-        <div className="flex items-center gap-2 bg-white px-4 py-2.5 rounded-2xl border border-slate-300 shadow-sm w-full md:w-72 shrink-0">
-          <Filter className="w-4 h-4 text-slate-400 shrink-0" />
-          <select
+        {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
+        <div className="w-full md:w-80 shrink-0">
+          <BuscadorSelect
+            opciones={[{ id: '', label: 'Todos los Rubros' }, ...opcionesRubros]}
             value={selectedRubro}
-            onChange={(e) => setSelectedRubro(e.target.value)}
-            className="w-full bg-transparent outline-none text-xs font-semibold text-slate-700 uppercase cursor-pointer"
-          >
-            <option value="">Todos los Rubros</option>
-            {listaRubrosUnicos.map((rubro, idx) => (
-              <option key={idx} value={rubro}>{rubro}</option>
-            ))}
-          </select>
+            onChange={setSelectedRubro}
+            placeholder="Todos los Rubros"
+            minChars={3}
+          />
         </div>
       </div>
 
@@ -397,18 +408,20 @@ export default function TareasTemplate() {
                 <>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar Rubro *</label>
-                    <select
-                      required
-                      disabled={isSaving}
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2.5 text-sm uppercase font-semibold focus:border-amber-500 focus:outline-none disabled:bg-slate-100"
+                    {/* 🔑 FIX: reemplazado <select> por BuscadorSelect. Se pre-carga con el rubro filtrado (fix b). */}
+                    <BuscadorSelect
+                      opciones={opcionesRubros}
                       value={formData.rubro}
-                      onChange={(e) => setFormData({...formData, rubro: e.target.value})}
-                    >
-                      <option value="">Seleccione un Rubro...</option>
-                      {listaRubrosUnicos.map(r => (
-                        <option key={r} value={r}>{r}</option>
-                      ))}
-                    </select>
+                      onChange={(nuevoRubro) => setFormData({ ...formData, rubro: nuevoRubro })}
+                      placeholder="Seleccione un Rubro..."
+                      minChars={3}
+                      disabled={isSaving}
+                    />
+                    {selectedRubro && formData.rubro === selectedRubro.toUpperCase() && (
+                      <p className="text-[10px] text-amber-700 mt-1 pl-1 font-semibold">
+                        ⓘ Rubro pre-cargado por el filtro activo
+                      </p>
+                    )}
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
