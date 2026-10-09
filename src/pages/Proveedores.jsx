@@ -119,15 +119,25 @@ export default function Proveedores() {
     }
   };
 
-  // 🔑 NUEVO: combinamos rubros del maestro + rubros que ya usaron los proveedores
-  // (así no perdemos rubros viejos que ya no están en el maestro)
-  const rubrosUnicos = [...new Set([
+  // 🔑 FIX: separamos dos listas de rubros:
+  //  - rubrosUnicos: SOLO los que existen entre los proveedores → para el FILTRO
+  //  - rubrosUnicosConMaestro: los de proveedores + los del Maestro → para los MODALES
+  const rubrosUnicos = [...new Set(
+    (proveedores || [])
+      .map(p => String(p.rubro || p.Rubro || '').trim().toUpperCase())
+      .filter(Boolean)
+  )].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
+
+  const rubrosUnicosConMaestro = [...new Set([
     ...(rubrosFs || []).map(r => String(r.nombre || r.Nombre || '').trim().toUpperCase()).filter(Boolean),
-    ...(proveedores || []).map(p => String(p.rubro || p.Rubro || '').trim().toUpperCase()).filter(Boolean)
+    ...rubrosUnicos
   ])].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  // 🔑 NUEVO: opciones para el BuscadorSelect (rubros)
-  const opcionesRubros = rubrosUnicos.map(r => ({ id: r, label: r }));
+  // 🔑 NUEVO: opciones para el filtro (solo proveedores)
+  const opcionesRubrosFiltro = rubrosUnicos.map(r => ({ id: r, label: r }));
+
+  // 🔑 NUEVO: opciones para los modales (proveedores + maestro)
+  const opcionesRubros = rubrosUnicosConMaestro.map(r => ({ id: r, label: r }));
 
   // Filtrado combinado por texto y por rubro seleccionado
   const proveedoresFiltrados = proveedores.filter(p => {
@@ -199,7 +209,16 @@ export default function Proveedores() {
           />
         </div>
 
-        {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
+        {/* 🔑 FIX: el FILTRO solo muestra rubros que existen entre proveedores */}
+        <div className="w-full md:w-80 shrink-0">
+          <BuscadorSelect
+            opciones={[{ id: '', label: 'Todos los Rubros' }, ...opcionesRubrosFiltro]}
+            value={selectedRubro}
+            onChange={setSelectedRubro}
+            placeholder="Todos los Rubros"
+            minChars={3}
+          />
+        </div>        {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
         <div className="w-full md:w-80 shrink-0">
           <BuscadorSelect
             opciones={[{ id: '', label: 'Todos los Rubros' }, ...opcionesRubros]}
