@@ -10,8 +10,6 @@ import BuscadorSelect from '@/components/BuscadorSelect';
 export default function Proveedores() {
   // 🔑 NUEVO: lectura en tiempo real desde Firestore (colección `proveedores`)
   const { data: proveedores, loading: isLoading, error: errorFirestore } = useFirestoreCollection('proveedores');
-  // 🔑 NUEVO: leemos la colección `rubros` para el combo de selección
-  const { data: rubrosFs } = useFirestoreCollection('rubros');
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRubro, setSelectedRubro] = useState('');
@@ -118,25 +116,16 @@ export default function Proveedores() {
     }
   };
 
-  // 🔑 FIX: separamos dos listas de rubros:
-  //  - rubrosUnicos: SOLO los que existen entre los proveedores → para el FILTRO
-  //  - rubrosUnicosConMaestro: los de proveedores + los del Maestro → para el modal NUEVO
+  // 🔑 FIX: la lista de rubros sale SOLO de los proveedores existentes.
+  // Los rubros del Maestro de Tareas NO se mezclan con los de Proveedores.
   const rubrosUnicos = [...new Set(
     (proveedores || [])
       .map(p => String(p.rubro || p.Rubro || '').trim().toUpperCase())
       .filter(Boolean)
   )].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  const rubrosUnicosConMaestro = [...new Set([
-    ...(rubrosFs || []).map(r => String(r.nombre || r.Nombre || '').trim().toUpperCase()).filter(Boolean),
-    ...rubrosUnicos
-  ])].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
-
-  // 🔑 NUEVO: opciones para el filtro y el modal de edición (solo proveedores)
-  const opcionesRubrosFiltro = rubrosUnicos.map(r => ({ id: r, label: r }));
-
-  // 🔑 NUEVO: opciones para el modal de alta (proveedores + maestro)
-  const opcionesRubros = rubrosUnicosConMaestro.map(r => ({ id: r, label: r }));
+  // 🔑 NUEVO: opciones para todos los combos (filtro + modales)
+  const opcionesRubros = rubrosUnicos.map(r => ({ id: r, label: r }));
 
   // Filtrado combinado por texto y por rubro seleccionado
   const proveedoresFiltrados = proveedores.filter(p => {
@@ -211,7 +200,7 @@ export default function Proveedores() {
         {/* 🔑 FIX: el FILTRO solo muestra rubros que existen entre proveedores */}
         <div className="w-full md:w-80 shrink-0">
           <BuscadorSelect
-            opciones={[{ id: '', label: 'Todos los Rubros' }, ...opcionesRubrosFiltro]}
+            opciones={[{ id: '', label: 'Todos los Rubros' }, ...opcionesRubros]}
             value={selectedRubro}
             onChange={setSelectedRubro}
             placeholder="Todos los Rubros"
@@ -332,7 +321,7 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
-                {/* 🔑 Modal ALTA: usa opcionesRubros (proveedores + Maestro) */}
+                {/* 🔑 Modal ALTA: usa opcionesRubros (solo proveedores) */}
                 <BuscadorSelect
                   opciones={opcionesRubros}
                   value={nuevoProveedor.rubro}
@@ -451,9 +440,9 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
-                {/* 🔑 Modal EDICIÓN: usa opcionesRubrosFiltro (solo proveedores) */}
+                {/* 🔑 Modal EDICIÓN: usa opcionesRubros (solo proveedores) */}
                 <BuscadorSelect
-                  opciones={opcionesRubrosFiltro}
+                  opciones={opcionesRubros}
                   value={editingProveedor.rubro || editingProveedor.Rubro || ''}
                   onChange={(nuevoRubro) => setEditingProveedor({ ...editingProveedor, rubro: nuevoRubro })}
                   placeholder="Seleccionar Rubro..."
