@@ -34,7 +34,6 @@ export default function Proveedores() {
   });
 
   // 🔑 NUEVO: autogenera PR### basándose en los proveedores existentes
-  // Formato: PR001, PR002, PR003...  (acepta también PV### por compatibilidad)
   const generarCodigoAutomatico = (lista) => {
     let maxNum = 0;
     (lista || []).forEach(p => {
@@ -218,15 +217,6 @@ export default function Proveedores() {
             placeholder="Todos los Rubros"
             minChars={3}
           />
-        </div>        {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
-        <div className="w-full md:w-80 shrink-0">
-          <BuscadorSelect
-            opciones={[{ id: '', label: 'Todos los Rubros' }, ...opcionesRubros]}
-            value={selectedRubro}
-            onChange={setSelectedRubro}
-            placeholder="Todos los Rubros"
-            minChars={3}
-          />
         </div>
       </div>
 
@@ -342,7 +332,6 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
-                {/* 🔑 FIX: reemplazado <input text> por BuscadorSelect (permite escribir uno nuevo) */}
                 <BuscadorSelect
                   opciones={opcionesRubros}
                   value={nuevoProveedor.rubro}
@@ -461,7 +450,6 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
-                {/* 🔑 FIX: reemplazado <input text> por BuscadorSelect */}
                 <BuscadorSelect
                   opciones={opcionesRubros}
                   value={editingProveedor.rubro || editingProveedor.Rubro || ''}
