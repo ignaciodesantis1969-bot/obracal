@@ -120,7 +120,7 @@ export default function Proveedores() {
 
   // 🔑 FIX: separamos dos listas de rubros:
   //  - rubrosUnicos: SOLO los que existen entre los proveedores → para el FILTRO
-  //  - rubrosUnicosConMaestro: los de proveedores + los del Maestro → para los MODALES
+  //  - rubrosUnicosConMaestro: los de proveedores + los del Maestro → para el modal NUEVO
   const rubrosUnicos = [...new Set(
     (proveedores || [])
       .map(p => String(p.rubro || p.Rubro || '').trim().toUpperCase())
@@ -132,10 +132,10 @@ export default function Proveedores() {
     ...rubrosUnicos
   ])].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  // 🔑 NUEVO: opciones para el filtro (solo proveedores)
+  // 🔑 NUEVO: opciones para el filtro y el modal de edición (solo proveedores)
   const opcionesRubrosFiltro = rubrosUnicos.map(r => ({ id: r, label: r }));
 
-  // 🔑 NUEVO: opciones para los modales (proveedores + maestro)
+  // 🔑 NUEVO: opciones para el modal de alta (proveedores + maestro)
   const opcionesRubros = rubrosUnicosConMaestro.map(r => ({ id: r, label: r }));
 
   // Filtrado combinado por texto y por rubro seleccionado
@@ -332,6 +332,7 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
+                {/* 🔑 Modal ALTA: usa opcionesRubros (proveedores + Maestro) */}
                 <BuscadorSelect
                   opciones={opcionesRubros}
                   value={nuevoProveedor.rubro}
@@ -450,8 +451,9 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
+                {/* 🔑 Modal EDICIÓN: usa opcionesRubrosFiltro (solo proveedores) */}
                 <BuscadorSelect
-                  opciones={opcionesRubros}
+                  opciones={opcionesRubrosFiltro}
                   value={editingProveedor.rubro || editingProveedor.Rubro || ''}
                   onChange={(nuevoRubro) => setEditingProveedor({ ...editingProveedor, rubro: nuevoRubro })}
                   placeholder="Seleccionar Rubro..."
