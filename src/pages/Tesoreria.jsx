@@ -1,11 +1,13 @@
 // src/pages/Tesoreria.jsx
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip, Ban, AlertTriangle } from 'lucide-react';
 // 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 // 🔑 FIX: Apps Script se usa SOLO para OCR y subir archivos a Drive
 import { GOOGLE_SCRIPT_URL } from '@/api';
+// 🔑 NUEVO: combo con búsqueda para proveedores
+import BuscadorSelect from '@/components/BuscadorSelect';
 
 // 🔑 NUEVO: detecta si un tipo de comprobante es Nota de Crédito (para signo negativo)
 const esNotaCredito = (tipoComprobante) => {
@@ -25,7 +27,6 @@ const tipoMovimientoDesdeComprobante = (tipoComprobante) => {
 };
 
 // 🔑 NUEVO: normaliza texto para comparar nombres de clientes/proveedores
-// (saca acentos, puntos, comas, "S.A.", "S.A.U.", "SRL", etc.)
 const normalizarNombre = (str) => {
   return String(str || '')
     .toLowerCase()
@@ -41,8 +42,7 @@ const normalizarNumComp = (s) => {
   return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
 };
 
-// 🔑 NUEVO: busca el mejor match por similitud real (no por .includes() ciego)
-// Devuelve { mejor, candidatos, scoreMejor }
+// 🔑 NUEVO: busca el mejor match por similitud real
 const buscarMejorMatch = (nombreOCR, lista) => {
   if (!nombreOCR || !lista || lista.length === 0) {
     return { mejor: null, candidatos: [], scoreMejor: 0 };
@@ -55,7 +55,6 @@ const buscarMejorMatch = (nombreOCR, lista) => {
   const scored = lista.map(item => {
     const nombreItem = item.razon_social || item.nombre || item.Razon_social || item.Nombre || '';
     const normItem = normalizarNombre(nombreItem);
-    const palabrasItem = normItem.split(' ').filter(p => p.length >= 3);
 
     const coincidencias = palabrasOCR.filter(w => normItem.includes(w)).length;
     const scorePalabras = (coincidencias / palabrasOCR.length) * 100;
@@ -83,21 +82,16 @@ const buscarMejorMatch = (nombreOCR, lista) => {
   };
 };
 
-// 🔑 NUEVO: infiere el origen de un movimiento (venta/compra) a partir de su concepto
-// para movimientos viejos que no tienen el campo `origen` guardado explícitamente
+// 🔑 NUEVO: infiere el origen de un movimiento a partir de su concepto
 const inferirOrigenMovimiento = (m) => {
   if (m.origen) return m.origen;
 
   const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
   const tipo = String(m.tipo || m.Tipo || '').toLowerCase();
 
-  // Pago a proveedor → compra
   if (concepto.startsWith('pago factura')) return 'compra';
-
-  // Cobro de cliente → venta
   if (concepto.startsWith('cobro')) return 'venta';
 
-  // Nota de Crédito/Débito → distinguir por formato del comprobante
   if (concepto.includes('nota de crédito') || concepto.includes('nota de credito') ||
       concepto.includes('nota de débito') || concepto.includes('nota de debito')) {
     const match = concepto.match(/(\d{3,5})-(\d{4,8})/);
@@ -118,7 +112,6 @@ const inferirOrigenMovimiento = (m) => {
 };
 
 // 🔑 FIX: mapea el string que devuelve Gemini al valor canónico del <select>
-// 🔑 FIX: detecta electrónica por prefijo del nombre del archivo (NCE_, NDE_, FCE_)
 const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
   const t = String(tipoComprobanteOCR || '').toLowerCase();
   const tf = String(tipoFacturaOCR || '').toLowerCase();
@@ -241,6 +234,14 @@ export default function Tesoreria() {
     comprobante_anula: ''
   });
 
+  // 🔑 NUEVO: opciones de proveedores para el BuscadorSelect
+  const opcionesProveedores = useMemo(() => {
+    return (proveedores || []).map(p => ({
+      id: p.id || p.ID,
+      label: p.razon_social || p.nombre || 'Sin nombre'
+    }));
+  }, [proveedores]);
+
   const presupuestosDisponibles = presupuestos.filter(p => {
     if (!formData.obra_id) return false;
     const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
@@ -326,7 +327,8 @@ export default function Tesoreria() {
     }
   };
 
-  const handleEditarMovimiento = (m) => {
+  // ⬇️⬇️⬇️ AQUÍ EMPIEZA EL BLOQUE 2/2 ⬇️⬇️⬇️
+    const handleEditarMovimiento = (m) => {
     const mId = m.id || m.ID || m.Id;
     setEditingId(mId);
 
@@ -535,7 +537,6 @@ export default function Tesoreria() {
     }));
   };
 
-  // 🔑 FIX: match de cliente con scoring + candidatos (mismo sistema que Compras)
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -577,7 +578,6 @@ export default function Tesoreria() {
           }
 
           if (data.success && !data.error) {
-            // 🔑 FIX: match con scoring + candidatos
             let clienteEncontradoId = '';
             let candidatosFinales = [];
             const nombreClienteBusqueda = data.cliente || data.proveedor || '';
@@ -659,7 +659,6 @@ export default function Tesoreria() {
               ]
             }));
 
-            // Aviso SOLO si no hay candidatos
             if (nombreClienteBusqueda && !clienteEncontradoId && candidatosFinales.length === 0) {
               setTimeout(() => {
                 alert(
@@ -794,7 +793,6 @@ export default function Tesoreria() {
 
       const nuevoDocId = await crearDoc('facturas_ventas', datosLimpios);
 
-      // Si es NC → buscar la factura original (match normalizado) y marcarla como anulada
       if (esNC && formDataVenta.comprobante_anula) {
         try {
           const anulaLimpio = String(formDataVenta.comprobante_anula).trim();
@@ -1219,16 +1217,16 @@ export default function Tesoreria() {
               <option value="compra">Compras (proveedores)</option>
             </select>
 
-            <select
-              value={filtroProveedorMovimientos}
-              onChange={(e) => setFiltroProveedorMovimientos(e.target.value)}
-              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500"
-            >
-              <option value="">Todos los Proveedores</option>
-              {proveedores.map(p => (
-                <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>
-              ))}
-            </select>
+            {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
+            <div className="min-w-[200px]">
+              <BuscadorSelect
+                opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
+                value={filtroProveedorMovimientos}
+                onChange={setFiltroProveedorMovimientos}
+                placeholder="Todos los Proveedores"
+                minChars={3}
+              />
+            </div>
 
             <div className="relative flex-1 sm:w-60">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -1245,16 +1243,16 @@ export default function Tesoreria() {
 
         {activeTab === 'facturas_pagar' && (
           <div className="flex items-center gap-3 w-full sm:w-auto">
-            <select
-              value={filtroProveedorPagar}
-              onChange={(e) => setFiltroProveedorPagar(e.target.value)}
-              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 w-full sm:w-72"
-            >
-              <option value="">Todos los Proveedores (Filtrar)</option>
-              {proveedores.map(p => (
-                <option key={p.id || p.ID} value={p.id || p.ID}>{p.razon_social || p.nombre}</option>
-              ))}
-            </select>
+            {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
+            <div className="w-full sm:w-72">
+              <BuscadorSelect
+                opciones={[{ id: '', label: 'Todos los Proveedores (Filtrar)' }, ...opcionesProveedores]}
+                value={filtroProveedorPagar}
+                onChange={setFiltroProveedorPagar}
+                placeholder="Todos los Proveedores (Filtrar)"
+                minChars={3}
+              />
+            </div>
           </div>
         )}
       </div>
@@ -2009,7 +2007,6 @@ export default function Tesoreria() {
                     </select>
                   </div>
 
-                  {/* 🔑 NUEVO: aviso cuando hay múltiples candidatos de cliente */}
                   {candidatosCliente.length > 1 && (
                     <div className="sm:col-span-3 bg-amber-50 border-2 border-amber-400 rounded-lg px-4 py-3">
                       <div className="flex items-start gap-2 mb-2">

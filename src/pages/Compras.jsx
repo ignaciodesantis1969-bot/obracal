@@ -6,6 +6,8 @@ import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 // 🔑 FIX: Apps Script se usa SOLO para el OCR y para subir archivos a Drive
 import { GOOGLE_SCRIPT_URL } from '@/api';
+// 🔑 NUEVO: combo con búsqueda para proveedores
+import BuscadorSelect from '@/components/BuscadorSelect';
 
 // 🔑 NUEVO: normaliza texto para comparar nombres de proveedores (sin acentos, sin SA/SRL)
 const normalizarNombre = (str) => {
@@ -23,8 +25,7 @@ const normalizarNumComp = (s) => {
   return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
 };
 
-// 🔑 NUEVO: busca el mejor match por similitud real (no por .includes() ciego)
-// Devuelve { mejor, candidatos, scoreMejor }
+// 🔑 NUEVO: busca el mejor match por similitud real
 const buscarMejorMatch = (nombreOCR, lista) => {
   if (!nombreOCR || !lista || lista.length === 0) {
     return { mejor: null, candidatos: [], scoreMejor: 0 };
@@ -37,16 +38,12 @@ const buscarMejorMatch = (nombreOCR, lista) => {
   const scored = lista.map(item => {
     const nombreItem = item.razon_social || item.nombre || item.Razon_social || item.Nombre || '';
     const normItem = normalizarNombre(nombreItem);
-    const palabrasItem = normItem.split(' ').filter(p => p.length >= 3);
 
-    // Score base: % de palabras del OCR que están en el nombre del item
     const coincidencias = palabrasOCR.filter(w => normItem.includes(w)).length;
     const scorePalabras = (coincidencias / palabrasOCR.length) * 100;
 
-    // Match exacto: 100
     if (normOCR === normItem) return { item, nombre: nombreItem, score: 100 };
 
-    // Uno contiene al otro completo: +20 al score base (max 95)
     if (normItem.includes(normOCR) || normOCR.includes(normItem)) {
       return { item, nombre: nombreItem, score: Math.min(95, scorePalabras + 20) };
     }
@@ -300,6 +297,14 @@ export default function Compras() {
     return { rubrosDelPresupuesto: rubrosArr, gastosGeneralesDelPresupuesto: gastosGenerales };
   }, [presupuestoSeleccionadoObj, buscarValorEnObjeto]);
 
+  // 🔑 NUEVO: opciones de proveedores para el BuscadorSelect (reutilizable)
+  const opcionesProveedores = useMemo(() => {
+    return (proveedores || []).map(p => ({
+      id: buscarValorEnObjeto(p, ['id', 'ID']),
+      label: buscarValorEnObjeto(p, ['razon_social', 'nombre', 'Razon_social']) || 'Sin nombre'
+    }));
+  }, [proveedores, buscarValorEnObjeto]);
+
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
     const str = String(fechaStr).split('T')[0];
@@ -375,7 +380,6 @@ export default function Compras() {
   };
 
   // ⚠️ OCR sigue usando Apps Script
-  // 🔑 FIX: match de proveedor con scoring + candidatos + UI de elección
   const handleArchivoSubido = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -412,7 +416,6 @@ export default function Compras() {
             return;
           }
 
-          // 🔑 FIX: match con scoring + candidatos
           let proveedorEncontradoId = '';
           let candidatosFinales = [];
           const nombreProvBusqueda = data.proveedor || '';
@@ -424,13 +427,11 @@ export default function Compras() {
             console.log('[OCR-Compras] Buscando proveedor:', nombreProvBusqueda, '| Score mejor:', scoreMejor, '| Candidatos:', candidatos.length);
 
             if (mejor && candidatos.length === 1) {
-              // 1 solo candidato claro → matchear directo
               proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
               console.log('[OCR-Compras] Proveedor matcheado (único):', mejor.razon_social || mejor.nombre);
             } else if (mejor && candidatos.length > 1) {
-              // Múltiples candidatos → mostrar dropdown
               candidatosFinales = candidatos;
-              proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']); // pre-seleccionar el mejor
+              proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
               console.log('[OCR-Compras] Múltiples candidatos, mostrar selector. Mejor:', mejor.razon_social || mejor.nombre, '| Total:', candidatos.length);
             } else {
               console.warn('[OCR-Compras] Sin match. Gemini devolvió:', nombreProvBusqueda);
@@ -481,7 +482,6 @@ export default function Compras() {
             comprobante_anula: comprobanteAnulaDetectado || prev.comprobante_anula
           }));
 
-          // Aviso SOLO si NO hay candidatos (ni 1 ni varios)
           if (nombreProvBusqueda && !proveedorEncontradoId && candidatosFinales.length === 0) {
             setTimeout(() => {
               alert(`⚠️ El OCR detectó el proveedor "${nombreProvBusqueda}" pero no se encontró en el sistema.\n\nCreá el proveedor primero desde la sección Proveedores, o seleccionalo manualmente si ya existe con otro nombre.`);
@@ -516,7 +516,7 @@ export default function Compras() {
   const handleEditarFacturaClick = (f) => {
     const realId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     setEditingId(realId);
-    setCandidatosProveedor([]); // limpiar candidatos al editar
+    setCandidatosProveedor([]);
     setNombreProveedorOCR('');
 
     const fechaCruda = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
@@ -660,7 +660,8 @@ export default function Compras() {
     }
   };
 
-  const handleEliminarFactura = async (f) => {
+  // ⬇️⬇️⬇️ AQUÍ EMPIEZA EL BLOQUE 2/2 ⬇️⬇️⬇️
+    const handleEliminarFactura = async (f) => {
     const facturaId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     if (!facturaId) {
       alert("⚠️ Error: No se pudo identificar el ID.");
@@ -875,10 +876,14 @@ export default function Compras() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
-          <select value={filtroProveedor} onChange={(e) => setFiltroProveedor(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
-            <option value="">Todos los Proveedores</option>
-            {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre', 'Razon_social'])}</option>)}
-          </select>
+          {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
+          <BuscadorSelect
+            opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
+            value={filtroProveedor}
+            onChange={setFiltroProveedor}
+            placeholder="Todos los Proveedores"
+            minChars={3}
+          />
         </div>
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Doc. Aprobado (Presup. / Contrato)</label>
@@ -1082,10 +1087,15 @@ export default function Compras() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Proveedor *</label>
-                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formDataOc.proveedor_id} onChange={(e) => setFormDataOc({...formDataOc, proveedor_id: e.target.value})}>
-                    <option value="">Seleccionar...</option>
-                    {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre'])}</option>)}
-                  </select>
+                  {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
+                  <BuscadorSelect
+                    opciones={opcionesProveedores}
+                    value={formDataOc.proveedor_id}
+                    onChange={(id) => setFormDataOc({ ...formDataOc, proveedor_id: id })}
+                    placeholder="Seleccionar..."
+                    minChars={3}
+                    disabled={isSaving}
+                  />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha</label>
@@ -1227,13 +1237,17 @@ export default function Compras() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Proveedor</label>
-                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.proveedor_id} onChange={(e) => setFormData({...formData, proveedor_id: e.target.value})}>
-                    <option value="">Seleccione proveedor...</option>
-                    {proveedores.map(p => <option key={buscarValorEnObjeto(p, ['id', 'ID'])} value={buscarValorEnObjeto(p, ['id', 'ID'])}>{buscarValorEnObjeto(p, ['razon_social', 'nombre'])}</option>)}
-                  </select>
+                  {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
+                  <BuscadorSelect
+                    opciones={opcionesProveedores}
+                    value={formData.proveedor_id}
+                    onChange={(id) => setFormData({ ...formData, proveedor_id: id })}
+                    placeholder="Seleccione proveedor..."
+                    minChars={3}
+                    disabled={isSaving}
+                  />
                 </div>
 
-                {/* 🔑 NUEVO: aviso cuando hay múltiples candidatos */}
                 {candidatosProveedor.length > 1 && (
                   <div className="sm:col-span-3 bg-amber-50 border-2 border-amber-400 rounded-lg px-4 py-3">
                     <div className="flex items-start gap-2 mb-2">
