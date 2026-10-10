@@ -342,6 +342,11 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     setTareaDependencias(tarea);
   }, []);
 
+  // 🔑 FIX 3: manejar cambio de fecha desde el sidebar con off-by-one corregido.
+  // - Al cambiar fecha_inicio: la nueva fecha_fin se calcula con (duracion_real_dias - 1)
+  //   porque el día de inicio YA cuenta como día 1.
+  // - Al cambiar fecha_fin: la nueva duracion_real_dias se calcula con (+1) para
+  //   contar ambos extremos (13/10 → 14/10 = 2 días).
   const handleCambiarFecha = useCallback(async (tareaId, campo, fechaIso) => {
     const tarea = tareasConCambios.find(t => t.id === tareaId);
     if (!tarea) return;
@@ -352,14 +357,20 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     const cambios = [{ tareaId, [campo]: fechaIso, fecha_manual: true }];
 
     if (campo === 'fecha_inicio' && tarea.duracion_real_dias) {
-      const nuevaFechaFin = calcularFechaFin(fechaIso, tarea.duracion_real_dias, feriadosReales);
+      // 🔑 FIX: -1 porque el día de inicio YA cuenta como día 1.
+      const nuevaFechaFin = calcularFechaFin(
+        fechaIso,
+        Math.max(0, tarea.duracion_real_dias - 1),
+        feriadosReales
+      );
       cambios[0].fecha_fin = nuevaFechaFin;
     }
 
     if (campo === 'fecha_fin' && tarea.fecha_inicio) {
+      // 🔑 FIX: +1 para contar ambos extremos (13/10 → 14/10 = 2 días).
       const inicioMs = new Date(tarea.fecha_inicio + 'T00:00:00').getTime();
       const finMs = new Date(fechaIso + 'T00:00:00').getTime();
-      const duracionDias = Math.max(1, Math.round((finMs - inicioMs) / (1000 * 60 * 60 * 24)));
+      const duracionDias = Math.max(1, Math.round((finMs - inicioMs) / (1000 * 60 * 60 * 24)) + 1);
       cambios[0].duracion_real_dias = duracionDias;
     }
 
@@ -371,7 +382,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     if (!tareaOriginal) throw new Error('Tarea no encontrada');
 
     // 🔑 FIX: guardamos las predecesoras + disparamos la cascada de recálculo de fechas.
-    // Antes solo se guardaban las predecesoras, sin mover las sucesoras.
     try {
       // 1. Persistir las predecesoras
       await actualizarDoc('planificacion_tareas', tareaId, { predecesoras });

@@ -668,7 +668,6 @@ export function calcularPresupuestoMO(tarea, presupuesto) {
 
 /**
  * Suma N días hábiles a una fecha ISO.
- * Soporta n = 0 → devuelve la misma fecha.
  */
 function sumarDiasHabiles(fechaIso, n, feriadosSet) {
   if (!fechaIso) return fechaIso;
@@ -700,8 +699,7 @@ function restarDiasHabiles(fechaIso, n, feriadosSet) {
 }
 
 /**
- * 🔑 NUEVO: Calcula la duración REAL en días hábiles entre dos fechas ISO (inclusive ambos).
- * Se usa para el CPM, en vez de confiar en `duracion_real_dias` que puede estar desactualizado.
+ * 🔑 Calcula la duración REAL en días hábiles entre dos fechas ISO (inclusive ambos).
  */
 function calcularDuracionRealEnDiasHabiles(fechaInicioISO, fechaFinISO, feriadosSet) {
   if (!fechaInicioISO || !fechaFinISO) return 1;
@@ -722,6 +720,10 @@ function calcularDuracionRealEnDiasHabiles(fechaInicioISO, fechaFinISO, feriados
 
 /**
  * Recalcula las fechas de todas las tareas respetando las dependencias.
+ * 
+ * 🔑 FIX (esta versión): se preserva el GAP original entre pred y suce.
+ * Antes: al mover Retiro (13→15), Platea (16→21) arrancaba 15/10 (encimada).
+ * Ahora: Platea se mueve a 17→22 (mantiene el gap de 1 día hábil respecto a Retiro).
  */
 export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
   if (!Array.isArray(tareas) || tareas.length === 0) {
@@ -810,11 +812,33 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
       const lag = Number(pred.lag) || 0;
       const tipo = pred.tipo || 'FS';
 
+      // 🔑 FIX: calcular el gap original entre pred y suce (en días hábiles)
+      // para preservarlo al recalcular.
+      let gapOriginalDias = 0;
+      if (tipo === 'FS') {
+        const predFinOriginal = predTarea.fecha_fin;
+        const suceInicioOriginal = tarea.fecha_inicio;
+        if (predFinOriginal && suceInicioOriginal) {
+          const finOrigDate = new Date(predFinOriginal + 'T00:00:00');
+          const inicioOrigDate = new Date(suceInicioOriginal + 'T00:00:00');
+          if (inicioOrigDate > finOrigDate) {
+            let cursor = new Date(finOrigDate);
+            let contadorGap = 0;
+            cursor.setDate(cursor.getDate() + 1);
+            while (cursor < inicioOrigDate) {
+              if (esDiaHabil(cursor, feriadosSet)) contadorGap++;
+              cursor.setDate(cursor.getDate() + 1);
+            }
+            gapOriginalDias = contadorGap;
+          }
+        }
+      }
+
       let inicioCalculado = null;
 
       switch (tipo) {
         case 'FS':
-          inicioCalculado = sumarDiasHabiles(predFin, 1 + lag, feriadosSet);
+          inicioCalculado = sumarDiasHabiles(predFin, 1 + lag + gapOriginalDias, feriadosSet);
           break;
         case 'SS':
           inicioCalculado = sumarDiasHabiles(predInicio, lag, feriadosSet);
@@ -832,7 +856,7 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
           }
           break;
         default:
-          inicioCalculado = sumarDiasHabiles(predFin, 1 + lag, feriadosSet);
+          inicioCalculado = sumarDiasHabiles(predFin, 1 + lag + gapOriginalDias, feriadosSet);
       }
 
       if (!inicioCalculado) return;
@@ -872,9 +896,6 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
 
 /**
  * Calcula el camino crítico del plan usando CPM.
- * 
- * 🔑 FIX CRÍTICO: la duración se calcula desde las fechas reales (`fecha_inicio` → `fecha_fin`),
- * no desde `duracion_real_dias` (que puede estar desactualizado cuando se mueven fechas).
  */
 export function calcularCaminoCritico(tareas, feriadosSet) {
   if (!Array.isArray(tareas) || tareas.length === 0) {
@@ -949,7 +970,6 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
     const tarea = tareasMap.get(tareaId);
     if (!tarea) return;
 
-    // 🔑 FIX: duración en días hábiles reales entre fecha_inicio y fecha_fin
     const duracionParaFechas = calcularDuracionRealEnDiasHabiles(
       tarea.fecha_inicio,
       tarea.fecha_fin,
@@ -1033,7 +1053,6 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
       return;
     }
 
-    // Holgura = días hábiles entre earlyStart y lateStart, menos 1 (porque el mismo día cuenta como 0)
     const holguraDias = contarDiasCalendarioHabiles(earlyStart, lateStart, feriadosSet) - 1;
     const holgura = Math.max(0, holguraDias);
 
@@ -1046,17 +1065,14 @@ export function calcularCaminoCritico(tareas, feriadosSet) {
 
   return { criticas, holguras, fechaFinProyecto };
 }
+
 // ═══════════════════════════════════════════════════════════════════════════
-// 🔑 NUEVO: DURACIÓN INCLUSIVA (días corridos, contando ambos extremos)
+// 🔑 DURACIÓN INCLUSIVA (días corridos, contando ambos extremos)
 // ═══════════════════════════════════════════════════════════════════════════
 
 /**
  * Calcula la duración en días CORRIDOS entre dos fechas ISO, contando AMBOS extremos.
  * Ej: 13/10 → 15/10 = 3 días (13, 14, 15).
- * Si la fecha fin es anterior a la inicio, devuelve 1 (mínimo).
- * 
- * Se usa para renderizar el ancho de barras en el Gantt y para calcular
- * la duración mostrada en el listado de tareas cuando no hay valor fraccional guardado.
  */
 export function calcularDuracionInclusiva(fechaInicioISO, fechaFinISO) {
   if (!fechaInicioISO || !fechaFinISO) return 1;

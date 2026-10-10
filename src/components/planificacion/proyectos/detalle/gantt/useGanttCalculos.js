@@ -1,11 +1,6 @@
 // src/components/planificacion/proyectos/detalle/gantt/useGanttCalculos.js
 import { useMemo } from 'react';
-// 🔑 FIX: importar calcularDuracionInclusiva para duración inclusiva de barras
 import { normalizarPredecesoras, calcularCaminoCritico, calcularDuracionInclusiva } from '@/lib/planificacionHelpers';
-
-// ═══════════════════════════════════════════════════════════════════════════
-// CONSTANTES
-// ═══════════════════════════════════════════════════════════════════════════
 
 export const NIVELES_ZOOM = {
   dias:    { id: 'dias',    label: 'Días',    pxPorDia: 40, unidadTicks: 'dia' },
@@ -20,19 +15,8 @@ export const COLORES_ESTADO = {
   bloqueada:   { bg: '#fecaca', border: '#ef4444', label: 'Bloqueada' },
 };
 
-export const COLOR_RUBRO = {
-  bg: '#93c5fd',
-  border: '#3b82f6',
-};
-
-export const COLOR_TAREA = {
-  bg: '#dbeafe',
-  border: '#3b82f6',
-};
-
-// ═══════════════════════════════════════════════════════════════════════════
-// HELPERS DE FECHA
-// ═══════════════════════════════════════════════════════════════════════════
+export const COLOR_RUBRO = { bg: '#93c5fd', border: '#3b82f6' };
+export const COLOR_TAREA = { bg: '#dbeafe', border: '#3b82f6' };
 
 export function isoADate(iso) {
   if (!iso) return null;
@@ -90,13 +74,8 @@ export function esFindeSemana(date) {
   return dia === 0 || dia === 6;
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// HOOK PRINCIPAL
-// ═══════════════════════════════════════════════════════════════════════════
-
 export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new Set()) {
   return useMemo(() => {
-    // ─── Sin tareas ─────────────────────────────────────────────────────
     if (!Array.isArray(tareas) || tareas.length === 0) {
       const hoy = new Date();
       const fin = new Date(hoy);
@@ -114,7 +93,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       };
     }
 
-    // ─── Rango global ───────────────────────────────────────────────────
     const fechasInicio = tareas.map(t => t.fecha_inicio).filter(Boolean);
     const fechasFin = tareas.map(t => t.fecha_fin || t.fecha_inicio).filter(Boolean);
 
@@ -125,13 +103,10 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
     const finIso = sumarDias(maxIso, 3);
     const totalDias = Math.max(diasEntre(inicioIso, finIso), 1);
 
-    // ─── 🔑 CPM: Calcular camino crítico ────────────────────────────────
     const { criticas: tareasCriticas, holguras: holgurasTareas, fechaFinProyecto } =
       calcularCaminoCritico(tareas, new Set());
 
-    // ─── Agrupar por rubro ──────────────────────────────────────────────
     const rubrosMap = new Map();
-
     tareas.forEach((t) => {
       const rubroKey = t.rubro_nombre || 'Sin rubro';
       if (!rubrosMap.has(rubroKey)) {
@@ -144,7 +119,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       rubrosMap.get(rubroKey).tareas.push(t);
     });
 
-    // ─── Calcular posición de cada tarea + barra agregada del rubro ─────
     const rubrosArray = Array.from(rubrosMap.values()).sort((a, b) => a.rubro_idx - b.rubro_idx);
 
     const filas = [];
@@ -179,14 +153,8 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
       if (!rubroFechaMax) rubroFechaMax = rubroFechaMin;
 
       const rubroOffsetDias = diasEntre(inicioIso, rubroFechaMin);
-      // 🔑 FIX: duración del rubro — usa el máximo de duracion_real_dias entre sus tareas.
-      // Si ninguna tarea tiene duracion_real_dias, cae al cálculo desde las fechas.
-      const duracionesRealesRubro = tareasOrdenadas
-        .map(t => Number(t.duracion_real_dias) || 0)
-        .filter(d => d > 0);
-      const rubroDuracionDias = duracionesRealesRubro.length > 0
-        ? Math.max(...duracionesRealesRubro, 1)
-        : Math.max(calcularDuracionInclusiva(rubroFechaMin, rubroFechaMax), 1);
+      // 🔑 La barra del rubro usa días CORRIDOS (inclusive).
+      const rubroDuracionDias = Math.max(calcularDuracionInclusiva(rubroFechaMin, rubroFechaMax), 1);
       const rubroColapsado = rubrosColapsados.has(rubro.nombre);
 
       const tareasCriticasDelRubro = tareasOrdenadas.filter(t =>
@@ -215,7 +183,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
           const inicio = t.fecha_inicio || rubroFechaMin;
           const fin = t.fecha_fin || t.fecha_inicio || inicio;
           const offsetDias = diasEntre(rubroFechaMin, inicio);
-          // 🔑 FIX: duración inclusiva (contar ambos extremos).
           const duracionDias = Math.max(calcularDuracionInclusiva(inicio, fin), 1);
           return {
             id: t.id,
@@ -232,11 +199,9 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
           const inicio = t.fecha_inicio;
           const fin = t.fecha_fin || t.fecha_inicio;
           const offsetDias = inicio ? diasEntre(inicioIso, inicio) : 0;
-          // 🔑 FIX: prioridad a duracion_real_dias. Si no existe, calcular desde fechas.
-          const duracionReal = Number(t.duracion_real_dias) || 0;
-          const duracionDias = duracionReal > 0
-            ? duracionReal
-            : (inicio ? Math.max(calcularDuracionInclusiva(inicio, fin), 1) : 1);
+          // 🔑 Ancho de barra = días CORRIDOS (inclusive). No usa duracion_real_dias
+          // porque esa es hábiles y afecta solo al costo, no al ancho visual.
+          const duracionDias = inicio ? Math.max(calcularDuracionInclusiva(inicio, fin), 1) : 1;
 
           const tareaIdStr = String(t.id);
 
@@ -258,9 +223,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
 
     const ticks = generarTicks(inicioIso, finIso, nivelZoom);
 
-    // ═══════════════════════════════════════════════════════════════════
-    // Fase 3.1: Calcular datos para las flechas de dependencia
-    // ═══════════════════════════════════════════════════════════════════
     const ALTURA_FILA = 36;
     const flechas = [];
 
@@ -319,7 +281,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
           y1: yOrigen,
           x2: xDestino,
           y2: yDestino,
-          // 🔑 NUEVO: bordes reales de la barra destino (para ubicar la punta de flecha)
           xDestinoBordeIzq: filaDestino._offsetPx,
           xDestinoBordeDer: filaDestino._offsetPx + filaDestino._anchoPx,
           origenId: filaOrigen.id,
@@ -340,10 +301,6 @@ export function useGanttCalculos(tareas = [], nivelZoom, rubrosColapsados = new 
     };
   }, [tareas, nivelZoom, rubrosColapsados]);
 }
-
-// ═══════════════════════════════════════════════════════════════════════════
-// GENERADOR DE TICKS
-// ═══════════════════════════════════════════════════════════════════════════
 
 function generarTicks(inicioIso, finIso, nivelZoom) {
   const ticks = [];
