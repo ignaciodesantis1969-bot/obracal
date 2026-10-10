@@ -273,7 +273,9 @@ export default function TareaAsignarRecursosModal({
         Number((tarea.fecha_inicio || '').slice(0, 4)) || new Date().getFullYear(),
         []
       );
-      const nuevaFechaFin = calcularFechaFin(tarea.fecha_inicio, calculos.duracionFinal, feriadosSet);
+      // 🔑 FIX: restar 1 porque el día de inicio YA cuenta como día 1.
+      // Ej: inicio 15/10 + duración 3 hábiles → suma 2 hábiles → 17/10 (si no cae en finde).
+      const nuevaFechaFin = calcularFechaFin(tarea.fecha_inicio, Math.max(0, calculos.duracionFinal - 1), feriadosSet);
 
       await actualizarDoc('planificacion_tareas', tarea.id, {
         recursos,

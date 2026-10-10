@@ -1,3 +1,4 @@
+// src/components/planificacion/proyectos/detalle/tareas/TareaGrupoRubro.jsx
 import React, { useState, useMemo } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -17,7 +18,9 @@ export default function TareaGrupoRubro({ rubro, personal = [], insumos = [], on
     let fechaMax = null;
 
     rubro.tareas.forEach(t => {
-      duracionTotal += Number(t.duracion_real_dias) || 0;
+      // 🔑 FIX: usar duracion_real_dias (prioridad) o cantidad_dias_teoricos (fallback)
+      const dur = Number(t.duracion_real_dias) || Number(t.cantidad_dias_teoricos) || 0;
+      duracionTotal += dur;
 
       if (t.fecha_inicio) {
         if (!fechaMin || t.fecha_inicio < fechaMin) fechaMin = t.fecha_inicio;
@@ -30,6 +33,11 @@ export default function TareaGrupoRubro({ rubro, personal = [], insumos = [], on
 
     return { duracionTotal, fechaMin, fechaMax };
   }, [rubro.tareas]);
+
+  // 🔑 FIX: formatear a 1 decimal. Si es < 1, respetamos 2 decimales.
+  const duracionTotalFormateada = stats.duracionTotal > 0 && stats.duracionTotal < 1
+    ? stats.duracionTotal.toFixed(2)
+    : stats.duracionTotal.toFixed(1);
 
   const formatFecha = (iso) => {
     if (!iso) return '---';
@@ -61,7 +69,7 @@ export default function TareaGrupoRubro({ rubro, personal = [], insumos = [], on
           <span className="truncate">{rubro.rubro_nombre}</span>
         </div>
         <div className="col-span-1 text-center text-xs font-bold text-slate-700">
-          {stats.duracionTotal} d
+          {duracionTotalFormateada} d
         </div>
         <div className="col-span-2 text-center text-xs font-semibold text-slate-600 font-mono">
           {formatFecha(stats.fechaMin)}

@@ -370,23 +370,127 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     const tareaOriginal = tareas.find(t => t.id === tareaId);
     if (!tareaOriginal) throw new Error('Tarea no encontrada');
 
-    setTareasOptimistas(prev => ({
-      ...prev,
-      [tareaId]: { ...(prev[tareaId] || {}), predecesoras },
-    }));
-
+    // 🔑 FIX: guardamos las predecesoras + disparamos la cascada de recálculo de fechas.
+    // Antes solo se guardaban las predecesoras, sin mover las sucesoras.
     try {
+      // 1. Persistir las predecesoras
       await actualizarDoc('planificacion_tareas', tareaId, { predecesoras });
-      toast.success(`Dependencias guardadas (${predecesoras.length})`, { duration: 3000 });
+
+      // 2. Reflejar en el estado local (optimistic) para que la cascada vea los cambios
+      const tareasConPreds = tareas.map(t =>
+        String(t.id) === String(tareaId) ? { ...t, predecesoras } : t
+      );
+
+      // 3. Recalcular la cascada de fechas
+      const anioPlan = Number((plan?.fecha_inicio || '').slice(0, 4)) || new Date().getFullYear();
+      const feriadosLocal = getFeriadosDelAnio(anioPlan, feriadosCustom);
+
+      const resultado = recalcularFechasDelPlan(
+        tareasConPreds,
+        feriadosLocal,
+        tareaId
+      );
+
+      const cambiosExtra = Object.entries(resultado.cambios || {}).map(([id, data]) => ({
+        tareaId: id,
+        ...data,
+        fecha_manual: false,
+      }));
+
+      // 4. Si hay sucesoras a mover, persistirlas + optimismo + toast de undo
+      if (cambiosExtra.length > 0) {
+        const snapshotExtra = cambiosExtra.map(c => {
+          const tarea = tareas.find(t => t.id === c.tareaId);
+          return {
+            tareaId: c.tareaId,
+            fecha_inicio: tarea?.fecha_inicio,
+            fecha_fin: tarea?.fecha_fin,
+            duracion_real_dias: tarea?.duracion_real_dias,
+          };
+        });
+
+        setTareasOptimistas(prev => {
+          const nuevos = { ...prev, [tareaId]: { ...(prev[tareaId] || {}), predecesoras } };
+          cambiosExtra.forEach(c => {
+            nuevos[c.tareaId] = {
+              ...(nuevos[c.tareaId] || {}),
+              fecha_inicio: c.fecha_inicio,
+              fecha_fin: c.fecha_fin,
+            };
+          });
+          return nuevos;
+        });
+
+        const batch = writeBatch(db);
+        cambiosExtra.forEach(c => {
+          const ref = doc(db, 'planificacion_tareas', c.tareaId);
+          const data = {};
+          if (c.fecha_inicio !== undefined) data.fecha_inicio = c.fecha_inicio;
+          if (c.fecha_fin !== undefined) data.fecha_fin = c.fecha_fin;
+          if (c.fecha_manual !== undefined) data.fecha_manual = c.fecha_manual;
+          batch.update(ref, data);
+        });
+        await batch.commit();
+
+        // Toast con undo
+        const movidas = resultado.movidas || [];
+        if (movidas.length > 0) {
+          const toastId = toast.custom(
+            (t) => (
+              <div
+                className={cn(
+                  'bg-slate-900 text-white rounded-xl shadow-2xl px-4 py-3 flex items-center gap-3',
+                  'border border-slate-700',
+                  t.visible ? 'animate-enter' : 'animate-leave'
+                )}
+                style={{ minWidth: '380px', maxWidth: '520px' }}
+              >
+                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-bold">
+                    Dependencias guardadas
+                    {movidas.length > 0 && ` · ${movidas.length} movida${movidas.length === 1 ? '' : 's'} por dependencias`}
+                  </p>
+                  <p className="text-[10px] text-slate-400 mt-0.5 truncate">
+                    {movidas.slice(0, 3).map(m => m.nombre).join(', ')}
+                    {movidas.length > 3 && ` +${movidas.length - 3} más`}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleUndo(toastId, snapshotExtra)}
+                  className="text-xs font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 px-2 py-1 rounded-lg hover:bg-slate-800 shrink-0"
+                >
+                  <Undo2 className="w-3.5 h-3.5" />
+                  Deshacer
+                </button>
+                <button
+                  onClick={() => toast.dismiss(toastId)}
+                  className="text-slate-500 hover:text-slate-300 shrink-0"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            ),
+            { duration: DURACION_TOAST_DESHACER, position: 'bottom-right' }
+          );
+        }
+      } else {
+        setTareasOptimistas(prev => ({
+          ...prev,
+          [tareaId]: { ...(prev[tareaId] || {}), predecesoras },
+        }));
+        toast.success(`Dependencias guardadas (${predecesoras.length})`, { duration: 3000 });
+      }
     } catch (err) {
       setTareasOptimistas(prev => {
         const nuevo = { ...prev };
         delete nuevo[tareaId];
         return nuevo;
       });
+      console.error('[GanttTab] Error guardando dependencias:', err);
       throw err;
     }
-  }, [tareas]);
+  }, [tareas, plan, feriadosCustom, handleUndo]);
 
   if (!Array.isArray(tareas) || tareas.length === 0) {
     return (

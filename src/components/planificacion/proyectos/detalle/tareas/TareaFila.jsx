@@ -34,14 +34,16 @@ export default function TareaFila({ tarea, personal = [], insumos = [], onEditar
     }
   };
 
-  // 🔑 FIX: duración calculada desde las fechas (inclusiva, ambos extremos).
-  // Si el campo guardado es fraccional (< 1 día, ej: 0.2 d, 0.5 d), lo respetamos
-  // para no perder granularidad en el listado.
-  const duracionDesdeFechas = calcularDuracionInclusiva(tarea.fecha_inicio, tarea.fecha_fin);
+  // 🔑 FIX: duración — siempre prioriza el valor guardado (duracion_real_dias).
+  // Si no existe, cae al cálculo desde las fechas como fallback.
   const duracionGuardada = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 0;
-  const duracion = (duracionGuardada > 0 && duracionGuardada < 1)
-    ? duracionGuardada
-    : duracionDesdeFechas;
+  const duracionDesdeFechas = calcularDuracionInclusiva(tarea.fecha_inicio, tarea.fecha_fin);
+  const duracion = duracionGuardada > 0 ? duracionGuardada : duracionDesdeFechas;
+
+  // 🔑 FIX: formatear con 1 decimal. Si es < 1, respetamos 2 decimales para no perder granularidad.
+  const duracionFormateada = duracion > 0 && duracion < 1
+    ? duracion.toFixed(2)
+    : duracion.toFixed(1);
 
   const costo = Number(tarea.costo_total) || 0;
   const presupuestoMO = Number(tarea.presupuesto_mo_tarea) || 0;
@@ -65,7 +67,7 @@ export default function TareaFila({ tarea, personal = [], insumos = [], onEditar
 
       {/* Duración */}
       <div className="col-span-1 text-center font-bold text-slate-700">
-        {duracion} d
+        {duracionFormateada} d
       </div>
 
       {/* Comienzo */}
