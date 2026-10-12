@@ -8,6 +8,7 @@ import {
 } from './useGanttCalculos';
 import {
   calcularFechaFin,
+  calcularDuracionInclusiva,   // 🔑 FIX: agregado para fallback de duración
   getFeriadosDelAnio,
   ajustarADiaHabil,
   esFinDeSemana,
@@ -19,12 +20,20 @@ import {
  * Hook que maneja la lógica del drag de barras del Gantt.
  * Fase 2.3: snap a días hábiles + validación de feriados.
  * Fase 3.1: compatible con estructura nueva de predecesoras.
- * 
- * 🔑 FIX (esta versión): 
+ *
+ * 🔑 FIX (esta versión):
  *  - Se eliminó la cascada manual de dependencias (ahora lo hace
  *    `recalcularFechasDelPlan` en `guardarCambios` desde GanttTab).
  *  - El conflicto de predecesoras ahora es WARNING (permite el drag)
  *    en vez de bloquear.
+ *  - 🔑 OFF-BY-ONE corregido en los 3 `calcularFechaFin`:
+ *    ahora se resta 1 al número de días hábiles porque el día de
+ *    inicio YA cuenta como día 1.
+ *    Antes: `calcularFechaFin(inicio, duracion)` → sumaba un día de más.
+ *    Ahora: `calcularFechaFin(inicio, duracion - 1)`.
+ *  - 🔑 Se usa `tarea.duracion_real_dias` (hábiles) en vez de
+ *    `tarea._duracionDias` (corridos inclusivos). Fallback a
+ *    `calcularDuracionInclusiva` si el campo no existe.
  */
 export function useGanttDrag({
   filas = [],
@@ -55,7 +64,7 @@ export function useGanttDrag({
   }, [preview, filas]);
 
   // ─── Conflicto actual ──────────────────────────────────────────────────
-  // 🔑 FIX: Ahora es solo un AVISO (warning). Permite guardar igual.
+  // 🔑 Ahora es solo un AVISO (warning). Permite guardar igual.
   const conflicto = useMemo(() => {
     if (!preview || !filas.length) return null;
     const tarea = filas.find(f => f.id === preview.tareaId);
@@ -220,14 +229,25 @@ export function useGanttDrag({
     const tarea = filas.find(f => f.id === drag.tareaId);
     if (!tarea) return;
 
+    // 🔑 FIX: usar `duracion_real_dias` (HÁBILES) para el cálculo de fecha_fin.
+    // Si no existe, caer al cálculo desde fechas (corridos inclusivos) como fallback.
+    // El bug anterior usaba `tarea._duracionDias` que son CORRIDOS inclusivos,
+    // y `calcularFechaFin` espera HÁBILES a sumar (sin contar el inicio).
+    const duracionHabiles = Number(tarea.duracion_real_dias) || 0;
+    const duracionBase = duracionHabiles > 0
+      ? duracionHabiles
+      : Math.max(calcularDuracionInclusiva(tarea.fecha_inicio, tarea.fecha_fin), 1);
+
     const cambios = [];
 
     if (drag.tipo === 'mover') {
       const fechaInicioPropuesta = sumarDias(drag.fechaInicio0, prev.offsetDiasDelta);
       const fechaInicioFinal = ajustarADiaHabil(fechaInicioPropuesta, feriadosSet);
+
+      // 🔑 FIX: -1 porque el día de inicio YA cuenta como día 1.
       const fechaFinFinal = calcularFechaFin(
         fechaInicioFinal,
-        tarea._duracionDias,
+        Math.max(0, duracionBase - 1),
         feriadosSet
       );
 
@@ -240,9 +260,14 @@ export function useGanttDrag({
     } else if (drag.tipo === 'resize-izq') {
       const fechaInicioPropuesta = sumarDias(drag.fechaInicio0, prev.offsetDiasDelta);
       const fechaInicioFinal = ajustarADiaHabil(fechaInicioPropuesta, feriadosSet);
-      const nuevaDuracion = Math.max(tarea._duracionDias + prev.duracionDelta, 1);
+      const nuevaDuracion = Math.max(duracionBase + prev.duracionDelta, 1);
 
-      const fechaFinFinal = calcularFechaFin(fechaInicioFinal, nuevaDuracion, feriadosSet);
+      // 🔑 FIX: -1 porque el día de inicio YA cuenta como día 1.
+      const fechaFinFinal = calcularFechaFin(
+        fechaInicioFinal,
+        Math.max(0, nuevaDuracion - 1),
+        feriadosSet
+      );
 
       cambios.push({
         tareaId: tarea.id,
@@ -252,8 +277,14 @@ export function useGanttDrag({
         fecha_manual: true,
       });
     } else if (drag.tipo === 'resize-der') {
-      const nuevaDuracion = Math.max(tarea._duracionDias + prev.duracionDelta, 1);
-      const fechaFinFinal = calcularFechaFin(tarea.fecha_inicio, nuevaDuracion, feriadosSet);
+      const nuevaDuracion = Math.max(duracionBase + prev.duracionDelta, 1);
+
+      // 🔑 FIX: -1 porque el día de inicio YA cuenta como día 1.
+      const fechaFinFinal = calcularFechaFin(
+        tarea.fecha_inicio,
+        Math.max(0, nuevaDuracion - 1),
+        feriadosSet
+      );
 
       cambios.push({
         tareaId: tarea.id,
