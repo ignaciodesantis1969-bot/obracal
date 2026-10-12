@@ -18,6 +18,7 @@ import {
   calcularFechaFin,
   getFeriadosDelAnio,
   recalcularFechasDelPlan,
+  normalizarPredecesoras,
 } from '@/lib/planificacionHelpers';
 
 const ALTURA_FILA = 36;
@@ -346,12 +347,84 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     setTareaDependencias(tarea);
   }, []);
 
+  // 🔑 Validación de fecha contra preds (para sidebar)
+  const validarFechaContraPreds = useCallback((tarea, nuevaFechaInicio, feriadosSetLocal) => {
+    const preds = normalizarPredecesoras(tarea.predecesoras)
+      .filter(p => tareasConCambios.some(t => String(t.id) === String(p.tarea_id)));
+
+    if (preds.length === 0) return { ok: true };
+
+    const sumarDiasHabilesLocal = (fechaIso, n) => {
+      if (!fechaIso || n === 0) return fechaIso;
+      const fecha = new Date(fechaIso + 'T00:00:00');
+      const step = n > 0 ? 1 : -1;
+      let contados = 0;
+      let it = 0;
+      const objetivo = Math.abs(n);
+      const esHabil = (d) => {
+        const dia = d.getDay();
+        if (dia === 0 || dia === 6) return false;
+        const iso = d.toISOString().slice(0, 10);
+        if (feriadosSetLocal && feriadosSetLocal.has(iso)) return false;
+        return true;
+      };
+      while (contados < objetivo && it < 3650) {
+        fecha.setDate(fecha.getDate() + step);
+        if (esHabil(fecha)) contados++;
+        it++;
+      }
+      return fecha.toISOString().slice(0, 10);
+    };
+
+    let minimo = null;
+    let predBloqueante = null;
+    let fechaPredBloqueante = null;
+
+    preds.forEach(pred => {
+      const predTarea = tareasConCambios.find(t => String(t.id) === String(pred.tarea_id));
+      if (!predTarea || !predTarea.fecha_inicio || !predTarea.fecha_fin) return;
+
+      const lag = Number(pred.lag) || 0;
+      const tipo = pred.tipo || 'FS';
+
+      let candidato = null;
+      if (tipo === 'FS') {
+        candidato = sumarDiasHabilesLocal(predTarea.fecha_fin, 1 + lag);
+      } else if (tipo === 'SS') {
+        candidato = sumarDiasHabilesLocal(predTarea.fecha_inicio, lag);
+      }
+
+      if (candidato && (!minimo || candidato > minimo)) {
+        minimo = candidato;
+        predBloqueante = predTarea.tarea_nombre;
+        fechaPredBloqueante = predTarea.fecha_fin;
+      }
+    });
+
+    if (minimo && nuevaFechaInicio < minimo) {
+      return {
+        ok: false,
+        mensaje: `No se puede mover antes del ${minimo} — depende de "${predBloqueante}" (fin ${fechaPredBloqueante})`,
+      };
+    }
+    return { ok: true };
+  }, [tareasConCambios]);
+
   const handleCambiarFecha = useCallback(async (tareaId, campo, fechaIso) => {
     const tarea = tareasConCambios.find(t => t.id === tareaId);
     if (!tarea) return;
 
     const anio = Number(String(fechaIso).slice(0, 4)) || new Date().getFullYear();
     const feriadosReales = getFeriadosDelAnio(anio, feriadosCustom);
+
+    // 🔑 VALIDACIÓN: si cambia fecha_inicio y viola una pred, avisar y no aplicar
+    if (campo === 'fecha_inicio') {
+      const validacion = validarFechaContraPreds(tarea, fechaIso, feriadosReales);
+      if (!validacion.ok) {
+        toast.error(validacion.mensaje, { duration: 4000 });
+        return;
+      }
+    }
 
     const cambios = [{ tareaId, [campo]: fechaIso, fecha_manual: true }];
 
@@ -372,7 +445,7 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     }
 
     await guardarCambios(cambios);
-  }, [tareasConCambios, guardarCambios, feriadosCustom]);
+  }, [tareasConCambios, guardarCambios, feriadosCustom, validarFechaContraPreds]);
 
   const handleGuardarDependencias = useCallback(async (tareaId, predecesoras) => {
     const tareaOriginal = tareas.find(t => t.id === tareaId);
