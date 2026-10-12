@@ -30,7 +30,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
   const [tareasOptimistas, setTareasOptimistas] = useState({});
   const [tareaDependencias, setTareaDependencias] = useState(null);
 
-  // 🔑 CPM: toggle "Ver críticas" persistido en localStorage
   const [mostrarCriticas, setMostrarCriticas] = useState(() => {
     try {
       const guardado = localStorage.getItem('gantt_mostrar_criticas');
@@ -62,14 +61,12 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     });
   }, [tareas, tareasOptimistas]);
 
-  // 🔑 CPM: recibir tareasCriticas del hook
   const { rango, filas, ticks, anchoTotal, flechas, tareasCriticas } = useGanttCalculos(
     tareasConCambios,
     nivelZoom,
     rubrosColapsados
   );
 
-  // ─── Toast con Deshacer ────────────────────────────────────────────────
   const mostrarToastUndo = useCallback((cantidad, snapshot) => {
     const toastId = toast.custom(
       (t) => (
@@ -136,9 +133,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     }
   }, []);
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // GUARDAR CAMBIOS + AUTO-ACOMODO POR DEPENDENCIAS
-  // ═══════════════════════════════════════════════════════════════════════
   const guardarCambios = useCallback(async (cambios) => {
     const snapshotAnterior = cambios.map(c => {
       const tarea = tareas.find(t => t.id === c.tareaId);
@@ -195,7 +189,17 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         fecha_manual: false,
       }));
 
-      movidas = resultado.movidas || [];
+      // 🔑 Excluir la tarea origen de `cambiosExtra` para no pisar su estado,
+      // salvo que sea un rebote (motivo === 'rebote').
+      const reboteOrigen = (resultado.movidas || []).find(m => m.id === tareaOrigenId && m.motivo === 'rebote');
+      cambiosExtra = cambiosExtra.filter(c => {
+        if (String(c.tareaId) === String(tareaOrigenId)) {
+          return !!reboteOrigen;
+        }
+        return true;
+      });
+
+      movidas = (resultado.movidas || []).filter(m => String(m.id) !== String(tareaOrigenId));
     }
 
     if (cambiosExtra.length > 0) {
@@ -342,11 +346,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     setTareaDependencias(tarea);
   }, []);
 
-  // 🔑 FIX 3: manejar cambio de fecha desde el sidebar con off-by-one corregido.
-  // - Al cambiar fecha_inicio: la nueva fecha_fin se calcula con (duracion_real_dias - 1)
-  //   porque el día de inicio YA cuenta como día 1.
-  // - Al cambiar fecha_fin: la nueva duracion_real_dias se calcula con (+1) para
-  //   contar ambos extremos (13/10 → 14/10 = 2 días).
   const handleCambiarFecha = useCallback(async (tareaId, campo, fechaIso) => {
     const tarea = tareasConCambios.find(t => t.id === tareaId);
     if (!tarea) return;
@@ -357,7 +356,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     const cambios = [{ tareaId, [campo]: fechaIso, fecha_manual: true }];
 
     if (campo === 'fecha_inicio' && tarea.duracion_real_dias) {
-      // 🔑 FIX: -1 porque el día de inicio YA cuenta como día 1.
       const nuevaFechaFin = calcularFechaFin(
         fechaIso,
         Math.max(0, tarea.duracion_real_dias - 1),
@@ -367,7 +365,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     }
 
     if (campo === 'fecha_fin' && tarea.fecha_inicio) {
-      // 🔑 FIX: +1 para contar ambos extremos (13/10 → 14/10 = 2 días).
       const inicioMs = new Date(tarea.fecha_inicio + 'T00:00:00').getTime();
       const finMs = new Date(fechaIso + 'T00:00:00').getTime();
       const duracionDias = Math.max(1, Math.round((finMs - inicioMs) / (1000 * 60 * 60 * 24)) + 1);
@@ -381,17 +378,13 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
     const tareaOriginal = tareas.find(t => t.id === tareaId);
     if (!tareaOriginal) throw new Error('Tarea no encontrada');
 
-    // 🔑 FIX: guardamos las predecesoras + disparamos la cascada de recálculo de fechas.
     try {
-      // 1. Persistir las predecesoras
       await actualizarDoc('planificacion_tareas', tareaId, { predecesoras });
 
-      // 2. Reflejar en el estado local (optimistic) para que la cascada vea los cambios
       const tareasConPreds = tareas.map(t =>
         String(t.id) === String(tareaId) ? { ...t, predecesoras } : t
       );
 
-      // 3. Recalcular la cascada de fechas
       const anioPlan = Number((plan?.fecha_inicio || '').slice(0, 4)) || new Date().getFullYear();
       const feriadosLocal = getFeriadosDelAnio(anioPlan, feriadosCustom);
 
@@ -407,7 +400,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         fecha_manual: false,
       }));
 
-      // 4. Si hay sucesoras a mover, persistirlas + optimismo + toast de undo
       if (cambiosExtra.length > 0) {
         const snapshotExtra = cambiosExtra.map(c => {
           const tarea = tareas.find(t => t.id === c.tareaId);
@@ -442,7 +434,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         });
         await batch.commit();
 
-        // Toast con undo
         const movidas = resultado.movidas || [];
         if (movidas.length > 0) {
           const toastId = toast.custom(
@@ -520,7 +511,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
   return (
     <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
 
-      {/* Barra superior informativa */}
       <div className="px-4 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-[10px]">
         <div className="flex items-center gap-3 text-slate-500">
           <span><b className="text-slate-700">{totalRubros}</b> rubros</span>
@@ -534,7 +524,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
               <span><b className="text-slate-700">{flechas.length}</b> dependencias</span>
             </>
           )}
-          {/* 🔑 CPM: contador de críticas en el header */}
           {mostrarCriticas && tareasCriticas && tareasCriticas.size > 0 && (
             <>
               <span className="text-slate-300">|</span>
@@ -553,7 +542,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
             </div>
           )}
 
-          {/* 🔑 CPM: toggle Ver críticas */}
           <label className="flex items-center gap-1.5 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -571,7 +559,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       </div>
 
-      {/* Banner rojo: conflicto bloqueante */}
       {conflicto && (
         <div className="px-4 py-2 bg-rose-100 border-b-2 border-rose-400 text-rose-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -579,7 +566,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       )}
 
-      {/* Banner ámbar: warning de predecesoras */}
       {!conflicto && conflictoWarning && (
         <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -587,7 +573,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       )}
 
-      {/* Banner ámbar: aviso de finde/feriado */}
       {!conflicto && !conflictoWarning && aviso && (
         <div className="px-4 py-2 bg-amber-100 border-b-2 border-amber-400 text-amber-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -595,7 +580,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       )}
 
-      {/* Banner azul: dependencias afectadas */}
       {!conflicto && !conflictoWarning && !aviso && dependenciasAfectadas.length > 0 && (
         <div className="px-4 py-2 bg-blue-100 border-b-2 border-blue-400 text-blue-900 text-[11px] font-bold flex items-center gap-2">
           <AlertCircle className="w-3.5 h-3.5" />
@@ -608,11 +592,9 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       )}
 
-      {/* Contenedor con scroll */}
       <div className="overflow-auto" style={{ height: '70vh', minHeight: '400px' }}>
         <div className="flex min-w-fit">
 
-          {/* Sidebar con columnas de fecha */}
           <div className="sticky left-0 z-30">
             <GanttSidebar
               filas={filas}
@@ -626,7 +608,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
             />
           </div>
 
-          {/* Gantt */}
           <div className="flex-1 min-w-0">
             <div style={{ width: `${anchoTotal}px`, minWidth: '100%' }}>
 
@@ -641,7 +622,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
               </div>
 
               <div className="relative">
-                {/* Grilla */}
                 <div
                   className="absolute top-0 left-0 pointer-events-none flex"
                   style={{
@@ -663,7 +643,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                   ))}
                 </div>
 
-                {/* Flechas */}
                 <GanttFlechas
                   flechas={flechas}
                   anchoTotal={anchoTotal}
@@ -671,7 +650,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
                   hoverKey={tareaHoverId}
                 />
 
-                {/* Filas */}
                 <div className="relative" style={{ zIndex: 10 }}>
                   {filas.map((fila) => {
                     const isRubro = fila._tipo === 'rubro';
@@ -725,7 +703,6 @@ export default function GanttTab({ plan, tareas = [], personal = [], insumos = [
         </div>
       </div>
 
-      {/* Modal de dependencias */}
       {tareaDependencias && (
         <TareaDependenciasModal
           isOpen={!!tareaDependencias}
