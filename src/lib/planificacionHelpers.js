@@ -720,10 +720,13 @@ function calcularDuracionRealEnDiasHabiles(fechaInicioISO, fechaFinISO, feriados
 
 /**
  * Recalcula las fechas de todas las tareas respetando las dependencias.
- * 
- * 🔑 FIX (esta versión): se preserva el GAP original entre pred y suce.
- * Antes: al mover Retiro (13→15), Platea (16→21) arrancaba 15/10 (encimada).
- * Ahora: Platea se mueve a 17→22 (mantiene el gap de 1 día hábil respecto a Retiro).
+ *
+ * 🔑 FIX (esta versión):
+ *  1. Se preserva el GAP original entre pred y suce (no se encima la sucesora).
+ *  2. Se registra la tarea ORIGEN en `cambios` para que sus sucesoras la vean
+ *     al recalcular (antes quedaba fuera y las sucesoras usaban la fecha vieja).
+ *     Esto arregla el bug de que al mover una tarea HACIA ATRÁS las sucesoras
+ *     quedaban estáticas.
  */
 export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
   if (!Array.isArray(tareas) || tareas.length === 0) {
@@ -792,7 +795,23 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
     const duracion = Number(tarea.duracion_real_dias) || Number(tarea.cantidad_dias_teoricos) || 1;
     const fechaInicioActual = tarea.fecha_inicio || null;
 
-    if (tareaId === origenStr || preds.length === 0) {
+    // 🔑 FIX BUG 1: si es la tarea ORIGEN (la que el usuario acaba de mover),
+    // la registramos en `cambios` con sus nuevas fechas YA puestas, para que
+    // sus sucesoras la vean al calcular `predFin`. NO la movemos ni la agregamos
+    // a `movidas` (fue movida por el usuario, no por dependencia).
+    // Antes: `if (tareaId === origenStr || preds.length === 0) return;` → la origen
+    // quedaba fuera de `cambios` y las sucesoras usaban la fecha vieja.
+    if (tareaId === origenStr) {
+      if (tarea.fecha_inicio && tarea.fecha_fin) {
+        cambios[tareaId] = {
+          fecha_inicio: tarea.fecha_inicio,
+          fecha_fin: tarea.fecha_fin,
+        };
+      }
+      return;
+    }
+
+    if (preds.length === 0) {
       return;
     }
 
@@ -812,8 +831,7 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
       const lag = Number(pred.lag) || 0;
       const tipo = pred.tipo || 'FS';
 
-      // 🔑 FIX: calcular el gap original entre pred y suce (en días hábiles)
-      // para preservarlo al recalcular.
+      // 🔑 Preservar el gap original entre pred y suce (en días hábiles).
       let gapOriginalDias = 0;
       if (tipo === 'FS') {
         const predFinOriginal = predTarea.fecha_fin;
@@ -876,14 +894,12 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
         fecha_fin: fechaFinCalculada,
       };
 
-      if (tareaId !== origenStr) {
-        movidas.push({
-          id: tareaId,
-          nombre: tarea.tarea_nombre,
-          fecha_inicio_anterior: fechaInicioActual,
-          fecha_inicio_nueva: fechaInicioMinima,
-        });
-      }
+      movidas.push({
+        id: tareaId,
+        nombre: tarea.tarea_nombre,
+        fecha_inicio_anterior: fechaInicioActual,
+        fecha_inicio_nueva: fechaInicioMinima,
+      });
     }
   });
 
