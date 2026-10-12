@@ -88,7 +88,7 @@ export default function TareaAsignarRecursosModal({
     setOperariosSeleccionados(operariosIds);
     setSubcontratosSeleccionados(subs);
 
-    // 🔑 FIX: Duración — prioridad al valor guardado. Si nunca se tocó,
+    // 🔑 Duración — prioridad al valor guardado. Si nunca se tocó,
     // arranca con los días teóricos del presupuesto.
     const duracionGuardada = Number(tarea.duracion_real_dias) || 0;
     const duracionManualGuardada = Number(tarea.duracion_manual_dias) || 0;
@@ -176,7 +176,7 @@ export default function TareaAsignarRecursosModal({
       }
     });
 
-    // 🔑 Costo subcontratos (días asignados × nada → el monto es total, sin diario)
+    // 🔑 Costo subcontratos (monto total, sin prorrateo por días)
     let costoSubcontratos = 0;
     subcontratosSeleccionados.forEach(s => {
       const sub = subcontratosDisponibles.find(x => x.id === s.id);
@@ -268,14 +268,19 @@ export default function TareaAsignarRecursosModal({
         }
       });
 
-      // Recalcular fecha_fin según duración final
+      // 🔑 FIX OFF-BY-ONE: calcular fecha_fin restando 1 a la duración en días hábiles.
+      // Motivo: el día de inicio YA cuenta como día 1.
+      // Ej: inicio 15/10 + duración 3 hábiles → sumar 2 hábiles → 17/10.
+      // Ej: inicio 21/10 + duración 1 hábil  → sumar 0 hábiles → 21/10 (mismo día).
       const feriadosSet = getFeriadosDelAnio(
         Number((tarea.fecha_inicio || '').slice(0, 4)) || new Date().getFullYear(),
         []
       );
-      // 🔑 FIX: restar 1 porque el día de inicio YA cuenta como día 1.
-      // Ej: inicio 15/10 + duración 3 hábiles → suma 2 hábiles → 17/10 (si no cae en finde).
-      const nuevaFechaFin = calcularFechaFin(tarea.fecha_inicio, Math.max(0, calculos.duracionFinal - 1), feriadosSet);
+      const nuevaFechaFin = calcularFechaFin(
+        tarea.fecha_inicio,
+        Math.max(0, calculos.duracionFinal - 1),
+        feriadosSet
+      );
 
       await actualizarDoc('planificacion_tareas', tarea.id, {
         recursos,
@@ -284,7 +289,7 @@ export default function TareaAsignarRecursosModal({
         costo_total: calculos.costoTotal,
         // 🔑 Guardar el presupuesto MO para que TareaFila pueda comparar
         presupuesto_mo_tarea: presupuestoMO,
-        // 🔑 FIX: guardar la duración manual SIEMPRE (marca que el usuario la ajustó)
+        // 🔑 Guardar la duración manual SIEMPRE (marca que el usuario la ajustó)
         duracion_manual_dias: duracionElegida,
       });
 
