@@ -721,12 +721,13 @@ function calcularDuracionRealEnDiasHabiles(fechaInicioISO, fechaFinISO, feriados
 /**
  * Recalcula las fechas de todas las tareas respetando las dependencias.
  *
- * 🔑 REGLA: las dependencias mandan siempre.
- *  - FS con lag 0: la sucesora arranca el PRÓXIMO día hábil después del fin de la predecesora.
- *  - Se eliminó el concepto de "gap original" que metía ruido.
- *  - La tarea ORIGEN también se ajusta:
- *      · Si el usuario la movió a una fecha válida (>= mínima según preds), se respeta.
- *      · Si la movió a una fecha inválida (< mínima), se REBOTA a la mínima.
+ * 🔑 REGLA FINAL (Opción A):
+ *  - Las dependencias son DURAS. Las sucesoras SIEMPRE se mueven con su pred.
+ *  - La tarea ORIGEN (la que el usuario movió con drag) NO se rebota NUNCA.
+ *    El usuario tiene control total sobre la tarea que arrastra.
+ *    Solo se registra en `cambios` para que las sucesoras la vean.
+ *  - Si el usuario quiere un "gap" entre pred y suce, lo define en el `lag`.
+ *  - Fórmula FS: `inicioSucesora = sumarDiasHabiles(finPred, 1 + lag)`.
  */
 export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
   if (!Array.isArray(tareas) || tareas.length === 0) {
@@ -819,8 +820,7 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
 
       switch (tipo) {
         case 'FS':
-          // 🔑 +1 día hábil porque el inicio de la sucesora es el día SIGUIENTE
-          // al fin de la pred, más el lag.
+          // 🔑 +1 día hábil: la sucesora arranca el día SIGUIENTE al fin de la pred.
           inicioCalculado = sumarDiasHabiles(predFin, 1 + lag, feriadosSet);
           break;
         case 'SS':
@@ -862,41 +862,15 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
       .filter(p => tareasMap.has(String(p.tarea_id)));
     const fechaInicioActual = tarea.fecha_inicio || null;
 
-    // 🔑 Caso especial: tarea ORIGEN (la que el usuario acaba de mover a mano)
+    // 🔑 CASO ESPECIAL: tarea ORIGEN (movida por el usuario con drag o sidebar).
+    //    NO se rebota. Se respeta SIEMPRE el movimiento del usuario.
+    //    Solo se registra en `cambios` para que sus sucesoras la vean.
     if (tareaId === origenStr) {
-      const duracion = Number(tarea.duracion_real_dias)
-        || Number(tarea.cantidad_dias_teoricos)
-        || 1;
-      const duracionParaFechas = Math.max(1, Math.ceil(duracion));
-
-      // Calcular la fecha mínima válida según sus preds (si tiene)
-      const inicioMinimo = preds.length > 0 ? calcularInicioMinimo(tarea) : null;
-
-      if (inicioMinimo && fechaInicioActual && fechaInicioActual < inicioMinimo) {
-        // 🔑 REBOTE: el usuario violó la dependencia → forzar a la mínima válida
-        const fechaFinRebotada = sumarDiasHabiles(inicioMinimo, duracionParaFechas - 1, feriadosSet);
-
+      if (tarea.fecha_inicio && tarea.fecha_fin) {
         cambios[tareaId] = {
-          fecha_inicio: inicioMinimo,
-          fecha_fin: fechaFinRebotada,
+          fecha_inicio: tarea.fecha_inicio,
+          fecha_fin: tarea.fecha_fin,
         };
-
-        movidas.push({
-          id: tareaId,
-          nombre: tarea.tarea_nombre,
-          fecha_inicio_anterior: fechaInicioActual,
-          fecha_inicio_nueva: inicioMinimo,
-          motivo: 'rebote',
-        });
-      } else {
-        // El usuario la movió a una fecha válida (o no tiene preds): respetar su movimiento.
-        // Pero registrarla en `cambios` para que las sucesoras la vean.
-        if (tarea.fecha_inicio && tarea.fecha_fin) {
-          cambios[tareaId] = {
-            fecha_inicio: tarea.fecha_inicio,
-            fecha_fin: tarea.fecha_fin,
-          };
-        }
       }
       return;
     }
@@ -918,10 +892,10 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
       feriadosSet
     );
 
-    // Solo registrar cambio si la fecha mínima es POSTERIOR a la actual.
-    // Es decir: si la tarea puede estar en su lugar actual sin violar dependencias,
-    // no la movemos. Si la fecha actual viola (es anterior a la mínima), la movemos.
-    if (!fechaInicioActual || fechaInicioMinima > fechaInicioActual) {
+    // 🔑 Opción A: SIEMPRE se aplica la fecha mínima calculada.
+    //    Si la fecha nueva difiere de la actual (sea hacia adelante o atrás),
+    //    la tarea se mueve. Las dependencias son duras.
+    if (fechaInicioMinima !== fechaInicioActual) {
       cambios[tareaId] = {
         fecha_inicio: fechaInicioMinima,
         fecha_fin: fechaFinCalculada,
@@ -932,7 +906,6 @@ export function recalcularFechasDelPlan(tareas, feriadosSet, tareaOrigenId) {
         nombre: tarea.tarea_nombre,
         fecha_inicio_anterior: fechaInicioActual,
         fecha_inicio_nueva: fechaInicioMinima,
-        motivo: 'dependencia',
       });
     }
   });
