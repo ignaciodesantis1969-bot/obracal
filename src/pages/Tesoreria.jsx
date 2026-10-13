@@ -269,18 +269,32 @@ export default function Tesoreria() {
 
   const rubrosDelPresupuesto = obtenerRubrosDelPresupuesto();
 
-  const gastosGeneralesConceptos = [
-    'Alquiler de oficinas',
-    'Servicios (Luz, Gas, Agua, Internet)',
-    'Honorarios profesionales / Contaduría',
-    'Seguros generales',
-    'Impuestos y Tasas municipales',
-    'Gastos bancarios y Comisiones',
-    'Combustible y Viáticos generales',
-    'Papelería y Útiles de oficina',
-    'Mantenimiento general',
-    'Imprevistos'
-  ];
+// 🔑 FIX: lee los gastos generales reales del presupuesto seleccionado.
+// Estructura confirmada: items_detalle.comercial.gastos_generales_insumos[]
+const obtenerGastosGeneralesDelPresupuesto = () => {
+  if (!formData.presupuesto_id) return [];
+  const presuSel = presupuestos.find(p => String(p.id || p.ID) === String(formData.presupuesto_id));
+  if (!presuSel) return [];
+
+  const itemsDetalleRaw = presuSel.items_detalle || presuSel.Items_detalle || '';
+  if (!itemsDetalleRaw) return [];
+
+  let parsed = itemsDetalleRaw;
+  if (typeof parsed === 'string') {
+    try { parsed = JSON.parse(parsed); } catch { return []; }
+  }
+
+  const insumosGG = parsed?.comercial?.gastos_generales_insumos || [];
+  if (!Array.isArray(insumosGG)) return [];
+
+  const conceptos = insumosGG
+    .map(g => (g.concepto || g.Concepto || '').trim())
+    .filter(Boolean);
+
+  return conceptos;
+};
+
+const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
