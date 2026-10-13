@@ -8,6 +8,8 @@ import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 // 🔑 NUEVO: combo con búsqueda para proveedores
 import BuscadorSelect from '@/components/BuscadorSelect';
+// 🔑 NUEVO: hook de autenticación para saber el usuario logueado
+import { useAuth } from '@/hooks/useAuth';
 
 // 🔑 NUEVO: normaliza texto para comparar nombres de proveedores (sin acentos, sin SA/SRL)
 const normalizarNombre = (str) => {
@@ -105,7 +107,7 @@ const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo
 };
 
 export default function Compras() {
-  // 🔑 NUEVO: leemos las 7 colecciones necesarias en paralelo
+  // 🔑 NUEVO: leemos las colecciones necesarias en paralelo
   const { data: facturas } = useFirestoreCollection('facturas_compras');
   const { data: ordenesCompra } = useFirestoreCollection('ordenes_compra');
   const { data: proveedores } = useFirestoreCollection('proveedores');
@@ -113,6 +115,10 @@ export default function Compras() {
   const { data: presupuestos } = useFirestoreCollection('presupuestos');
   const { data: contratosList } = useFirestoreCollection('contratos');
   const { data: rubros } = useFirestoreCollection('rubros');
+
+  // 🔑 NUEVO: usuario logueado (para el default de firma_sice)
+  const { user } = useAuth();
+  const nombreUsuarioLogueado = user?.nombre || user?.displayName || (user?.email ? user.email.split('@')[0] : '');
 
   const [activeTab, setActiveTab] = useState('facturas');
   const [filtroProveedor, setFiltroProveedor] = useState('');
@@ -129,6 +135,9 @@ export default function Compras() {
 
   const [localLoading, setLocalLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // 🔑 NUEVO: ID de la OC que se está generando en PDF (para mostrar spinner en el botón)
+  const [generandoPdfOcId, setGenerandoPdfOcId] = useState(null);
 
   // 🔑 NUEVO: candidatos de proveedor cuando el match es ambiguo
   const [candidatosProveedor, setCandidatosProveedor] = useState([]);
@@ -161,6 +170,7 @@ export default function Compras() {
     comprobante_anula: ''
   });
 
+  // 🔑 NUEVO: formDataOc con los 6 campos extras
   const [formDataOc, setFormDataOc] = useState({
     codigo: 'OC-0001',
     proveedor_id: '',
@@ -171,6 +181,12 @@ export default function Compras() {
     subtotal: 0,
     iva_21: 0,
     total: 0,
+    condiciones_pago: '',
+    plazo_entrega: '',
+    lugar_entrega: '',
+    observaciones: '',
+    firma_sice: '',
+    firma_proveedor: '',
     insumos_oc: [
       { id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }
     ]
@@ -298,7 +314,6 @@ export default function Compras() {
     return { rubrosDelPresupuesto: rubrosArr, gastosGeneralesDelPresupuesto: gastosGenerales };
   }, [presupuestoSeleccionadoObj, buscarValorEnObjeto]);
 
-  // 🔑 NUEVO: opciones de proveedores para el BuscadorSelect (reutilizable)
   const opcionesProveedores = useMemo(() => {
     return (proveedores || []).map(p => ({
       id: buscarValorEnObjeto(p, ['id', 'ID']),
@@ -453,35 +468,33 @@ export default function Compras() {
 
           console.log('[OCR-Compras] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
 
-// 🔑 FIX: preservar el punto de venta en el número de factura.
-// Antes se guardaba solo la parte numérica y se perdía el "0002-" del "0002-00011834".
-const nCompDetectado = String(data.n_factura || data.numero_comp || data.numero_factura || '').trim();
-let ptoVtaDetectado = '';
-let nCompLimpio = nCompDetectado;
-let nFacturaCompleto = nCompDetectado;
+          // 🔑 FIX: preservar el punto de venta en el número de factura.
+          // Antes se guardaba solo la parte numérica y se perdía el "0002-" del "0002-00011834".
+          const nCompDetectado = String(data.n_factura || data.numero_comp || data.numero_factura || '').trim();
+          let ptoVtaDetectado = '';
+          let nCompLimpio = nCompDetectado;
+          let nFacturaCompleto = nCompDetectado;
 
-if (nCompDetectado.includes('-')) {
-  const partes = nCompDetectado.split('-').map(p => p.trim());
-  if (partes.length >= 2) {
-    ptoVtaDetectado = partes[0].replace(/\D/g, '').padStart(4, '0');
-    nCompLimpio = partes[1].replace(/\D/g, '');
-    // Reconstruir con formato estándar "0002-00011834"
-    nFacturaCompleto = `${ptoVtaDetectado}-${nCompLimpio}`;
-  }
-} else {
-  // Sin guión: si son 12+ dígitos, asumimos que los primeros 4-5 son punto de venta.
-  const soloDigitos = nCompDetectado.replace(/\D/g, '');
-  if (soloDigitos.length >= 10) {
-    ptoVtaDetectado = soloDigitos.slice(0, 4).padStart(4, '0');
-    nCompLimpio = soloDigitos.slice(4);
-    nFacturaCompleto = `${ptoVtaDetectado}-${nCompLimpio}`;
-  }
-}
+          if (nCompDetectado.includes('-')) {
+            const partes = nCompDetectado.split('-').map(p => p.trim());
+            if (partes.length >= 2) {
+              ptoVtaDetectado = partes[0].replace(/\D/g, '').padStart(4, '0');
+              nCompLimpio = partes[1].replace(/\D/g, '');
+              nFacturaCompleto = `${ptoVtaDetectado}-${nCompLimpio}`;
+            }
+          } else {
+            const soloDigitos = nCompDetectado.replace(/\D/g, '');
+            if (soloDigitos.length >= 10) {
+              ptoVtaDetectado = soloDigitos.slice(0, 4).padStart(4, '0');
+              nCompLimpio = soloDigitos.slice(4);
+              nFacturaCompleto = `${ptoVtaDetectado}-${nCompLimpio}`;
+            }
+          }
 
           setFormData(prev => ({
             ...prev,
             comprobante_tipo: tipoComprobanteMapeado,
-            n_factura: nFacturaCompleto || prev.n_factura,  // 🔑 ahora sí incluye punto de venta
+            n_factura: nFacturaCompleto || prev.n_factura,
             punto_venta: ptoVtaDetectado || prev.punto_venta || '',
             proveedor_id: proveedorEncontradoId || prev.proveedor_id,
             fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
@@ -549,6 +562,7 @@ if (nCompDetectado.includes('-')) {
     setFormData({
       ...f,
       comprobante_tipo: tipoComp,
+      punto_venta: buscarValorEnObjeto(f, ['punto_venta', 'Punto_venta']) || '',
       n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '',
       proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']) || '',
       obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '',
@@ -676,8 +690,7 @@ if (nCompDetectado.includes('-')) {
     }
   };
 
-  // ⬇️⬇️⬇️ AQUÍ EMPIEZA EL BLOQUE 2/2 ⬇️⬇️⬇️
-    const handleEliminarFactura = async (f) => {
+  const handleEliminarFactura = async (f) => {
     const facturaId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     if (!facturaId) {
       alert("⚠️ Error: No se pudo identificar el ID.");
@@ -737,6 +750,12 @@ if (nCompDetectado.includes('-')) {
       ...oc,
       fecha: formatearFechaParaInput(buscarValorEnObjeto(oc, ['fecha', 'Fecha'])),
       fecha_entrega: formatearFechaParaInput(buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega'])),
+      condiciones_pago: buscarValorEnObjeto(oc, ['condiciones_pago', 'Condiciones_pago']) || '',
+      plazo_entrega: buscarValorEnObjeto(oc, ['plazo_entrega', 'Plazo_entrega']) || '',
+      lugar_entrega: buscarValorEnObjeto(oc, ['lugar_entrega', 'Lugar_entrega']) || '',
+      observaciones: buscarValorEnObjeto(oc, ['observaciones', 'Observaciones']) || '',
+      firma_sice: buscarValorEnObjeto(oc, ['firma_sice', 'Firma_sice']) || '',
+      firma_proveedor: buscarValorEnObjeto(oc, ['firma_proveedor', 'Firma_proveedor']) || '',
       insumos_oc: insumosParseados
     });
     setIsOcModalOpen(true);
@@ -779,6 +798,79 @@ if (nCompDetectado.includes('-')) {
     } catch (err) {
       console.error(err);
       alert("Error al eliminar OC: " + (err.message || ''));
+    }
+  };
+
+  // 🔑 NUEVO: genera el PDF de la OC vía Apps Script y lo abre
+  const handleGenerarPdfOc = async (oc) => {
+    if (!GOOGLE_SCRIPT_URL) {
+      alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
+      return;
+    }
+
+    const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
+    setGenerandoPdfOcId(ocId);
+
+    try {
+      const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id']);
+      const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
+
+      const obraId = buscarValorEnObjeto(oc, ['obra_id', 'Obra_id']);
+      const obra = obras.find(o => String(buscarValorEnObjeto(o, ['id', 'ID'])) === String(obraId));
+
+      const rawInsumos = buscarValorEnObjeto(oc, ['insumos_oc', 'Insumos_oc']);
+      let insumos = [];
+      try {
+        insumos = typeof rawInsumos === 'string' ? JSON.parse(rawInsumos) : (Array.isArray(rawInsumos) ? rawInsumos : []);
+      } catch (e) { insumos = []; }
+
+      const payload = {
+        action: 'generar_pdf_orden_compra',
+        tabla: 'OrdenesCompra',
+        orden: {
+          codigo: buscarValorEnObjeto(oc, ['codigo', 'Codigo']),
+          fecha: buscarValorEnObjeto(oc, ['fecha', 'Fecha']),
+          fecha_entrega: buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega']),
+          subtotal: Number(buscarValorEnObjeto(oc, ['subtotal', 'Subtotal'])) || 0,
+          iva_21: Number(buscarValorEnObjeto(oc, ['iva_21', 'Iva_21'])) || 0,
+          total: Number(buscarValorEnObjeto(oc, ['total', 'Total'])) || 0,
+          condiciones_pago: buscarValorEnObjeto(oc, ['condiciones_pago', 'Condiciones_pago']) || '',
+          plazo_entrega: buscarValorEnObjeto(oc, ['plazo_entrega', 'Plazo_entrega']) || '',
+          lugar_entrega: buscarValorEnObjeto(oc, ['lugar_entrega', 'Lugar_entrega']) || '',
+          observaciones: buscarValorEnObjeto(oc, ['observaciones', 'Observaciones']) || '',
+          firma_sice: buscarValorEnObjeto(oc, ['firma_sice', 'Firma_sice']) || '',
+          firma_proveedor: buscarValorEnObjeto(oc, ['firma_proveedor', 'Firma_proveedor']) || ''
+        },
+        proveedor: {
+          razon_social: buscarValorEnObjeto(prov, ['razon_social', 'nombre', 'Razon_social']) || '',
+          cuit: buscarValorEnObjeto(prov, ['cuit', 'CUIT', 'Cuit']) || '',
+          direccion: buscarValorEnObjeto(prov, ['direccion', 'Direccion']) || '',
+          telefono: buscarValorEnObjeto(prov, ['telefono', 'Telefono']) || ''
+        },
+        obra: {
+          codigo: buscarValorEnObjeto(obra, ['codigo', 'Codigo']) || '',
+          nombre: buscarValorEnObjeto(obra, ['nombre', 'nombre_obra', 'Nombre']) || ''
+        },
+        insumos
+      };
+
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+
+      if (data && data.success && data.pdf_url) {
+        window.open(data.pdf_url, '_blank');
+      } else {
+        alert('Error generando PDF: ' + ((data && data.error) || 'desconocido'));
+      }
+    } catch (err) {
+      console.error('[PDF OC] Error:', err);
+      alert('Error generando PDF: ' + (err.message || ''));
+    } finally {
+      setGenerandoPdfOcId(null);
     }
   };
 
@@ -847,6 +939,12 @@ if (nCompDetectado.includes('-')) {
               subtotal: 0,
               iva_21: 0,
               total: 0,
+              condiciones_pago: '',
+              plazo_entrega: '',
+              lugar_entrega: '',
+              observaciones: '',
+              firma_sice: nombreUsuarioLogueado,
+              firma_proveedor: '',
               insumos_oc: [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }]
             });
             setIsOcModalOpen(true);
@@ -860,6 +958,7 @@ if (nCompDetectado.includes('-')) {
             setFormData({
               codigo: generarSiguienteCodigoFactura(),
               comprobante_tipo: 'Factura A',
+              punto_venta: '',
               n_factura: '',
               proveedor_id: '',
               obra_id: '',
@@ -892,7 +991,6 @@ if (nCompDetectado.includes('-')) {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
-          {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
           <BuscadorSelect
             opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
             value={filtroProveedor}
@@ -1056,9 +1154,10 @@ if (nCompDetectado.includes('-')) {
                   const totalVal = Number(buscarValorEnObjeto(oc, ['total', 'Total', 'TOTAL'])) || 0;
                   const estadoOc = String(buscarValorEnObjeto(oc, ['estado', 'Estado']) || 'pendiente').toLowerCase();
                   const codigoDisplay = buscarValorEnObjeto(oc, ['codigo', 'Codigo']) || `OC-${String(index + 1).padStart(4, '0')}`;
+                  const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
 
                   return (
-                    <tr key={buscarValorEnObjeto(oc, ['id', 'ID']) || index} className="hover:bg-slate-50 transition-colors">
+                    <tr key={ocId || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : (obra?.nombre || '---')}</td>
@@ -1072,6 +1171,17 @@ if (nCompDetectado.includes('-')) {
                       </td>
                       <td className="px-6 py-4 text-right">
                         <div className="flex items-center justify-end gap-2">
+                          <button
+                            onClick={() => handleGenerarPdfOc(oc)}
+                            disabled={generandoPdfOcId === ocId}
+                            className="p-1.5 text-slate-500 hover:text-emerald-600 bg-white border rounded shadow-sm cursor-pointer disabled:opacity-50"
+                            title="Generar PDF de la Orden de Compra"
+                          >
+                            {generandoPdfOcId === ocId
+                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              : <FileText className="w-3.5 h-3.5" />
+                            }
+                          </button>
                           <button onClick={() => handleEditarOcClick(oc)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
                           <button onClick={() => handleEliminarOc(oc)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
@@ -1103,7 +1213,6 @@ if (nCompDetectado.includes('-')) {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Proveedor *</label>
-                  {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
                   <BuscadorSelect
                     opciones={opcionesProveedores}
                     value={formDataOc.proveedor_id}
@@ -1120,6 +1229,51 @@ if (nCompDetectado.includes('-')) {
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha de Entrega</label>
                   <input type="date" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formDataOc.fecha_entrega} onChange={(e) => setFormDataOc({...formDataOc, fecha_entrega: e.target.value})} />
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t">
+                <h4 className="font-extrabold text-xs uppercase text-slate-800">Condiciones Comerciales</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Condiciones de Pago</label>
+                    <input type="text" disabled={isSaving} placeholder="Ej: 30 días fecha factura" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formDataOc.condiciones_pago} onChange={(e) => setFormDataOc({...formDataOc, condiciones_pago: e.target.value})} />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Plazo de Entrega</label>
+                    <input type="text" disabled={isSaving} placeholder="Ej: 15 días corridos" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formDataOc.plazo_entrega} onChange={(e) => setFormDataOc({...formDataOc, plazo_entrega: e.target.value})} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Lugar de Entrega</label>
+                    <input type="text" disabled={isSaving} placeholder="Ej: Obra Planta San Lorenzo" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formDataOc.lugar_entrega} onChange={(e) => setFormDataOc({...formDataOc, lugar_entrega: e.target.value})} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Observaciones</label>
+                    <textarea
+                      disabled={isSaving}
+                      rows={2}
+                      placeholder="Observaciones adicionales..."
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 resize-y"
+                      value={formDataOc.observaciones}
+                      onChange={(e) => setFormDataOc({...formDataOc, observaciones: e.target.value})}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t">
+                <h4 className="font-extrabold text-xs uppercase text-slate-800">Firmas (aparecen en el PDF)</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Firma SICE</label>
+                    <input type="text" disabled={isSaving} placeholder="Nombre del responsable SICE" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formDataOc.firma_sice} onChange={(e) => setFormDataOc({...formDataOc, firma_sice: e.target.value})} />
+                    <p className="text-[10px] text-slate-500 mt-1">Debajo de la firma aparecerá "p/ SICE S.A."</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Firma Proveedor</label>
+                    <input type="text" disabled={isSaving} placeholder="Nombre del responsable del proveedor" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formDataOc.firma_proveedor} onChange={(e) => setFormDataOc({...formDataOc, firma_proveedor: e.target.value})} />
+                    <p className="text-[10px] text-slate-500 mt-1">Podés dejarlo en blanco para firmar a mano</p>
+                  </div>
                 </div>
               </div>
 
@@ -1249,11 +1403,10 @@ if (nCompDetectado.includes('-')) {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">N° Factura / NC</label>
-                  <input type="text" required disabled={isSaving} placeholder="Ej: 0012-00031628" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.n_factura} onChange={(e) => setFormData({...formData, n_factura: e.target.value})} />
+                  <input type="text" required disabled={isSaving} placeholder="Ej: 0002-00011834" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.n_factura} onChange={(e) => setFormData({...formData, n_factura: e.target.value})} />
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Proveedor</label>
-                  {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
                   <BuscadorSelect
                     opciones={opcionesProveedores}
                     value={formData.proveedor_id}
