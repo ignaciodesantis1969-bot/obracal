@@ -137,6 +137,7 @@ export default function Compras() {
   const [formData, setFormData] = useState({
     codigo: 'FAC-0001',
     comprobante_tipo: 'Factura A',
+    punto_venta: '',
     n_factura: '',
     proveedor_id: '',
     obra_id: '',
@@ -481,7 +482,7 @@ if (nCompDetectado.includes('-')) {
             ...prev,
             comprobante_tipo: tipoComprobanteMapeado,
             n_factura: nFacturaCompleto || prev.n_factura,  // 🔑 ahora sí incluye punto de venta
-             punto_venta: ptoVtaDetectado || prev.punto_venta || '',
+            punto_venta: ptoVtaDetectado || prev.punto_venta || '',
             proveedor_id: proveedorEncontradoId || prev.proveedor_id,
             fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
             vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
