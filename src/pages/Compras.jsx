@@ -452,21 +452,36 @@ export default function Compras() {
 
           console.log('[OCR-Compras] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
 
-          const nCompDetectado = data.n_factura || data.numero_comp || data.numero_factura || '';
-          let ptoVtaDetectado = '';
-          let nCompLimpio = nCompDetectado;
-          if (nCompDetectado.includes('-')) {
-            const partes = nCompDetectado.split('-');
-            if (partes.length >= 2) {
-              ptoVtaDetectado = partes[0].trim();
-              nCompLimpio = partes[1].trim();
-            }
-          }
+// 🔑 FIX: preservar el punto de venta en el número de factura.
+// Antes se guardaba solo la parte numérica y se perdía el "0002-" del "0002-00011834".
+const nCompDetectado = String(data.n_factura || data.numero_comp || data.numero_factura || '').trim();
+let ptoVtaDetectado = '';
+let nCompLimpio = nCompDetectado;
+let nFacturaCompleto = nCompDetectado;
+
+if (nCompDetectado.includes('-')) {
+  const partes = nCompDetectado.split('-').map(p => p.trim());
+  if (partes.length >= 2) {
+    ptoVtaDetectado = partes[0].replace(/\D/g, '').padStart(4, '0');
+    nCompLimpio = partes[1].replace(/\D/g, '');
+    // Reconstruir con formato estándar "0002-00011834"
+    nFacturaCompleto = `${ptoVtaDetectado}-${nCompLimpio}`;
+  }
+} else {
+  // Sin guión: si son 12+ dígitos, asumimos que los primeros 4-5 son punto de venta.
+  const soloDigitos = nCompDetectado.replace(/\D/g, '');
+  if (soloDigitos.length >= 10) {
+    ptoVtaDetectado = soloDigitos.slice(0, 4).padStart(4, '0');
+    nCompLimpio = soloDigitos.slice(4);
+    nFacturaCompleto = `${ptoVtaDetectado}-${nCompLimpio}`;
+  }
+}
 
           setFormData(prev => ({
             ...prev,
             comprobante_tipo: tipoComprobanteMapeado,
-            n_factura: nCompLimpio || prev.n_factura,
+            n_factura: nFacturaCompleto || prev.n_factura,  // 🔑 ahora sí incluye punto de venta
+             punto_venta: ptoVtaDetectado || prev.punto_venta || '',
             proveedor_id: proveedorEncontradoId || prev.proveedor_id,
             fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
             vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
