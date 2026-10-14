@@ -441,9 +441,7 @@ export default function Compras() {
             const { mejor, candidatos, scoreMejor } = buscarMejorMatch(nombreProvBusqueda, proveedores);
 
             console.log('[OCR-Compras] Buscando proveedor:', nombreProvBusqueda, '| Score mejor:', scoreMejor, '| Candidatos:', candidatos.length);
-            console.log('[OCR-Compras] >>> data.n_factura RAW de Gemini:', JSON.stringify(data.n_factura));
-            console.log('[OCR-Compras] >>> data.numero_comp RAW de Gemini:', JSON.stringify(data.numero_comp));
-            console.log('[OCR-Compras] >>> data completo (solo keys):', Object.keys(data));
+            
 
             if (mejor && candidatos.length === 1) {
               proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
