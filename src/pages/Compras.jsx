@@ -441,7 +441,6 @@ export default function Compras() {
             const { mejor, candidatos, scoreMejor } = buscarMejorMatch(nombreProvBusqueda, proveedores);
 
             console.log('[OCR-Compras] Buscando proveedor:', nombreProvBusqueda, '| Score mejor:', scoreMejor, '| Candidatos:', candidatos.length);
-            
 
             if (mejor && candidatos.length === 1) {
               proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
@@ -470,7 +469,6 @@ export default function Compras() {
           console.log('[OCR-Compras] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
 
           // 🔑 FIX: preservar el punto de venta en el número de factura.
-          // Antes se guardaba solo la parte numérica y se perdía el "0002-" del "0002-00011834".
           const nCompDetectado = String(data.n_factura || data.numero_comp || data.numero_factura || '').trim();
           let ptoVtaDetectado = '';
           let nCompLimpio = nCompDetectado;
@@ -500,7 +498,8 @@ export default function Compras() {
             proveedor_id: proveedorEncontradoId || prev.proveedor_id,
             fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
             vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
-            estado_pago: esNotaCreditoFinal ? 'contabilizado' : prev.estado_pago,
+            // 🔑 FIX (Punto B): la NC arranca en 'pendiente', no en 'contabilizado'.
+            estado_pago: 'pendiente',
             subtotal: Math.abs(Number(data && data.subtotal) || prev.subtotal),
             iva_21: Math.abs(Number(data && data.iva_21) || prev.iva_21),
             iva_10_5: Math.abs(Number(data && data.iva_10_5) || prev.iva_10_5),
@@ -575,7 +574,7 @@ export default function Compras() {
       detalle_gasto: buscarValorEnObjeto(f, ['detalle_gasto', 'Detalle_gasto']) || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
-      estado_pago: buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO']) || (esNC ? 'contabilizado' : 'pendiente'),
+      estado_pago: buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO']) || (esNC ? 'pendiente' : 'pendiente'),
       subtotal: Math.abs(Number(buscarValorEnObjeto(f, ['subtotal', 'Subtotal']) || 0)),
       iva_21: Math.abs(Number(buscarValorEnObjeto(f, ['iva_21', 'Iva_21']) || 0)),
       iva_10_5: Math.abs(Number(buscarValorEnObjeto(f, ['iva_10_5', 'Iva_10_5']) || 0)),
@@ -618,7 +617,9 @@ export default function Compras() {
         persp_iibb_caba: Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno,
         otros_impuestos: Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno,
         total: Math.abs(Number(formData.total) || 0) * factorSigno,
-        estado_pago: esNotaCredito ? 'contabilizado' : formData.estado_pago,
+        // 🔑 FIX (Punto B): la NC arranca SIEMPRE en 'pendiente'.
+        // El usuario la contabiliza manualmente desde Tesorería.
+        estado_pago: esNotaCredito ? 'pendiente' : formData.estado_pago,
         codigo: codigoFinal,
         n_factura: formData.n_factura,
         numero_comp: formData.n_factura,
@@ -644,42 +645,9 @@ export default function Compras() {
         nuevoDocId = await crearDoc('facturas_compras', datosLimpios);
       }
 
-      if (esNotaCredito && !editingId) {
-        try {
-          const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(formData.proveedor_id));
-          const nombreProv = provObj ? (buscarValorEnObjeto(provObj, ['razon_social', 'nombre']) || 'Proveedor') : 'Proveedor';
-
-          const conceptoMov = `Nota de Crédito ${formData.n_factura || 'S/N'} - ${nombreProv}`;
-
-          const movimientoAuto = {
-            tipo: 'contabilizada',
-            origen: 'compra',
-            fecha: formData.fecha,
-            concepto: conceptoMov,
-            monto: Math.abs(Number(formData.total) || 0) * -1,
-            obra_id: formData.obra_id || '',
-            presupuesto_id: formData.presupuesto_id || '',
-            contrato_id: formData.contrato_id || '',
-            rubro_imputacion: formData.rubro_imputacion || '',
-            tipo_insumo: formData.tipo_insumo || '',
-            medio_pago: '',
-            referencia: formData.comprobante_anula ? `Anula/ajusta: ${formData.comprobante_anula}` : 'NC parcial por devolución',
-            retencion_suss: 0,
-            retencion_iva: 0,
-            retencion_ganancias: 0,
-            retencion_iibb_pba: 0,
-            retencion_iibb_caba: 0,
-            facturas_aplicadas: JSON.stringify([]),
-            es_autogenerado: true,
-            factura_compra_id: nuevoDocId
-          };
-
-          await crearDoc('tesoreria', movimientoAuto);
-          console.log(`✅ Movimiento NC creado en tesorería (origen: compra): ${conceptoMov}`);
-        } catch (errMov) {
-          console.error("Error al crear movimiento automático:", errMov);
-        }
-      }
+      // 🔑 FIX (Punto B): ELIMINADO el bloque que creaba un movimiento automático
+      // en `tesoreria` para las NC. Ahora la NC se guarda como factura pendiente
+      // y se contabiliza manualmente desde Tesorería > Facturas a pagar.
 
       setCandidatosProveedor([]);
       setNombreProveedorOCR('');
@@ -697,6 +665,21 @@ export default function Compras() {
       alert("⚠️ Error: No se pudo identificar el ID.");
       return;
     }
+
+    // 🔑 FIX (Punto B): bloquear eliminación de NC ya contabilizada.
+    const tipoComp = String(buscarValorEnObjeto(f, ['comprobante_tipo', 'tipo_comprobante']) || '');
+    const esNC = tipoComp.toLowerCase().includes('nota de crédito') || tipoComp.toLowerCase().includes('nota de credito');
+    const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago']) || '').toLowerCase();
+
+    if (esNC && estadoPago === 'contabilizado') {
+      alert(
+        "⚠️ Esta Nota de Crédito ya está CONTABILIZADA en Tesorería.\n\n" +
+        "Para eliminarla primero tenés que descontabilizarla (borrar el movimiento asociado en Tesorería).\n\n" +
+        "Si querés eliminar todo el registro, hacelo desde Tesorería → Movimientos."
+      );
+      return;
+    }
+
     if (!window.confirm("¿Estás seguro de eliminar esta factura?")) return;
     try {
       await eliminarDoc('facturas_compras', facturaId);
@@ -1360,7 +1343,7 @@ export default function Compras() {
 
               <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl flex items-center gap-2 text-xs">
                 <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>Verifique y corrija los datos leídos por la IA antes de confirmar la creación. Las notas de crédito se registrarán automáticamente en el listado de movimientos de tesorería y restarán en los totales.</span>
+                <span>Verifique y corrija los datos leídos por la IA. Las Notas de Crédito se guardan como PENDIENTES y luego se contabilizan manualmente desde Tesorería → Facturas a pagar.</span>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -1372,11 +1355,9 @@ export default function Compras() {
                     value={formData.comprobante_tipo}
                     onChange={(e) => {
                       const tipoVal = e.target.value;
-                      const esNC = tipoVal.toLowerCase().includes('nota de crédito') || tipoVal.toLowerCase().includes('nota de credito');
                       setFormData({
                         ...formData,
-                        comprobante_tipo: tipoVal,
-                        estado_pago: esNC ? 'contabilizado' : formData.estado_pago
+                        comprobante_tipo: tipoVal
                       });
                     }}
                   >
@@ -1467,7 +1448,7 @@ export default function Compras() {
                       onChange={(e) => setFormData({ ...formData, comprobante_anula: e.target.value })}
                     />
                     <p className="text-[10px] text-amber-700 mt-1">
-                      💡 Si es una NC parcial por devolución de ítems, podés dejarlo vacío. La factura original NO se marca como anulada; solo se registra la NC con su monto en negativo.
+                      💡 Si es una NC parcial por devolución de ítems, podés dejarlo vacío. La factura original NO se marca como anulada; solo se registra la NC con su monto en negativo. La NC queda pendiente hasta contabilizarla.
                     </p>
                   </div>
                 )}
@@ -1608,11 +1589,21 @@ export default function Compras() {
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado Pago</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100 cursor-pointer" value={formData.estado_pago} onChange={(e) => setFormData({...formData, estado_pago: e.target.value})}>
+                  <select
+                    disabled={isSaving || esNotaCreditoForm}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100 cursor-pointer"
+                    value={formData.estado_pago}
+                    onChange={(e) => setFormData({...formData, estado_pago: e.target.value})}
+                  >
                     <option value="pendiente">Pendiente</option>
-                    <option value="pagado">Pagado</option>
-                    <option value="contabilizado">Contabilizado</option>
+                    {!esNotaCreditoForm && <option value="pagado">Pagado</option>}
+                    {!esNotaCreditoForm && <option value="contabilizado">Contabilizado</option>}
                   </select>
+                  {esNotaCreditoForm && (
+                    <p className="text-[10px] text-amber-700 mt-1 font-semibold">
+                      La NC arranca pendiente. Se contabiliza desde Tesorería → Facturas a pagar.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subtotal ($)</label>

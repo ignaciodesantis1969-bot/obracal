@@ -270,7 +270,6 @@ export default function Tesoreria() {
   const rubrosDelPresupuesto = obtenerRubrosDelPresupuesto();
 
 // 🔑 FIX: lee los gastos generales reales del presupuesto seleccionado.
-// Estructura confirmada: items_detalle.comercial.gastos_generales_insumos[]
 const obtenerGastosGeneralesDelPresupuesto = () => {
   if (!formData.presupuesto_id) return [];
   const presuSel = presupuestos.find(p => String(p.id || p.ID) === String(formData.presupuesto_id));
@@ -442,6 +441,63 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
       ]
     });
     setIsModalOpen(true);
+  };
+
+  // 🔑 NUEVO (Punto B): contabilizar una Nota de Crédito.
+  // Crea el movimiento en `tesoreria` y marca la NC como 'contabilizado'.
+  const handleContabilizarNC = async (f) => {
+    const facturaId = f.id || f.ID;
+    if (!facturaId) {
+      alert("No se pudo identificar la NC.");
+      return;
+    }
+
+    if (!window.confirm(
+      "¿Contabilizar esta Nota de Crédito?\n\n" +
+      "Se va a crear un movimiento contable en Tesorería con el monto en negativo. " +
+      "Esto afectará los totales de compras e IVA."
+    )) return;
+
+    try {
+      const provObj = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
+      const nombreProv = provObj?.razon_social || provObj?.nombre || 'Proveedor';
+
+      const tipoComp = f.comprobante_tipo || f.tipo_comprobante || 'Nota de Crédito';
+      const nFactura = f.n_factura || f.numero_comp || 'S/N';
+
+      const conceptoMov = `${tipoComp} ${nFactura} - ${nombreProv}`;
+
+      const movimiento = {
+        tipo: 'contabilizada',
+        origen: 'compra',
+        fecha: f.fecha || f.Fecha || new Date().toISOString().split('T')[0],
+        concepto: conceptoMov,
+        monto: Number(f.total || f.Total || 0),
+        obra_id: f.obra_id || '',
+        presupuesto_id: f.presupuesto_id || '',
+        contrato_id: f.contrato_id || '',
+        rubro_imputacion: f.rubro_imputacion || '',
+        tipo_insumo: f.tipo_insumo || '',
+        medio_pago: '',
+        referencia: f.comprobante_anula ? `Anula/ajusta: ${f.comprobante_anula}` : 'NC parcial por devolución',
+        retencion_suss: 0,
+        retencion_iva: 0,
+        retencion_ganancias: 0,
+        retencion_iibb_pba: 0,
+        retencion_iibb_caba: 0,
+        facturas_aplicadas: JSON.stringify([]),
+        es_autogenerado: true,
+        factura_compra_id: facturaId
+      };
+
+      await crearDoc('tesoreria', movimiento);
+      await actualizarDoc('facturas_compras', facturaId, { estado_pago: 'contabilizado' });
+
+      console.log(`✅ NC contabilizada: ${conceptoMov}`);
+    } catch (err) {
+      console.error('[Tesoreria] Error al contabilizar NC:', err);
+      alert('Error al contabilizar la NC: ' + (err.message || ''));
+    }
   };
 
   const handleAgregarFacturaFila = () => {
@@ -1231,7 +1287,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
               <option value="compra">Compras (proveedores)</option>
             </select>
 
-            {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
             <div className="min-w-[200px]">
               <BuscadorSelect
                 opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
@@ -1257,7 +1312,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
 
         {activeTab === 'facturas_pagar' && (
           <div className="flex items-center gap-3 w-full sm:w-auto">
-            {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
             <div className="w-full sm:w-72">
               <BuscadorSelect
                 opciones={[{ id: '', label: 'Todos los Proveedores (Filtrar)' }, ...opcionesProveedores]}
@@ -1387,25 +1441,50 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                   const nFactura = f.n_factura || f.N_factura || '---';
                   const estadoPago = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
 
+                  const tipoComp = String(f.comprobante_tipo || f.tipo_comprobante || '').toUpperCase();
+                  const esNC = tipoComp.includes('NOTA DE CREDITO') || tipoComp.includes('NOTA DE CRÉDITO');
+
                   return (
-                    <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay} <span className="text-slate-500 font-normal">({nFactura})</span></td>
+                    <tr key={f.id || f.ID || index} className={`hover:bg-slate-50 transition-colors ${esNC ? 'bg-amber-50/40' : ''}`}>
+                      <td className="px-6 py-4 font-bold text-blue-600">
+                        {codigoDisplay} <span className="text-slate-500 font-normal">({nFactura})</span>
+                        {esNC && <span className="ml-2 px-1.5 py-0.5 bg-amber-200 text-amber-900 text-[9px] font-bold rounded">NC</span>}
+                      </td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha || f.Fecha)}</td>
                       <td className="px-4 py-4 font-semibold text-rose-600">{formatearFechaDisplay(f.vencimiento || f.Vencimiento)}</td>
-                      <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                      <td className={`px-4 py-4 text-right font-black ${totalVal < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
+                        {totalVal < 0 ? `- $ ${Math.abs(totalVal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : `$ ${totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
+                      </td>
                       <td className="px-4 py-4 text-center">
-                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado parcial' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'}`}>
+                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${
+                          estadoPago === 'pagado parcial' ? 'bg-sky-100 text-sky-800'
+                          : estadoPago === 'contabilizado' ? 'bg-emerald-100 text-emerald-800'
+                          : 'bg-amber-100 text-amber-800'
+                        }`}>
                           {estadoPago}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => handlePagarFacturaCompra(f)}
-                          className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
-                        >
-                          Registrar Pago
-                        </button>
+                        {esNC ? (
+                          estadoPago === 'contabilizado' ? (
+                            <span className="text-[11px] text-emerald-700 font-bold">✓ Contabilizada</span>
+                          ) : (
+                            <button
+                              onClick={() => handleContabilizarNC(f)}
+                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
+                            >
+                              Contabilizar
+                            </button>
+                          )
+                        ) : (
+                          <button
+                            onClick={() => handlePagarFacturaCompra(f)}
+                            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
+                          >
+                            Registrar Pago
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
