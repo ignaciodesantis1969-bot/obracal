@@ -661,10 +661,20 @@ export default function Rrhh() {
     return { ...item, subtotalJornales, subtotalViaticos, totalOperario };
   });
 
-  const totalGeneralCarga = detalleCargaCalculado.reduce((acc, curr) => acc + curr.totalOperario, 0);
+  // 🔑 FIX A: helper para saber si un empleado está activo
+  const esEmpleadoActivo = (item) => {
+    const emp = personalSalarios.find(p => String(p.id || p.ID) === String(item.id || item.empleado_id));
+    if (!emp) return true; // si no encuentra el empleado, mostrarlo (cargas viejas)
+    return String(emp.estado || '').toLowerCase() === 'activo';
+  };
+
+  // 🔑 FIX A: filtrar empleados de baja en los cálculos de totales
+  const detalleCargaSoloActivos = detalleCargaCalculado.filter(esEmpleadoActivo);
+
+  const totalGeneralCarga = detalleCargaSoloActivos.reduce((acc, curr) => acc + curr.totalOperario, 0);
 
   const factorCargasSociales = (Number(porcentajeCargasSociales) || 0) / 100;
-  const totalCargasSociales = detalleCargaCalculado.reduce((acc, item) => {
+  const totalCargasSociales = detalleCargaSoloActivos.reduce((acc, item) => {
     if (!item.incluirCargas) return acc;
     const costoDiario = Number(item.costoDiario) || 0;
     const cargasEmpleado = (costoDiario * 5) * factorCargasSociales;
@@ -1564,31 +1574,34 @@ export default function Rrhh() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                      {personalSalarios.map((p, idx) => {
-                        const pId = p.id || p.ID || idx;
-                        return (
-                          <tr key={pId} className="hover:bg-slate-50">
-                            <td className="px-4 py-2.5 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
-                            <td className="px-4 py-2.5 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
-                            <td className="px-4 py-2.5 text-right">
-                              <input
-                                type="number" step="0.01"
-                                value={p.costo_en_mano}
-                                onChange={(e) => handleActualizarPersonalFila(pId, 'costo_en_mano', Number(e.target.value))}
-                                className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-black text-blue-600 text-right outline-none focus:border-amber-500"
-                              />
-                            </td>
-                            <td className="px-4 py-2.5">
-                              <input
-                                type="text"
-                                value={p.mes_acuerdo}
-                                onChange={(e) => handleActualizarPersonalFila(pId, 'mes_acuerdo', e.target.value)}
-                                className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 outline-none focus:border-amber-500"
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })}
+                      {/* 🔑 FIX A: solo empleados activos en salarios acordados */}
+                      {personalSalarios
+                        .filter(p => String(p.estado || '').toLowerCase() === 'activo')
+                        .map((p, idx) => {
+                          const pId = p.id || p.ID || idx;
+                          return (
+                            <tr key={pId} className="hover:bg-slate-50">
+                              <td className="px-4 py-2.5 font-bold text-slate-900">{p.nombre || p.Nombre}</td>
+                              <td className="px-4 py-2.5 text-slate-600">{p.especialidad || p.Especialidad || 'General'}</td>
+                              <td className="px-4 py-2.5 text-right">
+                                <input
+                                  type="number" step="0.01"
+                                  value={p.costo_en_mano}
+                                  onChange={(e) => handleActualizarPersonalFila(pId, 'costo_en_mano', Number(e.target.value))}
+                                  className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-black text-blue-600 text-right outline-none focus:border-amber-500"
+                                />
+                              </td>
+                              <td className="px-4 py-2.5">
+                                <input
+                                  type="text"
+                                  value={p.mes_acuerdo}
+                                  onChange={(e) => handleActualizarPersonalFila(pId, 'mes_acuerdo', e.target.value)}
+                                  className="w-32 bg-white border border-slate-300 rounded-lg px-2 py-1 text-xs font-semibold text-slate-700 outline-none focus:border-amber-500"
+                                />
+                              </td>
+                            </tr>
+                          );
+                        })}
                     </tbody>
                   </table>
                 </div>
@@ -2065,7 +2078,10 @@ export default function Rrhh() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {detalleCargaCalculado.map((item, idx) => (
+                  {/* 🔑 FIX A: solo empleados activos en carga semanal */}
+                  {detalleCargaCalculado
+                    .filter(esEmpleadoActivo)
+                    .map((item, idx) => (
                     <tr key={item.id || idx} className="hover:bg-slate-50">
                       <td className="px-4 py-3 text-center">
                         <input
@@ -2162,7 +2178,7 @@ export default function Rrhh() {
               <div>
                 <span className="text-xs text-blue-900 font-bold block uppercase">Total Cargas Sociales a Imputar</span>
                 <span className="text-xs text-slate-600">
-                  ({detalleCargaCalculado.filter(i => i.incluirCargas).length} operarios seleccionados)
+                  ({detalleCargaSoloActivos.filter(i => i.incluirCargas).length} operarios seleccionados)
                 </span>
               </div>
               <div className="flex items-center gap-4">
@@ -2462,4 +2478,3 @@ export default function Rrhh() {
     </div>
   );
 }
-    // ═════════════════════════════════════════════════════════════ CONTINÚA EN BLOQUE 2 ═════════════════════════════════════════════════════════════════════════════════
