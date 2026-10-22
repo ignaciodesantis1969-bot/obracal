@@ -1,32 +1,22 @@
 // src/pages/Tesoreria.jsx
 import React, { useState, useMemo } from 'react';
 import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip, Ban, AlertTriangle } from 'lucide-react';
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
-// 🔑 FIX: Apps Script se usa SOLO para OCR y subir archivos a Drive
 import { GOOGLE_SCRIPT_URL } from '@/api';
-// 🔑 NUEVO: combo con búsqueda para proveedores
 import BuscadorSelect from '@/components/BuscadorSelect';
 
-// 🔑 NUEVO: detecta si un tipo de comprobante es Nota de Crédito (para signo negativo)
 const esNotaCredito = (tipoComprobante) => {
   return String(tipoComprobante || '').toUpperCase().includes('NOTA DE CREDITO');
 };
-
-// 🔑 NUEVO: detecta si un tipo de comprobante es Nota de Débito
 const esNotaDebito = (tipoComprobante) => {
   return String(tipoComprobante || '').toUpperCase().includes('NOTA DE DEBITO');
 };
-
-// 🔑 NUEVO: determina el tipo de movimiento para tesorería según el comprobante
 const tipoMovimientoDesdeComprobante = (tipoComprobante) => {
   if (esNotaCredito(tipoComprobante)) return 'contabilizada';
   if (esNotaDebito(tipoComprobante)) return 'contabilizada';
   return 'Ingreso';
 };
-
-// 🔑 NUEVO: normaliza texto para comparar nombres de clientes/proveedores
 const normalizarNombre = (str) => {
   return String(str || '')
     .toLowerCase()
@@ -36,62 +26,39 @@ const normalizarNombre = (str) => {
     .replace(/\s+/g, ' ')
     .trim();
 };
-
-// 🔑 NUEVO: normaliza un número de comprobante quitando ceros a la izquierda
 const normalizarNumComp = (s) => {
   return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
 };
-
-// 🔑 NUEVO: busca el mejor match por similitud real
 const buscarMejorMatch = (nombreOCR, lista) => {
   if (!nombreOCR || !lista || lista.length === 0) {
     return { mejor: null, candidatos: [], scoreMejor: 0 };
   }
-
   const normOCR = normalizarNombre(nombreOCR);
   const palabrasOCR = normOCR.split(' ').filter(p => p.length >= 3);
   if (palabrasOCR.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
-
   const scored = lista.map(item => {
     const nombreItem = item.razon_social || item.nombre || item.Razon_social || item.Nombre || '';
     const normItem = normalizarNombre(nombreItem);
-
     const coincidencias = palabrasOCR.filter(w => normItem.includes(w)).length;
     const scorePalabras = (coincidencias / palabrasOCR.length) * 100;
-
     if (normOCR === normItem) return { item, nombre: nombreItem, score: 100 };
-
     if (normItem.includes(normOCR) || normOCR.includes(normItem)) {
       return { item, nombre: nombreItem, score: Math.min(95, scorePalabras + 20) };
     }
-
     return { item, nombre: nombreItem, score: scorePalabras };
   }).filter(s => s.score >= 60);
-
   scored.sort((a, b) => b.score - a.score);
-
   if (scored.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
-
   const top = scored[0];
   const candidatos = scored.filter(s => (top.score - s.score) < 15);
-
-  return {
-    mejor: top.item,
-    candidatos: candidatos.map(c => c.item),
-    scoreMejor: top.score
-  };
+  return { mejor: top.item, candidatos: candidatos.map(c => c.item), scoreMejor: top.score };
 };
-
-// 🔑 NUEVO: infiere el origen de un movimiento a partir de su concepto
 const inferirOrigenMovimiento = (m) => {
   if (m.origen) return m.origen;
-
   const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
   const tipo = String(m.tipo || m.Tipo || '').toLowerCase();
-
   if (concepto.startsWith('pago factura')) return 'compra';
   if (concepto.startsWith('cobro')) return 'venta';
-
   if (concepto.includes('nota de crédito') || concepto.includes('nota de credito') ||
       concepto.includes('nota de débito') || concepto.includes('nota de debito')) {
     const match = concepto.match(/(\d{3,5})-(\d{4,8})/);
@@ -105,27 +72,20 @@ const inferirOrigenMovimiento = (m) => {
     if (rubroImp && rubroImp !== '---') return 'compra';
     return 'venta';
   }
-
   if (tipo === 'anulada') return 'venta';
-
   return '';
 };
-
-// 🔑 FIX: mapea el string que devuelve Gemini al valor canónico del <select>
 const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
   const t = String(tipoComprobanteOCR || '').toLowerCase();
   const tf = String(tipoFacturaOCR || '').toLowerCase();
   const nf = String(nombreArchivo || '').toUpperCase();
-
   const esElectronica =
     nf.includes('NCE') || nf.includes('NDE') || nf.includes('FCE') ||
     nf.includes('NCA') || nf.includes('NDA') || nf.includes('FCA') ||
     nf.includes('NCB') || nf.includes('NDB') || nf.includes('FCB') ||
     nf.includes('ELECTRONICA') || nf.includes('MIPYME') ||
     tf.includes('electronica') || tf.includes('fce') || tf.includes('mipyme');
-
   const esTipoB = tf.includes(' b') || tf.endsWith('b') || /\bB\b/.test(nf);
-
   if (t.includes('nota de credito') || t.includes('nota de crédito') || t === 'nc') {
     if (esElectronica) {
       return esTipoB
@@ -134,7 +94,6 @@ const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo
     }
     return esTipoB ? 'NOTA DE CREDITO B' : 'NOTA DE CREDITO A';
   }
-
   if (t.includes('nota de debito') || t.includes('nota de débito') || t === 'nd') {
     if (esElectronica) {
       return esTipoB
@@ -143,11 +102,9 @@ const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo
     }
     return esTipoB ? 'NOTA DE DEBITO B' : 'NOTA DE DEBITO A';
   }
-
   if (t.includes('recibo')) {
     return esTipoB ? 'RECIBO B' : 'RECIBO A';
   }
-
   if (esElectronica) {
     return esTipoB
       ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B'
@@ -166,6 +123,8 @@ export default function Tesoreria() {
   const { data: presupuestos } = useFirestoreCollection('presupuestos');
   const { data: rubros } = useFirestoreCollection('rubros');
   const { data: contratos } = useFirestoreCollection('contratos');
+  // 🔑 NUEVO (Punto D): colección de retenciones
+  const { data: retenciones } = useFirestoreCollection('retenciones');
 
   const [activeTab, setActiveTab] = useState('movimientos');
   const [searchTerm, setSearchTerm] = useState('');
@@ -174,6 +133,9 @@ export default function Tesoreria() {
   const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
   const [filtroTipoMovimiento, setFiltroTipoMovimiento] = useState('');
   const [filtroOrigen, setFiltroOrigen] = useState('');
+  // 🔑 NUEVO (Punto D): filtro de tipo de retención
+  const [filtroTipoRetencion, setFiltroTipoRetencion] = useState('');
+  const [subiendoCertificadoId, setSubiendoCertificadoId] = useState(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -185,7 +147,6 @@ export default function Tesoreria() {
   const [archivoBase64Venta, setArchivoBase64Venta] = useState('');
   const [nombreArchivoVenta, setNombreArchivoVenta] = useState('');
 
-  // 🔑 NUEVO: candidatos de cliente cuando el match es ambiguo
   const [candidatosCliente, setCandidatosCliente] = useState([]);
   const [nombreClienteOCR, setNombreClienteOCR] = useState('');
 
@@ -234,7 +195,6 @@ export default function Tesoreria() {
     comprobante_anula: ''
   });
 
-  // 🔑 NUEVO: opciones de proveedores para el BuscadorSelect
   const opcionesProveedores = useMemo(() => {
     return (proveedores || []).map(p => ({
       id: p.id || p.ID,
@@ -253,47 +213,33 @@ export default function Tesoreria() {
     if (!formData.presupuesto_id) return [];
     const presuSel = presupuestos.find(p => String(p.id || p.ID) === String(formData.presupuesto_id));
     if (!presuSel) return [];
-
     const itemsDetalleStr = presuSel.items_detalle || presuSel.Items_detalle || '';
     if (!itemsDetalleStr) return [];
-
     try {
       const parsed = typeof itemsDetalleStr === 'string' ? JSON.parse(itemsDetalleStr) : itemsDetalleStr;
       const listaRubrosJson = parsed.rubros || parsed.Rubros || [];
       const extraidos = listaRubrosJson.map(r => r.rubro || r.Rubro || r.nombre || r.Nombre).filter(Boolean);
       if (extraidos.length > 0) return extraidos;
     } catch (e) {}
-
     return [];
   };
-
   const rubrosDelPresupuesto = obtenerRubrosDelPresupuesto();
 
-// 🔑 FIX: lee los gastos generales reales del presupuesto seleccionado.
-const obtenerGastosGeneralesDelPresupuesto = () => {
-  if (!formData.presupuesto_id) return [];
-  const presuSel = presupuestos.find(p => String(p.id || p.ID) === String(formData.presupuesto_id));
-  if (!presuSel) return [];
-
-  const itemsDetalleRaw = presuSel.items_detalle || presuSel.Items_detalle || '';
-  if (!itemsDetalleRaw) return [];
-
-  let parsed = itemsDetalleRaw;
-  if (typeof parsed === 'string') {
-    try { parsed = JSON.parse(parsed); } catch { return []; }
-  }
-
-  const insumosGG = parsed?.comercial?.gastos_generales_insumos || [];
-  if (!Array.isArray(insumosGG)) return [];
-
-  const conceptos = insumosGG
-    .map(g => (g.concepto || g.Concepto || '').trim())
-    .filter(Boolean);
-
-  return conceptos;
-};
-
-const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
+  const obtenerGastosGeneralesDelPresupuesto = () => {
+    if (!formData.presupuesto_id) return [];
+    const presuSel = presupuestos.find(p => String(p.id || p.ID) === String(formData.presupuesto_id));
+    if (!presuSel) return [];
+    const itemsDetalleRaw = presuSel.items_detalle || presuSel.Items_detalle || '';
+    if (!itemsDetalleRaw) return [];
+    let parsed = itemsDetalleRaw;
+    if (typeof parsed === 'string') {
+      try { parsed = JSON.parse(parsed); } catch { return []; }
+    }
+    const insumosGG = parsed?.comercial?.gastos_generales_insumos || [];
+    if (!Array.isArray(insumosGG)) return [];
+    return insumosGG.map(g => (g.concepto || g.Concepto || '').trim()).filter(Boolean);
+  };
+  const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
@@ -340,11 +286,9 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
     }
   };
 
-  // ⬇️⬇️⬇️ AQUÍ EMPIEZA EL BLOQUE 2/2 ⬇️⬇️⬇️
-    const handleEditarMovimiento = (m) => {
+  const handleEditarMovimiento = (m) => {
     const mId = m.id || m.ID || m.Id;
     setEditingId(mId);
-
     let facturasAplicadasParsed = [{ id: Date.now(), factura_id: '', monto: 0 }];
     const faRaw = m.facturas_aplicadas || m.Facturas_aplicadas;
     if (faRaw) {
@@ -355,14 +299,12 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
         }
       } catch (e) {}
     }
-
     const brutoOriginal = Number(m.monto || m.Monto || 0) +
                           Number(m.retencion_suss || m.Retencion_suss || 0) +
                           Number(m.retencion_iva || m.Retencion_iva || 0) +
                           Number(m.retencion_ganancias || m.Retencion_ganancias || 0) +
                           Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0) +
                           Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0);
-
     setFormData({
       tipo: m.tipo || m.Tipo || 'Egreso',
       fecha: formatearFechaParaInput(m.fecha || m.Fecha) || new Date().toISOString().split('T')[0],
@@ -443,30 +385,23 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
     setIsModalOpen(true);
   };
 
-  // 🔑 NUEVO (Punto B): contabilizar una Nota de Crédito.
-  // Crea el movimiento en `tesoreria` y marca la NC como 'contabilizado'.
   const handleContabilizarNC = async (f) => {
     const facturaId = f.id || f.ID;
     if (!facturaId) {
       alert("No se pudo identificar la NC.");
       return;
     }
-
     if (!window.confirm(
       "¿Contabilizar esta Nota de Crédito?\n\n" +
       "Se va a crear un movimiento contable en Tesorería con el monto en negativo. " +
       "Esto afectará los totales de compras e IVA."
     )) return;
-
     try {
       const provObj = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
       const nombreProv = provObj?.razon_social || provObj?.nombre || 'Proveedor';
-
       const tipoComp = f.comprobante_tipo || f.tipo_comprobante || 'Nota de Crédito';
       const nFactura = f.n_factura || f.numero_comp || 'S/N';
-
       const conceptoMov = `${tipoComp} ${nFactura} - ${nombreProv}`;
-
       const movimiento = {
         tipo: 'contabilizada',
         origen: 'compra',
@@ -489,10 +424,8 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
         es_autogenerado: true,
         factura_compra_id: facturaId
       };
-
       await crearDoc('tesoreria', movimiento);
       await actualizarDoc('facturas_compras', facturaId, { estado_pago: 'contabilizado' });
-
       console.log(`✅ NC contabilizada: ${conceptoMov}`);
     } catch (err) {
       console.error('[Tesoreria] Error al contabilizar NC:', err);
@@ -526,9 +459,7 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
       }
       return item;
     });
-
     const sumaTotal = nuevas.reduce((acc, curr) => acc + (Number(curr.monto) || 0), 0);
-
     setFormData(prev => ({
       ...prev,
       facturas_aplicadas: nuevas,
@@ -551,7 +482,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                          Number(formData.retencion_ganancias || 0) +
                          Number(formData.retencion_iibb_pba || 0) +
                          Number(formData.retencion_iibb_caba || 0);
-
   const montoBrutoFacturas = Number(formData.monto || 0);
   const montoNetoEfectivo = Math.max(0, montoBrutoFacturas - totalRetenciones);
 
@@ -578,11 +508,9 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
       }
       return item;
     });
-
     const nuevoNeto = nuevosItems.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
     const nuevoIva21 = nuevoNeto * 0.21;
     const nuevoTotal = nuevoNeto + nuevoIva21 + Number(formDataVenta.otros_tributos || 0);
-
     setFormDataVenta(prev => ({
       ...prev,
       items: nuevosItems,
@@ -597,7 +525,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
     const nuevoNeto = nuevosItems.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
     const nuevoIva21 = nuevoNeto * 0.21;
     const nuevoTotal = nuevoNeto + nuevoIva21 + Number(formDataVenta.otros_tributos || 0);
-
     setFormDataVenta(prev => ({
       ...prev,
       items: nuevosItems,
@@ -612,21 +539,16 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
       return;
     }
-
     const archivo = e.target.files[0];
     if (!archivo) return;
-
     setLeyendoFactura(true);
     setNombreArchivoVenta(archivo.name);
-
     try {
       const reader = new FileReader();
       reader.readAsDataURL(archivo);
-
       reader.onload = async () => {
         const base64Data = reader.result;
         setArchivoBase64Venta(base64Data);
-
         try {
           const res = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
@@ -638,7 +560,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
               mimeType: archivo.type
             })
           });
-
           const textoRespuesta = await res.text();
           let data;
           try {
@@ -646,18 +567,14 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
           } catch (parseErr) {
             throw new Error("El servidor no devolvió un formato JSON válido.");
           }
-
           if (data.success && !data.error) {
             let clienteEncontradoId = '';
             let candidatosFinales = [];
             const nombreClienteBusqueda = data.cliente || data.proveedor || '';
             setNombreClienteOCR(nombreClienteBusqueda);
-
             if (nombreClienteBusqueda && clientes.length > 0) {
               const { mejor, candidatos, scoreMejor } = buscarMejorMatch(nombreClienteBusqueda, clientes);
-
               console.log('[OCR] Buscando cliente:', nombreClienteBusqueda, '| Score mejor:', scoreMejor, '| Candidatos:', candidatos.length);
-
               if (mejor && candidatos.length === 1) {
                 clienteEncontradoId = mejor.id || mejor.ID || mejor.Id || '';
                 console.log('[OCR] Cliente matcheado (único):', mejor.razon_social || mejor.nombre);
@@ -669,13 +586,10 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                 console.warn('[OCR] Sin match. Gemini devolvió:', nombreClienteBusqueda);
               }
             }
-
             setCandidatosCliente(candidatosFinales);
-
             const nCompDetectado = data.n_factura || data.numero_factura || data.nro_factura || data.numero_comp || '';
             let ptoVtaDetectado = '00001';
             let nCompLimpio = nCompDetectado;
-
             if (nCompDetectado.includes('-')) {
               const partes = nCompDetectado.split('-');
               if (partes.length >= 2) {
@@ -683,28 +597,22 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                 nCompLimpio = partes[1].trim();
               }
             }
-
             const netoVal = Number(data.subtotal || data.neto) || 0;
             const ivaVal = Number(data.iva_21 || data.iva) || (netoVal * 0.21);
             const totalVal = Number(data.total) || (netoVal + ivaVal);
-
             let descItem = `Factura N° ${nCompLimpio || '---'}`;
             if (data.items && Array.isArray(data.items) && data.items.length > 0 && data.items[0].descripcion) {
               descItem = data.items[0].descripcion;
             } else if (data.concepto || data.descripcion) {
               descItem = data.concepto || data.descripcion;
             }
-
             const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
-
             const tipoComprobanteMapeado = mapearTipoComprobante(
               data.tipo_comprobante,
               data.tipo_factura,
               archivo.name || ''
             );
-
             console.log('[OCR] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
-
             setFormDataVenta(prev => ({
               ...prev,
               tipo_comprobante: tipoComprobanteMapeado,
@@ -728,7 +636,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                 }
               ]
             }));
-
             if (nombreClienteBusqueda && !clienteEncontradoId && candidatosFinales.length === 0) {
               setTimeout(() => {
                 alert(
@@ -737,11 +644,9 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                 );
               }, 100);
             }
-
             setIsFacturaVentaModalOpen(false);
             setPasoFacturaVenta('formulario');
             setIsFacturaVentaModalOpen(true);
-
           } else {
             alert("Error de IA: " + (data.error || "No se pudieron extraer los datos."));
           }
@@ -753,12 +658,10 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
           e.target.value = "";
         }
       };
-
       reader.onerror = () => {
         setLeyendoFactura(false);
         alert("Error al leer el archivo local.");
       };
-
     } catch (err) {
       setLeyendoFactura(false);
       alert("Error inesperado: " + err.message);
@@ -768,7 +671,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
   const handleGuardarMovimiento = async (e) => {
     e.preventDefault();
     if (isSaving) return;
-
     setIsSaving(true);
     try {
       const payloadData = {
@@ -776,35 +678,71 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
         monto: montoNetoEfectivo,
         facturas_aplicadas: JSON.stringify(formData.facturas_aplicadas)
       };
-
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
-
+      let nuevoDocId = editingId;
       if (editingId) {
         await actualizarDoc('tesoreria', editingId, datosLimpios);
       } else {
-        await crearDoc('tesoreria', datosLimpios);
+        nuevoDocId = await crearDoc('tesoreria', datosLimpios);
+      }
+
+      // 🔑 NUEVO (Punto D): crear retenciones automáticas al crear movimiento nuevo
+      if (!editingId && nuevoDocId) {
+        const tiposRetencion = [
+          { campo: 'retencion_suss', tipo: 'SUSS' },
+          { campo: 'retencion_iva', tipo: 'IVA' },
+          { campo: 'retencion_ganancias', tipo: 'Ganancias' },
+          { campo: 'retencion_iibb_pba', tipo: 'IIBB PBA' },
+          { campo: 'retencion_iibb_caba', tipo: 'IIBB CABA' },
+        ];
+        const comprobanteAsociado = formData.facturas_aplicadas?.find(f => f.factura_id)?.factura_id || '';
+        let comprobanteTexto = '';
+        if (comprobanteAsociado) {
+          const facAsociada = facturas.find(f => String(f.id || f.ID) === String(comprobanteAsociado));
+          if (facAsociada) {
+            comprobanteTexto = facAsociada.n_factura || facAsociada.numero_comp || '';
+          }
+        }
+        for (const t of tiposRetencion) {
+          const montoRet = Number(formData[t.campo] || 0);
+          if (montoRet > 0) {
+            try {
+              await crearDoc('retenciones', {
+                tesoreria_id: nuevoDocId,
+                tipo: t.tipo,
+                monto: montoRet,
+                fecha: formData.fecha,
+                concepto: `Retención ${t.tipo} - ${formData.concepto}`,
+                proveedor_id: formData.proveedor_id || '',
+                obra_id: formData.obra_id || '',
+                presupuesto_id: formData.presupuesto_id || '',
+                comprobante_asociado: comprobanteTexto,
+                certificado_url: '',
+                es_manual: false,
+              });
+            } catch (errRet) {
+              console.error(`Error al crear retención ${t.tipo}:`, errRet);
+            }
+          }
+        }
       }
 
       if (Array.isArray(formData.facturas_aplicadas)) {
         for (const item of formData.facturas_aplicadas) {
           if (!item.factura_id) continue;
-
           const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
           const listaObjetivo = esIngreso ? facturasVenta : facturas;
           const coleccionObjetivo = esIngreso ? 'facturas_ventas' : 'facturas_compras';
-
           const facturaObj = listaObjetivo.find(f => String(f.id || f.ID) === String(item.factura_id));
           if (facturaObj) {
             const totalFactura = Number(facturaObj.total || facturaObj.Total || 0);
             const montoAplicado = Number(item.monto || 0);
-
             let nuevoEstado = 'pendiente';
             if (montoAplicado >= totalFactura) {
               nuevoEstado = 'pagado';
             } else if (montoAplicado > 0) {
               nuevoEstado = 'pagado parcial';
             }
-
             const facturaIdReal = facturaObj.id || facturaObj.ID;
             try {
               await actualizarDoc(coleccionObjetivo, facturaIdReal, { estado_pago: nuevoEstado });
@@ -814,7 +752,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
           }
         }
       }
-
       setIsModalOpen(false);
     } catch (err) {
       console.error(err);
@@ -827,24 +764,20 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
   const handleGuardarFacturaVenta = async (e) => {
     e.preventDefault();
     if (isSavingVenta) return;
-
     setIsSavingVenta(true);
     try {
       let archivoUrlFinal = formDataVenta.archivo_url || '';
       if (archivoBase64Venta && archivoBase64Venta.indexOf('data:') === 0) {
         archivoUrlFinal = await subirArchivoADrive(archivoBase64Venta, 'FacturasVenta');
       }
-
       const esNC = esNotaCredito(formDataVenta.tipo_comprobante);
       const esND = esNotaDebito(formDataVenta.tipo_comprobante);
       const signo = esNC ? -1 : 1;
-
       const netoFinal = Number(formDataVenta.neto_gravado || 0) * signo;
       const iva21Final = Number(formDataVenta.iva_21 || 0) * signo;
       const iva105Final = Number(formDataVenta.iva_105 || 0) * signo;
       const otrosTributosFinal = Number(formDataVenta.otros_tributos || 0) * signo;
       const totalFinal = Number(formDataVenta.total || 0) * signo;
-
       const datosNuevaVenta = {
         ...formDataVenta,
         neto_gravado: netoFinal,
@@ -858,15 +791,12 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
         es_nota_debito: esND,
         items: JSON.stringify(formDataVenta.items)
       };
-
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVenta;
-
       const nuevoDocId = await crearDoc('facturas_ventas', datosLimpios);
 
       if (esNC && formDataVenta.comprobante_anula) {
         try {
           const anulaLimpio = String(formDataVenta.comprobante_anula).trim();
-
           let ptoVtaAnula = '';
           let nCompAnula = '';
           if (anulaLimpio.includes('-')) {
@@ -876,34 +806,25 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
           } else {
             nCompAnula = anulaLimpio;
           }
-
           const ptoVtaAnulaNorm = normalizarNumComp(ptoVtaAnula);
           const nCompAnulaNorm = normalizarNumComp(nCompAnula);
-
-          console.log('[NC-Anular] Buscando:', { ptoVtaAnulaNorm, nCompAnulaNorm, totalFacturasVenta: facturasVenta.length });
-
           let facturaOriginal = facturasVenta.find(f => {
             if (String(f.estado_pago || '').toLowerCase() === 'anulada') return false;
             if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
-
             const fpvNorm = normalizarNumComp(f.punto_venta);
             const fncNorm = normalizarNumComp(f.numero_comp);
-
             if (ptoVtaAnulaNorm && nCompAnulaNorm) {
               return fpvNorm === ptoVtaAnulaNorm && fncNorm === nCompAnulaNorm;
             }
             return fncNorm === nCompAnulaNorm;
           });
-
           if (!facturaOriginal && nCompAnulaNorm) {
             facturaOriginal = facturasVenta.find(f => {
               if (String(f.estado_pago || '').toLowerCase() === 'anulada') return false;
               if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
               return normalizarNumComp(f.numero_comp) === nCompAnulaNorm;
             });
-            if (facturaOriginal) console.log('[NC-Anular] Match por fallback (solo numero_comp)');
           }
-
           if (facturaOriginal) {
             const facturaOrigId = facturaOriginal.id || facturaOriginal.ID;
             await actualizarDoc('facturas_ventas', facturaOrigId, {
@@ -912,13 +833,10 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
               anulada_por_nc_numero: `${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`,
               anulada_fecha: formDataVenta.fecha_emision
             });
-            console.log(`✅ Factura ${formDataVenta.comprobante_anula} marcada como anulada por NC ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`);
-
             try {
               const tipoFacturaAnulada = facturaOriginal.tipo_comprobante || 'Factura';
               const pvFacturaAnulada = String(facturaOriginal.punto_venta || ptoVtaAnula || '').padStart(5, '0');
               const nroFacturaAnulada = String(facturaOriginal.numero_comp || nCompAnula || '').padStart(8, '0');
-
               const movimientoAnulacion = {
                 tipo: 'anulada',
                 origen: 'venta',
@@ -943,14 +861,11 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                 factura_anulada_id: facturaOrigId,
                 nota_credito_id: nuevoDocId
               };
-
               await crearDoc('tesoreria', movimientoAnulacion);
-              console.log(`✅ Movimiento de anulación creado para ${tipoFacturaAnulada} ${pvFacturaAnulada}-${nroFacturaAnulada}`);
             } catch (errAnul) {
               console.error("Error creando movimiento de anulación:", errAnul);
             }
           } else {
-            console.warn(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} para anular`);
             alert(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} en el sistema. La Nota de Crédito se guardó pero la factura no se marcó como anulada.`);
           }
         } catch (errNC) {
@@ -964,7 +879,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
           const conceptoMov = esNC
             ? `Nota de Crédito ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`
             : `Nota de Débito ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`;
-
           const movimientoAuto = {
             tipo: tipoMov,
             origen: 'venta',
@@ -987,9 +901,7 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
             es_autogenerado: true,
             factura_venta_id: nuevoDocId
           };
-
           await crearDoc('tesoreria', movimientoAuto);
-          console.log(`Movimiento contable creado para ${conceptoMov}`);
         } catch (errMov) {
           console.error("Error al crear movimiento contable:", errMov);
         }
@@ -1021,57 +933,103 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
     if (!window.confirm("¿Estás seguro de eliminar este movimiento?")) return;
     try {
       await eliminarDoc('tesoreria', mId);
+      // 🔑 NUEVO (Punto D): eliminar retenciones asociadas
+      const retsAsociadas = retenciones.filter(r => String(r.tesoreria_id) === String(mId));
+      for (const r of retsAsociadas) {
+        await eliminarDoc('retenciones', r.id || r.ID);
+      }
     } catch (err) {
       console.error(err);
       alert("Error al eliminar: " + (err.message || ''));
     }
   };
 
+  // 🔑 NUEVO (Punto D): subir certificado de una retención
+  const handleSubirCertificadoRetencion = async (retencion, file) => {
+    if (!file) return;
+    const retId = retencion.id || retencion.ID;
+    if (!retId) {
+      alert("No se pudo identificar la retención.");
+      return;
+    }
+    setSubiendoCertificadoId(retId);
+    try {
+      const reader = new FileReader();
+      reader.onloadend = async () => {
+        const base64String = reader.result;
+        try {
+          const urlDrive = await subirArchivoADrive(base64String, 'Retenciones');
+          if (!urlDrive) {
+            alert("No se pudo subir el archivo a Drive.");
+            return;
+          }
+          await actualizarDoc('retenciones', retId, {
+            certificado_url: urlDrive,
+            certificado_nombre: file.name,
+          });
+          alert("¡Certificado subido correctamente!");
+        } catch (err) {
+          console.error("Error al guardar el certificado:", err);
+          alert("Error: " + (err.message || ''));
+        } finally {
+          setSubiendoCertificadoId(null);
+        }
+      };
+      reader.readAsDataURL(file);
+    } catch (err) {
+      setSubiendoCertificadoId(null);
+      alert("Error al leer el archivo: " + (err.message || ''));
+    }
+  };
+
   const totalIngresos = movimientos
     .filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'ingreso')
     .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
-
   const totalEgresos = movimientos
     .filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso')
     .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
-
   const balance = totalIngresos - totalEgresos;
 
   const movimientosFiltrados = movimientos.filter(m => {
     const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
     const ref = String(m.referencia || m.Referencia || '').toLowerCase();
     const matchTexto = concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
-
     let matchProveedor = true;
     if (filtroProveedorMovimientos) {
       const provObj = proveedores.find(p => String(p.id || p.ID) === String(filtroProveedorMovimientos));
       const nombreProv = provObj ? (provObj.razon_social || provObj.nombre || '').toLowerCase() : '';
       matchProveedor = concepto.includes(nombreProv);
     }
-
     let matchTipo = true;
     if (filtroTipoMovimiento) {
       const tipoMov = String(m.tipo || m.Tipo || '').toLowerCase().replace(/o$/, 'a');
       matchTipo = tipoMov === filtroTipoMovimiento.toLowerCase().replace(/o$/, 'a');
     }
-
     let matchOrigen = true;
     if (filtroOrigen) {
       const origenMov = inferirOrigenMovimiento(m);
       matchOrigen = origenMov === filtroOrigen;
     }
-
     return matchTexto && matchProveedor && matchTipo && matchOrigen;
   });
+
+  // 🔑 NUEVO (Punto D): filtro de retenciones
+  const retencionesFiltradas = useMemo(() => {
+    return retenciones
+      .filter(r => !filtroTipoRetencion || r.tipo === filtroTipoRetencion)
+      .sort((a, b) => {
+        const fechaA = String(a.fecha || '');
+        const fechaB = String(b.fecha || '');
+        return fechaB.localeCompare(fechaA);
+      });
+  }, [retenciones, filtroTipoRetencion]);
 
   const facturasAPagar = facturas.filter(f => {
     const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
     if (estado === 'anulada') return false;
     const esPendiente = estado === 'pendiente' || estado === 'pagado parcial';
-
     const provId = String(f.proveedor_id || f.Proveedor_id || '');
     const matchProveedor = !filtroProveedorPagar || provId === String(filtroProveedorPagar);
-
     return esPendiente && matchProveedor;
   });
 
@@ -1086,16 +1044,13 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
   const totalFacturasAPagar = facturasAPagar.reduce((acc, f) => {
     return acc + (Number(f.total || f.Total || f.TOTAL || 0) || 0);
   }, 0);
-
   const totalFacturasACobrar = facturasACobrar.reduce((acc, f) => {
     return acc + (Number(f.total || f.Total || f.TOTAL || 0) || 0);
   }, 0);
-
   const flujoNetoPendiente = totalFacturasACobrar - totalFacturasAPagar;
 
   const cashFlowMensualMap = {};
   const cashFlowAnualMap = {};
-
   movimientos.forEach(m => {
     const fecha = m.fecha || m.Fecha;
     if (!fecha) return;
@@ -1103,9 +1058,7 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
     const anio = String(fecha).substring(0, 4);
     const tipo = String(m.tipo || m.Tipo).toLowerCase().replace(/o$/, 'a');
     const monto = Number(m.monto || m.Monto) || 0;
-
     if (tipo === 'anulada') return;
-
     if (tipo === 'ingreso' || tipo === 'contabilizada') {
       if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
       cashFlowMensualMap[mesAnio].ingresos += monto;
@@ -1118,7 +1071,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
       cashFlowAnualMap[anio].egresos += monto;
     }
   });
-
   const listaMensual = Object.keys(cashFlowMensualMap).sort().map(k => ({ periodo: k, ...cashFlowMensualMap[k] }));
   const listaAnual = Object.keys(cashFlowAnualMap).sort().map(k => ({ periodo: k, ...cashFlowAnualMap[k] }));
 
@@ -1127,17 +1079,14 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
     const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
     return acc + iva21 + iva105;
   }, 0);
-
   const totalIvaVentas = facturasVenta.reduce((acc, f) => {
     const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
     const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
     return acc + iva21 + iva105;
   }, 0);
-
   const totalRetencionesIvaMovimientos = movimientos.reduce((acc, m) => {
     return acc + Number(m.retencion_iva || m.Retencion_iva || 0);
   }, 0);
-
   const posicionIva = totalIvaVentas - totalIvaCompras - totalRetencionesIvaMovimientos;
 
   return (
@@ -1145,7 +1094,7 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Tesorería</h1>
-          <p className="text-slate-500 text-sm mt-1">Flujo de caja, IVA y movimientos</p>
+          <p className="text-slate-500 text-sm mt-1">Flujo de caja, IVA, retenciones y movimientos</p>
         </div>
         <div className="flex items-center gap-3">
           <button onClick={() => {
@@ -1261,6 +1210,8 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
           <button onClick={() => setActiveTab('facturas_cobrar')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'facturas_cobrar' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Facturas a cobrar ({facturasACobrar.length})</button>
           <button onClick={() => setActiveTab('cashflow')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'cashflow' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Cash Flow</button>
           <button onClick={() => setActiveTab('iva')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'iva' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>IVA</button>
+          {/* 🔑 NUEVO (Punto D): tab Retenciones */}
+          <button onClick={() => setActiveTab('retenciones')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'retenciones' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Retenciones ({retenciones.length})</button>
         </div>
 
         {activeTab === 'movimientos' && (
@@ -1276,7 +1227,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
               <option value="contabilizada">Contabilizadas (NC/ND)</option>
               <option value="anulada">Anuladas</option>
             </select>
-
             <select
               value={filtroOrigen}
               onChange={(e) => setFiltroOrigen(e.target.value)}
@@ -1286,7 +1236,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
               <option value="venta">Ventas (clientes)</option>
               <option value="compra">Compras (proveedores)</option>
             </select>
-
             <div className="min-w-[200px]">
               <BuscadorSelect
                 opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
@@ -1296,7 +1245,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                 minChars={3}
               />
             </div>
-
             <div className="relative flex-1 sm:w-60">
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
@@ -1321,6 +1269,24 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                 minChars={3}
               />
             </div>
+          </div>
+        )}
+
+        {/* 🔑 NUEVO (Punto D): filtro de retenciones */}
+        {activeTab === 'retenciones' && (
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <select
+              value={filtroTipoRetencion}
+              onChange={(e) => setFiltroTipoRetencion(e.target.value)}
+              className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 cursor-pointer"
+            >
+              <option value="">Todos los tipos</option>
+              <option value="SUSS">SUSS</option>
+              <option value="IVA">IVA</option>
+              <option value="Ganancias">Ganancias</option>
+              <option value="IIBB PBA">IIBB PBA</option>
+              <option value="IIBB CABA">IIBB CABA</option>
+            </select>
           </div>
         )}
       </div>
@@ -1356,7 +1322,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                   const esContabilizada = tipo === 'contabilizada';
                   const esAnulada = tipo === 'anulada';
                   const origenMov = inferirOrigenMovimiento(m);
-
                   let clasesBadge = 'bg-rose-100 text-rose-800';
                   let labelBadge = tipo;
                   if (esAnulada) {
@@ -1372,7 +1337,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                   } else if (tipo === 'ingreso') {
                     clasesBadge = 'bg-emerald-100 text-emerald-800';
                   }
-
                   return (
                     <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-4 text-slate-600 truncate">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
@@ -1389,13 +1353,10 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                       </td>
                       <td className="px-3 py-4 uppercase text-slate-600 truncate">{m.medio_pago || m.Medio_pago || '---'}</td>
                       <td className={`px-4 py-4 text-right font-black whitespace-nowrap ${
-                        esAnulada
-                          ? 'text-slate-400 italic'
-                          : monto < 0
-                          ? 'text-rose-600'
-                          : (tipo === 'ingreso' || esContabilizada)
-                          ? 'text-emerald-600'
-                          : 'text-slate-900'
+                        esAnulada ? 'text-slate-400 italic'
+                        : monto < 0 ? 'text-rose-600'
+                        : (tipo === 'ingreso' || esContabilizada) ? 'text-emerald-600'
+                        : 'text-slate-900'
                       }`}>
                         {esAnulada ? '—' : `$ ${monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
                       </td>
@@ -1440,10 +1401,8 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                   const codigoDisplay = f.codigo || f.Codigo || `FAC-${String(index + 1).padStart(4, '0')}`;
                   const nFactura = f.n_factura || f.N_factura || '---';
                   const estadoPago = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
-
                   const tipoComp = String(f.comprobante_tipo || f.tipo_comprobante || '').toUpperCase();
                   const esNC = tipoComp.includes('NOTA DE CREDITO') || tipoComp.includes('NOTA DE CRÉDITO');
-
                   return (
                     <tr key={f.id || f.ID || index} className={`hover:bg-slate-50 transition-colors ${esNC ? 'bg-amber-50/40' : ''}`}>
                       <td className="px-6 py-4 font-bold text-blue-600">
@@ -1524,9 +1483,7 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                   const tipoComp = f.tipo_comprobante || f.Tipo_comprobante || 'FACTURA A';
                   const nComp = f.numero_comp || f.Numero_comp || '---';
                   const estadoPago = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
-
                   const urlArchivo = f.archivo_url || f.Archivo_url || f.archivo || f.Archivo || '';
-
                   return (
                     <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
                       <td className="px-6 py-4 font-bold text-sky-600">{tipoComp} <span className="text-slate-500 font-normal">({nComp})</span></td>
@@ -1534,7 +1491,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha_emision || f.Fecha_emision || f.fecha || f.Fecha)}</td>
                       <td className="px-4 py-4 font-semibold text-rose-600">{formatearFechaDisplay(f.fecha_vencimiento || f.Fecha_vencimiento || f.vencimiento || f.Vencimiento)}</td>
                       <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-
                       <td className="px-4 py-4 text-center">
                         {urlArchivo && String(urlArchivo).startsWith('http') ? (
                           <a
@@ -1550,7 +1506,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                           <span className="text-slate-300 text-[10px]">Sin archivo</span>
                         )}
                       </td>
-
                       <td className="px-4 py-4 text-center">
                         <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado parcial' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'}`}>
                           {estadoPago}
@@ -1609,7 +1564,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
               </div>
             )}
           </div>
-
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
             <h3 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
               <BarChart3 className="w-4 h-4 text-amber-500" /> Cash Flow Anual
@@ -1671,13 +1625,113 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
               <span className="text-[11px] text-slate-500 mt-1 block">{posicionIva <= 0 ? 'A favor' : 'A pagar'}</span>
             </div>
           </div>
-
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-2">
             <h4 className="text-xs font-extrabold text-slate-800 uppercase">Cálculo: Posición IVA = IVA Ventas – IVA Compras – Retenciones IVA</h4>
             <p className="text-xs text-slate-600 font-mono">
               $ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalRetencionesIvaMovimientos.toLocaleString('es-AR', { minimumFractionDigits: 2 })} = <span className="font-bold text-emerald-600">$ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })} ({posicionIva <= 0 ? 'A favor' : 'A pagar'})</span>
             </p>
           </div>
+        </div>
+      )}
+
+      {/* 🔑 NUEVO (Punto D): tab Retenciones */}
+      {activeTab === 'retenciones' && (
+        <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
+          {retencionesFiltradas.length === 0 ? (
+            <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
+              <FileText className="w-10 h-10 text-slate-300" />
+              <span>No hay retenciones registradas.</span>
+            </div>
+          ) : (
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
+                  <th className="px-4 py-4">Fecha</th>
+                  <th className="px-4 py-4">Tipo</th>
+                  <th className="px-6 py-4">Proveedor</th>
+                  <th className="px-4 py-4">Comprobante</th>
+                  <th className="px-4 py-4">Obra</th>
+                  <th className="px-4 py-4">Presupuesto</th>
+                  <th className="px-4 py-4 text-right">Monto</th>
+                  <th className="px-6 py-4 text-center">Certificado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {retencionesFiltradas.map(r => {
+                  const provId = r.proveedor_id || '';
+                  const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
+                  const obraId = r.obra_id || '';
+                  const obra = obras.find(o => String(o.id || o.ID) === String(obraId));
+                  const presId = r.presupuesto_id || '';
+                  const presu = presupuestos.find(p => String(p.id || p.ID) === String(presId));
+                  const rId = r.id || r.ID;
+                  const tieneCertificado = r.certificado_url && r.certificado_url.startsWith('http');
+                  const subiendo = String(subiendoCertificadoId) === String(rId);
+                  let badgeClase = 'bg-slate-100 text-slate-800';
+                  if (r.tipo === 'SUSS') badgeClase = 'bg-blue-100 text-blue-800';
+                  else if (r.tipo === 'IVA') badgeClase = 'bg-amber-100 text-amber-800';
+                  else if (r.tipo === 'Ganancias') badgeClase = 'bg-rose-100 text-rose-800';
+                  else if (r.tipo === 'IIBB PBA') badgeClase = 'bg-emerald-100 text-emerald-800';
+                  else if (r.tipo === 'IIBB CABA') badgeClase = 'bg-cyan-100 text-cyan-800';
+                  return (
+                    <tr key={rId} className="hover:bg-slate-50">
+                      <td className="px-4 py-3 text-slate-600">{formatearFechaDisplay(r.fecha)}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${badgeClase}`}>
+                          {r.tipo}
+                        </span>
+                        {r.es_manual && <span className="ml-1 text-[9px] text-slate-400 italic">manual</span>}
+                      </td>
+                      <td className="px-6 py-3 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || '---'}</td>
+                      <td className="px-4 py-3 text-slate-600 truncate">{r.comprobante_asociado || '---'}</td>
+                      <td className="px-4 py-3 text-slate-600 truncate">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : '---'}</td>
+                      <td className="px-4 py-3 text-slate-600 truncate">{presu?.codigo || '---'}</td>
+                      <td className="px-4 py-3 text-right font-black text-slate-900">$ {Number(r.monto || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-6 py-3 text-center">
+                        {tieneCertificado ? (
+                          <a
+                            href={r.certificado_url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg font-bold text-[10px] border border-emerald-200 hover:bg-emerald-100"
+                          >
+                            <Paperclip className="w-3 h-3" /> Ver
+                          </a>
+                        ) : (
+                          <div>
+                            <input
+                              type="file"
+                              accept=".pdf,.jpg,.jpeg,.png"
+                              id={`cert-file-${rId}`}
+                              className="hidden"
+                              onChange={(e) => {
+                                const file = e.target.files[0];
+                                if (file) handleSubirCertificadoRetencion(r, file);
+                              }}
+                            />
+                            <label
+                              htmlFor={`cert-file-${rId}`}
+                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer inline-flex items-center gap-1 transition-colors ${
+                                subiendo
+                                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+                                  : 'bg-amber-500 text-white hover:bg-amber-600'
+                              }`}
+                            >
+                              {subiendo ? (
+                                <><Loader2 className="w-3 h-3 animate-spin" /> Subiendo...</>
+                              ) : (
+                                <><Upload className="w-3 h-3" /> Subir PDF</>
+                              )}
+                            </label>
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
@@ -1688,7 +1742,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
               <h3 className="font-bold text-slate-900">{editingId ? 'Editar Movimiento' : 'Nuevo Movimiento con Retenciones'}</h3>
               <button onClick={() => setIsModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
-
             <form onSubmit={handleGuardarMovimiento} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
@@ -1706,7 +1759,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto *</label>
                   <input type="text" required disabled={isSaving} placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
                   <select
@@ -1719,7 +1771,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.nombre || o.Nombre}</option>)}
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado</label>
                   <select
@@ -1736,7 +1787,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     ))}
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contrato (Opcional)</label>
                   <select
@@ -1753,7 +1803,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     ))}
                   </select>
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
                   <select
@@ -1769,7 +1818,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     <option value="Gastos Generales">Gastos Generales</option>
                   </select>
                 </div>
-
                 <div className="sm:col-span-2">
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
                   {String(formData.tipo_insumo).toLowerCase() === 'gastos generales' ? (
@@ -1796,7 +1844,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     </select>
                   )}
                 </div>
-
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto Bruto / Factura ($) *</label>
                   <input type="number" step="0.01" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
@@ -1858,7 +1905,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     <Plus className="w-3.5 h-3.5" /> Agregar Factura
                   </button>
                 </div>
-
                 <div className="border border-slate-200 rounded-xl overflow-hidden">
                   <table className="w-full text-left text-xs">
                     <thead>
@@ -1945,7 +1991,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
               <h3 className="font-bold text-sky-950">+ Nueva Factura de Venta</h3>
               <button onClick={() => setIsFacturaVentaModalOpen(false)} disabled={isSavingVenta} className="text-sky-400 hover:text-sky-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
             </div>
-
             {pasoFacturaVenta === 'subir' ? (
               <div className="p-8 space-y-6 text-center">
                 {leyendoFactura ? (
@@ -1967,7 +2012,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                       <h4 className="text-base font-extrabold text-slate-900">Subir factura de venta (IA)</h4>
                       <p className="text-xs text-slate-500 mt-1">Selecciona el archivo PDF o imagen para leerlo mediante IA y completar el formulario.</p>
                     </div>
-
                     <div className="max-w-md mx-auto space-y-4">
                       <label className="border-2 border-dashed border-sky-300 rounded-2xl p-8 bg-sky-50/50 hover:bg-sky-50 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 block">
                         <Upload className="w-10 h-10 text-sky-500 mb-1" />
@@ -1982,7 +2026,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                         />
                       </label>
                     </div>
-
                     <div className="flex justify-between items-center pt-4 border-t">
                       <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
                       <button
@@ -2014,7 +2057,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     <ArrowLeft className="w-4 h-4" /> Cambiar archivo
                   </button>
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div className="sm:col-span-3">
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Comprobante *</label>
@@ -2048,13 +2090,11 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                         <option value="RECIBO B">RECIBO B</option>
                       </optgroup>
                     </select>
-
                     {archivoBase64Venta && formDataVenta.tipo_comprobante && (
                       <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1">
                         <Check className="w-3 h-3" /> Tipo detectado por IA: {formDataVenta.tipo_comprobante}
                       </p>
                     )}
-
                     {esNotaCredito(formDataVenta.tipo_comprobante) && (
                       <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
                         <FileText className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
@@ -2063,7 +2103,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                         </p>
                       </div>
                     )}
-
                     {esNotaCredito(formDataVenta.tipo_comprobante) && (
                       <div className="mt-2">
                         <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
@@ -2099,7 +2138,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                       {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
                     </select>
                   </div>
-
                   {candidatosCliente.length > 1 && (
                     <div className="sm:col-span-3 bg-amber-50 border-2 border-amber-400 rounded-lg px-4 py-3">
                       <div className="flex items-start gap-2 mb-2">
@@ -2135,7 +2173,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     </div>
                   )}
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
@@ -2146,7 +2183,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     <input type="date" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_vencimiento: e.target.value})} />
                   </div>
                 </div>
-
                 <div className="space-y-3 pt-4 border-t">
                   <div className="flex justify-between items-center">
                     <h4 className="font-extrabold text-xs uppercase text-slate-800">Detalle de Conceptos / Ítems</h4>
@@ -2210,7 +2246,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     </table>
                   </div>
                 </div>
-
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Neto Gravado ($)</label>
@@ -2229,7 +2264,6 @@ const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
                     <input type="number" step="0.01" required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
                   </div>
                 </div>
-
                 <div className="flex justify-end gap-2 pt-4 border-t">
                   <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} disabled={isSavingVenta} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Cancelar</button>
                   <button type="submit" disabled={isSavingVenta} className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 disabled:bg-sky-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
