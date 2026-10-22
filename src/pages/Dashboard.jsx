@@ -171,20 +171,30 @@ export default function Dashboard() {
     [facturasCompras]
   );
 
-  const totalIvaVentas = useMemo(
-    () => facturasVentas.reduce((s, f) => {
+  const totalIvaVentas = useMemo(() => {
+    const facturasUnicas = new Map();
+
+    facturasVentas.forEach(f => {
       const estado = normalizarEstado(f.estado_pago);
       const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
       
-      // 🔑 FIX: Ignorar anuladas y NC
-      if (estado === 'anulada' || esNC) return s;
-      
+      if (estado === 'anulada' || esNC) return;
+
+      const pv = String(f.punto_venta || '').padStart(5, '0');
+      const nc = String(f.numero_comp || '').padStart(8, '0');
+      const key = `${pv}-${nc}`; 
+
+      if (!facturasUnicas.has(key)) {
+        facturasUnicas.set(key, f);
+      }
+    });
+
+    return Array.from(facturasUnicas.values()).reduce((acc, f) => {
       const iva21 = Number(f.iva_21 || f.Iva_21 || 0);
       const iva105 = Number(f.iva_105 || f.Iva_105 || f.iva_10_5 || 0);
-      return s + iva21 + iva105;
-    }, 0),
-    [facturasVentas]
-  );
+      return acc + iva21 + iva105;
+    }, 0);
+  }, [facturasVentas]);
 
   const totalRetencionesIva = useMemo(
     () => movimientos.reduce((s, m) => s + Number(m.retencion_iva || 0), 0),

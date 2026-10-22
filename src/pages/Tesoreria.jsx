@@ -1143,17 +1143,31 @@ export default function Tesoreria() {
     return acc + iva21 + iva105;
   }, 0);
 
-  // 🔑 FIX IVA VENTAS
-  const totalIvaVentas = facturasVenta.reduce((acc, f) => {
-    const estado = String(f.estado_pago || '').toLowerCase();
-    const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
-    
-    if (estado === 'anulada' || esNC) return acc;
-    
-    const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
-    const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
-    return acc + iva21 + iva105;
-  }, 0);
+  // 🔑 FIX IVA VENTAS (A prueba de duplicados)
+  const totalIvaVentas = useMemo(() => {
+    const facturasUnicas = new Map();
+
+    facturasVenta.forEach(f => {
+      const estado = String(f.estado_pago || '').toLowerCase();
+      const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
+      
+      if (estado === 'anulada' || esNC) return;
+
+      const pv = String(f.punto_venta || '').padStart(5, '0');
+      const nc = String(f.numero_comp || '').padStart(8, '0');
+      const key = `${pv}-${nc}`; 
+
+      if (!facturasUnicas.has(key)) {
+        facturasUnicas.set(key, f);
+      }
+    });
+
+    return Array.from(facturasUnicas.values()).reduce((acc, f) => {
+      const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
+      const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
+      return acc + iva21 + iva105;
+    }, 0);
+  }, [facturasVenta]);
 
   const totalRetencionesIvaMovimientos = movimientos.reduce((acc, m) => {
     return acc + Number(m.retencion_iva || m.Retencion_iva || 0);
