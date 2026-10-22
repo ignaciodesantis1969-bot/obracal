@@ -141,6 +141,75 @@ export default function Presupuestos() {
     }
   };
 
+  // 🔑 NUEVO (Punto C): Cambio de Condiciones
+  // 1) Archiva el presupuesto actual con estado 'cambio_condiciones'
+  // 2) Crea una nueva versión en 'borrador' heredando todos los datos
+  const handleCambioCondiciones = async (presupuestoActual) => {
+    const estActual = normalizarEstado(presupuestoActual?.estado_presupuesto || presupuestoActual?.estado || '');
+    if (estActual === 'aprobado' || estActual === 'rechazado') {
+      alert(`⚠️ No se puede generar un Cambio de Condiciones desde un presupuesto '${estActual}'.`);
+      return;
+    }
+
+    if (!window.confirm(
+      `¿Marcar este presupuesto como "Cambio de Condiciones"?\n\n` +
+      `- El presupuesto actual se archivará en el tab "Cambios".\n` +
+      `- Se creará una NUEVA VERSIÓN en Borrador para trabajar sobre ella con las condiciones actualizadas.`
+    )) return;
+
+    try {
+      // 1) Parsear versión actual
+      let versionActualStr = String(presupuestoActual.version || '').toLowerCase();
+      if (!versionActualStr || versionActualStr === 'undefined') {
+        const matchNombre = (presupuestoActual.nombre || '').match(/\(v(\d+)\)/i);
+        versionActualStr = matchNombre ? `v${matchNombre[1]}` : 'v1';
+      }
+      const numVersionActual = parseInt(versionActualStr.replace('v', ''), 10) || 1;
+      const nuevaVersionStr = `v${numVersionActual + 1}`;
+
+      // 2) Archivar el actual → 'cambio_condiciones'
+      await actualizarDoc('presupuestos', presupuestoActual.id, {
+        estado_presupuesto: 'cambio_condiciones',
+        en_ejecucion: false,
+        finalizado: false
+      });
+
+      // 3) Crear nueva versión heredando todo, en 'borrador'
+      const nombreBaseLimpio = (presupuestoActual.nombre || '').replace(/\s*\(v\d+\)\s*$/i, '').trim();
+      const nombreNuevaVersion = `${nombreBaseLimpio} (${nuevaVersionStr})`;
+
+      const datosNuevaVersion = {
+        codigo: presupuestoActual.codigo,
+        nombre: nombreNuevaVersion,
+        obra_id: presupuestoActual.obra_id,
+        coeficiente_pase: Number(presupuestoActual.coeficiente_pase) || 1.30,
+        estado_presupuesto: 'borrador',
+        en_ejecucion: false,
+        finalizado: false,
+        version: nuevaVersionStr,
+        costo_directo: Number(presupuestoActual.costo_directo) || 0,
+        precio_venta: Number(presupuestoActual.precio_venta) || 0,
+        items_detalle: presupuestoActual.items_detalle || JSON.stringify([{ rubro: 'RUBRO GENERAL / PRINCIPAL', tareas: [] }]),
+        orden_compra: presupuestoActual.orden_compra || '',
+        responsable_cliente: presupuestoActual.responsable_cliente || '',
+        responsable_proveedor: presupuestoActual.responsable_proveedor || '',
+        responsable_id: presupuestoActual.responsable_id || '',
+        responsable_nombre: presupuestoActual.responsable_nombre || '',
+        responsable_email: presupuestoActual.responsable_email || '',
+        responsable_role: presupuestoActual.responsable_role || ''
+      };
+
+      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVersion;
+      await crearDoc('presupuestos', datosLimpios);
+
+      setActiveTab('workspace');
+      alert(`✅ Presupuesto archivado como "Cambio de Condiciones".\n\nSe creó la versión ${nuevaVersionStr} en Borrador para que trabajes sobre ella.`);
+    } catch (err) {
+      console.error('Error al generar Cambio de Condiciones:', err);
+      alert('Ocurrió un error: ' + (err.message || ''));
+    }
+  };
+
   const handleCambiarEstado = async (id, nuevoEstado) => {
     const p = presupuestos.find(presu => String(presu.id).trim() === String(id).trim());
     const estadoActual = String(p?.estado_presupuesto || p?.estado || 'borrador').toLowerCase();
@@ -150,8 +219,19 @@ export default function Presupuestos() {
       return;
     }
 
+    if (estadoActual === 'cambio_condiciones') {
+      alert(`⚠️ Este presupuesto ya está archivado como 'Cambio de Condiciones' y no puede cambiar de estado.`);
+      return;
+    }
+
     if (estadoActual === 'entregado' && nuevoEstado === 'borrador') {
       alert(`⚠️ Un presupuesto entregado no puede volver a estado borrador. Solo puede pasar a Aprobado o Rechazado.`);
+      return;
+    }
+
+    // 🔑 NUEVO (Punto C): si elige "Cambio de Condiciones", disparar el flujo completo
+    if (nuevoEstado === 'cambio_condiciones') {
+      await handleCambioCondiciones(p);
       return;
     }
 
@@ -198,7 +278,6 @@ export default function Presupuestos() {
     const nuevoValor = !Boolean(p.en_ejecucion);
     try {
       const update = { en_ejecucion: nuevoValor };
-      // Si destildamos En Ejecución, también destildamos Finalizado
       if (!nuevoValor && p.finalizado) {
         update.finalizado = false;
       }
@@ -241,9 +320,6 @@ export default function Presupuestos() {
 
     if (!window.confirm(`¿Desea actualizar los precios de este presupuesto y generar una nueva versión basada en los costos actuales de los insumos?`)) return;
 
-    // 🔑 FIX: se eliminó setIsLoading(true/false) porque no existe como estado en este componente.
-    // isLoading es un valor derivado de los hooks de Firestore (loadingPres, loadingObras, etc.),
-    // no un estado propio. Llamar a setIsLoading rompía el handler con ReferenceError.
     try {
       let versionActualStr = String(presupuestoActual.version || '').toLowerCase();
       if (!versionActualStr || versionActualStr === 'undefined') {
@@ -342,7 +418,6 @@ export default function Presupuestos() {
         costo_directo: nuevoCostoDirecto,
         precio_venta: nuevoPrecioVenta,
         items_detalle: JSON.stringify(estructuraCompletaNueva),
-        // 🔑 FIX: heredar datos del presupuesto original (responsable + OC + contactos)
         orden_compra: presupuestoActual.orden_compra || '',
         responsable_cliente: presupuestoActual.responsable_cliente || '',
         responsable_proveedor: presupuestoActual.responsable_proveedor || '',
@@ -355,7 +430,6 @@ export default function Presupuestos() {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVersion;
       await crearDoc('presupuestos', datosLimpios);
 
-      // 🔑 NUEVO: llevar al usuario al tab donde aparece la nueva versión (siempre Espacio de Trabajo)
       setActiveTab('workspace');
 
       alert(`¡Se ha generado la versión ${nuevaVersionStr} exitosamente con los precios actualizados!\n\nLa vas a encontrar en la pestaña "Espacio de Trabajo" con estado "Borrador".`);
@@ -424,6 +498,12 @@ export default function Presupuestos() {
     return est === 'aprobado' && Boolean(p.finalizado);
   }).length;
 
+  // 🔑 NUEVO (Punto C): contador de Cambios de Condiciones
+  const totalCambioCondiciones = presupuestos.filter(p => {
+    const est = normalizarEstado(p.estado_presupuesto || p.estado);
+    return est === 'cambio condiciones' || est === 'cambio_condiciones';
+  }).length;
+
   const presupuestosFiltradosPorTab = presupuestos.filter(p => {
     if (obraIdDesdeUrl && String(p.obra_id || '').trim() !== String(obraIdDesdeUrl).trim()) {
       return false;
@@ -437,6 +517,8 @@ export default function Presupuestos() {
       return est === 'aprobado' || est === 'aprobada';
     } else if (activeTab === 'archivados') {
       return est === 'rechazado' || est === 'rechazada';
+    } else if (activeTab === 'cambios') {
+      return est === 'cambio condiciones' || est === 'cambio_condiciones';
     }
     return true;
   });
@@ -481,8 +563,8 @@ export default function Presupuestos() {
 
       {error && <div className="p-4 bg-red-50 text-red-600 text-sm text-center border border-red-200 rounded-xl">{error}</div>}
 
-      {/* 🔑 Fila de KPIs — 6 cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+      {/* 🔑 Fila de KPIs — 7 cards (agregado Cambios) */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
         <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
           <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Borrador</p>
           <h3 className="text-2xl font-black text-slate-800 mt-1">{totalBorrador}</h3>
@@ -506,6 +588,10 @@ export default function Presupuestos() {
         <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
           <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Finalizados</p>
           <h3 className="text-2xl font-black text-teal-600 mt-1">{totalFinalizado}</h3>
+        </div>
+        <div className="bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Cambios</p>
+          <h3 className="text-2xl font-black text-violet-600 mt-1">{totalCambioCondiciones}</h3>
         </div>
       </div>
 
@@ -540,6 +626,17 @@ export default function Presupuestos() {
             }`}
           >
             Archivados / Rechazados
+          </button>
+          {/* 🔑 NUEVO (Punto C): tab Cambios */}
+          <button
+            onClick={() => setActiveTab('cambios')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+              activeTab === 'cambios'
+                ? 'bg-amber-500 text-white shadow-sm'
+                : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'
+            }`}
+          >
+            Cambios
           </button>
         </div>
 
@@ -615,6 +712,7 @@ export default function Presupuestos() {
 
                 const estadoActual = normalizarEstado(p.estado_presupuesto || p.estado) || 'borrador';
                 const esAprobado = estadoActual === 'aprobado';
+                const esCambioCondiciones = estadoActual === 'cambio condiciones' || estadoActual === 'cambio_condiciones';
                 const enEjecucion = Boolean(p.en_ejecucion);
                 const finalizado = Boolean(p.finalizado);
 
@@ -635,7 +733,7 @@ export default function Presupuestos() {
                     <td className="w-[9%] px-2 py-4 text-center">
                       <select
                         value={estadoActual}
-                        disabled={estadoActual === 'aprobado' || estadoActual === 'rechazado'}
+                        disabled={estadoActual === 'aprobado' || estadoActual === 'rechazado' || estadoActual === 'cambio condiciones' || estadoActual === 'cambio_condiciones'}
                         onChange={(e) => handleCambiarEstado(p.id, e.target.value)}
                         className={`w-full px-2 py-1 rounded-full font-bold text-[10px] uppercase border outline-none transition-colors ${
                           estadoActual === 'entregado'
@@ -644,14 +742,21 @@ export default function Presupuestos() {
                             ? 'bg-emerald-100 text-emerald-800 border-emerald-300 cursor-not-allowed opacity-75'
                             : estadoActual === 'rechazado'
                             ? 'bg-red-100 text-red-800 border-red-300 cursor-not-allowed opacity-75'
+                            : (estadoActual === 'cambio condiciones' || estadoActual === 'cambio_condiciones')
+                            ? 'bg-violet-100 text-violet-800 border-violet-300 cursor-not-allowed opacity-75'
                             : 'bg-slate-100 text-slate-700 border-slate-300 cursor-pointer'
                         }`}
-                        title={estadoActual === 'aprobado' || estadoActual === 'rechazado' ? "Estado bloqueado por regla de negocio" : "Cambiar estado"}
+                        title={
+                          estadoActual === 'aprobado' || estadoActual === 'rechazado' || estadoActual === 'cambio condiciones' || estadoActual === 'cambio_condiciones'
+                            ? 'Estado bloqueado por regla de negocio'
+                            : 'Cambiar estado'
+                        }
                       >
                         <option value="borrador" disabled={estadoActual === 'entregado'}>Borrador</option>
                         <option value="entregado">Entregado</option>
                         <option value="aprobado">Aprobado</option>
                         <option value="rechazado">Rechazado</option>
+                        <option value="cambio_condiciones">Cambio de Condiciones</option>
                       </select>
                     </td>
                     {/* 🔑 Checkbox En Ejecución */}
@@ -696,8 +801,8 @@ export default function Presupuestos() {
                     </td>
                     <td className="w-[5%] px-2 py-4 text-right">
                       <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                        {/* 🔑 FIX: el botón de versión no aparece en presupuestos aprobados */}
-                        {estadoActual !== 'aprobado' && (
+                        {/* 🔑 FIX: el botón de versión no aparece en presupuestos aprobados ni en CC */}
+                        {estadoActual !== 'aprobado' && !esCambioCondiciones && (
                           <button
                             onClick={() => handleActualizarPresupuestoVersion(p)}
                             className="p-1.5 text-slate-600 hover:text-blue-600 bg-white border border-slate-200 hover:border-blue-300 rounded-lg shadow-sm transition-all flex items-center justify-center"
