@@ -686,7 +686,7 @@ export default function Tesoreria() {
         nuevoDocId = await crearDoc('tesoreria', datosLimpios);
       }
 
-      // 🔑 NUEVO (Punto D): crear retenciones automáticas al crear movimiento nuevo
+      // 🔑 FIX (Punto D): crear retenciones capturando PROVEEDOR y COMPROBANTE correctamente
       if (!editingId && nuevoDocId) {
         const tiposRetencion = [
           { campo: 'retencion_suss', tipo: 'SUSS' },
@@ -695,14 +695,23 @@ export default function Tesoreria() {
           { campo: 'retencion_iibb_pba', tipo: 'IIBB PBA' },
           { campo: 'retencion_iibb_caba', tipo: 'IIBB CABA' },
         ];
-        const comprobanteAsociado = formData.facturas_aplicadas?.find(f => f.factura_id)?.factura_id || '';
-        let comprobanteTexto = '';
-        if (comprobanteAsociado) {
-          const facAsociada = facturas.find(f => String(f.id || f.ID) === String(comprobanteAsociado));
-          if (facAsociada) {
-            comprobanteTexto = facAsociada.n_factura || facAsociada.numero_comp || '';
+
+        // Buscamos el ID de la primera factura asociada
+        const facturaAsociadaId = formData.facturas_aplicadas?.find(f => f.factura_id)?.factura_id || '';
+        let nroComprobanteTexto = '---';
+        let proveedorIdReal = formData.proveedor_id || '';
+
+        if (facturaAsociadaId) {
+          const facObj = facturas.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
+          if (facObj) {
+             nroComprobanteTexto = facObj.n_factura || facObj.numero_comp || '---';
+             // Si el pago no tenia proveedor_id seteado, lo sacamos de la factura
+             if (!proveedorIdReal) {
+                proveedorIdReal = facObj.proveedor_id || facObj.Proveedor_id || '';
+             }
           }
         }
+
         for (const t of tiposRetencion) {
           const montoRet = Number(formData[t.campo] || 0);
           if (montoRet > 0) {
@@ -713,10 +722,10 @@ export default function Tesoreria() {
                 monto: montoRet,
                 fecha: formData.fecha,
                 concepto: `Retención ${t.tipo} - ${formData.concepto}`,
-                proveedor_id: formData.proveedor_id || '',
+                proveedor_id: proveedorIdReal,
                 obra_id: formData.obra_id || '',
                 presupuesto_id: formData.presupuesto_id || '',
-                comprobante_asociado: comprobanteTexto,
+                comprobante_asociado: nroComprobanteTexto,
                 certificado_url: '',
                 es_manual: false,
               });
@@ -1648,7 +1657,7 @@ export default function Tesoreria() {
                 <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
                   <th className="px-4 py-4">Fecha</th>
                   <th className="px-4 py-4">Tipo</th>
-                  <th className="px-6 py-4">Proveedor</th>
+                  <th className="px-6 py-4">Cliente/Proveedor</th>
                   <th className="px-4 py-4">Comprobante</th>
                   <th className="px-4 py-4">Obra</th>
                   <th className="px-4 py-4">Presupuesto</th>
