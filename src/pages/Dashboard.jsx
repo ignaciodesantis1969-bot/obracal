@@ -101,16 +101,30 @@ export default function Dashboard() {
   // ═══════════════════════════════════════════════════════════════════════
   const totalPresupuestos = presupuestos.length;
 
-  const presupuestosAprobados = useMemo(
-    () => presupuestos.filter(p =>
-      normalizarEstado(p.estado_presupuesto || p.estado) === 'aprobado'
-    ).length,
-    [presupuestos]
-  );
+  // 🔑 FIX: Agrupar por última versión y calcular el porcentaje correctamente
+  const presupuestosStats = useMemo(() => {
+    const ultimosMap = {};
+    presupuestos.forEach(p => {
+      const codigoBase = p.codigo || p.codigo_presupuesto || p.id_presupuesto || p.numero || p.id;
+      const version = Number(p.version || 1);
+      if (!ultimosMap[codigoBase] || version > Number(ultimosMap[codigoBase].version || 1)) {
+        ultimosMap[codigoBase] = p;
+      }
+    });
+    const unicos = Object.values(ultimosMap);
 
-  const porcentajeAprobados = totalPresupuestos > 0
-    ? Math.round((presupuestosAprobados / totalPresupuestos) * 100)
-    : 0;
+    const aprobados = unicos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'aprobado').length;
+    const entregados = unicos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'entregado').length;
+    const rechazados = unicos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'rechazado').length;
+
+    return { aprobados, entregados, rechazados };
+  }, [presupuestos]);
+
+  const porcentajeAprobados = useMemo(() => {
+    const base = presupuestosStats.entregados + presupuestosStats.rechazados;
+    if (base === 0) return 0;
+    return Math.round((presupuestosStats.aprobados / base) * 100);
+  }, [presupuestosStats]);
 
   const personalActivo = useMemo(
     () => personal.filter(p => normalizarEstado(p.estado) === 'activo').length,
@@ -154,6 +168,8 @@ export default function Dashboard() {
   // ═══════════════════════════════════════════════════════════════════════
   const totalIvaCompras = useMemo(
     () => facturasCompras.reduce((s, f) => {
+      // 🔑 FIX: Ignorar anuladas
+      if (normalizarEstado(f.estado_pago) === 'anulada') return s;
       const iva21 = Number(f.iva_21 || f.Iva_21 || 0);
       const iva105 = Number(f.iva_105 || f.Iva_105 || f.iva_10_5 || 0);
       return s + iva21 + iva105;
@@ -163,6 +179,8 @@ export default function Dashboard() {
 
   const totalIvaVentas = useMemo(
     () => facturasVentas.reduce((s, f) => {
+      // 🔑 FIX: Ignorar anuladas
+      if (normalizarEstado(f.estado_pago) === 'anulada') return s;
       const iva21 = Number(f.iva_21 || f.Iva_21 || 0);
       const iva105 = Number(f.iva_105 || f.Iva_105 || f.iva_10_5 || 0);
       return s + iva21 + iva105;
@@ -189,7 +207,18 @@ export default function Dashboard() {
       en_ejecucion: 0,
       finalizado: 0,
     };
+    
+    // Agrupamos para contar solo la última versión
+    const ultimosMap = {};
     presupuestos.forEach(p => {
+      const codigoBase = p.codigo || p.codigo_presupuesto || p.id_presupuesto || p.numero || p.id;
+      const version = Number(p.version || 1);
+      if (!ultimosMap[codigoBase] || version > Number(ultimosMap[codigoBase].version || 1)) {
+        ultimosMap[codigoBase] = p;
+      }
+    });
+    
+    Object.values(ultimosMap).forEach(p => {
       const est = normalizarEstado(p.estado_presupuesto || p.estado);
       // Estado base (excluyente)
       if (!est || est === 'borrador' || est === 'en revision') {
@@ -329,7 +358,7 @@ export default function Dashboard() {
         <KpiCard label="Presupuestos" value={totalPresupuestos} icon={Calculator} color="slate" />
         <KpiCard
           label="Aprobados"
-          value={presupuestosAprobados}
+          value={presupuestosStats.aprobados}
           icon={CheckCircle2}
           color="emerald"
           subtitle={`${porcentajeAprobados}% del total`}
@@ -378,37 +407,37 @@ export default function Dashboard() {
             <BarraEstadoObra
               label="Borrador"
               count={estadoPresupuestos.borrador}
-              total={presupuestos.length}
+              total={totalPresupuestos}
               color="bg-slate-500"
             />
             <BarraEstadoObra
               label="Entregado"
               count={estadoPresupuestos.entregado}
-              total={presupuestos.length}
+              total={totalPresupuestos}
               color="bg-purple-500"
             />
             <BarraEstadoObra
               label="Aprobados"
               count={estadoPresupuestos.aprobado}
-              total={presupuestos.length}
+              total={totalPresupuestos}
               color="bg-emerald-500"
             />
             <BarraEstadoObra
               label="Rechazados"
               count={estadoPresupuestos.rechazado}
-              total={presupuestos.length}
+              total={totalPresupuestos}
               color="bg-rose-500"
             />
             <BarraEstadoObra
               label="En Ejecución"
               count={estadoPresupuestos.en_ejecucion}
-              total={presupuestos.length}
+              total={totalPresupuestos}
               color="bg-indigo-500"
             />
             <BarraEstadoObra
               label="Finalizados"
               count={estadoPresupuestos.finalizado}
-              total={presupuestos.length}
+              total={totalPresupuestos}
               color="bg-teal-500"
             />
           </div>

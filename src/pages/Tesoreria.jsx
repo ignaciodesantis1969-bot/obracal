@@ -1143,10 +1143,16 @@ export default function Tesoreria() {
     const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
     return acc + iva21 + iva105;
   }, 0);
-  const totalIvaVentas = facturasVenta.reduce((acc, f) => {
+   const totalIvaVentas = facturasVenta.reduce((acc, f) => {
+    // 1. Ignorar las facturas que ya fueron anuladas por una NC
+    const estado = String(f.estado_pago || '').toLowerCase();
+    if (estado === 'anulada') return acc;
+    
+    // 2. Respetar el signo. Las NC ya se guardan en negativo, las facturas normales en positivo.
     const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
     const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
-    return acc + iva21 + iva105;
+    
+    return acc + (iva21 + iva105);
   }, 0);
   const totalRetencionesIvaMovimientos = movimientos.reduce((acc, m) => {
     return acc + Number(m.retencion_iva || m.Retencion_iva || 0);
