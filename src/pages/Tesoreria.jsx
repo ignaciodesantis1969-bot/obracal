@@ -495,6 +495,15 @@ export default function Tesoreria() {
     }));
   };
 
+  // 🔑 FIX (Punto 4): recalcular total incluyendo IVA 10.5%
+  const recalcularTotalesVenta = (items) => {
+    const nuevoNeto = items.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
+    const nuevoIva21 = nuevoNeto * 0.21;
+    const nuevoIva105 = Number(formDataVenta.iva_105 || 0);
+    const nuevoTotal = nuevoNeto + nuevoIva21 + nuevoIva105 + Number(formDataVenta.otros_tributos || 0);
+    return { nuevoNeto, nuevoIva21, nuevoIva105, nuevoTotal };
+  };
+
   const handleCambiarItemVenta = (id, campo, valor) => {
     const nuevosItems = formDataVenta.items.map(item => {
       if (item.id === id) {
@@ -508,28 +517,26 @@ export default function Tesoreria() {
       }
       return item;
     });
-    const nuevoNeto = nuevosItems.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
-    const nuevoIva21 = nuevoNeto * 0.21;
-    const nuevoTotal = nuevoNeto + nuevoIva21 + Number(formDataVenta.otros_tributos || 0);
+    const { nuevoNeto, nuevoIva21, nuevoIva105, nuevoTotal } = recalcularTotalesVenta(nuevosItems);
     setFormDataVenta(prev => ({
       ...prev,
       items: nuevosItems,
       neto_gravado: nuevoNeto,
       iva_21: nuevoIva21,
+      iva_105: nuevoIva105,
       total: nuevoTotal
     }));
   };
 
   const handleQuitarItemVenta = (id) => {
     const nuevosItems = formDataVenta.items.filter(i => i.id !== id);
-    const nuevoNeto = nuevosItems.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
-    const nuevoIva21 = nuevoNeto * 0.21;
-    const nuevoTotal = nuevoNeto + nuevoIva21 + Number(formDataVenta.otros_tributos || 0);
+    const { nuevoNeto, nuevoIva21, nuevoIva105, nuevoTotal } = recalcularTotalesVenta(nuevosItems);
     setFormDataVenta(prev => ({
       ...prev,
       items: nuevosItems,
       neto_gravado: nuevoNeto,
       iva_21: nuevoIva21,
+      iva_105: nuevoIva105,
       total: nuevoTotal
     }));
   };
@@ -599,7 +606,8 @@ export default function Tesoreria() {
             }
             const netoVal = Number(data.subtotal || data.neto) || 0;
             const ivaVal = Number(data.iva_21 || data.iva) || (netoVal * 0.21);
-            const totalVal = Number(data.total) || (netoVal + ivaVal);
+            const iva105Val = Number(data.iva_105 || 0) || 0;
+            const totalVal = Number(data.total) || (netoVal + ivaVal + iva105Val);
             let descItem = `Factura N° ${nCompLimpio || '---'}`;
             if (data.items && Array.isArray(data.items) && data.items.length > 0 && data.items[0].descripcion) {
               descItem = data.items[0].descripcion;
@@ -623,6 +631,7 @@ export default function Tesoreria() {
               fecha_vencimiento: formatearFechaParaInput(data.vencimiento || data.Vencimiento || data.VENCIMIENTO) || prev.fecha_vencimiento,
               neto_gravado: netoVal || prev.neto_gravado,
               iva_21: ivaVal || prev.iva_21,
+              iva_105: iva105Val || prev.iva_105,
               total: totalVal || prev.total,
               archivo_url: base64Data,
               comprobante_anula: comprobanteAnulaDetectado || prev.comprobante_anula,
@@ -668,6 +677,10 @@ export default function Tesoreria() {
     }
   };
 
+  // ═══════════════════════════════════════════════════════════════════════
+  // 🔑 FIX (Punto 3): al EDITAR un movimiento, borrar retenciones viejas
+  //    y crear las nuevas con los valores actuales del form.
+  // ═══════════════════════════════════════════════════════════════════════
   const handleGuardarMovimiento = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -686,8 +699,8 @@ export default function Tesoreria() {
         nuevoDocId = await crearDoc('tesoreria', datosLimpios);
       }
 
-      // 🔑 FIX (Punto D): crear retenciones capturando PROVEEDOR y COMPROBANTE correctamente
-      if (!editingId && nuevoDocId) {
+      // 🔑 FIX: crear retenciones (en alta o edición)
+      if (nuevoDocId) {
         const tiposRetencion = [
           { campo: 'retencion_suss', tipo: 'SUSS' },
           { campo: 'retencion_iva', tipo: 'IVA' },
@@ -696,7 +709,18 @@ export default function Tesoreria() {
           { campo: 'retencion_iibb_caba', tipo: 'IIBB CABA' },
         ];
 
-        // Buscamos el ID de la primera factura asociada
+        // 🔑 FIX: si estamos editando, borrar las retenciones viejas de este movimiento
+        if (editingId) {
+          const retsViejas = retenciones.filter(r => String(r.tesoreria_id) === String(editingId));
+          for (const r of retsViejas) {
+            try {
+              await eliminarDoc('retenciones', r.id || r.ID);
+            } catch (errDel) {
+              console.error(`Error al borrar retención vieja ${r.id}:`, errDel);
+            }
+          }
+        }
+
         const facturaAsociadaId = formData.facturas_aplicadas?.find(f => f.factura_id)?.factura_id || '';
         let nroComprobanteTexto = '---';
         let proveedorIdReal = formData.proveedor_id || '';
@@ -705,7 +729,6 @@ export default function Tesoreria() {
           const facObj = facturas.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
           if (facObj) {
              nroComprobanteTexto = facObj.n_factura || facObj.numero_comp || '---';
-             // Si el pago no tenia proveedor_id seteado, lo sacamos de la factura
              if (!proveedorIdReal) {
                 proveedorIdReal = facObj.proveedor_id || facObj.Proveedor_id || '';
              }
@@ -1812,47 +1835,52 @@ export default function Tesoreria() {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
-                  <select
-                    disabled={isSaving}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                    value={formData.tipo_insumo}
-                    onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value, rubro_imputacion: ''})}
-                  >
-                    <option value="Materiales">Materiales</option>
-                    <option value="Mano de Obra">Mano de Obra</option>
-                    <option value="Subcontratos">Subcontratos</option>
-                    <option value="Equipos y herramientas">Equipos y herramientas</option>
-                    <option value="Gastos Generales">Gastos Generales</option>
-                  </select>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
-                  {String(formData.tipo_insumo).toLowerCase() === 'gastos generales' ? (
-                    <select
-                      disabled={isSaving}
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                      value={formData.rubro_imputacion}
-                      onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
-                    >
-                      <option value="">Seleccione gasto general...</option>
-                      {gastosGeneralesConceptos.map((g, idx) => <option key={idx} value={g}>{g}</option>)}
-                    </select>
-                  ) : (
-                    <select
-                      disabled={isSaving || !formData.presupuesto_id}
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                      value={formData.rubro_imputacion}
-                      onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
-                    >
-                      <option value="">{formData.presupuesto_id ? 'Seleccione rubro del presupuesto...' : 'Primero seleccione presupuesto...'}</option>
-                      {rubrosDelPresupuesto.map((r, idx) => (
-                        <option key={idx} value={r}>{r}</option>
-                      ))}
-                    </select>
-                  )}
-                </div>
+                {/* 🔑 FIX (Punto 4): solo mostrar Tipo de Insumo y Rubro si el tipo es Egreso */}
+                {formData.tipo === 'Egreso' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
+                      <select
+                        disabled={isSaving}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                        value={formData.tipo_insumo}
+                        onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value, rubro_imputacion: ''})}
+                      >
+                        <option value="Materiales">Materiales</option>
+                        <option value="Mano de Obra">Mano de Obra</option>
+                        <option value="Subcontratos">Subcontratos</option>
+                        <option value="Equipos y herramientas">Equipos y herramientas</option>
+                        <option value="Gastos Generales">Gastos Generales</option>
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
+                      {String(formData.tipo_insumo).toLowerCase() === 'gastos generales' ? (
+                        <select
+                          disabled={isSaving}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                          value={formData.rubro_imputacion}
+                          onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
+                        >
+                          <option value="">Seleccione gasto general...</option>
+                          {gastosGeneralesConceptos.map((g, idx) => <option key={idx} value={g}>{g}</option>)}
+                        </select>
+                      ) : (
+                        <select
+                          disabled={isSaving || !formData.presupuesto_id}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                          value={formData.rubro_imputacion}
+                          onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
+                        >
+                          <option value="">{formData.presupuesto_id ? 'Seleccione rubro del presupuesto...' : 'Primero seleccione presupuesto...'}</option>
+                          {rubrosDelPresupuesto.map((r, idx) => (
+                            <option key={idx} value={r}>{r}</option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </>
+                )}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto Bruto / Factura ($) *</label>
                   <input type="number" step="0.01" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
@@ -2255,7 +2283,7 @@ export default function Tesoreria() {
                     </table>
                   </div>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Neto Gravado ($)</label>
                     <input type="number" step="0.01" className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none" value={formDataVenta.neto_gravado} readOnly />
@@ -2264,8 +2292,17 @@ export default function Tesoreria() {
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 21% ($)</label>
                     <input type="number" step="0.01" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.iva_21} onChange={(e) => {
                       const iva = Number(e.target.value) || 0;
-                      const total = Number(formDataVenta.neto_gravado) + iva + Number(formDataVenta.otros_tributos);
+                      const total = Number(formDataVenta.neto_gravado) + iva + Number(formDataVenta.iva_105 || 0) + Number(formDataVenta.otros_tributos || 0);
                       setFormDataVenta({...formDataVenta, iva_21: iva, total: total});
+                    }} />
+                  </div>
+                  {/* 🔑 FIX (Punto 4): nuevo input IVA 10.5% */}
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 10.5% ($)</label>
+                    <input type="number" step="0.01" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.iva_105} onChange={(e) => {
+                      const iva105 = Number(e.target.value) || 0;
+                      const total = Number(formDataVenta.neto_gravado) + Number(formDataVenta.iva_21 || 0) + iva105 + Number(formDataVenta.otros_tributos || 0);
+                      setFormDataVenta({...formDataVenta, iva_105: iva105, total: total});
                     }} />
                   </div>
                   <div>
