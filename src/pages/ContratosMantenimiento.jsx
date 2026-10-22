@@ -556,12 +556,15 @@ export default function ContratosMantenimiento() {
         });
       } else {
         const prevU = Number(registrosMeses[idx - 1].uocra) || 1;
+        const prevI = Number(registrosMeses[idx - 1].ipc) || 1; // 🔑 FIX: Tratamos el IPC como índice
         const prevD = Number(registrosMeses[idx - 1].dolar) || 1;
 
+        // 🔑 FIX: Calculamos la variación real para los TRES indicadores
         const varUocra = ((Number(reg.uocra) / prevU) - 1) * 100;
-        const varIpc = Number(reg.ipc) || 0;
+        const varIpc = ((Number(reg.ipc) / prevI) - 1) * 100; // 🔑 Ahora calcula la variación del IPC
         const varDolar = ((Number(reg.dolar) / prevD) - 1) * 100;
 
+        // Aplicamos la fórmula de incidencia exacta de tu Excel
         const poliMes = (varUocra * 0.80) + (varIpc * 0.10) + (varDolar * 0.10);
 
         // 🔑 FIX: si el 1er certificado NO está hecho, no reseteamos el ciclo.
@@ -640,10 +643,13 @@ export default function ContratosMantenimiento() {
     let acumuladoSinReset = 0;
     for (let i = 1; i <= mesCertificadoIdx; i++) {
       const prevU = Number(registrosMeses[i - 1].uocra) || 1;
+      const prevI = Number(registrosMeses[i - 1].ipc) || 1; // 🔑 Fix IPC
       const prevD = Number(registrosMeses[i - 1].dolar) || 1;
+      
       const varUocra = ((Number(registrosMeses[i].uocra) / prevU) - 1) * 100;
-      const varIpc = Number(registrosMeses[i].ipc) || 0;
+      const varIpc = ((Number(registrosMeses[i].ipc) / prevI) - 1) * 100; // 🔑 Calcula variación del IPC
       const varDolar = ((Number(registrosMeses[i].dolar) / prevD) - 1) * 100;
+      
       acumuladoSinReset += (varUocra * 0.80) + (varIpc * 0.10) + (varDolar * 0.10);
     }
 
@@ -1049,8 +1055,7 @@ export default function ContratosMantenimiento() {
           </div>
         )}
 
-  {/* ⬇️⬇️⬇️ AQUÍ EMPIEZA EL BLOQUE 2/2 ⬇️⬇️⬇️ */}
-          {subTabDetalle === 'polinomica' && (
+        {subTabDetalle === 'polinomica' && (
           <div className="space-y-6">
             <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
               <div className="border-b border-slate-200 pb-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
@@ -1086,9 +1091,10 @@ export default function ContratosMantenimiento() {
                               let acum = 0;
                               for (let i = 1; i <= mesCertificadoIdx; i++) {
                                 const prevU = Number(registrosMeses[i - 1].uocra) || 1;
+                                const prevI = Number(registrosMeses[i - 1].ipc) || 1; // 🔑 FIX
                                 const prevD = Number(registrosMeses[i - 1].dolar) || 1;
                                 const vU = ((Number(registrosMeses[i].uocra) / prevU) - 1) * 100;
-                                const vI = Number(registrosMeses[i].ipc) || 0;
+                                const vI = ((Number(registrosMeses[i].ipc) / prevI) - 1) * 100; // 🔑 FIX
                                 const vD = ((Number(registrosMeses[i].dolar) / prevD) - 1) * 100;
                                 acum += (vU * 0.80) + (vI * 0.10) + (vD * 0.10);
                               }
@@ -1145,7 +1151,8 @@ export default function ContratosMantenimiento() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">IPC Nac. (%)</label>
+                  {/* 🔑 FIX: Cambiamos el label a Índice en lugar de % */}
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">IPC Nac. (Índice)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -1180,6 +1187,7 @@ export default function ContratosMantenimiento() {
                       {/* 🔑 NUEVO: columna de selección del mes del 1er certificado */}
                       <th className="p-4 text-center">1er Cert.</th>
                       <th className="p-4 text-center">U.O.C.R.A. (80%)</th>
+                      {/* 🔑 FIX: Cambiamos el header a Índice */}
                       <th className="p-4 text-center">IPC Nac. (10%)</th>
                       <th className="p-4 text-center">Dólar BNA (10%)</th>
                       <th className="p-4 text-right bg-amber-500/10 text-slate-900">Polinómica del Mes</th>
@@ -1250,6 +1258,7 @@ export default function ContratosMantenimiento() {
                               )}
                             </td>
                             <td className="p-4 text-center">
+                              {/* 🔑 FIX: Ahora el valor ingresado es un Índice, no un porcentaje */}
                               <input
                                 type="number"
                                 step="0.01"
@@ -1259,7 +1268,7 @@ export default function ContratosMantenimiento() {
                               />
                               {!esBase && (
                                 <span className="block text-[11px] font-bold text-amber-700 mt-0.5">
-                                  (+{Number(reg.ipc).toFixed(2)}%)
+                                  ({reg.varIpc >= 0 ? '+' : ''}{reg.varIpc.toFixed(2)}%)
                                 </span>
                               )}
                             </td>
