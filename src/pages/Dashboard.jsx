@@ -101,30 +101,20 @@ export default function Dashboard() {
   // ═══════════════════════════════════════════════════════════════════════
   const totalPresupuestos = presupuestos.length;
 
-  // 🔑 FIX: Agrupar por última versión y calcular el porcentaje correctamente
-  const presupuestosStats = useMemo(() => {
-    const ultimosMap = {};
-    presupuestos.forEach(p => {
-      const codigoBase = p.codigo || p.codigo_presupuesto || p.id_presupuesto || p.numero || p.id;
-      const version = Number(p.version || 1);
-      if (!ultimosMap[codigoBase] || version > Number(ultimosMap[codigoBase].version || 1)) {
-        ultimosMap[codigoBase] = p;
-      }
-    });
-    const unicos = Object.values(ultimosMap);
-
-    const aprobados = unicos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'aprobado').length;
-    const entregados = unicos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'entregado').length;
-    const rechazados = unicos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'rechazado').length;
-
-    return { aprobados, entregados, rechazados };
+  // 🔑 FIX: Lógica idéntica a la pantalla de Presupuestos (sin agrupar por código)
+  const presupuestosAprobados = useMemo(() => {
+    return presupuestos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'aprobado').length;
   }, [presupuestos]);
 
   const porcentajeAprobados = useMemo(() => {
-    const base = presupuestosStats.entregados + presupuestosStats.rechazados;
+    const entregados = presupuestos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'entregado').length;
+    const rechazados = presupuestos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'rechazado').length;
+    
+    // Base: Entregados + Rechazados
+    const base = entregados + rechazados;
     if (base === 0) return 0;
-    return Math.round((presupuestosStats.aprobados / base) * 100);
-  }, [presupuestosStats]);
+    return Math.round((presupuestosAprobados / base) * 100);
+  }, [presupuestos, presupuestosAprobados]);
 
   const personalActivo = useMemo(
     () => personal.filter(p => normalizarEstado(p.estado) === 'activo').length,
@@ -168,8 +158,12 @@ export default function Dashboard() {
   // ═══════════════════════════════════════════════════════════════════════
   const totalIvaCompras = useMemo(
     () => facturasCompras.reduce((s, f) => {
-      // 🔑 FIX: Ignorar anuladas
-      if (normalizarEstado(f.estado_pago) === 'anulada') return s;
+      const estado = normalizarEstado(f.estado_pago);
+      const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
+      
+      // 🔑 FIX: Ignorar anuladas y NC
+      if (estado === 'anulada' || esNC) return s;
+      
       const iva21 = Number(f.iva_21 || f.Iva_21 || 0);
       const iva105 = Number(f.iva_105 || f.Iva_105 || f.iva_10_5 || 0);
       return s + iva21 + iva105;
@@ -179,8 +173,12 @@ export default function Dashboard() {
 
   const totalIvaVentas = useMemo(
     () => facturasVentas.reduce((s, f) => {
-      // 🔑 FIX: Ignorar anuladas
-      if (normalizarEstado(f.estado_pago) === 'anulada') return s;
+      const estado = normalizarEstado(f.estado_pago);
+      const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
+      
+      // 🔑 FIX: Ignorar anuladas y NC
+      if (estado === 'anulada' || esNC) return s;
+      
       const iva21 = Number(f.iva_21 || f.Iva_21 || 0);
       const iva105 = Number(f.iva_105 || f.Iva_105 || f.iva_10_5 || 0);
       return s + iva21 + iva105;
@@ -196,7 +194,7 @@ export default function Dashboard() {
   const saldoIva = totalIvaVentas - totalIvaCompras - totalRetencionesIva;
 
   // ═══════════════════════════════════════════════════════════════════════
-  // FILA 4 — ESTADO DE PRESUPUESTOS (lógica acumulativa)
+  // FILA 4 — ESTADO DE PRESUPUESTOS (lógica acumulativa original)
   // ═══════════════════════════════════════════════════════════════════════
   const estadoPresupuestos = useMemo(() => {
     const conteo = {
@@ -208,26 +206,14 @@ export default function Dashboard() {
       finalizado: 0,
     };
     
-    // Agrupamos para contar solo la última versión
-    const ultimosMap = {};
     presupuestos.forEach(p => {
-      const codigoBase = p.codigo || p.codigo_presupuesto || p.id_presupuesto || p.numero || p.id;
-      const version = Number(p.version || 1);
-      if (!ultimosMap[codigoBase] || version > Number(ultimosMap[codigoBase].version || 1)) {
-        ultimosMap[codigoBase] = p;
-      }
-    });
-    
-    Object.values(ultimosMap).forEach(p => {
       const est = normalizarEstado(p.estado_presupuesto || p.estado);
-      // Estado base (excluyente)
       if (!est || est === 'borrador' || est === 'en revision') {
         conteo.borrador++;
       } else if (est === 'entregado' || est === 'entregada') {
         conteo.entregado++;
       } else if (est === 'aprobado' || est === 'aprobada') {
         conteo.aprobado++;
-        // 🔑 Banderas acumulativas: solo cuentan si el estado base es aprobado
         if (Boolean(p.en_ejecucion)) conteo.en_ejecucion++;
         if (Boolean(p.finalizado)) conteo.finalizado++;
       } else if (est === 'rechazado' || est === 'rechazada') {
@@ -358,7 +344,7 @@ export default function Dashboard() {
         <KpiCard label="Presupuestos" value={totalPresupuestos} icon={Calculator} color="slate" />
         <KpiCard
           label="Aprobados"
-          value={presupuestosStats.aprobados}
+          value={presupuestosAprobados}
           icon={CheckCircle2}
           color="emerald"
           subtitle={`${porcentajeAprobados}% del total`}

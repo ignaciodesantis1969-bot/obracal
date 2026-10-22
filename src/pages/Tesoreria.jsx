@@ -692,7 +692,6 @@ export default function Tesoreria() {
         nuevoDocId = await crearDoc('tesoreria', datosLimpios);
       }
 
-      // 🔑 FIX: crear retenciones (en alta o edición)
       if (nuevoDocId) {
         const tiposRetencion = [
           { campo: 'retencion_suss', tipo: 'SUSS' },
@@ -702,7 +701,6 @@ export default function Tesoreria() {
           { campo: 'retencion_iibb_caba', tipo: 'IIBB CABA' },
         ];
 
-        // 🔑 FIX: si estamos editando, borrar las retenciones viejas de este movimiento
         if (editingId) {
           const retsViejas = retenciones.filter(r => String(r.tesoreria_id) === String(editingId));
           for (const r of retsViejas) {
@@ -721,7 +719,6 @@ export default function Tesoreria() {
         let proveedorIdReal = formData.proveedor_id || '';
         let clienteIdReal = formData.cliente_id || '';
 
-        // 1. Si hay factura asociada, buscar en la colección correcta
         if (facturaAsociadaId) {
           if (esIngreso) {
             const facObj = facturasVenta.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
@@ -742,7 +739,6 @@ export default function Tesoreria() {
           }
         }
 
-        // 2. Si no hay factura asociada, buscar inteligentemente en el texto del concepto
         if (formData.concepto) {
           const conceptoLower = formData.concepto.toLowerCase();
           
@@ -997,7 +993,6 @@ export default function Tesoreria() {
     if (!window.confirm("¿Estás seguro de eliminar este movimiento?")) return;
     try {
       await eliminarDoc('tesoreria', mId);
-      // 🔑 NUEVO (Punto D): eliminar retenciones asociadas
       const retsAsociadas = retenciones.filter(r => String(r.tesoreria_id) === String(mId));
       for (const r of retsAsociadas) {
         await eliminarDoc('retenciones', r.id || r.ID);
@@ -1008,7 +1003,6 @@ export default function Tesoreria() {
     }
   };
 
-  // 🔑 NUEVO (Punto D): subir certificado de una retención
   const handleSubirCertificadoRetencion = async (retencion, file) => {
     if (!file) return;
     const retId = retencion.id || retencion.ID;
@@ -1077,7 +1071,6 @@ export default function Tesoreria() {
     return matchTexto && matchProveedor && matchTipo && matchOrigen;
   });
 
-  // 🔑 NUEVO (Punto D): filtro de retenciones
   const retencionesFiltradas = useMemo(() => {
     return retenciones
       .filter(r => !filtroTipoRetencion || r.tipo === filtroTipoRetencion)
@@ -1138,22 +1131,30 @@ export default function Tesoreria() {
   const listaMensual = Object.keys(cashFlowMensualMap).sort().map(k => ({ periodo: k, ...cashFlowMensualMap[k] }));
   const listaAnual = Object.keys(cashFlowAnualMap).sort().map(k => ({ periodo: k, ...cashFlowAnualMap[k] }));
 
+  // 🔑 FIX IVA COMPRAS
   const totalIvaCompras = facturas.reduce((acc, f) => {
+    const estado = String(f.estado_pago || '').toLowerCase();
+    const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
+    
+    if (estado === 'anulada' || esNC) return acc;
+    
     const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
     const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
     return acc + iva21 + iva105;
   }, 0);
-   const totalIvaVentas = facturasVenta.reduce((acc, f) => {
-    // 1. Ignorar las facturas que ya fueron anuladas por una NC
+
+  // 🔑 FIX IVA VENTAS
+  const totalIvaVentas = facturasVenta.reduce((acc, f) => {
     const estado = String(f.estado_pago || '').toLowerCase();
-    if (estado === 'anulada') return acc;
+    const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
     
-    // 2. Respetar el signo. Las NC ya se guardan en negativo, las facturas normales en positivo.
+    if (estado === 'anulada' || esNC) return acc;
+    
     const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
     const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
-    
-    return acc + (iva21 + iva105);
+    return acc + iva21 + iva105;
   }, 0);
+
   const totalRetencionesIvaMovimientos = movimientos.reduce((acc, m) => {
     return acc + Number(m.retencion_iva || m.Retencion_iva || 0);
   }, 0);
