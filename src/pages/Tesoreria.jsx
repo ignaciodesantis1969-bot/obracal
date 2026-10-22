@@ -123,7 +123,6 @@ export default function Tesoreria() {
   const { data: presupuestos } = useFirestoreCollection('presupuestos');
   const { data: rubros } = useFirestoreCollection('rubros');
   const { data: contratos } = useFirestoreCollection('contratos');
-  // 🔑 NUEVO (Punto D): colección de retenciones
   const { data: retenciones } = useFirestoreCollection('retenciones');
 
   const [activeTab, setActiveTab] = useState('movimientos');
@@ -133,7 +132,6 @@ export default function Tesoreria() {
   const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
   const [filtroTipoMovimiento, setFiltroTipoMovimiento] = useState('');
   const [filtroOrigen, setFiltroOrigen] = useState('');
-  // 🔑 NUEVO (Punto D): filtro de tipo de retención
   const [filtroTipoRetencion, setFiltroTipoRetencion] = useState('');
   const [subiendoCertificadoId, setSubiendoCertificadoId] = useState(null);
 
@@ -495,7 +493,6 @@ export default function Tesoreria() {
     }));
   };
 
-  // 🔑 FIX (Punto 4): recalcular total incluyendo IVA 10.5%
   const recalcularTotalesVenta = (items) => {
     const nuevoNeto = items.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
     const nuevoIva21 = nuevoNeto * 0.21;
@@ -677,10 +674,6 @@ export default function Tesoreria() {
     }
   };
 
-  // ═══════════════════════════════════════════════════════════════════════
-  // 🔑 FIX (Punto 3): al EDITAR un movimiento, borrar retenciones viejas
-  //    y crear las nuevas con los valores actuales del form.
-  // ═══════════════════════════════════════════════════════════════════════
   const handleGuardarMovimiento = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -721,17 +714,55 @@ export default function Tesoreria() {
           }
         }
 
+        const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
         const facturaAsociadaId = formData.facturas_aplicadas?.find(f => f.factura_id)?.factura_id || '';
+        
         let nroComprobanteTexto = '---';
         let proveedorIdReal = formData.proveedor_id || '';
+        let clienteIdReal = formData.cliente_id || '';
 
+        // 1. Si hay factura asociada, buscar en la colección correcta
         if (facturaAsociadaId) {
-          const facObj = facturas.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
-          if (facObj) {
-             nroComprobanteTexto = facObj.n_factura || facObj.numero_comp || '---';
-             if (!proveedorIdReal) {
-                proveedorIdReal = facObj.proveedor_id || facObj.Proveedor_id || '';
-             }
+          if (esIngreso) {
+            const facObj = facturasVenta.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
+            if (facObj) {
+              const pv = facObj.punto_venta ? String(facObj.punto_venta).padStart(5, '0') : '';
+              const nc = facObj.numero_comp ? String(facObj.numero_comp).padStart(8, '0') : '';
+              nroComprobanteTexto = pv && nc ? `${pv}-${nc}` : (facObj.numero_comp || '---');
+              if (!clienteIdReal) clienteIdReal = facObj.cliente_id || facObj.Cliente_id || '';
+            }
+          } else {
+            const facObj = facturas.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
+            if (facObj) {
+              const pv = facObj.punto_venta ? String(facObj.punto_venta).padStart(5, '0') : '';
+              const nc = facObj.numero_comp ? String(facObj.numero_comp).padStart(8, '0') : '';
+              nroComprobanteTexto = pv && nc ? `${pv}-${nc}` : (facObj.n_factura || facObj.numero_comp || '---');
+              if (!proveedorIdReal) proveedorIdReal = facObj.proveedor_id || facObj.Proveedor_id || '';
+            }
+          }
+        }
+
+        // 2. Si no hay factura asociada, buscar inteligentemente en el texto del concepto
+        if (formData.concepto) {
+          const conceptoLower = formData.concepto.toLowerCase();
+          
+          if (esIngreso && !clienteIdReal) {
+            const matchCliente = clientes.find(c => {
+              const nombre = String(c.razon_social || c.nombre || '').toLowerCase();
+              return nombre.length > 3 && conceptoLower.includes(nombre);
+            });
+            if (matchCliente) clienteIdReal = matchCliente.id || matchCliente.ID;
+          } else if (!esIngreso && !proveedorIdReal) {
+            const matchProveedor = proveedores.find(p => {
+              const nombre = String(p.razon_social || p.nombre || '').toLowerCase();
+              return nombre.length > 3 && conceptoLower.includes(nombre);
+            });
+            if (matchProveedor) proveedorIdReal = matchProveedor.id || matchProveedor.ID;
+          }
+
+          if (nroComprobanteTexto === '---') {
+            const matchNro = formData.concepto.match(/(\d{3,5}[-]\d{4,8})/);
+            if (matchNro) nroComprobanteTexto = matchNro[0];
           }
         }
 
@@ -745,7 +776,8 @@ export default function Tesoreria() {
                 monto: montoRet,
                 fecha: formData.fecha,
                 concepto: `Retención ${t.tipo} - ${formData.concepto}`,
-                proveedor_id: proveedorIdReal,
+                proveedor_id: esIngreso ? '' : proveedorIdReal,
+                cliente_id: esIngreso ? clienteIdReal : '',
                 obra_id: formData.obra_id || '',
                 presupuesto_id: formData.presupuesto_id || '',
                 comprobante_asociado: nroComprobanteTexto,
@@ -1242,7 +1274,6 @@ export default function Tesoreria() {
           <button onClick={() => setActiveTab('facturas_cobrar')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'facturas_cobrar' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Facturas a cobrar ({facturasACobrar.length})</button>
           <button onClick={() => setActiveTab('cashflow')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'cashflow' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Cash Flow</button>
           <button onClick={() => setActiveTab('iva')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'iva' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>IVA</button>
-          {/* 🔑 NUEVO (Punto D): tab Retenciones */}
           <button onClick={() => setActiveTab('retenciones')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'retenciones' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Retenciones ({retenciones.length})</button>
         </div>
 
@@ -1304,7 +1335,6 @@ export default function Tesoreria() {
           </div>
         )}
 
-        {/* 🔑 NUEVO (Punto D): filtro de retenciones */}
         {activeTab === 'retenciones' && (
           <div className="flex items-center gap-3 w-full sm:w-auto">
             <select
@@ -1666,7 +1696,6 @@ export default function Tesoreria() {
         </div>
       )}
 
-      {/* 🔑 NUEVO (Punto D): tab Retenciones */}
       {activeTab === 'retenciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
           {retencionesFiltradas.length === 0 ? (
@@ -1691,7 +1720,11 @@ export default function Tesoreria() {
               <tbody className="divide-y divide-slate-100">
                 {retencionesFiltradas.map(r => {
                   const provId = r.proveedor_id || '';
+                  const cliId = r.cliente_id || '';
                   const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
+                  const cli = clientes.find(c => String(c.id || c.ID) === String(cliId));
+                  const terceroNombre = prov?.razon_social || prov?.nombre || cli?.razon_social || cli?.nombre || '---';
+                  
                   const obraId = r.obra_id || '';
                   const obra = obras.find(o => String(o.id || o.ID) === String(obraId));
                   const presId = r.presupuesto_id || '';
@@ -1714,7 +1747,7 @@ export default function Tesoreria() {
                         </span>
                         {r.es_manual && <span className="ml-1 text-[9px] text-slate-400 italic">manual</span>}
                       </td>
-                      <td className="px-6 py-3 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || '---'}</td>
+                      <td className="px-6 py-3 font-bold text-slate-900">{terceroNombre}</td>
                       <td className="px-4 py-3 text-slate-600 truncate">{r.comprobante_asociado || '---'}</td>
                       <td className="px-4 py-3 text-slate-600 truncate">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : '---'}</td>
                       <td className="px-4 py-3 text-slate-600 truncate">{presu?.codigo || '---'}</td>
@@ -1835,7 +1868,6 @@ export default function Tesoreria() {
                     ))}
                   </select>
                 </div>
-                {/* 🔑 FIX (Punto 4): solo mostrar Tipo de Insumo y Rubro si el tipo es Egreso */}
                 {formData.tipo === 'Egreso' && (
                   <>
                     <div>
@@ -2296,7 +2328,6 @@ export default function Tesoreria() {
                       setFormDataVenta({...formDataVenta, iva_21: iva, total: total});
                     }} />
                   </div>
-                  {/* 🔑 FIX (Punto 4): nuevo input IVA 10.5% */}
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 10.5% ($)</label>
                     <input type="number" step="0.01" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.iva_105} onChange={(e) => {
