@@ -1,8 +1,32 @@
 // src/pages/Obras.jsx
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit2, Search, Loader2, Calculator, MapPin } from 'lucide-react'; // 🔑 Agregado MapPin
+import { Plus, Trash2, Edit2, Search, Loader2, Calculator, MapPin } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import L from 'leaflet';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+
+// 🔑 FIX: Arreglar el ícono del marcador de Leaflet
+import markerIcon from 'leaflet/dist/images/marker-icon.png';
+import markerShadow from 'leaflet/dist/images/marker-shadow.png';
+
+let DefaultIcon = L.icon({
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41]
+});
+L.Marker.prototype.options.icon = DefaultIcon;
+
+// 🔑 COMPONENTE INTERNO: Detecta clics en el mapa
+function SelectorMapa({ position, setPosition }) {
+  useMapEvents({
+    click(e) {
+      setPosition({ lat: e.latlng.lat, lng: e.latlng.lng });
+    },
+  });
+  return position ? <Marker position={position} /> : null;
+}
 
 export default function Obras() {
   const { data: obras, loading: loadingObras, error: errorObras } = useFirestoreCollection('obras');
@@ -15,6 +39,7 @@ export default function Obras() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [mapPosition, setMapPosition] = useState(null); // 🔑 Estado del mapa
 
   const [nuevaObra, setNuevaObra] = useState({
     codigo: '',
@@ -54,6 +79,17 @@ export default function Obras() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFormOpen, editingId, obras]);
 
+  // 🔑 Sincroniza el mapa si el usuario escribe coordenadas a mano
+  useEffect(() => {
+    if (nuevaObra.latitud && nuevaObra.longitud) {
+      const lat = parseFloat(nuevaObra.latitud);
+      const lng = parseFloat(nuevaObra.longitud);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setMapPosition({ lat, lng });
+      }
+    }
+  }, [nuevaObra.latitud, nuevaObra.longitud]);
+
   const obtenerCodigoCompleto = (obra) => {
     const cliente = clientes.find(c => String(c.id) === String(obra.cliente_id));
     const codCliente = cliente && cliente.codigo ? cliente.codigo : 'CL00X';
@@ -75,6 +111,7 @@ export default function Obras() {
 
   const handleAbrirFormularioNuevo = () => {
     setEditingId(null);
+    setMapPosition(null); // 🔑 Resetea el mapa
     setNuevaObra({
       codigo: generarProximoCodigo(obras),
       nombre: '',
@@ -84,14 +121,20 @@ export default function Obras() {
       estado: 'activa',
       fecha_de_inicio: '',
       notas: '',
-      latitud: '', // 🔑 NUEVO
-      longitud: ''  // 🔑 NUEVO
+      latitud: '',
+      longitud: ''
     });
     setIsFormOpen(true);
   };
 
   const handleEditarClick = (obra) => {
     setEditingId(obra.id);
+    // 🔑 Si la obra tiene coordenadas, centra el mapa ahí
+    if (obra.latitud && obra.longitud) {
+      setMapPosition({ lat: parseFloat(obra.latitud), lng: parseFloat(obra.longitud) });
+    } else {
+      setMapPosition(null);
+    }
     setNuevaObra({
       codigo: obra.codigo || '',
       nombre: obra.nombre || '',
@@ -101,8 +144,8 @@ export default function Obras() {
       estado: normalizarEstadoA3Opciones(obra.estado),
       fecha_de_inicio: obra.fecha_de_inicio ? String(obra.fecha_de_inicio).split('T')[0] : '',
       notas: obra.notas || '',
-      latitud: obra.latitud || '', // 🔑 NUEVO
-      longitud: obra.longitud || '' // 🔑 NUEVO
+      latitud: obra.latitud || '',
+      longitud: obra.longitud || ''
     });
     setIsFormOpen(true);
   };
@@ -124,6 +167,7 @@ export default function Obras() {
       setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: '' });
       setEditingId(null);
       setIsFormOpen(false);
+      setMapPosition(null);
     } catch (err) {
       console.error(err);
       alert("Error al guardar: " + (err.message || ''));
@@ -314,7 +358,7 @@ export default function Obras() {
                 <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="number" step="any"
-                  placeholder="Latitud (Ej: -34.6037)"
+                  placeholder="Latitud"
                   className="w-full pl-9 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
                   value={nuevaObra.latitud}
                   onChange={(e) => setNuevaObra({ ...nuevaObra, latitud: e.target.value })}
@@ -324,7 +368,7 @@ export default function Obras() {
                 <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="number" step="any"
-                  placeholder="Longitud (Ej: -58.3816)"
+                  placeholder="Longitud"
                   className="w-full pl-9 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
                   value={nuevaObra.longitud}
                   onChange={(e) => setNuevaObra({ ...nuevaObra, longitud: e.target.value })}
@@ -339,6 +383,36 @@ export default function Obras() {
               value={nuevaObra.notas}
               onChange={(e) => setNuevaObra({ ...nuevaObra, notas: e.target.value })}
             />
+
+            {/* 🔑 MAPA INTERACTIVO */}
+            <div className="md:col-span-4 mt-2">
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
+                Ubicación Geográfica (Hacé clic en el mapa para ajustar las coordenadas)
+              </label>
+              <div className="h-64 w-full rounded-xl overflow-hidden border border-slate-300 shadow-inner z-0">
+                <MapContainer 
+                  center={mapPosition || { lat: -34.6037, lng: -58.3816 }} 
+                  zoom={13} 
+                  style={{ height: '100%', width: '100%' }}
+                >
+                  <TileLayer
+                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                  />
+                  <SelectorMapa 
+                    position={mapPosition} 
+                    setPosition={(pos) => {
+                      setMapPosition(pos);
+                      setNuevaObra(prev => ({
+                        ...prev,
+                        latitud: pos.lat.toFixed(6),
+                        longitud: pos.lng.toFixed(6)
+                      }));
+                    }} 
+                  />
+                </MapContainer>
+              </div>
+            </div>
 
             <div className="md:col-span-4 flex justify-end gap-2 mt-2">
               <button

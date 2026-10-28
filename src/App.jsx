@@ -1,5 +1,6 @@
 // src/App.jsx
 import React, { useState, useEffect, lazy, Suspense } from 'react';
+import 'leaflet/dist/leaflet.css'; // 🔑 NUEVO: Import del CSS del mapa
 import { Toaster } from 'react-hot-toast';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
@@ -192,6 +193,13 @@ const AuthenticatedApp = () => {
 export default function App() {
   return (
     <AuthProvider>
+      {/* 🔑 FIX PARA EL MAPA DE LEAFLET */}
+      <style>{`
+        .leaflet-container {
+          z-index: 0 !important;
+        }
+      `}</style>
+
       <QueryClientProvider client={queryClientInstance}>
         <Router>
           <AuthenticatedApp />
