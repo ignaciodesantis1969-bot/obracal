@@ -1,45 +1,21 @@
 // src/pages/Obras.jsx
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2, Calculator, MapPin } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
-import L from 'leaflet';
+import { useLoadScript, GoogleMap, Marker, Autocomplete } from '@react-google-maps/api';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
-// 🔑 FIX: Arreglar el ícono del marcador de Leaflet
-import markerIcon from 'leaflet/dist/images/marker-icon.png';
-import markerShadow from 'leaflet/dist/images/marker-shadow.png';
-
-let DefaultIcon = L.icon({
-  iconUrl: markerIcon,
-  shadowUrl: markerShadow,
-  iconSize: [25, 41],
-  iconAnchor: [12, 41]
-});
-L.Marker.prototype.options.icon = DefaultIcon;
-
-// 🔑 COMPONENTE: Detecta clics en el mapa
-function SelectorMapa({ position, setPosition }) {
-  useMapEvents({
-    click(e) {
-      setPosition({ lat: e.latlng.lat, lng: e.latlng.lng });
-    },
-  });
-  return position ? <Marker position={position} /> : null;
-}
-
-// 🔑 COMPONENTE: Controla el movimiento del mapa cuando se busca una dirección
-function ControlMapa({ center }) {
-  const map = useMap();
-  useEffect(() => {
-    if (center) {
-      map.flyTo(center, 16); // Vuela a la ubicación con zoom cercano
-    }
-  }, [center, map]);
-  return null;
-}
+// Configuración del mapa de Google
+const mapContainerStyle = { width: '100%', height: '300px', borderRadius: '12px' };
+const defaultCenter = { lat: -34.6037, lng: -58.3816 };
+const libraries = ['places'];
 
 export default function Obras() {
+  const { isLoaded, loadError } = useLoadScript({
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    libraries,
+  });
+
   const { data: obras, loading: loadingObras, error: errorObras } = useFirestoreCollection('obras');
   const { data: clientes, loading: loadingClientes, error: errorClientes } = useFirestoreCollection('clientes');
 
@@ -50,26 +26,17 @@ export default function Obras() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [mapPosition, setMapPosition] = useState(null); 
-  const [mapCenter, setMapCenter] = useState(null);
-
-  // 🔑 Estados para el buscador de direcciones
-  const [busquedaDireccion, setBusquedaDireccion] = useState('');
-  const [buscandoDireccion, setBuscandoDireccion] = useState(false);
+  
+  // Estados para el mapa de Google
+  const [map, setMap] = useState(null);
+  const [markerPosition, setMarkerPosition] = useState(defaultCenter);
+  const autocompleteRef = useRef(null);
 
   const [nuevaObra, setNuevaObra] = useState({
-    codigo: '',
-    nombre: '',
-    cliente_id: '',
-    direccion: '',
-    ciudad: '',
-    estado: 'activa',
-    fecha_de_inicio: '',
-    notas: '',
-    latitud: '', 
-    longitud: '' 
+    codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: '' 
   });
 
+  // 🔑 TUS FUNCIONES ORIGINALES
   const generarProximoCodigo = (listaObras) => {
     if (!listaObras || listaObras.length === 0) return 'OB001';
     let maxNum = 0;
@@ -88,54 +55,8 @@ export default function Obras() {
     if (isFormOpen && !editingId && obras.length > 0 && !nuevaObra.codigo) {
       setNuevaObra(prev => ({ ...prev, codigo: generarProximoCodigo(obras) }));
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFormOpen, editingId, obras]);
-
-  // 🔑 Sincroniza el mapa si el usuario escribe coordenadas a mano
-  useEffect(() => {
-    if (nuevaObra.latitud && nuevaObra.longitud) {
-      const lat = parseFloat(nuevaObra.latitud);
-      const lng = parseFloat(nuevaObra.longitud);
-      if (!isNaN(lat) && !isNaN(lng)) {
-        setMapPosition({ lat, lng });
-      }
-    }
-  }, [nuevaObra.latitud, nuevaObra.longitud]);
-
-  // 🔑 FUNCIÓN DEL BUSCADOR (Usa Nominatim API de OpenStreetMap)
-  const buscarDireccionEnMapa = async () => {
-    if (!busquedaDireccion.trim()) return;
-    setBuscandoDireccion(true);
-    try {
-      // Agregamos ", Argentina" para forzar la búsqueda en el país
-      const query = encodeURIComponent(`${busquedaDireccion}, Argentina`);
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`);
-      const data = await res.json();
-
-      if (data && data.length > 0) {
-        const { lat, lon, display_name } = data[0];
-        const latNum = parseFloat(lat);
-        const lngNum = parseFloat(lon);
-
-        setMapPosition({ lat: latNum, lng: lngNum });
-        setMapCenter({ lat: latNum, lng: lngNum }); // Mueve el mapa
-        
-        setNuevaObra(prev => ({
-          ...prev,
-          latitud: latNum.toFixed(6),
-          longitud: lngNum.toFixed(6),
-          // Si el campo dirección estaba vacío, lo rellenamos con la dirección encontrada
-          direccion: prev.direccion || display_name.split(',')[0]
-        }));
-      } else {
-        alert("No se encontró la dirección. Intentá agregando la ciudad o provincia.");
-      }
-    } catch (error) {
-      console.error(error);
-      alert("Error al buscar la dirección.");
-    } finally {
-      setBuscandoDireccion(false);
-    }
-  };
 
   const obtenerCodigoCompleto = (obra) => {
     const cliente = clientes.find(c => String(c.id) === String(obra.cliente_id));
@@ -146,14 +67,13 @@ export default function Obras() {
   };
 
   const handleClienteChange = (e) => {
-    setNuevaObra({ ...nuevaObra, cliente_id: e.target.value });
+    const nuevoClienteId = e.target.value;
+    setNuevaObra({ ...nuevaObra, cliente_id: nuevoClienteId });
   };
 
   const handleAbrirFormularioNuevo = () => {
     setEditingId(null);
-    setMapPosition(null); 
-    setMapCenter(null);
-    setBusquedaDireccion('');
+    setMarkerPosition(defaultCenter);
     setNuevaObra({
       codigo: generarProximoCodigo(obras), nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: ''
     });
@@ -163,13 +83,10 @@ export default function Obras() {
   const handleEditarClick = (obra) => {
     setEditingId(obra.id);
     if (obra.latitud && obra.longitud) {
-      setMapPosition({ lat: parseFloat(obra.latitud), lng: parseFloat(obra.longitud) });
-      setMapCenter({ lat: parseFloat(obra.latitud), lng: parseFloat(obra.longitud) });
+      setMarkerPosition({ lat: parseFloat(obra.latitud), lng: parseFloat(obra.longitud) });
     } else {
-      setMapPosition(null);
-      setMapCenter(null);
+      setMarkerPosition(defaultCenter);
     }
-    setBusquedaDireccion('');
     setNuevaObra({
       codigo: obra.codigo || '', nombre: obra.nombre || '', cliente_id: obra.cliente_id || '', direccion: obra.direccion || '', ciudad: obra.ciudad || '', estado: normalizarEstadoA3Opciones(obra.estado), fecha_de_inicio: obra.fecha_de_inicio ? String(obra.fecha_de_inicio).split('T')[0] : '', notas: obra.notas || '', latitud: obra.latitud || '', longitud: obra.longitud || ''
     });
@@ -190,8 +107,6 @@ export default function Obras() {
       setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: '' });
       setEditingId(null);
       setIsFormOpen(false);
-      setMapPosition(null);
-      setMapCenter(null);
     } catch (err) {
       console.error(err);
       alert("Error al guardar: " + (err.message || ''));
@@ -258,6 +173,27 @@ export default function Obras() {
 
   const error = errorFirestore ? 'Error al conectar con Firestore.' : '';
 
+  // Autocompletado de Google
+  const onLoadAutocomplete = (autocomplete) => {
+    autocompleteRef.current = autocomplete;
+  };
+
+  const onPlaceChanged = () => {
+    if (autocompleteRef.current !== null) {
+      const place = autocompleteRef.current.getPlace();
+      if (place.geometry && place.geometry.location) {
+        const lat = place.geometry.location.lat();
+        const lng = place.geometry.location.lng();
+        setMarkerPosition({ lat, lng });
+        if (map) map.panTo({ lat, lng });
+        setNuevaObra(prev => ({ ...prev, latitud: lat.toFixed(6), longitud: lng.toFixed(6), direccion: place.formatted_address || prev.direccion }));
+      }
+    }
+  };
+
+  if (loadError) return <div className="p-6 text-red-500">Error al cargar Google Maps. Revisá tu API Key.</div>;
+  if (!isLoaded) return <div className="p-6">Cargando mapa de Google...</div>;
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -284,21 +220,13 @@ export default function Obras() {
             </span>
           </h2>
           <form onSubmit={handleGuardar} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            <select
-              required
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
-              value={nuevaObra.cliente_id}
-              onChange={handleClienteChange}
-            >
+            <select required className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.cliente_id} onChange={handleClienteChange}>
               <option value="">Seleccionar Cliente...</option>
-              {clientes.map(c => (
-                <option key={c.id} value={c.id}>{c.codigo ? `${c.codigo} - ` : ''}{c.razon_social || c.nombre}</option>
-              ))}
+              {clientes.map(c => (<option key={c.id} value={c.id}>{c.codigo ? `${c.codigo} - ` : ''}{c.razon_social || c.nombre}</option>))}
             </select>
 
             <input type="text" placeholder="Código de Obra" required readOnly className="bg-slate-100 border border-slate-300 text-slate-500 font-bold rounded-lg px-3 py-2 text-sm focus:outline-none shadow-sm cursor-not-allowed" value={nuevaObra.codigo} title="El código se genera automáticamente" />
             <input type="text" placeholder="Nombre de la Obra" required className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.nombre} onChange={(e) => setNuevaObra({ ...nuevaObra, nombre: e.target.value })} />
-            
             <input type="text" placeholder="Dirección" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.direccion} onChange={(e) => setNuevaObra({ ...nuevaObra, direccion: e.target.value })} />
             <input type="text" placeholder="Ciudad" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.ciudad} onChange={(e) => setNuevaObra({ ...nuevaObra, ciudad: e.target.value })} />
             <select className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.estado} onChange={(e) => setNuevaObra({ ...nuevaObra, estado: e.target.value })}>
@@ -308,7 +236,6 @@ export default function Obras() {
             </select>
             <input type="date" placeholder="Fecha de Inicio" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.fecha_de_inicio} onChange={(e) => setNuevaObra({ ...nuevaObra, fecha_de_inicio: e.target.value })} />
 
-            {/* 🔑 NUEVOS CAMPOS: GEOLOCALIZACIÓN */}
             <div className="md:col-span-2 flex gap-2">
               <div className="relative w-1/2">
                 <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
@@ -321,60 +248,28 @@ export default function Obras() {
             </div>
             <input type="text" placeholder="Notas adicionales" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.notas} onChange={(e) => setNuevaObra({ ...nuevaObra, notas: e.target.value })} />
 
-            {/* 🔑 MAPA INTERACTIVO CON BUSCADOR */}
             <div className="md:col-span-4 mt-2">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ubicación Geográfica</label>
-              
-              {/* Buscador de direcciones */}
-              <div className="flex gap-2 mb-2">
-                <input 
-                  type="text" 
-                  placeholder="Escribí una dirección para buscar en el mapa (Ej: Av. Corrientes 1234, CABA)" 
-                  className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
-                  value={busquedaDireccion}
-                  onChange={(e) => setBusquedaDireccion(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      e.preventDefault(); // Evita que se envíe el formulario
-                      buscarDireccionEnMapa();
-                    }
-                  }}
-                />
-                <button
-                  type="button"
-                  onClick={buscarDireccionEnMapa}
-                  disabled={buscandoDireccion}
-                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
-                >
-                  {buscandoDireccion ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
-                  {buscandoDireccion ? 'Buscando...' : 'Buscar'}
-                </button>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ubicación Geográfica (Mapa)</label>
+              <div className="mb-2">
+                <Autocomplete onLoad={onLoadAutocomplete} onPlaceChanged={onPlaceChanged}>
+                  <input type="text" placeholder="Escribí una dirección para buscar en Google Maps..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" />
+                </Autocomplete>
               </div>
-
-              <div className="h-64 w-full rounded-xl overflow-hidden border border-slate-300 shadow-inner z-0">
-                <MapContainer 
-                  center={mapCenter || mapPosition || { lat: -34.6037, lng: -58.3816 }} 
-                  zoom={13} 
-                  style={{ height: '100%', width: '100%' }}
+              <div className="rounded-xl overflow-hidden border border-slate-300 shadow-inner">
+                <GoogleMap
+                  mapContainerStyle={mapContainerStyle}
+                  center={markerPosition}
+                  zoom={15}
+                  onLoad={mapInstance => setMap(mapInstance)}
+                  onClick={(e) => {
+                    const lat = e.latLng.lat();
+                    const lng = e.latLng.lng();
+                    setMarkerPosition({ lat, lng });
+                    setNuevaObra(prev => ({ ...prev, latitud: lat.toFixed(6), longitud: lng.toFixed(6) }));
+                  }}
                 >
-                  <TileLayer
-                    url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                    attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  />
-                  <ControlMapa center={mapCenter} />
-                  <SelectorMapa 
-                    position={mapPosition} 
-                    setPosition={(pos) => {
-                      setMapPosition(pos);
-                      setMapCenter(null); // Detiene el control de vuelo si el usuario hace clic manual
-                      setNuevaObra(prev => ({
-                        ...prev,
-                        latitud: pos.lat.toFixed(6),
-                        longitud: pos.lng.toFixed(6)
-                      }));
-                    }} 
-                  />
-                </MapContainer>
+                  <Marker position={markerPosition} />
+                </GoogleMap>
               </div>
             </div>
 
@@ -396,29 +291,17 @@ export default function Obras() {
             <input type="text" placeholder="Buscar por nombre, código, cliente, ciudad..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-amber-500 focus:bg-white transition-colors" />
           </div>
         </div>
-
         {error && <div className="p-4 bg-red-50 text-red-600 text-sm text-center border-b border-red-200">{error}</div>}
-
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse min-w-[1000px]">
             <thead>
               <tr className="bg-slate-100 text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-300">
-                <th className="px-6 py-4">Código</th>
-                <th className="px-6 py-4">Nombre</th>
-                <th className="px-6 py-4">Cliente</th>
-                <th className="px-6 py-4">Ubicación</th>
-                <th className="px-6 py-4">Inicio</th>
-                <th className="px-6 py-4">Estado</th>
-                <th className="px-6 py-4 text-right">Acciones</th>
+                <th className="px-6 py-4">Código</th><th className="px-6 py-4">Nombre</th><th className="px-6 py-4">Cliente</th><th className="px-6 py-4">Ubicación</th><th className="px-6 py-4">Inicio</th><th className="px-6 py-4">Estado</th><th className="px-6 py-4 text-right">Acciones</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {isLoading ? (
-                <tr>
-                  <td colSpan="7" className="px-6 py-12 text-center text-slate-500">
-                    <div className="flex flex-col items-center justify-center gap-2"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /><span className="text-sm">Cargando obras...</span></div>
-                  </td>
-                </tr>
+                <tr><td colSpan="7" className="px-6 py-12 text-center text-slate-500"><div className="flex flex-col items-center justify-center gap-2"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /><span className="text-sm">Cargando obras...</span></div></td></tr>
               ) : obrasFiltradas.length === 0 ? (
                 <tr><td colSpan="7" className="px-6 py-12 text-center text-slate-500 text-sm">No se encontraron obras que coincidan con la búsqueda.</td></tr>
               ) : (
@@ -431,17 +314,13 @@ export default function Obras() {
                       <td className="px-6 py-4"><span className="text-slate-700 font-medium text-sm">{obtenerNombreCliente(o.cliente_id)}</span></td>
                       <td className="px-6 py-4">
                         <span className="text-slate-600 text-sm">{o.direccion ? `${o.direccion}${o.ciudad ? `, ${o.ciudad}` : ''}` : (o.ciudad || '—')}</span>
-                        {(o.latitud && o.longitud) ? (
-                          <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 mt-1"><MapPin className="w-3 h-3" /> GPS Configurado</div>
-                        ) : (
-                          <div className="text-[10px] text-slate-400 mt-1">Sin GPS</div>
-                        )}
+                        {(o.latitud && o.longitud) ? (<div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 mt-1"><MapPin className="w-3 h-3" /> GPS Configurado</div>) : (<div className="text-[10px] text-slate-400 mt-1">Sin GPS</div>)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap"><span className="text-slate-600 text-sm">{formatearFecha(o.fecha_de_inicio)}</span></td>
                       <td className="px-6 py-4 whitespace-nowrap"><span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${infoEstado.clases}`}>{infoEstado.label.toUpperCase()}</span></td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <a href={`/presupuestos?obra=${o.id}`} className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors border border-slate-200 bg-white" title="Ver Presupuestos de la Obra"><Calculator className="w-4 h-4" /></a>
+                          <a href={`/presupuestos?obra=${o.id}`} className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors border border-slate-200 bg-white" title="Ver Presupuestos"><Calculator className="w-4 h-4" /></a>
                           <button onClick={() => handleEditarClick(o)} className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors border border-slate-200 bg-white" title="Editar"><Edit2 className="w-4 h-4" /></button>
                           <button onClick={() => handleEliminar(o.id)} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors border border-slate-200 bg-white" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                         </div>
