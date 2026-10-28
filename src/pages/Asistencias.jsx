@@ -1,6 +1,7 @@
 // src/pages/Asistencias.jsx
 import { useState, useMemo } from 'react';
-import { Calendar, Clock, MapPin, User, ShieldCheck, X, Search } from 'lucide-react';
+import { Calendar, Clock, MapPin, User, ShieldCheck, X, Download } from 'lucide-react'; // 🔑 Agregado Download
+import * as XLSX from 'xlsx'; // 🔑 Agregada librería de Excel
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 
 export default function Asistencias() {
@@ -99,9 +100,42 @@ export default function Asistencias() {
     setFechaHasta('');
   };
 
+  // 🔑 FUNCIÓN PARA EXPORTAR A EXCEL
+  const exportarAExcel = () => {
+    // 1. Preparamos los datos con las columnas que queremos en el Excel
+    const datosParaExcel = asistenciasAgrupadas.map(asist => ({
+      'Fecha': formatearFechaVisual(asist.fechaDia),
+      'Empleado': asist.nombreEmpleado,
+      'Especialidad': asist.especialidad,
+      'Obra': asist.nombreObra,
+      'Hora Entrada': asist.entrada || '-',
+      'Hora Salida': asist.salida || '-',
+      'Verificación Facial': asist.rostroOk ? 'OK' : 'Manual',
+    }));
+
+    // 2. Creamos la hoja de cálculo
+    const hoja = XLSX.utils.json_to_sheet(datosParaExcel);
+
+    // 3. Ajustamos el ancho de las columnas para que se lea bien
+    hoja['!cols'] = [
+      { wch: 12 }, // Fecha
+      { wch: 30 }, // Empleado
+      { wch: 20 }, // Especialidad
+      { wch: 30 }, // Obra
+      { wch: 15 }, // Entrada
+      { wch: 15 }, // Salida
+      { wch: 20 }, // Verificación
+    ];
+
+    // 4. Creamos el libro de trabajo y lo descargamos
+    const libro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(libro, hoja, 'Asistencias');
+    XLSX.writeFile(libro, `Asistencias_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Encabezado */}
+      {/* Encabezado con botón de exportar */}
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 flex items-center gap-2">
@@ -109,6 +143,15 @@ export default function Asistencias() {
           </h1>
           <p className="text-slate-500 text-sm mt-1">Registros agrupados por día</p>
         </div>
+        
+        {/* 🔑 BOTÓN DE EXPORTAR */}
+        <button
+          onClick={exportarAExcel}
+          disabled={asistenciasAgrupadas.length === 0}
+          className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-lg font-medium text-sm transition-colors shadow-sm"
+        >
+          <Download className="w-4 h-4" /> Exportar a Excel
+        </button>
       </div>
 
       {/* Barra de Filtros */}
