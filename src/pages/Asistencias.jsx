@@ -1,36 +1,21 @@
 // src/pages/Asistencias.jsx
-import { useMemo } from 'react';
-import { Calendar, Clock, MapPin, CheckCircle2, User, ShieldCheck } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { Calendar, Clock, MapPin, CheckCircle2, User, ShieldCheck, Filter, X } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 
 export default function Asistencias() {
-  // Traemos los registros de asistencia y el personal
+  // Traemos los registros y las colecciones necesarias
   const { data: asistencias, loading: loadingAsistencias } = useFirestoreCollection('attendance_records');
   const { data: personal, loading: loadingPersonal } = useFirestoreCollection('personal');
+  const { data: obras, loading: loadingObras } = useFirestoreCollection('obras');
 
-  const isLoading = loadingAsistencias || loadingPersonal;
+  // Estados para los filtros
+  const [filtroObra, setFiltroObra] = useState('');
+  const [filtroFecha, setFiltroFecha] = useState('');
 
-  // Cruzamos los datos: buscamos el nombre del empleado en base a su employeeId
-  const asistenciasProcesadas = useMemo(() => {
-    if (!asistencias || !personal) return [];
+  const isLoading = loadingAsistencias || loadingPersonal || loadingObras;
 
-    return asistencias.map(asist => {
-      // Buscamos el empleado por su ID (el ID del documento de Firestore)
-      const empleado = personal.find(p => String(p.id) === String(asist.employeeId));
-      
-      return {
-        ...asist,
-        nombreEmpleado: empleado ? empleado.nombre : `Empleado Desconocido (ID: ${asist.employeeId})`,
-        especialidad: empleado ? empleado.especialidad : '---'
-      };
-    }).sort((a, b) => {
-      // Ordenamos por la hora más reciente primero
-      const fechaA = new Date(a.timestampLocal || a.timestamp?.toDate()).getTime() || 0;
-      const fechaB = new Date(b.timestampLocal || b.timestamp?.toDate()).getTime() || 0;
-      return fechaB - fechaA;
-    });
-  }, [asistencias, personal]);
-
+  // Función para formatear la hora
   const formatearFecha = (fechaStr) => {
     if (!fechaStr) return '---';
     try {
@@ -39,6 +24,49 @@ export default function Asistencias() {
     } catch {
       return 'Fecha inválida';
     }
+  };
+
+  // Cruzamos datos, aplicamos filtros y ordenamos
+  const asistenciasProcesadas = useMemo(() => {
+    if (!asistencias || !personal) return [];
+
+    let procesadas = asistencias.map(asist => {
+      const empleado = personal.find(p => String(p.id) === String(asist.employeeId));
+      const obra = obras?.find(o => String(o.id) === String(asist.obraId));
+      
+      return {
+        ...asist,
+        nombreEmpleado: empleado ? empleado.nombre : `Empleado Desconocido (ID: ${asist.employeeId})`,
+        especialidad: empleado ? empleado.especialidad : '---',
+        nombreObra: obra ? obra.nombre : `Obra Desconocida (ID: ${asist.obraId})`
+      };
+    });
+
+    // Aplicar Filtro por Obra
+    if (filtroObra) {
+      procesadas = procesadas.filter(a => String(a.obraId) === String(filtroObra));
+    }
+
+    // Aplicar Filtro por Fecha (comparando el string de fecha YYYY-MM-DD)
+    if (filtroFecha) {
+      procesadas = procesadas.filter(a => {
+        const fechaAsist = a.timestampLocal ? a.timestampLocal.split('T')[0] : '';
+        return fechaAsist === filtroFecha;
+      });
+    }
+
+    // Ordenar de más reciente a más antiguo
+    return procesadas.sort((a, b) => {
+      const fechaA = new Date(a.timestampLocal || a.timestamp?.toDate()).getTime() || 0;
+      const fechaB = new Date(b.timestampLocal || b.timestamp?.toDate()).getTime() || 0;
+      return fechaB - fechaA;
+    });
+  }, [asistencias, personal, obras, filtroObra, filtroFecha]);
+
+  // Función para limpiar filtros
+  const limpiarFiltros = () => {
+    setFiltroObra('');
+    setFiltroFecha('');
   };
 
   return (
@@ -53,6 +81,42 @@ export default function Asistencias() {
         </div>
       </div>
 
+      {/* Barra de Filtros */}
+      <div className="bg-white p-4 rounded-xl border border-slate-300 shadow-sm flex flex-wrap gap-4 items-end">
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Filtrar por Obra</label>
+          <select
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
+            value={filtroObra}
+            onChange={(e) => setFiltroObra(e.target.value)}
+          >
+            <option value="">Todas las obras</option>
+            {obras?.map(obra => (
+              <option key={obra.id} value={obra.id}>{obra.nombre}</option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex-1 min-w-[200px]">
+          <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Filtrar por Fecha</label>
+          <input
+            type="date"
+            className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
+            value={filtroFecha}
+            onChange={(e) => setFiltroFecha(e.target.value)}
+          />
+        </div>
+
+        {(filtroObra || filtroFecha) && (
+          <button
+            onClick={limpiarFiltros}
+            className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 h-[38px]"
+          >
+            <X className="w-4 h-4" /> Limpiar Filtros
+          </button>
+        )}
+      </div>
+
       {/* Tabla de Datos */}
       <div className="bg-white border border-slate-300 rounded-xl shadow-sm overflow-hidden flex flex-col">
         <div className="overflow-x-auto">
@@ -61,22 +125,23 @@ export default function Asistencias() {
               <tr className="bg-slate-50 text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-300">
                 <th className="px-6 py-4">Fecha y Hora</th>
                 <th className="px-6 py-4">Empleado</th>
+                <th className="px-6 py-4">Obra</th>
                 <th className="px-6 py-4">Tipo</th>
                 <th className="px-6 py-4">Verificación</th>
-                <th className="px-6 py-4">Ubicación (GPS)</th>
+                <th className="px-6 py-4">Ubicación</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan="6" className="px-6 py-12 text-center text-slate-500">
                     Cargando asistencias...
                   </td>
                 </tr>
               ) : asistenciasProcesadas.length === 0 ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-12 text-center text-slate-500 text-sm">
-                    No hay asistencias registradas aún.
+                  <td colSpan="6" className="px-6 py-12 text-center text-slate-500 text-sm">
+                    No se encontraron asistencias con los filtros seleccionados.
                   </td>
                 </tr>
               ) : (
@@ -99,6 +164,9 @@ export default function Asistencias() {
                           </span>
                           <span className="text-xs text-slate-500">{asist.especialidad}</span>
                         </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-slate-700">
+                        {asist.nombreObra}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-bold ${
@@ -125,7 +193,7 @@ export default function Asistencias() {
                           rel="noopener noreferrer"
                           className="flex items-center gap-1 text-blue-600 hover:underline"
                         >
-                          <MapPin className="w-4 h-4" /> Ver en Maps
+                          <MapPin className="w-4 h-4" /> Ver Mapa
                         </a>
                       </td>
                     </tr>
