@@ -8,7 +8,7 @@ import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 // Configuración del mapa
 const mapContainerStyle = { width: '100%', height: '300px', borderRadius: '12px' };
 const defaultCenter = { lat: -34.6037, lng: -58.3816 };
-// 🔑 IMPORTANTE: Agregamos 'marker' a las librerías
+// 🔑 IMPORTANTE: Agregamos 'marker' y 'places' a las librerías
 const libraries = ['places', 'marker']; 
 
 export default function Obras() {
@@ -31,9 +31,8 @@ export default function Obras() {
   const [map, setMap] = useState(null);
   const [markerPosition, setMarkerPosition] = useState(defaultCenter);
   
-  // 🔑 Referencias para el buscador moderno
-  const inputRef = useRef(null);
-  const autocompleteRef = useRef(null);
+  // 🔑 Referencia para el contenedor del buscador moderno
+  const autocompleteContainerRef = useRef(null);
 
   const [nuevaObra, setNuevaObra] = useState({
     codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: '' 
@@ -60,20 +59,24 @@ export default function Obras() {
     }
   }, [isFormOpen, editingId, obras]);
 
-  // 🔑 EFECTO PARA INICIALIZAR EL BUSCADOR MODERNO
+  // 🔑 EFECTO PARA INICIALIZAR EL BUSCADOR MODERNO (PlaceAutocompleteElement)
   useEffect(() => {
-    if (isLoaded && inputRef.current && !autocompleteRef.current) {
-      // Usamos la nueva API de Google Maps
-      autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
-        componentRestrictions: { country: 'ar' }, // Restringir a Argentina
-        fields: ['geometry', 'formatted_address'],
+    if (isLoaded && autocompleteContainerRef.current && window.google?.maps?.places?.PlaceAutocompleteElement) {
+      // Creamos el componente moderno
+      const placeAutocomplete = new window.google.maps.places.PlaceAutocompleteElement({
+        componentRestrictions: { country: 'ar' },
       });
 
-      autocompleteRef.current.addListener('place_changed', () => {
-        const place = autocompleteRef.current.getPlace();
-        if (place.geometry && place.geometry.location) {
-          const lat = place.geometry.location.lat();
-          const lng = place.geometry.location.lng();
+      // Escuchamos el evento de selección
+      placeAutocomplete.addEventListener('gmp-select', async (event) => {
+        const place = event.placePrediction.toPlace();
+        await place.fetchFields({
+          fields: ['location', 'formattedAddress'],
+        });
+
+        if (place.location) {
+          const lat = place.location.lat();
+          const lng = place.location.lng();
           
           setMarkerPosition({ lat, lng });
           if (map) map.panTo({ lat, lng });
@@ -82,10 +85,14 @@ export default function Obras() {
             ...prev,
             latitud: lat.toFixed(6),
             longitud: lng.toFixed(6),
-            direccion: place.formatted_address || prev.direccion
+            direccion: place.formattedAddress || prev.direccion
           }));
         }
       });
+
+      // Limpiamos el contenedor y agregamos el nuevo componente
+      autocompleteContainerRef.current.innerHTML = '';
+      autocompleteContainerRef.current.appendChild(placeAutocomplete);
     }
   }, [isLoaded, map]);
 
@@ -104,7 +111,6 @@ export default function Obras() {
   const handleAbrirFormularioNuevo = () => {
     setEditingId(null);
     setMarkerPosition(defaultCenter);
-    if (autocompleteRef.current) autocompleteRef.current.set('place', null); // Limpiamos el buscador
     setNuevaObra({
       codigo: generarProximoCodigo(obras), nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: ''
     });
@@ -262,18 +268,12 @@ export default function Obras() {
             </div>
             <input type="text" placeholder="Notas adicionales" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.notas} onChange={(e) => setNuevaObra({ ...nuevaObra, notas: e.target.value })} />
 
-            {/* 🔑 NUEVO BUSCADOR NATIVO DE GOOGLE MAPS */}
+            {/* 🔑 NUEVO BUSCADOR MODERNO */}
             <div className="md:col-span-4 mt-2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ubicación Geográfica</label>
               
-              <div className="mb-2">
-                <input 
-                  ref={inputRef}
-                  type="text" 
-                  placeholder="Escribí una dirección para buscar en Google Maps..." 
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
-                />
-              </div>
+              {/* Contenedor donde se inyectará el componente de Google */}
+              <div ref={autocompleteContainerRef} className="mb-2 w-full"></div>
 
               <div className="rounded-xl overflow-hidden border border-slate-300 shadow-inner">
                 <GoogleMap
