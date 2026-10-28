@@ -1,14 +1,15 @@
 // src/pages/Obras.jsx
 import { useState, useEffect, useRef } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2, Calculator, MapPin } from 'lucide-react';
-import { useLoadScript, GoogleMap, Marker, Autocomplete } from '@react-google-maps/api';
+import { useLoadScript, GoogleMap, Marker } from '@react-google-maps/api';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
-// Configuración del mapa de Google
+// Configuración del mapa
 const mapContainerStyle = { width: '100%', height: '300px', borderRadius: '12px' };
 const defaultCenter = { lat: -34.6037, lng: -58.3816 };
-const libraries = ['places'];
+// 🔑 IMPORTANTE: Agregamos 'marker' a las librerías
+const libraries = ['places', 'marker']; 
 
 export default function Obras() {
   const { isLoaded, loadError } = useLoadScript({
@@ -27,16 +28,18 @@ export default function Obras() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   
-  // Estados para el mapa de Google
   const [map, setMap] = useState(null);
   const [markerPosition, setMarkerPosition] = useState(defaultCenter);
+  
+  // 🔑 Referencias para el buscador moderno
+  const inputRef = useRef(null);
   const autocompleteRef = useRef(null);
 
   const [nuevaObra, setNuevaObra] = useState({
     codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: '' 
   });
 
-  // 🔑 TUS FUNCIONES ORIGINALES
+  // TUS FUNCIONES ORIGINALES
   const generarProximoCodigo = (listaObras) => {
     if (!listaObras || listaObras.length === 0) return 'OB001';
     let maxNum = 0;
@@ -55,8 +58,36 @@ export default function Obras() {
     if (isFormOpen && !editingId && obras.length > 0 && !nuevaObra.codigo) {
       setNuevaObra(prev => ({ ...prev, codigo: generarProximoCodigo(obras) }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFormOpen, editingId, obras]);
+
+  // 🔑 EFECTO PARA INICIALIZAR EL BUSCADOR MODERNO
+  useEffect(() => {
+    if (isLoaded && inputRef.current && !autocompleteRef.current) {
+      // Usamos la nueva API de Google Maps
+      autocompleteRef.current = new window.google.maps.places.Autocomplete(inputRef.current, {
+        componentRestrictions: { country: 'ar' }, // Restringir a Argentina
+        fields: ['geometry', 'formatted_address'],
+      });
+
+      autocompleteRef.current.addListener('place_changed', () => {
+        const place = autocompleteRef.current.getPlace();
+        if (place.geometry && place.geometry.location) {
+          const lat = place.geometry.location.lat();
+          const lng = place.geometry.location.lng();
+          
+          setMarkerPosition({ lat, lng });
+          if (map) map.panTo({ lat, lng });
+          
+          setNuevaObra(prev => ({
+            ...prev,
+            latitud: lat.toFixed(6),
+            longitud: lng.toFixed(6),
+            direccion: place.formatted_address || prev.direccion
+          }));
+        }
+      });
+    }
+  }, [isLoaded, map]);
 
   const obtenerCodigoCompleto = (obra) => {
     const cliente = clientes.find(c => String(c.id) === String(obra.cliente_id));
@@ -67,13 +98,13 @@ export default function Obras() {
   };
 
   const handleClienteChange = (e) => {
-    const nuevoClienteId = e.target.value;
-    setNuevaObra({ ...nuevaObra, cliente_id: nuevoClienteId });
+    setNuevaObra({ ...nuevaObra, cliente_id: e.target.value });
   };
 
   const handleAbrirFormularioNuevo = () => {
     setEditingId(null);
     setMarkerPosition(defaultCenter);
+    if (autocompleteRef.current) autocompleteRef.current.set('place', null); // Limpiamos el buscador
     setNuevaObra({
       codigo: generarProximoCodigo(obras), nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: ''
     });
@@ -173,24 +204,6 @@ export default function Obras() {
 
   const error = errorFirestore ? 'Error al conectar con Firestore.' : '';
 
-  // Autocompletado de Google
-  const onLoadAutocomplete = (autocomplete) => {
-    autocompleteRef.current = autocomplete;
-  };
-
-  const onPlaceChanged = () => {
-    if (autocompleteRef.current !== null) {
-      const place = autocompleteRef.current.getPlace();
-      if (place.geometry && place.geometry.location) {
-        const lat = place.geometry.location.lat();
-        const lng = place.geometry.location.lng();
-        setMarkerPosition({ lat, lng });
-        if (map) map.panTo({ lat, lng });
-        setNuevaObra(prev => ({ ...prev, latitud: lat.toFixed(6), longitud: lng.toFixed(6), direccion: place.formatted_address || prev.direccion }));
-      }
-    }
-  };
-
   if (loadError) return <div className="p-6 text-red-500">Error al cargar Google Maps. Revisá tu API Key.</div>;
   if (!isLoaded) return <div className="p-6">Cargando mapa de Google...</div>;
 
@@ -227,6 +240,7 @@ export default function Obras() {
 
             <input type="text" placeholder="Código de Obra" required readOnly className="bg-slate-100 border border-slate-300 text-slate-500 font-bold rounded-lg px-3 py-2 text-sm focus:outline-none shadow-sm cursor-not-allowed" value={nuevaObra.codigo} title="El código se genera automáticamente" />
             <input type="text" placeholder="Nombre de la Obra" required className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.nombre} onChange={(e) => setNuevaObra({ ...nuevaObra, nombre: e.target.value })} />
+            
             <input type="text" placeholder="Dirección" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.direccion} onChange={(e) => setNuevaObra({ ...nuevaObra, direccion: e.target.value })} />
             <input type="text" placeholder="Ciudad" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.ciudad} onChange={(e) => setNuevaObra({ ...nuevaObra, ciudad: e.target.value })} />
             <select className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.estado} onChange={(e) => setNuevaObra({ ...nuevaObra, estado: e.target.value })}>
@@ -248,13 +262,19 @@ export default function Obras() {
             </div>
             <input type="text" placeholder="Notas adicionales" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.notas} onChange={(e) => setNuevaObra({ ...nuevaObra, notas: e.target.value })} />
 
+            {/* 🔑 NUEVO BUSCADOR NATIVO DE GOOGLE MAPS */}
             <div className="md:col-span-4 mt-2">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ubicación Geográfica (Mapa)</label>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ubicación Geográfica</label>
+              
               <div className="mb-2">
-                <Autocomplete onLoad={onLoadAutocomplete} onPlaceChanged={onPlaceChanged}>
-                  <input type="text" placeholder="Escribí una dirección para buscar en Google Maps..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" />
-                </Autocomplete>
+                <input 
+                  ref={inputRef}
+                  type="text" 
+                  placeholder="Escribí una dirección para buscar en Google Maps..." 
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
+                />
               </div>
+
               <div className="rounded-xl overflow-hidden border border-slate-300 shadow-inner">
                 <GoogleMap
                   mapContainerStyle={mapContainerStyle}
