@@ -1,7 +1,7 @@
 // src/pages/Obras.jsx
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2, Calculator, MapPin } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, useMapEvents } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, useMapEvents, useMap } from 'react-leaflet';
 import L from 'leaflet';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
@@ -18,7 +18,7 @@ let DefaultIcon = L.icon({
 });
 L.Marker.prototype.options.icon = DefaultIcon;
 
-// 🔑 COMPONENTE INTERNO: Detecta clics en el mapa
+// 🔑 COMPONENTE: Detecta clics en el mapa
 function SelectorMapa({ position, setPosition }) {
   useMapEvents({
     click(e) {
@@ -26,6 +26,17 @@ function SelectorMapa({ position, setPosition }) {
     },
   });
   return position ? <Marker position={position} /> : null;
+}
+
+// 🔑 COMPONENTE: Controla el movimiento del mapa cuando se busca una dirección
+function ControlMapa({ center }) {
+  const map = useMap();
+  useEffect(() => {
+    if (center) {
+      map.flyTo(center, 16); // Vuela a la ubicación con zoom cercano
+    }
+  }, [center, map]);
+  return null;
 }
 
 export default function Obras() {
@@ -39,7 +50,12 @@ export default function Obras() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-  const [mapPosition, setMapPosition] = useState(null); // 🔑 Estado del mapa
+  const [mapPosition, setMapPosition] = useState(null); 
+  const [mapCenter, setMapCenter] = useState(null);
+
+  // 🔑 Estados para el buscador de direcciones
+  const [busquedaDireccion, setBusquedaDireccion] = useState('');
+  const [buscandoDireccion, setBuscandoDireccion] = useState(false);
 
   const [nuevaObra, setNuevaObra] = useState({
     codigo: '',
@@ -50,13 +66,12 @@ export default function Obras() {
     estado: 'activa',
     fecha_de_inicio: '',
     notas: '',
-    latitud: '', // 🔑 NUEVO
-    longitud: '' // 🔑 NUEVO
+    latitud: '', 
+    longitud: '' 
   });
 
   const generarProximoCodigo = (listaObras) => {
     if (!listaObras || listaObras.length === 0) return 'OB001';
-
     let maxNum = 0;
     listaObras.forEach(o => {
       const cod = String(o.codigo || '').toUpperCase().trim();
@@ -71,12 +86,8 @@ export default function Obras() {
 
   useEffect(() => {
     if (isFormOpen && !editingId && obras.length > 0 && !nuevaObra.codigo) {
-      setNuevaObra(prev => ({
-        ...prev,
-        codigo: generarProximoCodigo(obras)
-      }));
+      setNuevaObra(prev => ({ ...prev, codigo: generarProximoCodigo(obras) }));
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFormOpen, editingId, obras]);
 
   // 🔑 Sincroniza el mapa si el usuario escribe coordenadas a mano
@@ -90,62 +101,77 @@ export default function Obras() {
     }
   }, [nuevaObra.latitud, nuevaObra.longitud]);
 
+  // 🔑 FUNCIÓN DEL BUSCADOR (Usa Nominatim API de OpenStreetMap)
+  const buscarDireccionEnMapa = async () => {
+    if (!busquedaDireccion.trim()) return;
+    setBuscandoDireccion(true);
+    try {
+      // Agregamos ", Argentina" para forzar la búsqueda en el país
+      const query = encodeURIComponent(`${busquedaDireccion}, Argentina`);
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`);
+      const data = await res.json();
+
+      if (data && data.length > 0) {
+        const { lat, lon, display_name } = data[0];
+        const latNum = parseFloat(lat);
+        const lngNum = parseFloat(lon);
+
+        setMapPosition({ lat: latNum, lng: lngNum });
+        setMapCenter({ lat: latNum, lng: lngNum }); // Mueve el mapa
+        
+        setNuevaObra(prev => ({
+          ...prev,
+          latitud: latNum.toFixed(6),
+          longitud: lngNum.toFixed(6),
+          // Si el campo dirección estaba vacío, lo rellenamos con la dirección encontrada
+          direccion: prev.direccion || display_name.split(',')[0]
+        }));
+      } else {
+        alert("No se encontró la dirección. Intentá agregando la ciudad o provincia.");
+      }
+    } catch (error) {
+      console.error(error);
+      alert("Error al buscar la dirección.");
+    } finally {
+      setBuscandoDireccion(false);
+    }
+  };
+
   const obtenerCodigoCompleto = (obra) => {
     const cliente = clientes.find(c => String(c.id) === String(obra.cliente_id));
     const codCliente = cliente && cliente.codigo ? cliente.codigo : 'CL00X';
     let codObra = obra.codigo || 'OB001';
-
-    if (codObra.includes('-')) {
-      return codObra;
-    }
+    if (codObra.includes('-')) return codObra;
     return `${codCliente}-${codObra}`;
   };
 
   const handleClienteChange = (e) => {
-    const nuevoClienteId = e.target.value;
-    setNuevaObra({
-      ...nuevaObra,
-      cliente_id: nuevoClienteId
-    });
+    setNuevaObra({ ...nuevaObra, cliente_id: e.target.value });
   };
 
   const handleAbrirFormularioNuevo = () => {
     setEditingId(null);
-    setMapPosition(null); // 🔑 Resetea el mapa
+    setMapPosition(null); 
+    setMapCenter(null);
+    setBusquedaDireccion('');
     setNuevaObra({
-      codigo: generarProximoCodigo(obras),
-      nombre: '',
-      cliente_id: '',
-      direccion: '',
-      ciudad: '',
-      estado: 'activa',
-      fecha_de_inicio: '',
-      notas: '',
-      latitud: '',
-      longitud: ''
+      codigo: generarProximoCodigo(obras), nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: ''
     });
     setIsFormOpen(true);
   };
 
   const handleEditarClick = (obra) => {
     setEditingId(obra.id);
-    // 🔑 Si la obra tiene coordenadas, centra el mapa ahí
     if (obra.latitud && obra.longitud) {
       setMapPosition({ lat: parseFloat(obra.latitud), lng: parseFloat(obra.longitud) });
+      setMapCenter({ lat: parseFloat(obra.latitud), lng: parseFloat(obra.longitud) });
     } else {
       setMapPosition(null);
+      setMapCenter(null);
     }
+    setBusquedaDireccion('');
     setNuevaObra({
-      codigo: obra.codigo || '',
-      nombre: obra.nombre || '',
-      cliente_id: obra.cliente_id || '',
-      direccion: obra.direccion || '',
-      ciudad: obra.ciudad || '',
-      estado: normalizarEstadoA3Opciones(obra.estado),
-      fecha_de_inicio: obra.fecha_de_inicio ? String(obra.fecha_de_inicio).split('T')[0] : '',
-      notas: obra.notas || '',
-      latitud: obra.latitud || '',
-      longitud: obra.longitud || ''
+      codigo: obra.codigo || '', nombre: obra.nombre || '', cliente_id: obra.cliente_id || '', direccion: obra.direccion || '', ciudad: obra.ciudad || '', estado: normalizarEstadoA3Opciones(obra.estado), fecha_de_inicio: obra.fecha_de_inicio ? String(obra.fecha_de_inicio).split('T')[0] : '', notas: obra.notas || '', latitud: obra.latitud || '', longitud: obra.longitud || ''
     });
     setIsFormOpen(true);
   };
@@ -153,21 +179,19 @@ export default function Obras() {
   const handleGuardar = async (e) => {
     e.preventDefault();
     if (isSaving) return;
-
     setIsSaving(true);
     try {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = nuevaObra;
-
       if (editingId) {
         await actualizarDoc('obras', editingId, datosLimpios);
       } else {
         await crearDoc('obras', datosLimpios);
       }
-
       setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: '' });
       setEditingId(null);
       setIsFormOpen(false);
       setMapPosition(null);
+      setMapCenter(null);
     } catch (err) {
       console.error(err);
       alert("Error al guardar: " + (err.message || ''));
@@ -188,9 +212,7 @@ export default function Obras() {
 
   const obtenerNombreCliente = (clienteId) => {
     const clienteEncontrado = clientes.find(c => String(c.id) === String(clienteId));
-    if (clienteEncontrado) {
-      return clienteEncontrado.razon_social || clienteEncontrado.nombre || `Cliente #${clienteId}`;
-    }
+    if (clienteEncontrado) return clienteEncontrado.razon_social || clienteEncontrado.nombre || `Cliente #${clienteId}`;
     return clienteId ? `Cliente #${clienteId}` : '—';
   };
 
@@ -199,22 +221,13 @@ export default function Obras() {
     try {
       const soloFecha = String(fechaStr).split('T')[0];
       const partes = soloFecha.split('-');
-      if (partes.length === 3) {
-        return `${partes[2]}/${partes[1]}/${partes[0]}`;
-      }
+      if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
       return fechaStr;
-    } catch (e) {
-      return fechaStr;
-    }
+    } catch (e) { return fechaStr; }
   };
 
   const normalizarEstado = (str) => {
-    return String(str || '')
-      .toLowerCase()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/[_-]/g, ' ')
-      .trim();
+    return String(str || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[_-]/g, ' ').trim();
   };
 
   const normalizarEstadoA3Opciones = (estadoRaw) => {
@@ -226,23 +239,9 @@ export default function Obras() {
 
   const obtenerInfoEstado = (estadoRaw) => {
     const est = normalizarEstadoA3Opciones(estadoRaw);
-
-    if (est === 'pausada') {
-      return {
-        label: 'Pausada',
-        clases: 'bg-amber-100 text-amber-800 border border-amber-200',
-      };
-    }
-    if (est === 'de_baja') {
-      return {
-        label: 'de Baja',
-        clases: 'bg-slate-200 text-slate-700 border border-slate-300',
-      };
-    }
-    return {
-      label: 'Activa',
-      clases: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
-    };
+    if (est === 'pausada') return { label: 'Pausada', clases: 'bg-amber-100 text-amber-800 border border-amber-200' };
+    if (est === 'de_baja') return { label: 'de Baja', clases: 'bg-slate-200 text-slate-700 border border-slate-300' };
+    return { label: 'Activa', clases: 'bg-emerald-100 text-emerald-800 border border-emerald-200' };
   };
 
   const obrasFiltradas = obras.filter(o => {
@@ -293,105 +292,68 @@ export default function Obras() {
             >
               <option value="">Seleccionar Cliente...</option>
               {clientes.map(c => (
-                <option key={c.id} value={c.id}>
-                  {c.codigo ? `${c.codigo} - ` : ''}{c.razon_social || c.nombre}
-                </option>
+                <option key={c.id} value={c.id}>{c.codigo ? `${c.codigo} - ` : ''}{c.razon_social || c.nombre}</option>
               ))}
             </select>
 
-            <input
-              type="text"
-              placeholder="Código de Obra"
-              required
-              readOnly
-              className="bg-slate-100 border border-slate-300 text-slate-500 font-bold rounded-lg px-3 py-2 text-sm focus:outline-none shadow-sm cursor-not-allowed"
-              value={nuevaObra.codigo}
-              title="El código se genera automáticamente"
-            />
-
-            <input
-              type="text"
-              placeholder="Nombre de la Obra"
-              required
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm"
-              value={nuevaObra.nombre}
-              onChange={(e) => setNuevaObra({ ...nuevaObra, nombre: e.target.value })}
-            />
-
-            <input
-              type="text"
-              placeholder="Dirección"
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
-              value={nuevaObra.direccion}
-              onChange={(e) => setNuevaObra({ ...nuevaObra, direccion: e.target.value })}
-            />
-
-            <input
-              type="text"
-              placeholder="Ciudad"
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
-              value={nuevaObra.ciudad}
-              onChange={(e) => setNuevaObra({ ...nuevaObra, ciudad: e.target.value })}
-            />
-
-            <select
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
-              value={nuevaObra.estado}
-              onChange={(e) => setNuevaObra({ ...nuevaObra, estado: e.target.value })}
-            >
+            <input type="text" placeholder="Código de Obra" required readOnly className="bg-slate-100 border border-slate-300 text-slate-500 font-bold rounded-lg px-3 py-2 text-sm focus:outline-none shadow-sm cursor-not-allowed" value={nuevaObra.codigo} title="El código se genera automáticamente" />
+            <input type="text" placeholder="Nombre de la Obra" required className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.nombre} onChange={(e) => setNuevaObra({ ...nuevaObra, nombre: e.target.value })} />
+            
+            <input type="text" placeholder="Dirección" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.direccion} onChange={(e) => setNuevaObra({ ...nuevaObra, direccion: e.target.value })} />
+            <input type="text" placeholder="Ciudad" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.ciudad} onChange={(e) => setNuevaObra({ ...nuevaObra, ciudad: e.target.value })} />
+            <select className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.estado} onChange={(e) => setNuevaObra({ ...nuevaObra, estado: e.target.value })}>
               <option value="activa">Activa</option>
               <option value="pausada">Pausada</option>
               <option value="de_baja">de Baja</option>
             </select>
-
-            <input
-              type="date"
-              placeholder="Fecha de Inicio"
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
-              value={nuevaObra.fecha_de_inicio}
-              onChange={(e) => setNuevaObra({ ...nuevaObra, fecha_de_inicio: e.target.value })}
-            />
+            <input type="date" placeholder="Fecha de Inicio" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.fecha_de_inicio} onChange={(e) => setNuevaObra({ ...nuevaObra, fecha_de_inicio: e.target.value })} />
 
             {/* 🔑 NUEVOS CAMPOS: GEOLOCALIZACIÓN */}
             <div className="md:col-span-2 flex gap-2">
               <div className="relative w-1/2">
                 <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="number" step="any"
-                  placeholder="Latitud"
-                  className="w-full pl-9 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
-                  value={nuevaObra.latitud}
-                  onChange={(e) => setNuevaObra({ ...nuevaObra, latitud: e.target.value })}
-                />
+                <input type="number" step="any" placeholder="Latitud" className="w-full pl-9 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.latitud} onChange={(e) => setNuevaObra({ ...nuevaObra, latitud: e.target.value })} />
               </div>
               <div className="relative w-1/2">
                 <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="number" step="any"
-                  placeholder="Longitud"
-                  className="w-full pl-9 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
-                  value={nuevaObra.longitud}
-                  onChange={(e) => setNuevaObra({ ...nuevaObra, longitud: e.target.value })}
-                />
+                <input type="number" step="any" placeholder="Longitud" className="w-full pl-9 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.longitud} onChange={(e) => setNuevaObra({ ...nuevaObra, longitud: e.target.value })} />
               </div>
             </div>
+            <input type="text" placeholder="Notas adicionales" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.notas} onChange={(e) => setNuevaObra({ ...nuevaObra, notas: e.target.value })} />
 
-            <input
-              type="text"
-              placeholder="Notas adicionales"
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm"
-              value={nuevaObra.notas}
-              onChange={(e) => setNuevaObra({ ...nuevaObra, notas: e.target.value })}
-            />
-
-            {/* 🔑 MAPA INTERACTIVO */}
+            {/* 🔑 MAPA INTERACTIVO CON BUSCADOR */}
             <div className="md:col-span-4 mt-2">
-              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">
-                Ubicación Geográfica (Hacé clic en el mapa para ajustar las coordenadas)
-              </label>
+              <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ubicación Geográfica</label>
+              
+              {/* Buscador de direcciones */}
+              <div className="flex gap-2 mb-2">
+                <input 
+                  type="text" 
+                  placeholder="Escribí una dirección para buscar en el mapa (Ej: Av. Corrientes 1234, CABA)" 
+                  className="flex-1 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
+                  value={busquedaDireccion}
+                  onChange={(e) => setBusquedaDireccion(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault(); // Evita que se envíe el formulario
+                      buscarDireccionEnMapa();
+                    }
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={buscarDireccionEnMapa}
+                  disabled={buscandoDireccion}
+                  className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg text-sm font-medium transition-colors shadow-sm flex items-center gap-2 disabled:opacity-50"
+                >
+                  {buscandoDireccion ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                  {buscandoDireccion ? 'Buscando...' : 'Buscar'}
+                </button>
+              </div>
+
               <div className="h-64 w-full rounded-xl overflow-hidden border border-slate-300 shadow-inner z-0">
                 <MapContainer 
-                  center={mapPosition || { lat: -34.6037, lng: -58.3816 }} 
+                  center={mapCenter || mapPosition || { lat: -34.6037, lng: -58.3816 }} 
                   zoom={13} 
                   style={{ height: '100%', width: '100%' }}
                 >
@@ -399,10 +361,12 @@ export default function Obras() {
                     url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                   />
+                  <ControlMapa center={mapCenter} />
                   <SelectorMapa 
                     position={mapPosition} 
                     setPosition={(pos) => {
                       setMapPosition(pos);
+                      setMapCenter(null); // Detiene el control de vuelo si el usuario hace clic manual
                       setNuevaObra(prev => ({
                         ...prev,
                         latitud: pos.lat.toFixed(6),
@@ -415,19 +379,8 @@ export default function Obras() {
             </div>
 
             <div className="md:col-span-4 flex justify-end gap-2 mt-2">
-              <button
-                type="button"
-                onClick={() => { setIsFormOpen(false); setEditingId(null); }}
-                disabled={isSaving}
-                className="px-4 py-2 text-slate-700 hover:bg-slate-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                disabled={isSaving}
-                className="flex items-center gap-2 px-6 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-70 disabled:cursor-not-allowed"
-              >
+              <button type="button" onClick={() => { setIsFormOpen(false); setEditingId(null); }} disabled={isSaving} className="px-4 py-2 text-slate-700 hover:bg-slate-300 rounded-lg text-sm font-medium transition-colors disabled:opacity-50">Cancelar</button>
+              <button type="submit" disabled={isSaving} className="flex items-center gap-2 px-6 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-sm font-medium transition-colors shadow-sm disabled:opacity-70 disabled:cursor-not-allowed">
                 {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
                 {isSaving ? 'Guardando...' : (editingId ? 'Actualizar Obra' : 'Guardar Obra')}
               </button>
@@ -440,13 +393,7 @@ export default function Obras() {
         <div className="p-4 border-b border-slate-200 bg-white">
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Buscar por nombre, código, cliente, ciudad..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-amber-500 focus:bg-white transition-colors"
-            />
+            <input type="text" placeholder="Buscar por nombre, código, cliente, ciudad..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-lg text-sm focus:outline-none focus:border-amber-500 focus:bg-white transition-colors" />
           </div>
         </div>
 
@@ -469,76 +416,34 @@ export default function Obras() {
               {isLoading ? (
                 <tr>
                   <td colSpan="7" className="px-6 py-12 text-center text-slate-500">
-                    <div className="flex flex-col items-center justify-center gap-2">
-                      <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
-                      <span className="text-sm">Cargando obras...</span>
-                    </div>
+                    <div className="flex flex-col items-center justify-center gap-2"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /><span className="text-sm">Cargando obras...</span></div>
                   </td>
                 </tr>
               ) : obrasFiltradas.length === 0 ? (
-                <tr>
-                  <td colSpan="7" className="px-6 py-12 text-center text-slate-500 text-sm">
-                    No se encontraron obras que coincidan con la búsqueda.
-                  </td>
-                </tr>
+                <tr><td colSpan="7" className="px-6 py-12 text-center text-slate-500 text-sm">No se encontraron obras que coincidan con la búsqueda.</td></tr>
               ) : (
                 obrasFiltradas.map((o, i) => {
                   const infoEstado = obtenerInfoEstado(o.estado);
                   return (
                     <tr key={o.id || i} className="hover:bg-slate-50 transition-colors group">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="font-bold text-blue-600 text-sm">{obtenerCodigoCompleto(o)}</span>
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap"><span className="font-bold text-blue-600 text-sm">{obtenerCodigoCompleto(o)}</span></td>
+                      <td className="px-6 py-4"><span className="font-semibold text-slate-800 text-sm">{o.nombre || '—'}</span></td>
+                      <td className="px-6 py-4"><span className="text-slate-700 font-medium text-sm">{obtenerNombreCliente(o.cliente_id)}</span></td>
                       <td className="px-6 py-4">
-                        <span className="font-semibold text-slate-800 text-sm">{o.nombre || '—'}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-slate-700 font-medium text-sm">{obtenerNombreCliente(o.cliente_id)}</span>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span className="text-slate-600 text-sm">
-                          {o.direccion ? `${o.direccion}${o.ciudad ? `, ${o.ciudad}` : ''}` : (o.ciudad || '—')}
-                        </span>
-                        {/* 🔑 NUEVO: Muestra si ya tiene GPS guardado */}
+                        <span className="text-slate-600 text-sm">{o.direccion ? `${o.direccion}${o.ciudad ? `, ${o.ciudad}` : ''}` : (o.ciudad || '—')}</span>
                         {(o.latitud && o.longitud) ? (
-                          <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 mt-1">
-                            <MapPin className="w-3 h-3" /> GPS Configurado
-                          </div>
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 mt-1"><MapPin className="w-3 h-3" /> GPS Configurado</div>
                         ) : (
                           <div className="text-[10px] text-slate-400 mt-1">Sin GPS</div>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className="text-slate-600 text-sm">{formatearFecha(o.fecha_de_inicio)}</span>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${infoEstado.clases}`}>
-                          {infoEstado.label.toUpperCase()}
-                        </span>
-                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap"><span className="text-slate-600 text-sm">{formatearFecha(o.fecha_de_inicio)}</span></td>
+                      <td className="px-6 py-4 whitespace-nowrap"><span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${infoEstado.clases}`}>{infoEstado.label.toUpperCase()}</span></td>
                       <td className="px-6 py-4 whitespace-nowrap text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <a
-                            href={`/presupuestos?obra=${o.id}`}
-                            className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors border border-slate-200 bg-white"
-                            title="Ver Presupuestos de la Obra"
-                          >
-                            <Calculator className="w-4 h-4" />
-                          </a>
-                          <button
-                            onClick={() => handleEditarClick(o)}
-                            className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors border border-slate-200 bg-white"
-                            title="Editar"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleEliminar(o.id)}
-                            className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors border border-slate-200 bg-white"
-                            title="Eliminar"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <a href={`/presupuestos?obra=${o.id}`} className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-md transition-colors border border-slate-200 bg-white" title="Ver Presupuestos de la Obra"><Calculator className="w-4 h-4" /></a>
+                          <button onClick={() => handleEditarClick(o)} className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-md transition-colors border border-slate-200 bg-white" title="Editar"><Edit2 className="w-4 h-4" /></button>
+                          <button onClick={() => handleEliminar(o.id)} className="p-1.5 text-slate-500 hover:text-red-600 hover:bg-red-50 rounded-md transition-colors border border-slate-200 bg-white" title="Eliminar"><Trash2 className="w-4 h-4" /></button>
                         </div>
                       </td>
                     </tr>
