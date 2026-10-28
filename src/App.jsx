@@ -28,6 +28,7 @@ const Presupuestos = lazy(() => import('@/pages/Presupuestos'));
 const PresupuestoDetalle = lazy(() => import('@/pages/PresupuestoDetalle'));
 const Planificacion = lazy(() => import('@/pages/Planificacion'));
 const Rrhh = lazy(() => import('@/pages/Rrhh'));
+const Asistencias = lazy(() => import('@/pages/Asistencias')); // 🔑 NUEVO
 const Compras = lazy(() => import('@/pages/Compras'));
 const Tesoreria = lazy(() => import('@/pages/Tesoreria'));
 const Reportes = lazy(() => import('@/pages/ReportesPage'));
@@ -87,7 +88,6 @@ const AuthenticatedApp = () => {
         let firestoreIdFinal = null;
         const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
 
-        // 🔑 Resguardo directo SOLO para el admin principal
         if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
           rolFinal = 'admin';
         }
@@ -173,6 +173,7 @@ const AuthenticatedApp = () => {
               <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
               <Route path="/planificacion/*" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
               <Route path="/rrhh" element={<RequirePermiso modulo="rrhh"><Rrhh /></RequirePermiso>} />
+              <Route path="/asistencias" element={<RequirePermiso modulo="rrhh"><Asistencias /></RequirePermiso>} /> {/* 🔑 NUEVO */}
               <Route path="/compras" element={<RequirePermiso modulo="compras"><Compras /></RequirePermiso>} />
               <Route path="/tesoreria" element={<RequirePermiso modulo="tesoreria"><Tesoreria /></RequirePermiso>} />
               <Route path="/reportes" element={<Reportes currentUser={user} userRole={userRole} esOperador={false} esOperadorII={false} />} />

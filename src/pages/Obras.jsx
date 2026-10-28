@@ -1,21 +1,17 @@
 // src/pages/Obras.jsx
 import { useState, useEffect } from 'react';
-import { Plus, Trash2, Edit2, Search, Loader2, Calculator } from 'lucide-react';
-// 🔑 FIX: eliminado import de GOOGLE_SCRIPT_URL (ya no se usa)
-// 🔑 NUEVO: lectura/escritura directo a Firestore
+import { Plus, Trash2, Edit2, Search, Loader2, Calculator, MapPin } from 'lucide-react'; // 🔑 Agregado MapPin
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function Obras() {
-  // 🔑 NUEVO: leemos DOS colecciones en paralelo (obras + clientes)
-  // `clientes` se usa para mostrar el nombre del cliente y armar el código CL###-OB###
   const { data: obras, loading: loadingObras, error: errorObras } = useFirestoreCollection('obras');
   const { data: clientes, loading: loadingClientes, error: errorClientes } = useFirestoreCollection('clientes');
 
   const isLoading = loadingObras || loadingClientes;
   const errorFirestore = errorObras || errorClientes;
 
-  const [isSaving, setIsSaving] = useState(false); // 🛡️ bloqueo anti doble clic
+  const [isSaving, setIsSaving] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -28,17 +24,17 @@ export default function Obras() {
     ciudad: '',
     estado: 'activa',
     fecha_de_inicio: '',
-    notas: ''
+    notas: '',
+    latitud: '', // 🔑 NUEVO
+    longitud: '' // 🔑 NUEVO
   });
 
-  // 🔑 NUEVO: autogenera OB### basándose en las obras existentes
   const generarProximoCodigo = (listaObras) => {
     if (!listaObras || listaObras.length === 0) return 'OB001';
 
     let maxNum = 0;
     listaObras.forEach(o => {
       const cod = String(o.codigo || '').toUpperCase().trim();
-      // Acepta "OB001", "OB1", "OB-001", etc.
       const match = cod.match(/^OB-?0*(\d+)$/);
       if (match) {
         const num = parseInt(match[1], 10);
@@ -48,7 +44,6 @@ export default function Obras() {
     return `OB${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  // 🔑 NUEVO: cuando se abre el modal de "Nueva Obra", autogenera el código
   useEffect(() => {
     if (isFormOpen && !editingId && obras.length > 0 && !nuevaObra.codigo) {
       setNuevaObra(prev => ({
@@ -59,8 +54,6 @@ export default function Obras() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isFormOpen, editingId, obras]);
 
-  // 🔑 FIX: cliente_id sigue guardándose como string del doc.id del cliente
-  // Función para armar el código completo visualmente (ej: CL002-OB001)
   const obtenerCodigoCompleto = (obra) => {
     const cliente = clientes.find(c => String(c.id) === String(obra.cliente_id));
     const codCliente = cliente && cliente.codigo ? cliente.codigo : 'CL00X';
@@ -90,14 +83,15 @@ export default function Obras() {
       ciudad: '',
       estado: 'activa',
       fecha_de_inicio: '',
-      notas: ''
+      notas: '',
+      latitud: '', // 🔑 NUEVO
+      longitud: ''  // 🔑 NUEVO
     });
     setIsFormOpen(true);
   };
 
   const handleEditarClick = (obra) => {
     setEditingId(obra.id);
-    // 🔑 NUEVO: normalizar el estado al abrir edición (mapea viejos → 'activa')
     setNuevaObra({
       codigo: obra.codigo || '',
       nombre: obra.nombre || '',
@@ -106,20 +100,19 @@ export default function Obras() {
       ciudad: obra.ciudad || '',
       estado: normalizarEstadoA3Opciones(obra.estado),
       fecha_de_inicio: obra.fecha_de_inicio ? String(obra.fecha_de_inicio).split('T')[0] : '',
-      notas: obra.notas || ''
+      notas: obra.notas || '',
+      latitud: obra.latitud || '', // 🔑 NUEVO
+      longitud: obra.longitud || '' // 🔑 NUEVO
     });
     setIsFormOpen(true);
   };
 
-  // 🔑 FIX: guardado directo a Firestore
-  // 🛡️ bloqueo anti doble clic con isSaving
   const handleGuardar = async (e) => {
     e.preventDefault();
     if (isSaving) return;
 
     setIsSaving(true);
     try {
-      // 🔑 FIX: limpiar campos internos de Firestore antes de escribir
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = nuevaObra;
 
       if (editingId) {
@@ -128,10 +121,9 @@ export default function Obras() {
         await crearDoc('obras', datosLimpios);
       }
 
-      setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '' });
+      setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: '' });
       setEditingId(null);
       setIsFormOpen(false);
-      // Firestore actualiza la lista en tiempo real vía onSnapshot.
     } catch (err) {
       console.error(err);
       alert("Error al guardar: " + (err.message || ''));
@@ -140,7 +132,6 @@ export default function Obras() {
     }
   };
 
-  // 🔑 FIX: eliminación directo a Firestore
   const handleEliminar = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar esta obra?")) return;
     try {
@@ -173,7 +164,6 @@ export default function Obras() {
     }
   };
 
-  // 🔑 NUEVO: normaliza el estado (por si viene con guion bajo o con espacio)
   const normalizarEstado = (str) => {
     return String(str || '')
       .toLowerCase()
@@ -183,17 +173,13 @@ export default function Obras() {
       .trim();
   };
 
-  // 🔑 NUEVO: mapea cualquier estado viejo → uno de los 3 nuevos
-  // Todos los viejos caen en "activa" salvo que ya sea pausada/de baja
   const normalizarEstadoA3Opciones = (estadoRaw) => {
     const est = normalizarEstado(estadoRaw);
     if (est === 'pausada' || est === 'pausado' || est === 'pausa') return 'pausada';
     if (est === 'de baja' || est === 'baja' || est === 'debaja') return 'de_baja';
-    // Todo el resto (en_presupuesto, aprobada, en_ejecucion, finalizada, rechazada, vacío, etc.)
     return 'activa';
   };
 
-  // 🔑 NUEVO: devuelve el label legible + las clases de color por estado
   const obtenerInfoEstado = (estadoRaw) => {
     const est = normalizarEstadoA3Opciones(estadoRaw);
 
@@ -209,7 +195,6 @@ export default function Obras() {
         clases: 'bg-slate-200 text-slate-700 border border-slate-300',
       };
     }
-    // Default: activa
     return {
       label: 'Activa',
       clases: 'bg-emerald-100 text-emerald-800 border border-emerald-200',
@@ -232,8 +217,6 @@ export default function Obras() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
-
-      {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Obras</h1>
@@ -249,7 +232,6 @@ export default function Obras() {
         </div>
       </div>
 
-      {/* FORMULARIO DESPLEGABLE */}
       {isFormOpen && (
         <div className="bg-slate-200/90 p-6 rounded-xl border border-slate-400 shadow-md animate-in fade-in slide-in-from-top-4 duration-200">
           <h2 className="text-base font-semibold mb-4 text-slate-800 flex items-center justify-between">
@@ -308,7 +290,6 @@ export default function Obras() {
               onChange={(e) => setNuevaObra({ ...nuevaObra, ciudad: e.target.value })}
             />
 
-            {/* 🔑 Dropdown reducido a los 3 estados nuevos: Activa, Pausada, de Baja */}
             <select
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
               value={nuevaObra.estado}
@@ -327,10 +308,34 @@ export default function Obras() {
               onChange={(e) => setNuevaObra({ ...nuevaObra, fecha_de_inicio: e.target.value })}
             />
 
+            {/* 🔑 NUEVOS CAMPOS: GEOLOCALIZACIÓN */}
+            <div className="md:col-span-2 flex gap-2">
+              <div className="relative w-1/2">
+                <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="number" step="any"
+                  placeholder="Latitud (Ej: -34.6037)"
+                  className="w-full pl-9 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
+                  value={nuevaObra.latitud}
+                  onChange={(e) => setNuevaObra({ ...nuevaObra, latitud: e.target.value })}
+                />
+              </div>
+              <div className="relative w-1/2">
+                <MapPin className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="number" step="any"
+                  placeholder="Longitud (Ej: -58.3816)"
+                  className="w-full pl-9 bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
+                  value={nuevaObra.longitud}
+                  onChange={(e) => setNuevaObra({ ...nuevaObra, longitud: e.target.value })}
+                />
+              </div>
+            </div>
+
             <input
               type="text"
               placeholder="Notas adicionales"
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-4 focus:outline-none focus:border-amber-500 shadow-sm"
+              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm"
               value={nuevaObra.notas}
               onChange={(e) => setNuevaObra({ ...nuevaObra, notas: e.target.value })}
             />
@@ -357,7 +362,6 @@ export default function Obras() {
         </div>
       )}
 
-      {/* TABLA Y BUSCADOR */}
       <div className="bg-white border border-slate-300 rounded-xl shadow-sm overflow-hidden flex flex-col">
         <div className="p-4 border-b border-slate-200 bg-white">
           <div className="relative">
@@ -405,7 +409,6 @@ export default function Obras() {
                 </tr>
               ) : (
                 obrasFiltradas.map((o, i) => {
-                  // 🔑 FIX: usar el helper para el badge de estado
                   const infoEstado = obtenerInfoEstado(o.estado);
                   return (
                     <tr key={o.id || i} className="hover:bg-slate-50 transition-colors group">
@@ -422,12 +425,19 @@ export default function Obras() {
                         <span className="text-slate-600 text-sm">
                           {o.direccion ? `${o.direccion}${o.ciudad ? `, ${o.ciudad}` : ''}` : (o.ciudad || '—')}
                         </span>
+                        {/* 🔑 NUEVO: Muestra si ya tiene GPS guardado */}
+                        {(o.latitud && o.longitud) ? (
+                          <div className="flex items-center gap-1 text-[10px] font-bold text-emerald-600 mt-1">
+                            <MapPin className="w-3 h-3" /> GPS Configurado
+                          </div>
+                        ) : (
+                          <div className="text-[10px] text-slate-400 mt-1">Sin GPS</div>
+                        )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span className="text-slate-600 text-sm">{formatearFecha(o.fecha_de_inicio)}</span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        {/* 🔑 FIX: badge dinámico según estado */}
                         <span className={`inline-flex px-2.5 py-1 rounded-full text-xs font-medium ${infoEstado.clases}`}>
                           {infoEstado.label.toUpperCase()}
                         </span>

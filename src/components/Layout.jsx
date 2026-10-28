@@ -5,7 +5,8 @@ import {
   LayoutDashboard, Users, Truck, Building2,
   Calculator, CalendarDays, ShoppingCart, Wallet,
   BarChart3, ChevronLeft, ChevronRight, Menu,
-  ClipboardList, UserCog, LogOut, BookOpen, ShieldCheck
+  ClipboardList, UserCog, LogOut, BookOpen, ShieldCheck,
+  Clock // 🔑 NUEVO
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -17,7 +18,7 @@ import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
 
 const allNavItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/', key: 'dashboard' },   // 🔑 key cambiado
+  { icon: LayoutDashboard, label: 'Dashboard', path: '/', key: 'dashboard' },
   { icon: Users, label: 'Clientes', path: '/clientes', key: 'clientes' },
   { icon: Truck, label: 'Proveedores', path: '/proveedores', key: 'proveedores' },
   { icon: Building2, label: 'Obras', path: '/obras', key: 'obras' },
@@ -26,6 +27,7 @@ const allNavItems = [
   { icon: Calculator, label: 'Presupuestos', path: '/presupuestos', key: 'presupuestos' },
   { icon: ShieldCheck, label: 'Contratos de Mantenimiento', path: '/contratos-mantenimiento', key: 'contratos_mantenimiento' },
   { icon: Users, label: 'Recursos Humanos', path: '/rrhh', key: 'rrhh' },
+  { icon: Clock, label: 'Asistencias', path: '/asistencias', key: 'rrhh' }, // 🔑 NUEVO
   { icon: ShoppingCart, label: 'Compras', path: '/compras', key: 'compras' },
   { icon: Wallet, label: 'Tesorería', path: '/tesoreria', key: 'tesoreria' },
   { icon: BarChart3, label: 'Control y Reportes', path: '/reportes', key: 'reportes' },
@@ -42,7 +44,6 @@ function SidebarContent({
   esOperadorEstandar,
   esOperadorII,
 }) {
-  // 🔑 Control de permiso para el link de Usuarios
   const puedeVerUsuarios = tienePermiso(user, 'usuarios');
 
   return (
@@ -81,7 +82,6 @@ function SidebarContent({
         })}
       </nav>
 
-      {/* 🔑 Usuarios: solo si tiene permiso (admin/administrador) */}
       {puedeVerUsuarios && (
         <div className="px-2 pb-1">
           <Link
