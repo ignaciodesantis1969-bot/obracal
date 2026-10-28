@@ -1,5 +1,5 @@
 // src/pages/Asistencias.jsx
-import React, { useMemo } from 'react';
+import { useMemo } from 'react';
 import { Calendar, Clock, MapPin, CheckCircle2, User, ShieldCheck } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 
