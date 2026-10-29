@@ -1,6 +1,6 @@
 // src/App.jsx
 import React, { useState, useEffect, lazy, Suspense } from 'react';
-import 'leaflet/dist/leaflet.css'; // 🔑 NUEVO: Import del CSS del mapa
+import 'leaflet/dist/leaflet.css';
 import { Toaster } from 'react-hot-toast';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClientInstance } from '@/lib/query-client';
@@ -29,14 +29,14 @@ const Presupuestos = lazy(() => import('@/pages/Presupuestos'));
 const PresupuestoDetalle = lazy(() => import('@/pages/PresupuestoDetalle'));
 const Planificacion = lazy(() => import('@/pages/Planificacion'));
 const Rrhh = lazy(() => import('@/pages/Rrhh'));
-const Asistencias = lazy(() => import('@/pages/Asistencias')); // 🔑 NUEVO
+const Asistencias = lazy(() => import('@/pages/Asistencias'));
+const Inventario = lazy(() => import('@/pages/Inventario')); // 🔑 Import agregado
 const Compras = lazy(() => import('@/pages/Compras'));
 const Tesoreria = lazy(() => import('@/pages/Tesoreria'));
 const Reportes = lazy(() => import('@/pages/ReportesPage'));
 const Usuarios = lazy(() => import('@/pages/Usuarios'));
 const TareasTemplate = lazy(() => import('@/pages/TareasTemplate'));
 const ContratosMantenimiento = lazy(() => import('@/pages/ContratosMantenimiento'));
-const Inventario = lazy(() => import('@/pages/Inventario'));
 
 // 🔑 Lee el perfil (nombre + rol + firestoreId) desde Firestore.
 const cargarPerfilUsuario = async (emailFirebase) => {
@@ -147,7 +147,6 @@ const AuthenticatedApp = () => {
       </div>
     }>
       <Routes>
-        <Route path="/inventario" element={<RequirePermiso modulo="obras"><Inventario /></RequirePermiso>} />
         <Route element={<Layout />}>
           {esOperadorEstandar ? (
             <Route path="*" element={<Reportes currentUser={user} userRole={userRole} esOperador={true} esOperadorII={false} />} />
@@ -176,7 +175,11 @@ const AuthenticatedApp = () => {
               <Route path="/presupuestos/:id" element={<PresupuestoDetalle />} />
               <Route path="/planificacion/*" element={<RequirePermiso modulo="planificacion"><Planificacion /></RequirePermiso>} />
               <Route path="/rrhh" element={<RequirePermiso modulo="rrhh"><Rrhh /></RequirePermiso>} />
-              <Route path="/asistencias" element={<RequirePermiso modulo="rrhh"><Asistencias /></RequirePermiso>} /> {/* 🔑 NUEVO */}
+              <Route path="/asistencias" element={<RequirePermiso modulo="rrhh"><Asistencias /></RequirePermiso>} />
+              
+              {/* 🔑 RUTA DE INVENTARIO (AHORA ADENTRO DEL LAYOUT) */}
+              <Route path="/inventario" element={<RequirePermiso modulo="obras"><Inventario /></RequirePermiso>} />
+              
               <Route path="/compras" element={<RequirePermiso modulo="compras"><Compras /></RequirePermiso>} />
               <Route path="/tesoreria" element={<RequirePermiso modulo="tesoreria"><Tesoreria /></RequirePermiso>} />
               <Route path="/reportes" element={<Reportes currentUser={user} userRole={userRole} esOperador={false} esOperadorII={false} />} />
@@ -195,7 +198,6 @@ const AuthenticatedApp = () => {
 export default function App() {
   return (
     <AuthProvider>
-      {/* 🔑 FIX PARA EL MAPA DE LEAFLET */}
       <style>{`
         .leaflet-container {
           z-index: 0 !important;
