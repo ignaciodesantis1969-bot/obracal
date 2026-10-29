@@ -16,6 +16,13 @@ import logoSidebar from '@/assets/LogoSolo.png';
 
 import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
+import {
+  LayoutDashboard, Users, Truck, Building2,
+  Calculator, CalendarDays, ShoppingCart, Wallet,
+  BarChart3, ChevronLeft, ChevronRight, Menu,
+  ClipboardList, UserCog, LogOut, BookOpen, ShieldCheck,
+  Clock, Package // 🔑 AGREGA 'Package' ACÁ
+} from 'lucide-react';
 
 const allNavItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/', key: 'dashboard' },
@@ -32,7 +39,8 @@ const allNavItems = [
   { icon: Wallet, label: 'Tesorería', path: '/tesoreria', key: 'tesoreria' },
   { icon: BarChart3, label: 'Control y Reportes', path: '/reportes', key: 'reportes' },
   { icon: CalendarDays, label: 'Planificación', path: '/planificacion', key: 'planificacion' },
-  { icon: Package, label: 'Inventario', path: '/inventario', key: 'obras' }
+    { icon: Clock, label: 'Asistencias', path: '/asistencias', key: 'rrhh' },
+  { icon: Package, label: 'Inventario', path: '/inventario', key: 'obras' }, // 🔑 Este es el nuevo
 ];
 
 function SidebarContent({
