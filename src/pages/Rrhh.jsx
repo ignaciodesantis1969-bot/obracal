@@ -1230,7 +1230,7 @@ export default function Rrhh() {
             const urlLegajo = fotoPerfilObj?.url_archivo || fotoPerfilObj?.Url_archivo || fotoPerfilObj?.archivo_url || fotoPerfilObj?.Archivo_url;
 
             // 2. 🔑 Buscamos la foto que subió la App Móvil en 'personal'
-            const empActual = personalSalarios.find(p => String(p.id || p.ID) === String(legajoEmpleadoSeleccionado));
+            const empActual = safePersonal.find(p => String(p.id || p.ID) === String(legajoEmpleadoSeleccionado));
             const urlAppMovil = empActual?.foto_url;
 
             // Priorizamos la de la App Móvil
