@@ -1,11 +1,12 @@
 // src/pages/Inventario.jsx
 import { useState, useMemo } from 'react';
-import { Package, Search, MapPin, User, Plus, Edit2, Trash2, Loader2, DollarSign, TrendingDown } from 'lucide-react';
+import { Package, Search, MapPin, User, Plus, Edit2, Trash2, Loader2 } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 
 export default function Inventario() {
   const { data: inventario, loading } = useFirestoreCollection('inventario');
+  const { data: obras } = useFirestoreCollection('obras'); // 🔑 Traemos las obras
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -18,7 +19,8 @@ export default function Inventario() {
     codigo: '',
     tipo: 'Herramienta Manual',
     descripcion: '',
-    estado: 'en_obra',
+    estado: 'Activa', // 🔑 Nuevo estado
+    obra_id: '',      // 🔑 Nueva obra
     costo_inicial: '',
     depreciacion_anual: ''
   });
@@ -42,13 +44,14 @@ export default function Inventario() {
         codigo: item.codigo || '',
         tipo: item.tipo || 'Herramienta Manual',
         descripcion: item.descripcion || '',
-        estado: item.estado || 'en_obra',
+        estado: item.estado || 'Activa',
+        obra_id: item.obra_id || '',
         costo_inicial: item.costo_inicial || '',
         depreciacion_anual: item.depreciacion_anual || ''
       });
     } else {
       setEditingId(null);
-      setFormData({ nombre: '', codigo: '', tipo: 'Herramienta Manual', descripcion: '', estado: 'en_obra', costo_inicial: '', depreciacion_anual: '' });
+      setFormData({ nombre: '', codigo: '', tipo: 'Herramienta Manual', descripcion: '', estado: 'Activa', obra_id: '', costo_inicial: '', depreciacion_anual: '' });
     }
     setIsFormOpen(true);
   };
@@ -58,7 +61,6 @@ export default function Inventario() {
     if (isSaving) return;
     setIsSaving(true);
     try {
-      // Convertimos los valores a números antes de guardar
       const datosLimpios = {
         ...formData,
         costo_inicial: Number(formData.costo_inicial) || 0,
@@ -87,6 +89,12 @@ export default function Inventario() {
       console.error(err);
       alert("Error al eliminar: " + (err.message || ''));
     }
+  };
+
+  // 🔑 Función para obtener el nombre de la obra
+  const obtenerNombreObra = (obraId) => {
+    const obra = obras?.find(o => String(o.id) === String(obraId));
+    return obra ? obra.nombre : 'Sin asignar';
   };
 
   return (
@@ -142,22 +150,36 @@ export default function Inventario() {
               <option value="Equipo de Protección (EPP)">Equipo de Protección (EPP)</option>
               <option value="Otro">Otro</option>
             </select>
+
+            {/* 🔑 Selector de Obra en el formulario */}
+            <select
+              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm md:col-span-2"
+              value={formData.obra_id}
+              onChange={(e) => setFormData({ ...formData, obra_id: e.target.value })}
+            >
+              <option value="">Seleccionar Obra...</option>
+              {obras?.map(o => (
+                <option key={o.id} value={o.id}>{o.nombre}</option>
+              ))}
+            </select>
+
             <input
               type="text"
               placeholder="Descripción / Estado"
-              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm md:col-span-3"
+              className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
               value={formData.descripcion}
               onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
             />
+
+            {/* 🔑 Nuevos estados */}
             <select
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
               value={formData.estado}
               onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
             >
-              <option value="en_obra">En Obra</option>
-              <option value="en_deposito">En Depósito</option>
-              <option value="en_reparacion">En Reparación</option>
-              <option value="baja">De Baja</option>
+              <option value="Activa">Activa</option>
+              <option value="En reparación">En reparación</option>
+              <option value="De Baja">De Baja</option>
             </select>
 
             {/* CAMPOS CONTABLES */}
@@ -219,6 +241,7 @@ export default function Inventario() {
               <tr className="bg-slate-100 text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-300">
                 <th className="px-6 py-4">Foto</th>
                 <th className="px-6 py-4">Herramienta / Máquina</th>
+                <th className="px-6 py-4">Obra</th> {/* 🔑 Nueva Columna */}
                 <th className="px-6 py-4">Tipo</th>
                 <th className="px-6 py-4">Estado</th>
                 <th className="px-6 py-4">Costo Inicial</th>
@@ -231,9 +254,9 @@ export default function Inventario() {
             </thead>
             <tbody className="divide-y divide-slate-200">
               {loading ? (
-                <tr><td colSpan="10" className="px-6 py-12 text-center text-slate-500">Cargando inventario...</td></tr>
+                <tr><td colSpan="11" className="px-6 py-12 text-center text-slate-500">Cargando inventario...</td></tr>
               ) : inventarioFiltrado.length === 0 ? (
-                <tr><td colSpan="10" className="px-6 py-12 text-center text-slate-500 text-sm">No hay herramientas registradas.</td></tr>
+                <tr><td colSpan="11" className="px-6 py-12 text-center text-slate-500 text-sm">No hay herramientas registradas.</td></tr>
               ) : (
                 inventarioFiltrado.map((item) => {
                   const costo = Number(item.costo_inicial) || 0;
@@ -257,19 +280,23 @@ export default function Inventario() {
                           <span className="text-xs text-slate-500">Cód: {item.codigo || '---'}</span>
                         </div>
                       </td>
+                      {/* 🔑 Mostramos la obra */}
+                      <td className="px-6 py-4 text-sm text-slate-700 font-medium">
+                        {obtenerNombreObra(item.obra_id)}
+                      </td>
                       <td className="px-6 py-4 text-sm text-slate-700">
                         <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-full font-bold text-[10px]">
                           {item.tipo}
                         </span>
                       </td>
+                      {/* 🔑 Nuevos estados con colores */}
                       <td className="px-6 py-4 text-sm text-slate-700">
                         <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${
-                          item.estado === 'en_obra' ? 'bg-emerald-100 text-emerald-800' :
-                          item.estado === 'en_deposito' ? 'bg-blue-100 text-blue-800' :
-                          item.estado === 'en_reparacion' ? 'bg-amber-100 text-amber-800' :
+                          item.estado === 'Activa' ? 'bg-emerald-100 text-emerald-800' :
+                          item.estado === 'En reparación' ? 'bg-amber-100 text-amber-800' :
                           'bg-rose-100 text-rose-800'
                         }`}>
-                          {item.estado?.replace('_', ' ')}
+                          {item.estado}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm text-slate-700">
