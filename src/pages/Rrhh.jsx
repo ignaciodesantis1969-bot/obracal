@@ -1217,54 +1217,62 @@ export default function Rrhh() {
             </div>
 
             {legajoEmpleadoSeleccionado && (
-              <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-                <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
-                  {(() => {
-                    const fotoPerfilObj = legajosLista.find(l => {
-                      const pId = String(l.personal_id || l.Personal_id || l.personalId || '');
-                      const sub = String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '');
-                      return pId === String(legajoEmpleadoSeleccionado) && sub === 'fotoperfil';
-                    });
+             <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+              <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
+              {(() => {
+              // 1. Buscamos la foto en la colección 'legajos' (la vieja de Drive)
+              const fotoPerfilObj = legajosLista.find(l => {
+              const pId = String(l.personal_id || l.Personal_id || l.personalId || '');
+              const sub = String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '');
+              return pId === String(legajoEmpleadoSeleccionado) && sub === 'fotoperfil';
+            });
 
-                    const urlRaw = fotoPerfilObj?.url_archivo || fotoPerfilObj?.Url_archivo || fotoPerfilObj?.archivo_url || fotoPerfilObj?.Archivo_url;
+            const urlLegajo = fotoPerfilObj?.url_archivo || fotoPerfilObj?.Url_archivo || fotoPerfilObj?.archivo_url || fotoPerfilObj?.Archivo_url;
 
-                    const convertirUrlDrive = (url) => {
-                      if (!url) return '';
-                      if (url.startsWith('data:')) return url;
+            // 2. 🔑 Buscamos la foto que subió la App Móvil en 'personal'
+            const empActual = personalSalarios.find(p => String(p.id || p.ID) === String(legajoEmpleadoSeleccionado));
+            const urlAppMovil = empActual?.foto_url;
 
-                      let fileId = '';
-                      const matchD = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-                      if (matchD && matchD[1]) {
-                        fileId = matchD[1];
-                      } else {
-                        const matchId = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-                        if (matchId && matchId[1]) {
-                          fileId = matchId[1];
-                        }
-                      }
+            // Priorizamos la de la App Móvil
+            const urlRaw = urlAppMovil || urlLegajo;
 
-                      if (fileId) {
-                        return `https://lh3.googleusercontent.com/d/${fileId}`;
-                      }
-                      return url;
-                    };
+            const convertirUrlDrive = (url) => {
+            if (!url) return '';
+            // Aceptamos tanto base64, Firebase Storage como Google Drive
+            if (url.startsWith('data:') || url.startsWith('https://firebasestorage')) return url;
 
-                    const urlFinal = convertirUrlDrive(urlRaw);
+            let fileId = '';
+            const matchD = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+            if (matchD && matchD[1]) {
+            fileId = matchD[1];
+            } else {
+            const matchId = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+            if (matchId && matchId[1]) {
+              fileId = matchId[1];
+             }
+            }
 
-                    if (urlFinal && urlFinal !== 'Comprobante_Adjunto') {
-                      return (
-                        <img
-                          src={urlFinal}
-                          alt="Foto empleado"
-                          className="w-full h-full object-cover"
-                          onError={(e) => { e.target.style.display = 'none'; }}
-                        />
-                      );
-                    }
-                    return <ImageIcon className="w-8 h-8 text-slate-400" />;
-                  })()}
-                </div>
+            if (fileId) {
+            return `https://lh3.googleusercontent.com/d/${fileId}`;
+            }
+            return url;
+          };
 
+          const urlFinal = convertirUrlDrive(urlRaw);
+
+          if (urlFinal && urlFinal !== 'Comprobante_Adjunto') {
+            return (
+              <img
+              src={urlFinal}
+              alt="Foto empleado"
+              className="w-full h-full object-cover"
+              onError={(e) => { e.target.style.display = 'none'; }}
+              />
+            );
+          }
+          return <ImageIcon className="w-8 h-8 text-slate-400" />;
+        })()}
+      </div>
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
                     <span className="text-[10px] font-extrabold text-slate-600 uppercase">Foto Carnet / Perfil</span>
