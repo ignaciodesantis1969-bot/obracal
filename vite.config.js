@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'node:url';
 
 export default defineConfig({
+  base: '/', // 🔑 ESTA ES LA LÍNEA QUE FALTABA
   plugins: [react()],
   resolve: {
     alias: {
