@@ -36,6 +36,7 @@ const Reportes = lazy(() => import('@/pages/ReportesPage'));
 const Usuarios = lazy(() => import('@/pages/Usuarios'));
 const TareasTemplate = lazy(() => import('@/pages/TareasTemplate'));
 const ContratosMantenimiento = lazy(() => import('@/pages/ContratosMantenimiento'));
+const Inventario = lazy(() => import('@/pages/Inventario'));
 
 // 🔑 Lee el perfil (nombre + rol + firestoreId) desde Firestore.
 const cargarPerfilUsuario = async (emailFirebase) => {
@@ -146,6 +147,7 @@ const AuthenticatedApp = () => {
       </div>
     }>
       <Routes>
+        <Route path="/inventario" element={<RequirePermiso modulo="obras"><Inventario /></RequirePermiso>} />
         <Route element={<Layout />}>
           {esOperadorEstandar ? (
             <Route path="*" element={<Reportes currentUser={user} userRole={userRole} esOperador={true} esOperadorII={false} />} />

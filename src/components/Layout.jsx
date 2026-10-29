@@ -32,6 +32,7 @@ const allNavItems = [
   { icon: Wallet, label: 'Tesorería', path: '/tesoreria', key: 'tesoreria' },
   { icon: BarChart3, label: 'Control y Reportes', path: '/reportes', key: 'reportes' },
   { icon: CalendarDays, label: 'Planificación', path: '/planificacion', key: 'planificacion' },
+  { icon: Package, label: 'Inventario', path: '/inventario', key: 'obras' }
 ];
 
 function SidebarContent({
