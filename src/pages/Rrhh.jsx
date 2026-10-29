@@ -6,6 +6,9 @@ import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc, eliminarDocsFiltrados } from '@/lib/firestoreHelpers';
 // 🔑 FIX: Apps Script solo se usa para subir archivos a Drive
 import { GOOGLE_SCRIPT_URL } from '@/api';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '@/firebase'; // Asegurate de que esta ruta sea correcta para tu proyecto
+
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPERS DE FORMATO DE MONEDA
@@ -35,6 +38,16 @@ export default function Rrhh() {
   const [volcandoCargaId, setVolcandoCargaId] = useState(null);
 
   const safePersonal = Array.isArray(personalInicial) ? personalInicial : [];
+    // 🔑 NUEVO: Escuchar cambios en la colección 'personal' en tiempo real
+  const [personalTiempoReal, setPersonalTiempoReal] = React.useState(safePersonal);
+
+  React.useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'personal'), (snapshot) => {
+      const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      setPersonalTiempoReal(data);
+    });
+    return () => unsubscribe();
+  }, []);
   const safeInsumos = Array.isArray(insumos) ? insumos : [];
   const safePresupuestos = Array.isArray(presupuestos) ? presupuestos : [];
   const safeContratos = Array.isArray(contratosMantenimiento) ? contratosMantenimiento : [];
@@ -1230,7 +1243,7 @@ export default function Rrhh() {
             const urlLegajo = fotoPerfilObj?.url_archivo || fotoPerfilObj?.Url_archivo || fotoPerfilObj?.archivo_url || fotoPerfilObj?.Archivo_url;
 
             // 2. 🔑 Buscamos la foto que subió la App Móvil en 'personal'
-            const empActual = safePersonal.find(p => String(p.id || p.ID) === String(legajoEmpleadoSeleccionado));
+            const empActual = personalTiempoReal.find(p => String(p.id || p.ID) === String(legajoEmpleadoSeleccionado));
             const urlAppMovil = empActual?.foto_url;
 
             // Priorizamos la de la App Móvil
