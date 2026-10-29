@@ -1,4 +1,4 @@
-// src/pages/Rrhh.jsx
+f// src/pages/Rrhh.jsx
 import React, { useState } from 'react';
 import { Users, Plus, Search, Trash2, Edit2, X, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2, Send, AlertCircle } from 'lucide-react';
 // 🔑 NUEVO: lectura/escritura directo a Firestore
@@ -9,7 +9,7 @@ import { GOOGLE_SCRIPT_URL } from '@/api';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '@/firebase'; // Asegurate de que esta ruta sea correcta para tu proyecto
 import { doc, getDoc } from 'firebase/firestore';
-
+f
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HELPERS DE FORMATO DE MONEDA
@@ -120,64 +120,67 @@ export default function Rrhh() {
   const [nombreDocumentoLegajo, setNombreDocumentoLegajo] = useState('');
   const [archivoLegajoBase64, setArchivoLegajoBase64] = useState('');
   const [cargandoLegajo, setCargandoLegajo] = useState(false);
- <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
-  {(() => {
-    // 1. Prioridad 1: La foto que trajimos directo de Firebase (App Móvil)
-    if (fotoDirectaFirebase) {
-      return (
-        <img
-          src={fotoDirectaFirebase}
-          alt="Foto empleado"
-          className="w-full h-full object-cover"
-          onError={(e) => { e.target.style.display = 'none'; }}
-        />
-      );
-    }
-
-    // 2. Prioridad 2: La foto de la colección 'legajos' (Drive - Lógica vieja)
-    const fotoPerfilObj = legajosLista.find(l => {
-      const pId = String(l.personal_id || l.Personal_id || l.personalId || '');
-      const sub = String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '');
-      return pId === String(legajoEmpleadoSeleccionado) && sub === 'fotoperfil';
-    });
-
-    const urlRaw = fotoPerfilObj?.url_archivo || fotoPerfilObj?.Url_archivo || fotoPerfilObj?.archivo_url || fotoPerfilObj?.Archivo_url;
-
-    const convertirUrlDrive = (url) => {
-      if (!url) return '';
-      if (url.startsWith('data:') || url.startsWith('https://firebasestorage')) return url;
-      let fileId = '';
-      const matchD = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-      if (matchD && matchD[1]) {
-        fileId = matchD[1];
-      } else {
-        const matchId = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-        if (matchId && matchId[1]) {
-          fileId = matchId[1];
+  
+  React.useEffect(() => {
+    const buscarFoto = async () => {
+      if (!legajoEmpleadoSeleccionado) {
+        setFotoDirectaFirebase(null);
+        return;
+      }
+      try {
+        const docRef = doc(db, 'personal', legajoEmpleadoSeleccionado);
+        const docSnap = await getDoc(docRef);
+        if (docSnap.exists() && docSnap.data().foto_url) {
+          setFotoDirectaFirebase(docSnap.data().foto_url);
+        } else {
+          setFotoDirectaFirebase(null);
         }
+      } catch (error) {
+        console.error("Error al buscar foto:", error);
+        setFotoDirectaFirebase(null);
       }
-      if (fileId) {
-        return `https://lh3.googleusercontent.com/d/${fileId}`;
-      }
-      return url;
     };
+    buscarFoto();
+  }, [legajoEmpleadoSeleccionado]);
+  // Estado para la foto de Firebase
+  const [fotoDirectaFirebase, setFotoDirectaFirebase] = useState(null);
 
-    const urlFinal = convertirUrlDrive(urlRaw);
-
-    if (urlFinal && urlFinal !== 'Comprobante_Adjunto') {
-      return (
-        <img
-          src={urlFinal}
-          alt="Foto empleado"
-          className="w-full h-full object-cover"
-          onError={(e) => { e.target.style.display = 'none'; }}
-        />
-      );
+// Efecto para buscar la foto en Firebase cuando se selecciona un empleado
+React.useEffect(() => {
+  const buscarFoto = async () => {
+    if (!legajoEmpleadoSeleccionado) {
+      setFotoDirectaFirebase(null);
+      return;
     }
-    
-    return <ImageIcon className="w-8 h-8 text-slate-400" />;
-  })()}
-</div>
+    try {
+      const docRef = doc(db, 'personal', legajoEmpleadoSeleccionado);
+      const docSnap = await getDoc(docRef);
+      if (docSnap.exists() && docSnap.data().foto_url) {
+        setFotoDirectaFirebase(docSnap.data().foto_url);
+      } else {
+        setFotoDirectaFirebase(null);
+      }
+    } catch (error) {
+      console.error("Error al buscar foto:", error);
+      setFotoDirectaFirebase(null);
+    }
+  };
+  buscarFoto();
+}, [legajoEmpleadoSeleccionado]);
+
+    <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
+    {fotoDirectaFirebase ? (
+      <img
+        src={fotoDirectaFirebase}
+        alt="Foto empleado"
+        className="w-full h-full object-cover"
+        onError={(e) => { e.target.style.display = 'none'; }}
+      />
+    ) : (
+      <ImageIcon className="w-8 h-8 text-slate-400" />
+ )}
+</div> 
+   
   const DOCUMENTOS_PRINCIPALES_OBLIGATORIOS = [
     "DNI",
     "Alta Afip",
@@ -1290,59 +1293,15 @@ export default function Rrhh() {
             {legajoEmpleadoSeleccionado && (
              <div className="flex items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
               <div className="w-20 h-20 bg-slate-200 rounded-xl overflow-hidden border border-slate-300 flex items-center justify-center shrink-0 shadow-inner">
-              {(() => {
-              // 1. Buscamos la foto en la colección 'legajos' (la vieja de Drive)
-              const fotoPerfilObj = legajosLista.find(l => {
-              const pId = String(l.personal_id || l.Personal_id || l.personalId || '');
-              const sub = String(l.subseccion || l.Subseccion || '').trim().toLowerCase().replace(/[\s_]/g, '');
-              return pId === String(legajoEmpleadoSeleccionado) && sub === 'fotoperfil';
-            });
-
-            const urlLegajo = fotoPerfilObj?.url_archivo || fotoPerfilObj?.Url_archivo || fotoPerfilObj?.archivo_url || fotoPerfilObj?.Archivo_url;
-
-            // 2. 🔑 Buscamos la foto que subió la App Móvil en 'personal'
-            const empActual = personalTiempoReal.find(p => String(p.id || p.ID) === String(legajoEmpleadoSeleccionado));
-            const urlAppMovil = empActual?.foto_url;
-
-            // Priorizamos la de la App Móvil
-            const urlRaw = urlAppMovil || urlLegajo;
-
-            const convertirUrlDrive = (url) => {
-            if (!url) return '';
-            // Aceptamos tanto base64, Firebase Storage como Google Drive
-            if (url.startsWith('data:') || url.startsWith('https://firebasestorage')) return url;
-
-            let fileId = '';
-            const matchD = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
-            if (matchD && matchD[1]) {
-            fileId = matchD[1];
-            } else {
-            const matchId = url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
-            if (matchId && matchId[1]) {
-              fileId = matchId[1];
-             }
-            }
-
-            if (fileId) {
-            return `https://lh3.googleusercontent.com/d/${fileId}`;
-            }
-            return url;
-          };
-
-          const urlFinal = convertirUrlDrive(urlRaw);
-
-          if (urlFinal && urlFinal !== 'Comprobante_Adjunto') {
-            return (
-              <img
-              src={urlFinal}
-              alt="Foto empleado"
-              className="w-full h-full object-cover"
-              onError={(e) => { e.target.style.display = 'none'; }}
+              {fotoDirectaFirebase ? (
+              <img 
+                src={fotoDirectaFirebase} 
+                alt="Foto empleado" 
+                className="w-full h-full object-cover" 
               />
-            );
-          }
-          return <ImageIcon className="w-8 h-8 text-slate-400" />;
-        })()}
+                ) : (
+              <ImageIcon className="w-8 h-8 text-slate-400" />
+                )}
       </div>
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-2">
