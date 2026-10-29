@@ -6,7 +6,7 @@ import {
   Calculator, CalendarDays, ShoppingCart, Wallet,
   BarChart3, ChevronLeft, ChevronRight, Menu,
   ClipboardList, UserCog, LogOut, BookOpen, ShieldCheck,
-  Clock // 🔑 NUEVO
+  Clock, Package // 🔑 Unificamos los imports
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/useAuth';
@@ -16,13 +16,6 @@ import logoSidebar from '@/assets/LogoSolo.png';
 
 import { signOut } from "firebase/auth";
 import { auth } from "@/firebase";
-import {
-  LayoutDashboard, Users, Truck, Building2,
-  Calculator, CalendarDays, ShoppingCart, Wallet,
-  BarChart3, ChevronLeft, ChevronRight, Menu,
-  ClipboardList, UserCog, LogOut, BookOpen, ShieldCheck,
-  Clock, Package // 🔑 AGREGA 'Package' ACÁ
-} from 'lucide-react';
 
 const allNavItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/', key: 'dashboard' },
@@ -34,13 +27,12 @@ const allNavItems = [
   { icon: Calculator, label: 'Presupuestos', path: '/presupuestos', key: 'presupuestos' },
   { icon: ShieldCheck, label: 'Contratos de Mantenimiento', path: '/contratos-mantenimiento', key: 'contratos_mantenimiento' },
   { icon: Users, label: 'Recursos Humanos', path: '/rrhh', key: 'rrhh' },
-  { icon: Clock, label: 'Asistencias', path: '/asistencias', key: 'rrhh' }, // 🔑 NUEVO
+  { icon: Clock, label: 'Asistencias', path: '/asistencias', key: 'rrhh' },
+  { icon: Package, label: 'Inventario', path: '/inventario', key: 'obras' }, // 🔑 Inventario agregado
   { icon: ShoppingCart, label: 'Compras', path: '/compras', key: 'compras' },
   { icon: Wallet, label: 'Tesorería', path: '/tesoreria', key: 'tesoreria' },
   { icon: BarChart3, label: 'Control y Reportes', path: '/reportes', key: 'reportes' },
   { icon: CalendarDays, label: 'Planificación', path: '/planificacion', key: 'planificacion' },
-    { icon: Clock, label: 'Asistencias', path: '/asistencias', key: 'rrhh' },
-  { icon: Package, label: 'Inventario', path: '/inventario', key: 'obras' }, // 🔑 Este es el nuevo
 ];
 
 function SidebarContent({
