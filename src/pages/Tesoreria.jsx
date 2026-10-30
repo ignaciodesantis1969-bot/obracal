@@ -1069,6 +1069,10 @@ export default function Tesoreria() {
       matchOrigen = origenMov === filtroOrigen;
     }
     return matchTexto && matchProveedor && matchTipo && matchOrigen;
+  }).sort((a, b) => {
+    const fechaA = String(a.fecha || a.Fecha || '');
+    const fechaB = String(b.fecha || b.Fecha || '');
+    return fechaB.localeCompare(fechaA);
   });
 
   const retencionesFiltradas = useMemo(() => {
@@ -1088,6 +1092,10 @@ export default function Tesoreria() {
     const provId = String(f.proveedor_id || f.Proveedor_id || '');
     const matchProveedor = !filtroProveedorPagar || provId === String(filtroProveedorPagar);
     return esPendiente && matchProveedor;
+  }).sort((a, b) => {
+    const fechaA = String(a.fecha || a.Fecha || '');
+    const fechaB = String(b.fecha || b.Fecha || '');
+    return fechaB.localeCompare(fechaA);
   });
 
   const facturasACobrar = facturasVenta.filter(f => {
@@ -1096,8 +1104,13 @@ export default function Tesoreria() {
     if (f.es_nota_credito === true) return false;
     if (f.es_nota_debito === true) return false;
     return estado === 'pendiente' || estado === 'pagado parcial';
+  }).sort((a, b) => {
+    const fechaA = String(a.fecha_emision || a.fecha || a.Fecha_emision || a.Fecha || '');
+    const fechaB = String(b.fecha_emision || b.fecha || b.Fecha_emision || b.Fecha || '');
+    return fechaB.localeCompare(fechaA);
   });
 
+// === CONTINÚA EN PARTE 2 ===
   const totalFacturasAPagar = facturasAPagar.reduce((acc, f) => {
     return acc + (Number(f.total || f.Total || f.TOTAL || 0) || 0);
   }, 0);

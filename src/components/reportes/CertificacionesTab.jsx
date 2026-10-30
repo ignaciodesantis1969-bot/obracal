@@ -255,6 +255,7 @@ export default function CertificacionesTab({
     return { filasRender, totalPresupuestoCalc, totalActualCalc };
   }, [certificadoPresupuestoObj, avanceActualMap, certificadoNro, certificadosDelPresupuestoActual]);
 
+// === CONTINÚA EN PARTE 2 ===
   const resumenFinanciero = useMemo(() => {
     const esCertificadoCero = Number(certificadoNro) === 0;
     const presupuestoTotalVenta = certificadoCalculos.totalPresupuestoCalc || 0;
@@ -701,12 +702,16 @@ export default function CertificacionesTab({
                                   min="0"
                                   max="100"
                                   value={t.pctActual}
-                                  disabled={resumenFinanciero.esCertificadoCero}
+                                  // 🔑 FIX: Bloquea si es Certificado Cero O si el acumulado ya llegó a 100
+                                  disabled={resumenFinanciero.esCertificadoCero || t.pctAcumulado >= 100}
                                   onChange={(e) => {
                                     const val = parseFloat(e.target.value) || 0;
-                                    setAvanceActualMap({ ...avanceActualMap, [t.keyMap]: val });
+                                    // Validación extra por si el usuario escribe un número mayor al permitido
+                                    const nuevoPct = Math.min(val, 100 - t.pctAnterior);
+                                    setAvanceActualMap({ ...avanceActualMap, [t.keyMap]: nuevoPct });
                                   }}
                                   className="w-16 bg-white border border-slate-300 rounded px-1.5 py-1 text-center font-bold text-xs outline-none focus:border-amber-500 disabled:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                                  title={t.pctAcumulado >= 100 ? "Tarea completada al 100%" : ""}
                                 />
                               </td>
                               <td className="py-2 px-3 text-right border-r border-slate-300 font-semibold text-amber-900 bg-amber-50/50 whitespace-nowrap">$ {t.impActual.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</td>
