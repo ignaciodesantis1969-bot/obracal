@@ -536,6 +536,17 @@ export default function Compras() {
     const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
     const tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
 
+    // 🔑 FIX: Buscar el proveedor si viene con ID 0 pero tiene el nombre
+    let provIdVal = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
+    let provNombreVal = buscarValorEnObjeto(f, ['proveedor', 'Proveedor']) || '';
+
+    if ((!provIdVal || provIdVal === 0) && provNombreVal && proveedores.length > 0) {
+       const { mejor } = buscarMejorMatch(provNombreVal, proveedores);
+       if (mejor) {
+         provIdVal = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
+       }
+    }
+
     const presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' || tipoGastoObtenido === 'Gastos Directos' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
     const contratoIdVal = tipoGastoObtenido === 'Contrato de Mantenimiento' ? buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) : '';
 
@@ -544,8 +555,8 @@ export default function Compras() {
       comprobante_tipo: tipoComp,
       punto_venta: buscarValorEnObjeto(f, ['punto_venta', 'Punto_venta']) || '',
       n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '',
-      proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']) || '',
-      proveedor: buscarValorEnObjeto(f, ['proveedor', 'Proveedor']) || '', 
+      proveedor_id: provIdVal || '',
+      proveedor: provNombreVal, 
       obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '',
       presupuesto_id: presupuestoIdVal,
       contrato_id: contratoIdVal,
@@ -606,7 +617,6 @@ export default function Compras() {
         numero_comp: formData.n_factura,
         proveedor_id: formData.proveedor_id,
         proveedor: formData.proveedor,
-        // Lógica para limpiar campos según el tipo de gasto
         obra_id: (esPresupuestario || esContrato) ? formData.obra_id : '',
         presupuesto_id: esPresupuestario ? formData.presupuesto_id : '',
         contrato_id: esContrato ? formData.contrato_id : '',
@@ -930,7 +940,6 @@ export default function Compras() {
     });
   }, [ordenesCompra, filtroProveedor, filtroFechaDesde, filtroFechaHasta, buscarValorEnObjeto]);
 
-  // Variables para controlar qué mostrar en el modal
   const esTipoPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
   const esTipoContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
   const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
@@ -1564,7 +1573,7 @@ export default function Compras() {
                         contrato_id: '',
                         rubro_imputacion: val === 'Contrato de Mantenimiento' ? 'Materiales del Contrato' : '',
                         tipo_insumo: val === 'Contrato de Mantenimiento' ? 'Material' : 'Material',
-                        detalle_gasto: '' // Limpiamos detalle al cambiar tipo
+                        detalle_gasto: ''
                       });
                     }}>
                     <option value="Presupuesto">Presupuesto Aprobado</option>
