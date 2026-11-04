@@ -143,7 +143,7 @@ export default function Compras() {
     punto_venta: '',
     n_factura: '',
     proveedor_id: '',
-    proveedor: '', // 🔑 NUEVO
+    proveedor: '', 
     obra_id: '',
     presupuesto_id: '',
     contrato_id: '',
@@ -162,7 +162,9 @@ export default function Compras() {
     otros_impuestos: 0,
     total: 0,
     archivo_url: '',
-    comprobante_anula: ''
+    comprobante_anula: '',
+    remitente: '', // 🔑 NUEVO
+    notificado_proveedor: false // 🔑 NUEVO
   });
 
   const [formDataOc, setFormDataOc] = useState({
@@ -475,7 +477,7 @@ export default function Compras() {
             n_factura: nFacturaCompleto || prev.n_factura,
             punto_venta: ptoVtaDetectado || prev.punto_venta || '',
             proveedor_id: proveedorEncontradoId || prev.proveedor_id,
-            proveedor: nombreProvBusqueda || prev.proveedor, // 🔑 Guardamos el nombre crudo para que no desaparezca
+            proveedor: nombreProvBusqueda || prev.proveedor,
             fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
             vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
             estado_pago: 'pendiente',
@@ -543,7 +545,7 @@ export default function Compras() {
       punto_venta: buscarValorEnObjeto(f, ['punto_venta', 'Punto_venta']) || '',
       n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '',
       proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']) || '',
-      proveedor: buscarValorEnObjeto(f, ['proveedor', 'Proveedor']) || '', // 🔑
+      proveedor: buscarValorEnObjeto(f, ['proveedor', 'Proveedor']) || '', 
       obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '',
       presupuesto_id: presupuestoIdVal,
       contrato_id: contratoIdVal,
@@ -562,7 +564,10 @@ export default function Compras() {
       otros_impuestos: Math.abs(Number(buscarValorEnObjeto(f, ['otros_impuestos', 'Otros_impuestos']) || 0)),
       total: Math.abs(Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL']) || 0)),
       archivo_url: buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || '',
-      comprobante_anula: buscarValorEnObjeto(f, ['comprobante_anula', 'Comprobante_anula']) || ''
+      comprobante_anula: buscarValorEnObjeto(f, ['comprobante_anula', 'Comprobante_anula']) || '',
+      // 🔑 NUEVO: Extraemos los campos para la notificación
+      remitente: buscarValorEnObjeto(f, ['remitente', 'Remitente', 'from']) || '',
+      notificado_proveedor: Boolean(buscarValorEnObjeto(f, ['notificado_proveedor', 'Notificado_proveedor']))
     });
     setIsFacturaModalOpen(true);
   };
@@ -600,7 +605,7 @@ export default function Compras() {
         n_factura: formData.n_factura,
         numero_comp: formData.n_factura,
         proveedor_id: formData.proveedor_id,
-        proveedor: formData.proveedor, // 🔑 Guardamos el nombre
+        proveedor: formData.proveedor,
         obra_id: esPresupuestario || formData.obra_id ? formData.obra_id : '',
         presupuesto_id: esPresupuestario ? formData.presupuesto_id : '',
         contrato_id: esContrato ? formData.contrato_id : '',
@@ -610,16 +615,46 @@ export default function Compras() {
         tipo_insumo: formData.tipo_insumo,
         insumo: formData.tipo_insumo,
         es_nota_credito: esNotaCredito,
-        comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : ''
+        comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : '',
+        remitente: formData.remitente,
+        notificado_proveedor: formData.notificado_proveedor
       };
 
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
 
+      let nuevoDocId = editingId;
       if (editingId) {
         await actualizarDoc('facturas_compras', editingId, datosLimpios);
       } else {
-        await crearDoc('facturas_compras', datosLimpios);
+        nuevoDocId = await crearDoc('facturas_compras', datosLimpios);
       }
+
+      // 🔑 NUEVO: Enviar mail de confirmación por Resend
+      if (
+        formData.remitente && 
+        !formData.notificado_proveedor && 
+        formData.estado_pago !== 'a asignar' && 
+        formData.estado_pago !== 'A Asignar'
+      ) {
+        try {
+          await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+            body: JSON.stringify({
+              action: 'enviarConfirmacionFactura',
+              email: formData.remitente,
+              n_factura: formData.n_factura,
+              proveedor: formData.proveedor
+            })
+          });
+          
+          await actualizarDoc('facturas_compras', nuevoDocId, { notificado_proveedor: true });
+          
+        } catch (emailErr) {
+          console.error("Error enviando mail al proveedor:", emailErr);
+        }
+      }
+      // 🔑 FIN NUEVO
 
       setCandidatosProveedor([]);
       setNombreProveedorOCR('');
@@ -829,7 +864,7 @@ export default function Compras() {
   };
 
   const facturasFiltradas = useMemo(() => {
-    return facturas.filter(f => {
+    const filtradas = facturas.filter(f => {
       const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
       const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
       const fFecha = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
@@ -861,6 +896,27 @@ export default function Compras() {
 
       return matchProveedor && matchFecha && matchDocumento && matchEstadoPago;
     });
+
+    // Deduplicación visual
+    const unicosMap = new Map();
+    filtradas.forEach(f => {
+      const nFactura = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']);
+      const total = buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL']);
+      const key = nFactura ? `${nFactura}-${total}` : `key-${Math.random()}`;
+      
+      if (!unicosMap.has(key)) {
+        unicosMap.set(key, f);
+      } else {
+        const existente = unicosMap.get(key);
+        const fechaExistente = new Date(existente._actualizadoEn || existente._creadoEn || 0).getTime();
+        const fechaNueva = new Date(f._actualizadoEn || f._creadoEn || 0).getTime();
+        if (fechaNueva > fechaExistente) {
+          unicosMap.set(key, f);
+        }
+      }
+    });
+
+    return Array.from(unicosMap.values());
   }, [facturas, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto]);
 
   const ordenesFiltradas = useMemo(() => {
@@ -942,7 +998,9 @@ export default function Compras() {
               otros_impuestos: 0,
               total: 0,
               archivo_url: '',
-              comprobante_anula: ''
+              comprobante_anula: '',
+              remitente: '',
+              notificado_proveedor: false
             });
             setIsUploadModalOpen(true);
           }} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer">
@@ -1085,7 +1143,6 @@ export default function Compras() {
                       <td className="px-6 py-4 font-bold text-slate-900">
                         {prov?.razon_social || prov?.nombre || prov?.Razon_social || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}
                       </td>
-                      {/* 🔑 FIX: Renderizado separado del rubro y el tipo de insumo */}
                       <td className="px-4 py-4">
                         {rubroImputacion || tipoInsumo ? (
                           <>
