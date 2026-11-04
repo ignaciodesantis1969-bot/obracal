@@ -532,7 +532,6 @@ export default function Compras() {
     const fechaCruda = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
     const vencCrudo = buscarValorEnObjeto(f, ['vencimiento', 'Vencimiento', 'VENCIMIENTO']);
     
-    // 🔑 FIX: Sanitizar valores "A completar" para que el formulario no se rompa
     let rubroImputacionVal = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
     if (rubroImputacionVal === 'A completar') rubroImputacionVal = '';
 
@@ -542,7 +541,7 @@ export default function Compras() {
     const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
     
     let tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
-    if (tipoGastoObtenido === 'A completar' || tipoGastoObtenido === '') tipoGastoObtenido = 'Presupuesto'; // 🔑 Clave para que se muestren los campos
+    if (tipoGastoObtenido === 'A completar' || tipoGastoObtenido === '') tipoGastoObtenido = 'Presupuesto';
 
     let provIdVal = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
     let provNombreVal = buscarValorEnObjeto(f, ['proveedor', 'Proveedor']) || '';
@@ -661,7 +660,7 @@ export default function Compras() {
         formData.estado_pago !== 'A Asignar'
       ) {
         try {
-          await fetch(GOOGLE_SCRIPT_URL, {
+          const resMail = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
@@ -672,10 +671,18 @@ export default function Compras() {
             })
           });
           
-          await actualizarDoc('facturas_compras', nuevoDocId, { notificado_proveedor: true });
+          const dataMail = await resMail.json();
+          
+          if (!dataMail.success) {
+            alert("⚠️ La factura se guardó, pero FALLÓ el envío del mail:\n\n" + dataMail.error);
+            console.error("Error de Resend:", dataMail.error);
+          } else {
+            await actualizarDoc('facturas_compras', nuevoDocId, { notificado_proveedor: true });
+          }
           
         } catch (emailErr) {
           console.error("Error enviando mail al proveedor:", emailErr);
+          alert("Error de red al intentar enviar el mail.");
         }
       }
 
