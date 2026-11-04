@@ -1,17 +1,12 @@
 // src/pages/Compras.jsx
 import React, { useState, useMemo, useCallback } from 'react';
 import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart, AlertTriangle } from 'lucide-react';
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
-// 🔑 FIX: Apps Script se usa SOLO para el OCR y para subir archivos a Drive
 import { GOOGLE_SCRIPT_URL } from '@/api';
-// 🔑 NUEVO: combo con búsqueda para proveedores
 import BuscadorSelect from '@/components/BuscadorSelect';
-// 🔑 NUEVO: hook de autenticación para saber el usuario logueado
 import { useAuth } from '@/hooks/useAuth';
 
-// 🔑 NUEVO: normaliza texto para comparar nombres de proveedores (sin acentos, sin SA/SRL)
 const normalizarNombre = (str) => {
   return String(str || '')
     .toLowerCase()
@@ -22,12 +17,6 @@ const normalizarNombre = (str) => {
     .trim();
 };
 
-// 🔑 NUEVO: normaliza un número de comprobante quitando ceros a la izquierda
-const normalizarNumComp = (s) => {
-  return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
-};
-
-// 🔑 NUEVO: busca el mejor match por similitud real
 const buscarMejorMatch = (nombreOCR, lista) => {
   if (!nombreOCR || !lista || lista.length === 0) {
     return { mejor: null, candidatos: [], scoreMejor: 0 };
@@ -67,21 +56,16 @@ const buscarMejorMatch = (nombreOCR, lista) => {
   };
 };
 
-// 🔑 NUEVO: detecta si un valor es "A completar" (con word boundaries para evitar falsos positivos)
 const esACompletar = (valor) => {
   return /\ba completar\b/i.test(String(valor || ''));
 };
 
-// 🔑 NUEVO: normaliza el estado de pago al abrir el modal de edición.
-// Si viene "A Asignar" (estado temporal del webhook), lo convertimos a "pendiente"
-// para que el usuario elija un estado definitivo en el select.
 const normalizarEstadoPago = (raw) => {
   const s = String(raw || '').trim();
   if (s.toLowerCase() === 'a asignar') return 'pendiente';
   return s || 'pendiente';
 };
 
-// 🔑 NUEVO: mapea tipo de comprobante del OCR a valores canónicos del <select>
 const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
   const t = String(tipoComprobanteOCR || '').toLowerCase();
   const tf = String(tipoFacturaOCR || '').toLowerCase();
@@ -121,7 +105,6 @@ const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo
 };
 
 export default function Compras() {
-  // 🔑 NUEVO: leemos las colecciones necesarias en paralelo
   const { data: facturas } = useFirestoreCollection('facturas_compras');
   const { data: ordenesCompra } = useFirestoreCollection('ordenes_compra');
   const { data: proveedores } = useFirestoreCollection('proveedores');
@@ -130,7 +113,6 @@ export default function Compras() {
   const { data: contratosList } = useFirestoreCollection('contratos');
   const { data: rubros } = useFirestoreCollection('rubros');
 
-  // 🔑 NUEVO: usuario logueado (para el default de firma_sice)
   const { user } = useAuth();
   const nombreUsuarioLogueado = user?.nombre || user?.displayName || (user?.email ? user.email.split('@')[0] : '');
 
@@ -139,7 +121,6 @@ export default function Compras() {
   const [filtroDocumento, setFiltroDocumento] = useState('');
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
-  // 🔑 NUEVO: filtro por estado de pago de facturas
   const [filtroEstadoPago, setFiltroEstadoPago] = useState('');
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -151,11 +132,8 @@ export default function Compras() {
 
   const [localLoading, setLocalLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-
-  // 🔑 NUEVO: ID de la OC que se está generando en PDF (para mostrar spinner en el botón)
   const [generandoPdfOcId, setGenerandoPdfOcId] = useState(null);
 
-  // 🔑 NUEVO: candidatos de proveedor cuando el match es ambiguo
   const [candidatosProveedor, setCandidatosProveedor] = useState([]);
   const [nombreProveedorOCR, setNombreProveedorOCR] = useState('');
 
@@ -165,6 +143,7 @@ export default function Compras() {
     punto_venta: '',
     n_factura: '',
     proveedor_id: '',
+    proveedor: '', // 🔑 NUEVO
     obra_id: '',
     presupuesto_id: '',
     contrato_id: '',
@@ -186,7 +165,6 @@ export default function Compras() {
     comprobante_anula: ''
   });
 
-  // 🔑 NUEVO: formDataOc con los 6 campos extras
   const [formDataOc, setFormDataOc] = useState({
     codigo: 'OC-0001',
     proveedor_id: '',
@@ -208,7 +186,6 @@ export default function Compras() {
     ]
   });
 
-  // 🔑 Helper: buscar valor en objeto ignorando mayúsculas/acentos
   const buscarValorEnObjeto = useCallback((obj, keys) => {
     if (!obj || typeof obj !== 'object') return '';
 
@@ -411,7 +388,6 @@ export default function Compras() {
     }
   };
 
-  // ⚠️ OCR sigue usando Apps Script
   const handleArchivoSubido = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -455,18 +431,11 @@ export default function Compras() {
 
           if (nombreProvBusqueda && proveedores.length > 0) {
             const { mejor, candidatos, scoreMejor } = buscarMejorMatch(nombreProvBusqueda, proveedores);
-
-            console.log('[OCR-Compras] Buscando proveedor:', nombreProvBusqueda, '| Score mejor:', scoreMejor, '| Candidatos:', candidatos.length);
-
             if (mejor && candidatos.length === 1) {
               proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
-              console.log('[OCR-Compras] Proveedor matcheado (único):', mejor.razon_social || mejor.nombre);
             } else if (mejor && candidatos.length > 1) {
               candidatosFinales = candidatos;
               proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
-              console.log('[OCR-Compras] Múltiples candidatos, mostrar selector. Mejor:', mejor.razon_social || mejor.nombre, '| Total:', candidatos.length);
-            } else {
-              console.warn('[OCR-Compras] Sin match. Gemini devolvió:', nombreProvBusqueda);
             }
           }
 
@@ -477,14 +446,8 @@ export default function Compras() {
             data.tipo_factura,
             archivo.name || ''
           );
-          const esNotaCreditoFinal = String(tipoComprobanteMapeado).toLowerCase().includes('nota de crédito') ||
-                                     String(tipoComprobanteMapeado).toLowerCase().includes('nota de credito');
-
+          
           const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
-
-          console.log('[OCR-Compras] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
-
-          // 🔑 FIX: preservar el punto de venta en el número de factura.
           const nCompDetectado = String(data.n_factura || data.numero_comp || data.numero_factura || '').trim();
           let ptoVtaDetectado = '';
           let nCompLimpio = nCompDetectado;
@@ -512,9 +475,9 @@ export default function Compras() {
             n_factura: nFacturaCompleto || prev.n_factura,
             punto_venta: ptoVtaDetectado || prev.punto_venta || '',
             proveedor_id: proveedorEncontradoId || prev.proveedor_id,
+            proveedor: nombreProvBusqueda || prev.proveedor, // 🔑 Guardamos el nombre crudo para que no desaparezca
             fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
             vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
-            // 🔑 FIX (Punto B): la NC arranca en 'pendiente', no en 'contabilizado'.
             estado_pago: 'pendiente',
             subtotal: Math.abs(Number(data && data.subtotal) || prev.subtotal),
             iva_21: Math.abs(Number(data && data.iva_21) || prev.iva_21),
@@ -569,7 +532,6 @@ export default function Compras() {
     const rubroImputacionVal = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
     const tipoInsumoVal = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']) || 'Material';
     const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
-    const esNC = String(tipoComp).toLowerCase().includes('nota de crédito') || String(tipoComp).toLowerCase().includes('nota de credito');
     const tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
 
     const presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
@@ -581,6 +543,7 @@ export default function Compras() {
       punto_venta: buscarValorEnObjeto(f, ['punto_venta', 'Punto_venta']) || '',
       n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '',
       proveedor_id: buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']) || '',
+      proveedor: buscarValorEnObjeto(f, ['proveedor', 'Proveedor']) || '', // 🔑
       obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '',
       presupuesto_id: presupuestoIdVal,
       contrato_id: contratoIdVal,
@@ -590,7 +553,6 @@ export default function Compras() {
       detalle_gasto: buscarValorEnObjeto(f, ['detalle_gasto', 'Detalle_gasto']) || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
-      // 🔑 FIX: normaliza "A Asignar" a "pendiente" para que el <select> funcione
       estado_pago: normalizarEstadoPago(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO'])),
       subtotal: Math.abs(Number(buscarValorEnObjeto(f, ['subtotal', 'Subtotal']) || 0)),
       iva_21: Math.abs(Number(buscarValorEnObjeto(f, ['iva_21', 'Iva_21']) || 0)),
@@ -611,7 +573,6 @@ export default function Compras() {
     setIsSaving(true);
     try {
       const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
-
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
                             String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
@@ -634,13 +595,12 @@ export default function Compras() {
         persp_iibb_caba: Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno,
         otros_impuestos: Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno,
         total: Math.abs(Number(formData.total) || 0) * factorSigno,
-        // 🔑 FIX (Punto B): la NC arranca SIEMPRE en 'pendiente'.
-        // El usuario la contabiliza manualmente desde Tesorería.
         estado_pago: esNotaCredito ? 'pendiente' : formData.estado_pago,
         codigo: codigoFinal,
         n_factura: formData.n_factura,
         numero_comp: formData.n_factura,
         proveedor_id: formData.proveedor_id,
+        proveedor: formData.proveedor, // 🔑 Guardamos el nombre
         obra_id: esPresupuestario || formData.obra_id ? formData.obra_id : '',
         presupuesto_id: esPresupuestario ? formData.presupuesto_id : '',
         contrato_id: esContrato ? formData.contrato_id : '',
@@ -655,16 +615,11 @@ export default function Compras() {
 
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
 
-      let nuevoDocId = editingId;
       if (editingId) {
         await actualizarDoc('facturas_compras', editingId, datosLimpios);
       } else {
-        nuevoDocId = await crearDoc('facturas_compras', datosLimpios);
+        await crearDoc('facturas_compras', datosLimpios);
       }
-
-      // 🔑 FIX (Punto B): ELIMINADO el bloque que creaba un movimiento automático
-      // en `tesoreria` para las NC. Ahora la NC se guarda como factura pendiente
-      // y se contabiliza manualmente desde Tesorería > Facturas a pagar.
 
       setCandidatosProveedor([]);
       setNombreProveedorOCR('');
@@ -683,7 +638,6 @@ export default function Compras() {
       return;
     }
 
-    // 🔑 FIX (Punto B): bloquear eliminación de NC ya contabilizada.
     const tipoComp = String(buscarValorEnObjeto(f, ['comprobante_tipo', 'tipo_comprobante']) || '');
     const esNC = tipoComp.toLowerCase().includes('nota de crédito') || tipoComp.toLowerCase().includes('nota de credito');
     const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago']) || '').toLowerCase();
@@ -802,7 +756,6 @@ export default function Compras() {
     }
   };
 
-  // 🔑 NUEVO: genera el PDF de la OC vía Apps Script y lo abre
   const handleGenerarPdfOc = async (oc) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -898,7 +851,6 @@ export default function Compras() {
         }
       }
 
-      // 🔑 NUEVO: filtro por estado de pago (case-insensitive)
       let matchEstadoPago = true;
       if (filtroEstadoPago) {
         const estadoPagoFactura = String(
@@ -971,6 +923,7 @@ export default function Compras() {
               punto_venta: '',
               n_factura: '',
               proveedor_id: '',
+              proveedor: '',
               obra_id: '',
               presupuesto_id: '',
               contrato_id: '',
@@ -998,7 +951,6 @@ export default function Compras() {
         </div>
       </div>
 
-      {/* 🔑 Filtros: ahora 5 columnas, incluye Estado de Pago */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
@@ -1109,7 +1061,7 @@ export default function Compras() {
 
                   const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro', 'rubroimputacion']);
                   const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon', 'tipoinsumo']);
-                  const detalleDisplay = rubroImputacion ? `${rubroImputacion} ${tipoInsumo ? '(' + tipoInsumo + ')' : ''}` : (buscarValorEnObjeto(f, ['rubro', 'Rubro', 'detalle_gasto', 'detalle']) || '---');
+                  const detalleGasto = buscarValorEnObjeto(f, ['detalle_gasto', 'detalle', 'Detalle_gasto']);
                   const fechaFactura = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
 
                   const rowKey = `${buscarValorEnObjeto(f, ['id', 'ID']) || codigoDisplay}-${numeroFacturaDisplay}-${index}`;
@@ -1120,28 +1072,42 @@ export default function Compras() {
                         {codigoDisplay}
                         {esNCRow && <span className="ml-2 px-1.5 py-0.5 bg-amber-200 text-amber-900 text-[9px] font-bold rounded">NC</span>}
                       </td>
-                      {/* 🔑 N° Factura: "A completar" en gris/italic */}
                       <td className="px-4 py-4">
                         <span className={esACompletar(numeroFacturaDisplay) ? 'text-slate-400 italic font-normal' : 'font-semibold text-slate-800'}>
                           {numeroFacturaDisplay}
                         </span>
                       </td>
-                      {/* 🔑 Imputación: "A completar" en gris/italic */}
                       <td className="px-4 py-4">
                         <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${esACompletar(tipoGastoDisplay) ? 'bg-slate-100 text-slate-400 italic' : 'bg-amber-50 text-amber-800'}`}>
                           {tipoGastoDisplay}
                         </span>
                       </td>
-                      <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || prov?.Razon_social || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}</td>
-                      {/* 🔑 Rubro/Detalle: "A completar" en gris/italic */}
+                      <td className="px-6 py-4 font-bold text-slate-900">
+                        {prov?.razon_social || prov?.nombre || prov?.Razon_social || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}
+                      </td>
+                      {/* 🔑 FIX: Renderizado separado del rubro y el tipo de insumo */}
                       <td className="px-4 py-4">
-                        <span className={esACompletar(detalleDisplay) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
-                          {detalleDisplay}
-                        </span>
+                        {rubroImputacion || tipoInsumo ? (
+                          <>
+                            {rubroImputacion && (
+                              <span className={esACompletar(rubroImputacion) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
+                                {rubroImputacion}
+                              </span>
+                            )}
+                            {tipoInsumo && (
+                              <span className={esACompletar(tipoInsumo) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
+                                {rubroImputacion ? ' ' : ''}({tipoInsumo})
+                              </span>
+                            )}
+                          </>
+                        ) : (
+                          <span className={esACompletar(detalleGasto) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
+                            {detalleGasto || '---'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaFactura)}</td>
                       <td className={`px-4 py-4 text-right font-black ${totalVal < 0 ? 'text-rose-600' : 'text-slate-900'}`}>$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      {/* 🔑 PAGO: botón "Asignar" si el estado es "a asignar", badge en otro caso */}
                       <td className="px-4 py-4 text-center">
                         {estadoPago === 'a asignar' ? (
                           <button
@@ -1659,7 +1625,6 @@ export default function Compras() {
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Vencimiento</label>
                   <input type="date" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.vencimiento} onChange={(e) => setFormData({...formData, vencimiento: e.target.value})} />
                 </div>
-                {/* 🔑 CAMBIO: Estado Pago — ya no se puede asignar "pagado" desde acá */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado Pago</label>
                   {formData.estado_pago === 'pagado' ? (
