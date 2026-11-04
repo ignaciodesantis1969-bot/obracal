@@ -67,6 +67,20 @@ const buscarMejorMatch = (nombreOCR, lista) => {
   };
 };
 
+// 🔑 NUEVO: detecta si un valor es "A completar" (con word boundaries para evitar falsos positivos)
+const esACompletar = (valor) => {
+  return /\ba completar\b/i.test(String(valor || ''));
+};
+
+// 🔑 NUEVO: normaliza el estado de pago al abrir el modal de edición.
+// Si viene "A Asignar" (estado temporal del webhook), lo convertimos a "pendiente"
+// para que el usuario elija un estado definitivo en el select.
+const normalizarEstadoPago = (raw) => {
+  const s = String(raw || '').trim();
+  if (s.toLowerCase() === 'a asignar') return 'pendiente';
+  return s || 'pendiente';
+};
+
 // 🔑 NUEVO: mapea tipo de comprobante del OCR a valores canónicos del <select>
 const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
   const t = String(tipoComprobanteOCR || '').toLowerCase();
@@ -125,6 +139,8 @@ export default function Compras() {
   const [filtroDocumento, setFiltroDocumento] = useState('');
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
+  // 🔑 NUEVO: filtro por estado de pago de facturas
+  const [filtroEstadoPago, setFiltroEstadoPago] = useState('');
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isFacturaModalOpen, setIsFacturaModalOpen] = useState(false);
@@ -574,7 +590,8 @@ export default function Compras() {
       detalle_gasto: buscarValorEnObjeto(f, ['detalle_gasto', 'Detalle_gasto']) || '',
       fecha: formatearFechaParaInput(fechaCruda),
       vencimiento: formatearFechaParaInput(vencCrudo),
-      estado_pago: buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO']) || (esNC ? 'pendiente' : 'pendiente'),
+      // 🔑 FIX: normaliza "A Asignar" a "pendiente" para que el <select> funcione
+      estado_pago: normalizarEstadoPago(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO'])),
       subtotal: Math.abs(Number(buscarValorEnObjeto(f, ['subtotal', 'Subtotal']) || 0)),
       iva_21: Math.abs(Number(buscarValorEnObjeto(f, ['iva_21', 'Iva_21']) || 0)),
       iva_10_5: Math.abs(Number(buscarValorEnObjeto(f, ['iva_10_5', 'Iva_10_5']) || 0)),
@@ -881,9 +898,18 @@ export default function Compras() {
         }
       }
 
-      return matchProveedor && matchFecha && matchDocumento;
+      // 🔑 NUEVO: filtro por estado de pago (case-insensitive)
+      let matchEstadoPago = true;
+      if (filtroEstadoPago) {
+        const estadoPagoFactura = String(
+          buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO', 'estadopago']) || 'pendiente'
+        ).toLowerCase().trim();
+        matchEstadoPago = estadoPagoFactura === filtroEstadoPago.toLowerCase();
+      }
+
+      return matchProveedor && matchFecha && matchDocumento && matchEstadoPago;
     });
-  }, [facturas, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, buscarValorEnObjeto]);
+  }, [facturas, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto]);
 
   const ordenesFiltradas = useMemo(() => {
     return ordenesCompra.filter(oc => {
@@ -972,7 +998,8 @@ export default function Compras() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
+      {/* 🔑 Filtros: ahora 5 columnas, incluye Estado de Pago */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
           <BuscadorSelect
@@ -982,6 +1009,20 @@ export default function Compras() {
             placeholder="Todos los Proveedores"
             minChars={3}
           />
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de Pago</label>
+          <select
+            value={filtroEstadoPago}
+            onChange={(e) => setFiltroEstadoPago(e.target.value)}
+            className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"
+          >
+            <option value="">Todos</option>
+            <option value="a asignar">A Asignar</option>
+            <option value="pendiente">Pendiente</option>
+            <option value="contabilizado">Contabilizado</option>
+            <option value="pagado">Pagado</option>
+          </select>
         </div>
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Doc. Aprobado (Presup. / Contrato)</label>
@@ -1079,13 +1120,44 @@ export default function Compras() {
                         {codigoDisplay}
                         {esNCRow && <span className="ml-2 px-1.5 py-0.5 bg-amber-200 text-amber-900 text-[9px] font-bold rounded">NC</span>}
                       </td>
-                      <td className="px-4 py-4 font-semibold text-slate-800">{numeroFacturaDisplay}</td>
-                      <td className="px-4 py-4"><span className="px-2 py-0.5 bg-amber-50 text-amber-800 font-bold rounded text-[10px]">{tipoGastoDisplay}</span></td>
+                      {/* 🔑 N° Factura: "A completar" en gris/italic */}
+                      <td className="px-4 py-4">
+                        <span className={esACompletar(numeroFacturaDisplay) ? 'text-slate-400 italic font-normal' : 'font-semibold text-slate-800'}>
+                          {numeroFacturaDisplay}
+                        </span>
+                      </td>
+                      {/* 🔑 Imputación: "A completar" en gris/italic */}
+                      <td className="px-4 py-4">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${esACompletar(tipoGastoDisplay) ? 'bg-slate-100 text-slate-400 italic' : 'bg-amber-50 text-amber-800'}`}>
+                          {tipoGastoDisplay}
+                        </span>
+                      </td>
                       <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || prov?.Razon_social || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}</td>
-                      <td className="px-4 py-4 text-slate-600 font-medium">{detalleDisplay}</td>
+                      {/* 🔑 Rubro/Detalle: "A completar" en gris/italic */}
+                      <td className="px-4 py-4">
+                        <span className={esACompletar(detalleDisplay) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
+                          {detalleDisplay}
+                        </span>
+                      </td>
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaFactura)}</td>
                       <td className={`px-4 py-4 text-right font-black ${totalVal < 0 ? 'text-rose-600' : 'text-slate-900'}`}>$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-4 text-center"><span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : estadoPago === 'contabilizado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>{estadoPago}</span></td>
+                      {/* 🔑 PAGO: botón "Asignar" si el estado es "a asignar", badge en otro caso */}
+                      <td className="px-4 py-4 text-center">
+                        {estadoPago === 'a asignar' ? (
+                          <button
+                            type="button"
+                            onClick={() => handleEditarFacturaClick(f)}
+                            className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] uppercase shadow-sm cursor-pointer transition-colors"
+                            title="Asignar estado de pago"
+                          >
+                            Asignar
+                          </button>
+                        ) : (
+                          <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : estadoPago === 'contabilizado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
+                            {estadoPago}
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-4 text-center">
                         {archivoLink && archivoLink !== 'Comprobante_Adjunto' ? (
                           <button type="button" onClick={() => handleVerArchivo(f)} className="text-blue-600 hover:text-blue-800 p-1.5 bg-blue-50 rounded-lg shadow-sm cursor-pointer" title="Ver comprobante"><Paperclip className="w-4 h-4" /></button>
@@ -1587,19 +1659,30 @@ export default function Compras() {
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Vencimiento</label>
                   <input type="date" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.vencimiento} onChange={(e) => setFormData({...formData, vencimiento: e.target.value})} />
                 </div>
+                {/* 🔑 CAMBIO: Estado Pago — ya no se puede asignar "pagado" desde acá */}
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado Pago</label>
-                  <select
-                    disabled={isSaving || esNotaCreditoForm}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100 cursor-pointer"
-                    value={formData.estado_pago}
-                    onChange={(e) => setFormData({...formData, estado_pago: e.target.value})}
-                  >
-                    <option value="pendiente">Pendiente</option>
-                    {!esNotaCreditoForm && <option value="pagado">Pagado</option>}
-                    {!esNotaCreditoForm && <option value="contabilizado">Contabilizado</option>}
-                  </select>
-                  {esNotaCreditoForm && (
+                  {formData.estado_pago === 'pagado' ? (
+                    <>
+                      <div className="w-full bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs font-bold text-emerald-800 uppercase">
+                        Pagado
+                      </div>
+                      <p className="text-[10px] text-emerald-700 mt-1 font-semibold">
+                        🔒 Gestionado desde Tesorería — no editable acá.
+                      </p>
+                    </>
+                  ) : (
+                    <select
+                      disabled={isSaving || esNotaCreditoForm}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100 cursor-pointer"
+                      value={formData.estado_pago}
+                      onChange={(e) => setFormData({...formData, estado_pago: e.target.value})}
+                    >
+                      <option value="pendiente">Pendiente</option>
+                      {!esNotaCreditoForm && <option value="contabilizado">Contabilizado</option>}
+                    </select>
+                  )}
+                  {esNotaCreditoForm && formData.estado_pago !== 'pagado' && (
                     <p className="text-[10px] text-amber-700 mt-1 font-semibold">
                       La NC arranca pendiente. Se contabiliza desde Tesorería → Facturas a pagar.
                     </p>
