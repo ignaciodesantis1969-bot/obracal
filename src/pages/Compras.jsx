@@ -143,7 +143,7 @@ export default function Compras() {
     punto_venta: '',
     n_factura: '',
     proveedor_id: '',
-    proveedor: '', 
+    proveedor: '',
     obra_id: '',
     presupuesto_id: '',
     contrato_id: '',
@@ -163,8 +163,8 @@ export default function Compras() {
     total: 0,
     archivo_url: '',
     comprobante_anula: '',
-    remitente: '', // 🔑 NUEVO
-    notificado_proveedor: false // 🔑 NUEVO
+    remitente: '',
+    notificado_proveedor: false
   });
 
   const [formDataOc, setFormDataOc] = useState({
@@ -536,7 +536,7 @@ export default function Compras() {
     const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
     const tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
 
-    const presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
+    const presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' || tipoGastoObtenido === 'Gastos Directos' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
     const contratoIdVal = tipoGastoObtenido === 'Contrato de Mantenimiento' ? buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) : '';
 
     setFormData({
@@ -565,7 +565,6 @@ export default function Compras() {
       total: Math.abs(Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL']) || 0)),
       archivo_url: buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || '',
       comprobante_anula: buscarValorEnObjeto(f, ['comprobante_anula', 'Comprobante_anula']) || '',
-      // 🔑 NUEVO: Extraemos los campos para la notificación
       remitente: buscarValorEnObjeto(f, ['remitente', 'Remitente', 'from']) || '',
       notificado_proveedor: Boolean(buscarValorEnObjeto(f, ['notificado_proveedor', 'Notificado_proveedor']))
     });
@@ -582,8 +581,9 @@ export default function Compras() {
                             String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
       const factorSigno = esNotaCredito ? -1 : 1;
 
-      const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
+      const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
       const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
+      const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
 
       let archivoUrlFinal = formData.archivo_url || '';
       if (archivoUrlFinal && archivoUrlFinal.indexOf('data:') === 0) {
@@ -606,14 +606,16 @@ export default function Compras() {
         numero_comp: formData.n_factura,
         proveedor_id: formData.proveedor_id,
         proveedor: formData.proveedor,
-        obra_id: esPresupuestario || formData.obra_id ? formData.obra_id : '',
+        // Lógica para limpiar campos según el tipo de gasto
+        obra_id: (esPresupuestario || esContrato) ? formData.obra_id : '',
         presupuesto_id: esPresupuestario ? formData.presupuesto_id : '',
         contrato_id: esContrato ? formData.contrato_id : '',
-        rubro_imputacion: esPresupuestario || esContrato ? formData.rubro_imputacion : '',
-        rubro_presupuesto: esPresupuestario || esContrato ? formData.rubro_imputacion : '',
-        rubro: esPresupuestario || esContrato ? formData.rubro_imputacion : '',
-        tipo_insumo: formData.tipo_insumo,
-        insumo: formData.tipo_insumo,
+        rubro_imputacion: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
+        rubro_presupuesto: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
+        rubro: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
+        tipo_insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '',
+        insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '',
+        detalle_gasto: esGastoLibre ? formData.detalle_gasto : '', 
         es_nota_credito: esNotaCredito,
         comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : '',
         remitente: formData.remitente,
@@ -629,7 +631,6 @@ export default function Compras() {
         nuevoDocId = await crearDoc('facturas_compras', datosLimpios);
       }
 
-      // 🔑 NUEVO: Enviar mail de confirmación por Resend
       if (
         formData.remitente && 
         !formData.notificado_proveedor && 
@@ -654,7 +655,6 @@ export default function Compras() {
           console.error("Error enviando mail al proveedor:", emailErr);
         }
       }
-      // 🔑 FIN NUEVO
 
       setCandidatosProveedor([]);
       setNombreProveedorOCR('');
@@ -897,7 +897,6 @@ export default function Compras() {
       return matchProveedor && matchFecha && matchDocumento && matchEstadoPago;
     });
 
-    // Deduplicación visual
     const unicosMap = new Map();
     filtradas.forEach(f => {
       const nFactura = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']);
@@ -931,9 +930,12 @@ export default function Compras() {
     });
   }, [ordenesCompra, filtroProveedor, filtroFechaDesde, filtroFechaHasta, buscarValorEnObjeto]);
 
-  const requiereObra = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
-  const requierePresupuesto = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
-
+  // Variables para controlar qué mostrar en el modal
+  const esTipoPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
+  const esTipoContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
+  const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
+  
+  const requiereObra = esTipoPresupuestario || esTipoContrato;
   const esNotaCreditoForm = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
                             String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
 
@@ -1120,6 +1122,12 @@ export default function Compras() {
                   const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro', 'rubroimputacion']);
                   const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon', 'tipoinsumo']);
                   const detalleGasto = buscarValorEnObjeto(f, ['detalle_gasto', 'detalle', 'Detalle_gasto']);
+                  
+                  const esGastoLibreRow = tipoGastoDisplay === 'Gasto Corriente' || tipoGastoDisplay === 'Gasto Extra';
+                  const textoImputacion = esGastoLibreRow 
+                                          ? (detalleGasto || '---')
+                                          : `${rubroImputacion || '---'} ${tipoInsumo && tipoInsumo !== 'Material' ? '('+tipoInsumo+')' : ''}`;
+
                   const fechaFactura = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
 
                   const rowKey = `${buscarValorEnObjeto(f, ['id', 'ID']) || codigoDisplay}-${numeroFacturaDisplay}-${index}`;
@@ -1144,24 +1152,9 @@ export default function Compras() {
                         {prov?.razon_social || prov?.nombre || prov?.Razon_social || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}
                       </td>
                       <td className="px-4 py-4">
-                        {rubroImputacion || tipoInsumo ? (
-                          <>
-                            {rubroImputacion && (
-                              <span className={esACompletar(rubroImputacion) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
-                                {rubroImputacion}
-                              </span>
-                            )}
-                            {tipoInsumo && (
-                              <span className={esACompletar(tipoInsumo) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
-                                {rubroImputacion ? ' ' : ''}({tipoInsumo})
-                              </span>
-                            )}
-                          </>
-                        ) : (
-                          <span className={esACompletar(detalleGasto) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
-                            {detalleGasto || '---'}
-                          </span>
-                        )}
+                        <span className={esACompletar(textoImputacion) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
+                          {textoImputacion}
+                        </span>
                       </td>
                       <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaFactura)}</td>
                       <td className={`px-4 py-4 text-right font-black ${totalVal < 0 ? 'text-rose-600' : 'text-slate-900'}`}>$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
@@ -1548,13 +1541,15 @@ export default function Compras() {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra {requiereObra ? '*' : ''}</label>
-                  <select required={requiereObra} disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
-                    <option value="">Seleccione obra...</option>
-                    {obras.map(o => <option key={buscarValorEnObjeto(o, ['id', 'ID'])} value={buscarValorEnObjeto(o, ['id', 'ID'])}>[{o.codigo}] {o.nombre || o.nombre_obra}</option>)}
-                  </select>
-                </div>
+                {requiereObra && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra *</label>
+                    <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
+                      <option value="">Seleccione obra...</option>
+                      {obras.map(o => <option key={buscarValorEnObjeto(o, ['id', 'ID'])} value={buscarValorEnObjeto(o, ['id', 'ID'])}>[{o.codigo}] {o.nombre || o.nombre_obra}</option>)}
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto *</label>
@@ -1568,45 +1563,50 @@ export default function Compras() {
                         presupuesto_id: '',
                         contrato_id: '',
                         rubro_imputacion: val === 'Contrato de Mantenimiento' ? 'Materiales del Contrato' : '',
-                        tipo_insumo: val === 'Viaticos-Nafta' ? 'Mano de Obra' : 'Material'
+                        tipo_insumo: val === 'Contrato de Mantenimiento' ? 'Material' : 'Material',
+                        detalle_gasto: '' // Limpiamos detalle al cambiar tipo
                       });
                     }}>
                     <option value="Presupuesto">Presupuesto Aprobado</option>
                     <option value="Contrato de Mantenimiento">Contrato de Mantenimiento Aprobado</option>
                     <option value="Viaticos-Nafta">Viáticos - Nafta</option>
+                    <option value="Gastos Directos">Gastos Directos</option>
                     <option value="Gasto Corriente">Gasto Corriente</option>
                     <option value="Gasto Extra">Gasto Extra</option>
                   </select>
                 </div>
 
-                {(requierePresupuesto || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
+                {esTipoPresupuestario && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Documento Aprobado *</label>
-                    {requierePresupuesto ? (
-                      <select required={requierePresupuesto} disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
-                        <option value="">Seleccione presupuesto...</option>
-                        {listaPresupuestosFinal.map(pr => <option key={buscarValorEnObjeto(pr, ['id', 'ID'])} value={buscarValorEnObjeto(pr, ['id', 'ID'])}>{pr.codigo} - {pr.nombre}</option>)}
-                      </select>
-                    ) : (
-                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.contrato_id} onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}>
-                        <option value="">Seleccione contrato ({listaContratosFinal.length} disp.)...</option>
-                        {listaContratosFinal.map((c, i) => {
-                          const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id']) || i);
-                          const cCod = buscarValorEnObjeto(c, ['codigo', 'Codigo', 'nro_contrato', 'numero']) || 'S/C';
-                          const cNom = buscarValorEnObjeto(c, ['nombre', 'nombre_contrato', 'Nombre_contrato', 'nombreContrato', 'cliente', 'Cliente', 'razon_social']) || 'Contrato';
-                          return (
-                            <option key={cId} value={cId}>[{cCod}] {cNom}</option>
-                          );
-                        })}
-                      </select>
-                    )}
+                    <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
+                      <option value="">Seleccione presupuesto...</option>
+                      {listaPresupuestosFinal.map(pr => <option key={buscarValorEnObjeto(pr, ['id', 'ID'])} value={buscarValorEnObjeto(pr, ['id', 'ID'])}>{pr.codigo} - {pr.nombre}</option>)}
+                    </select>
                   </div>
                 )}
 
-                {(requierePresupuesto || formData.tipo_gasto === 'Contrato de Mantenimiento') && (
+                {esTipoContrato && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Documento Aprobado *</label>
+                    <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.contrato_id} onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}>
+                      <option value="">Seleccione contrato ({listaContratosFinal.length} disp.)...</option>
+                      {listaContratosFinal.map((c, i) => {
+                        const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id']) || i);
+                        const cCod = buscarValorEnObjeto(c, ['codigo', 'Codigo', 'nro_contrato', 'numero']) || 'S/C';
+                        const cNom = buscarValorEnObjeto(c, ['nombre', 'nombre_contrato', 'Nombre_contrato', 'nombreContrato', 'cliente', 'Cliente', 'razon_social']) || 'Contrato';
+                        return (
+                          <option key={cId} value={cId}>[{cCod}] {cNom}</option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                )}
+
+                {(esTipoPresupuestario || esTipoContrato) && (
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro Imputación *</label>
-                    {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (
+                    {esTipoContrato ? (
                       <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.rubro_imputacion} onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}>
                         <option value="Materiales del Contrato">Materiales del Contrato</option>
                       </select>
@@ -1639,40 +1639,49 @@ export default function Compras() {
                   </div>
                 )}
 
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                    {formData.rubro_imputacion === 'Gastos Generales' ? 'Renglón Gastos Generales *' : 'Tipo de Insumo *'}
-                  </label>
-                  <select
-                    required
-                    disabled={isSaving}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
-                    value={formData.tipo_insumo}
-                    onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}
-                  >
-                    {formData.tipo_gasto === 'Contrato de Mantenimiento' ? (
-                      <option value="Material">Material</option>
-                    ) : formData.tipo_gasto === 'Viaticos-Nafta' ? (
-                      <option value="Mano de Obra">Mano de Obra</option>
-                    ) : formData.rubro_imputacion === 'Gastos Generales' ? (
-                      <>
-                        <option value="">Seleccionar gasto general...</option>
-                        {gastosGeneralesDelPresupuesto.map((item, idx) => (
-                          <option key={idx} value={item}>{item}</option>
-                        ))}
-                        <option value="Comisión de Venta">Comisión de Venta</option>
-                        <option value="Imprevistos">Imprevistos</option>
-                      </>
-                    ) : (
-                      <>
+                {esGastoLibre && (
+                  <div className="sm:col-span-3">
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Detalle del Gasto *</label>
+                    <input type="text" required disabled={isSaving} placeholder="Ej: Servicio de Asesoramiento en HyS..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.detalle_gasto} onChange={(e) => setFormData({...formData, detalle_gasto: e.target.value})} />
+                  </div>
+                )}
+
+                {(esTipoPresupuestario || esTipoContrato) && (
+                  <div>
+                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
+                      {formData.rubro_imputacion === 'Gastos Generales' ? 'Renglón Gastos Generales *' : 'Tipo de Insumo *'}
+                    </label>
+                    <select
+                      required
+                      disabled={isSaving}
+                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
+                      value={formData.tipo_insumo}
+                      onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}
+                    >
+                      {esTipoContrato ? (
                         <option value="Material">Material</option>
-                        <option value="Subcontrato">Subcontrato</option>
-                        <option value="Equipo / Herramienta">Equipo / Herramienta</option>
+                      ) : formData.tipo_gasto === 'Viaticos-Nafta' ? (
                         <option value="Mano de Obra">Mano de Obra</option>
-                      </>
-                    )}
-                  </select>
-                </div>
+                      ) : formData.rubro_imputacion === 'Gastos Generales' ? (
+                        <>
+                          <option value="">Seleccionar gasto general...</option>
+                          {gastosGeneralesDelPresupuesto.map((item, idx) => (
+                            <option key={idx} value={item}>{item}</option>
+                          ))}
+                          <option value="Comisión de Venta">Comisión de Venta</option>
+                          <option value="Imprevistos">Imprevistos</option>
+                        </>
+                      ) : (
+                        <>
+                          <option value="Material">Material</option>
+                          <option value="Subcontrato">Subcontrato</option>
+                          <option value="Equipo / Herramienta">Equipo / Herramienta</option>
+                          <option value="Mano de Obra">Mano de Obra</option>
+                        </>
+                      )}
+                    </select>
+                  </div>
+                )}
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha</label>
