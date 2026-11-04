@@ -4,7 +4,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Mail, Lock, Loader2 } from "lucide-react";
 import logoSice from "@/assets/LogoSICESA.jpg";
-import { signInWithEmailAndPassword } from "firebase/auth";
+// 🔑 NUEVO: Agregamos sendPasswordResetEmail
+import { signInWithEmailAndPassword, sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "@/firebase";
 
 export default function Login({ onLoginSuccess }) {
@@ -12,10 +13,15 @@ export default function Login({ onLoginSuccess }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  
+  // 🔑 NUEVOS ESTADOS para el reseteo de contraseña
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetStatus, setResetStatus] = useState({ type: "", msg: "" });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setResetStatus({ type: "", msg: "" });
     setLoading(true);
 
     try {
@@ -31,9 +37,38 @@ export default function Login({ onLoginSuccess }) {
     }
   };
 
+  // 🔑 NUEVA FUNCIÓN: Enviar correo de recuperación
+  const handleForgotPassword = async (e) => {
+    e.preventDefault();
+    if (!email) {
+      setError("Por favor, ingresá tu correo electrónico primero para poder recuperar la contraseña.");
+      return;
+    }
+
+    setResetLoading(true);
+    setError("");
+    setResetStatus({ type: "", msg: "" });
+
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetStatus({ 
+        type: "success", 
+        msg: "Te enviamos un correo con las instrucciones. Revisá tu bandeja de entrada o spam." 
+      });
+    } catch (err) {
+      console.error(err);
+      if (err.code === 'auth/user-not-found') {
+        setResetStatus({ type: "error", msg: "No existe un usuario registrado con ese correo." });
+      } else {
+        setResetStatus({ type: "error", msg: "Error al enviar el correo. Intentá de nuevo más tarde." });
+      }
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#070e1b] flex flex-col items-center justify-center p-4">
-      {/* Contenedor optimizado con menos padding para que el logo se vea más grande */}
       <div className="w-55 h-20 bg-white p-1.5 rounded-2xl flex items-center justify-center mb-4 shadow-xl shadow-amber-500/20 overflow-hidden">
         <img src={logoSice} alt="SICE S.A. Logo" className="w-full h-full object-contain" />
       </div>
@@ -50,6 +85,17 @@ export default function Login({ onLoginSuccess }) {
         {error && (
           <div className="mb-5 p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs text-center font-medium">
             {error}
+          </div>
+        )}
+
+        {/* 🔑 NUEVO: Mensaje de éxito/error del reseteo */}
+        {resetStatus.msg && (
+          <div className={`mb-5 p-3 rounded-xl border text-xs text-center font-medium ${
+            resetStatus.type === 'success' 
+              ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+              : 'bg-red-500/10 border-red-500/20 text-red-400'
+          }`}>
+            {resetStatus.msg}
           </div>
         )}
 
@@ -71,7 +117,18 @@ export default function Login({ onLoginSuccess }) {
           </div>
 
           <div className="space-y-1.5">
-            <Label className="text-slate-300 text-xs font-semibold" htmlFor="password">Contraseña</Label>
+            <div className="flex justify-between items-center">
+              <Label className="text-slate-300 text-xs font-semibold" htmlFor="password">Contraseña</Label>
+              {/* 🔑 NUEVO: Botón de olvidé contraseña */}
+              <button
+                type="button"
+                onClick={handleForgotPassword}
+                disabled={resetLoading || loading}
+                className="text-xs text-slate-400 hover:text-amber-500 transition-colors disabled:opacity-50"
+              >
+                {resetLoading ? "Enviando..." : "¿Olvidaste tu contraseña?"}
+              </button>
+            </div>
             <div className="relative">
               <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
               <Input
@@ -89,7 +146,7 @@ export default function Login({ onLoginSuccess }) {
           <Button
             type="submit"
             className="w-full h-11 bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold mt-2 cursor-pointer"
-            disabled={loading}
+            disabled={loading || resetLoading}
           >
             {loading ? (
               <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Ingresando...</>
