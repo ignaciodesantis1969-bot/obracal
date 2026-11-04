@@ -531,12 +531,19 @@ export default function Compras() {
 
     const fechaCruda = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
     const vencCrudo = buscarValorEnObjeto(f, ['vencimiento', 'Vencimiento', 'VENCIMIENTO']);
-    const rubroImputacionVal = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
-    const tipoInsumoVal = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']) || 'Material';
-    const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
-    const tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
+    
+    // 🔑 FIX: Sanitizar valores "A completar" para que el formulario no se rompa
+    let rubroImputacionVal = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
+    if (rubroImputacionVal === 'A completar') rubroImputacionVal = '';
 
-    // 🔑 FIX: Buscar el proveedor si viene con ID 0 pero tiene el nombre
+    let tipoInsumoVal = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']) || 'Material';
+    if (tipoInsumoVal === 'A completar') tipoInsumoVal = 'Material';
+
+    const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
+    
+    let tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
+    if (tipoGastoObtenido === 'A completar' || tipoGastoObtenido === '') tipoGastoObtenido = 'Presupuesto'; // 🔑 Clave para que se muestren los campos
+
     let provIdVal = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
     let provNombreVal = buscarValorEnObjeto(f, ['proveedor', 'Proveedor']) || '';
 
@@ -547,8 +554,14 @@ export default function Compras() {
        }
     }
 
-    const presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' || tipoGastoObtenido === 'Gastos Directos' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
-    const contratoIdVal = tipoGastoObtenido === 'Contrato de Mantenimiento' ? buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) : '';
+    let presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' || tipoGastoObtenido === 'Gastos Directos' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
+    if (presupuestoIdVal === 'A completar') presupuestoIdVal = '';
+
+    let contratoIdVal = tipoGastoObtenido === 'Contrato de Mantenimiento' ? buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) : '';
+    if (contratoIdVal === 'A completar') contratoIdVal = '';
+
+    let obraIdVal = buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '';
+    if (obraIdVal === 'A completar') obraIdVal = '';
 
     setFormData({
       ...f,
@@ -557,7 +570,7 @@ export default function Compras() {
       n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '',
       proveedor_id: provIdVal || '',
       proveedor: provNombreVal, 
-      obra_id: buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '',
+      obra_id: obraIdVal,
       presupuesto_id: presupuestoIdVal,
       contrato_id: contratoIdVal,
       tipo_gasto: tipoGastoObtenido,
