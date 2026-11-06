@@ -911,6 +911,20 @@ export default function Compras() {
 
     setEnviandoFacturas(true);
     try {
+      // 🔑 FIX: Completar el nombre del proveedor antes de enviar
+      const facturasParaEnviar = facturasFiltradas.map(f => {
+        const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
+        const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
+        
+        // Priorizamos el nombre de la base de datos, si no está, usamos el que vino en la factura
+        const provNombre = provObj?.razon_social || provObj?.nombre || provObj?.Razon_social || f.proveedor || 'Proveedor Desconocido';
+
+        return {
+          ...f,
+          proveedor: provNombre // Sobrescribimos el campo con el nombre real
+        };
+      });
+
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -919,7 +933,7 @@ export default function Compras() {
           email: emailContador,
           fechaDesde: filtroFechaDesde ? formatearFechaDisplay(filtroFechaDesde) : 'Inicio',
           fechaHasta: filtroFechaHasta ? formatearFechaDisplay(filtroFechaHasta) : 'Fin',
-          facturas: facturasFiltradas
+          facturas: facturasParaEnviar // 🔑 Enviamos la lista con los nombres corregidos
         })
       });
       
