@@ -1,6 +1,6 @@
 // src/pages/Compras.jsx
 import React, { useState, useMemo, useCallback } from 'react';
-import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart, AlertTriangle } from 'lucide-react';
+import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart, AlertTriangle, Mail } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { GOOGLE_SCRIPT_URL } from '@/api';
@@ -129,6 +129,11 @@ export default function Compras() {
 
   const [isOcModalOpen, setIsOcModalOpen] = useState(false);
   const [editingOcId, setEditingOcId] = useState(null);
+
+  // 🔑 NUEVO: Estados para el modal de enviar a contador
+  const [isEnviarContadorModalOpen, setIsEnviarContadorModalOpen] = useState(false);
+  const [emailContador, setEmailContador] = useState('');
+  const [enviandoFacturas, setEnviandoFacturas] = useState(false);
 
   const [localLoading, setLocalLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -893,6 +898,47 @@ export default function Compras() {
     }
   };
 
+  const handleEnviarAlContador = async (e) => {
+    e.preventDefault();
+    if (!emailContador || emailContador.indexOf('@') === -1) {
+      alert("Por favor, ingresá un correo válido.");
+      return;
+    }
+    if (facturasFiltradas.length === 0) {
+      alert("No hay facturas en el período seleccionado para enviar.");
+      return;
+    }
+
+    setEnviandoFacturas(true);
+    try {
+      const res = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          action: 'enviarFacturasAlContador',
+          email: emailContador,
+          fechaDesde: filtroFechaDesde ? formatearFechaDisplay(filtroFechaDesde) : 'Inicio',
+          fechaHasta: filtroFechaHasta ? formatearFechaDisplay(filtroFechaHasta) : 'Fin',
+          facturas: facturasFiltradas
+        })
+      });
+      
+      const data = await res.json();
+      if (data.success) {
+        alert("✅ Correo enviado al contador con éxito.");
+        setIsEnviarContadorModalOpen(false);
+        setEmailContador('');
+      } else {
+        alert("⚠️ Error al enviar: " + data.error);
+      }
+    } catch (err) {
+      console.error(err);
+      alert("Error de red al intentar enviar las facturas.");
+    } finally {
+      setEnviandoFacturas(false);
+    }
+  };
+
   const facturasFiltradas = useMemo(() => {
     const filtradas = facturas.filter(f => {
       const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
@@ -1036,6 +1082,9 @@ export default function Compras() {
             setIsUploadModalOpen(true);
           }} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer">
             <Plus className="w-4 h-4" /> Nueva Factura
+          </button>
+          <button onClick={() => setIsEnviarContadorModalOpen(true)} className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer">
+            <Mail className="w-4 h-4" /> Enviar a Contador
           </button>
         </div>
       </div>
@@ -1789,6 +1838,45 @@ export default function Compras() {
                 <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer">
                   {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
                   {isSaving ? 'Guardando...' : (editingId ? 'Actualizar Comprobante' : 'Crear Comprobante')}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {isEnviarContadorModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
+              <h3 className="font-bold text-slate-900">Enviar Facturas al Contador</h3>
+              <button onClick={() => setIsEnviarContadorModalOpen(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer"><X className="w-5 h-5"/></button>
+            </div>
+            <form onSubmit={handleEnviarAlContador} className="p-6 space-y-4">
+              <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded-lg">
+                Se enviarán <b>{facturasFiltradas.length}</b> facturas en PDF y un resumen en Excel.
+                {filtroFechaDesde && ` Desde: ${formatearFechaDisplay(filtroFechaDesde)}`}
+                {filtroFechaHasta && ` Hasta: ${formatearFechaDisplay(filtroFechaHasta)}`}
+              </div>
+              
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Email del Contador *</label>
+                <input 
+                  type="email" 
+                  required 
+                  disabled={enviandoFacturas}
+                  placeholder="contador@estudio.com" 
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-blue-500 disabled:bg-slate-100" 
+                  value={emailContador} 
+                  onChange={(e) => setEmailContador(e.target.value)} 
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t">
+                <button type="button" onClick={() => setIsEnviarContadorModalOpen(false)} disabled={enviandoFacturas} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50 cursor-pointer">Cancelar</button>
+                <button type="submit" disabled={enviandoFacturas} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer">
+                  {enviandoFacturas && <Loader2 className="w-4 h-4 animate-spin" />}
+                  {enviandoFacturas ? 'Enviando...' : 'Enviar Correo'}
                 </button>
               </div>
             </form>
