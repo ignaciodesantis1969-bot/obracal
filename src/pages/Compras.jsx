@@ -377,7 +377,7 @@ export default function Compras() {
     try {
       let idToken = '';
       if (auth.currentUser) {
-        idToken = await auth.currentUser.getIdToken();
+        idToken = await auth.currentUser.getIdToken(true); // El (true) fuerza un token fresco
       }
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
