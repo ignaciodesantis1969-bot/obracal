@@ -1,4 +1,5 @@
 import { GOOGLE_SCRIPT_URL as API_URL } from '@/api';
+import { auth } from '@/firebase'; // 🔑 NUEVO IMPORT
 
 // Función para LEER datos
 const pedirDatosAGoogle = async (nombreTabla) => {
@@ -14,7 +15,14 @@ const pedirDatosAGoogle = async (nombreTabla) => {
 // Función para GUARDAR, EDITAR o BORRAR datos
 const enviarDatosAGoogle = async (nombreTabla, action, data = null, id = null) => {
   try {
-    const payload = { action, tabla: nombreTabla, data, id };
+    // 🔑 NUEVO: Obtener el token del usuario logueado
+    let idToken = '';
+    if (auth.currentUser) {
+      idToken = await auth.currentUser.getIdToken();
+    }
+
+    const payload = { action, tabla: nombreTabla, data, id, idToken }; // 🔑 Agregamos idToken acá
+    
     const respuesta = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
