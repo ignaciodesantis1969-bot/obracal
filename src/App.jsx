@@ -90,16 +90,13 @@ const AuthenticatedApp = () => {
         let firestoreIdFinal = null;
         const emailFirebase = String(firebaseUser.email || '').trim().toLowerCase();
 
-        if (emailFirebase === 'ignaciodesantis@sicesa.com.ar') {
-          rolFinal = 'admin';
-        }
-
+       
         const perfil = await cargarPerfilUsuario(emailFirebase);
 
         if (perfil) {
           if (perfil.nombre) nombreFinal = perfil.nombre;
           if (perfil.firestoreId) firestoreIdFinal = perfil.firestoreId;
-          if (perfil.role && emailFirebase !== 'ignaciodesantis@sicesa.com.ar') {
+          if (perfil.role) {
             rolFinal = String(perfil.role).toLowerCase().trim();
           }
         }
