@@ -1,5 +1,5 @@
 // src/config/api.js
-export const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbyqytLavLRvYVusLAjKy9vXb_zLw1qKo9QhdIg6WhVnrNy6ZAZxrZayip1hXSIumyJI0w/exec";
+export const GOOGLE_SCRIPT_URL = import.meta.env.VITE_GOOGLE_SCRIPT_URL || "https://script.google.com/macros/s/AKfycbyqytLavLRvYVusLAjKy9vXb_zLw1qKo9QhdIg6WhVnrNy6ZAZxrZayip1hXSIumyJI0w/exec";
 
 export const OBRAS_CONFIG = {
   determinarCategoriaEmpleado: (nombre) => {
