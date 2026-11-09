@@ -6,6 +6,7 @@ import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import BuscadorSelect from '@/components/BuscadorSelect';
 import { useAuth } from '@/hooks/useAuth';
+import { auth } from '@/firebase';
 
 const normalizarNombre = (str) => {
   return String(str || '')
@@ -130,7 +131,6 @@ export default function Compras() {
   const [isOcModalOpen, setIsOcModalOpen] = useState(false);
   const [editingOcId, setEditingOcId] = useState(null);
 
-  // 🔑 NUEVO: Estados para el modal de enviar a contador
   const [isEnviarContadorModalOpen, setIsEnviarContadorModalOpen] = useState(false);
   const [emailContador, setEmailContador] = useState('');
   const [enviandoFacturas, setEnviandoFacturas] = useState(false);
@@ -375,14 +375,19 @@ export default function Compras() {
   const subirArchivoADrive = async (base64, tabla) => {
     if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
     try {
+      let idToken = '';
+      if (auth.currentUser) {
+        idToken = await auth.currentUser.getIdToken();
+      }
+
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({
           action: 'subirArchivoDrive',
-          base64,
-          tabla,
-          subseccion: ''
+          base64: base64,
+          tabla: tabla,
+          idToken: idToken
         })
       });
       const data = await res.json();
@@ -410,13 +415,19 @@ export default function Compras() {
       reader.onload = async () => {
         const base64Data = reader.result;
         try {
+          let idToken = '';
+          if (auth.currentUser) {
+            idToken = await auth.currentUser.getIdToken();
+          }
+
           const res = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
             body: JSON.stringify({
               action: 'procesarFacturaConAI',
               base64: base64Data,
-              mimeType: archivo.type
+              mimeType: archivo.type,
+              idToken: idToken
             })
           });
           const textoRespuesta = await res.text();
@@ -437,7 +448,7 @@ export default function Compras() {
           setNombreProveedorOCR(nombreProvBusqueda);
 
           if (nombreProvBusqueda && proveedores.length > 0) {
-            const { mejor, candidatos, scoreMejor } = buscarMejorMatch(nombreProvBusqueda, proveedores);
+            const { mejor, candidatos } = buscarMejorMatch(nombreProvBusqueda, proveedores);
             if (mejor && candidatos.length === 1) {
               proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
             } else if (mejor && candidatos.length > 1) {
@@ -665,6 +676,11 @@ export default function Compras() {
         formData.estado_pago !== 'A Asignar'
       ) {
         try {
+          let idToken = '';
+          if (auth.currentUser) {
+            idToken = await auth.currentUser.getIdToken();
+          }
+
           const resMail = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -672,7 +688,8 @@ export default function Compras() {
               action: 'enviarConfirmacionFactura',
               email: formData.remitente,
               n_factura: formData.n_factura,
-              proveedor: formData.proveedor
+              proveedor: formData.proveedor,
+              idToken: idToken
             })
           });
           
@@ -878,11 +895,19 @@ export default function Compras() {
         insumos
       };
 
+      let idToken = '';
+      if (auth.currentUser) {
+        idToken = await auth.currentUser.getIdToken();
+      }
+
+      payload.idToken = idToken;
+
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payload)
       });
+      
       const data = await res.json();
 
       if (data && data.success && data.pdf_url) {
@@ -911,19 +936,22 @@ export default function Compras() {
 
     setEnviandoFacturas(true);
     try {
-      // 🔑 FIX: Completar el nombre del proveedor antes de enviar
       const facturasParaEnviar = facturasFiltradas.map(f => {
         const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
         const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
         
-        // Priorizamos el nombre de la base de datos, si no está, usamos el que vino en la factura
         const provNombre = provObj?.razon_social || provObj?.nombre || provObj?.Razon_social || f.proveedor || 'Proveedor Desconocido';
 
         return {
           ...f,
-          proveedor: provNombre // Sobrescribimos el campo con el nombre real
+          proveedor: provNombre 
         };
       });
+
+      let idToken = '';
+      if (auth.currentUser) {
+        idToken = await auth.currentUser.getIdToken();
+      }
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
@@ -933,7 +961,8 @@ export default function Compras() {
           email: emailContador,
           fechaDesde: filtroFechaDesde ? formatearFechaDisplay(filtroFechaDesde) : 'Inicio',
           fechaHasta: filtroFechaHasta ? formatearFechaDisplay(filtroFechaHasta) : 'Fin',
-          facturas: facturasParaEnviar // 🔑 Enviamos la lista con los nombres corregidos
+          facturas: facturasParaEnviar,
+          idToken: idToken
         })
       });
       
