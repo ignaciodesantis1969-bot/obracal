@@ -7,7 +7,7 @@ import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { useAuth } from '@/hooks/useAuth';
 import { filtrarPorResponsable } from '@/lib/permissions';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
-import { limit, orderBy } from 'firebase/firestore';
+import { limit } from 'firebase/firestore';
 
 export default function Presupuestos() {
   const { user } = useAuth();
@@ -15,10 +15,9 @@ export default function Presupuestos() {
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
 
-  // 🔑 NUEVO: Traemos los últimos 500 presupuestos sin filtro de fecha desde Firebase
-  // para evitar que Firestore oculte documentos si el campo _creadoEn tiene otro formato.
+  // 🔑 FIX DEFINITIVO: Sacamos el orderBy para que Firestore no oculte documentos sin _creadoEn
   const presupuestosConstraints = useMemo(() => {
-    return [orderBy('_creadoEn', 'desc'), limit(500)];
+    return [limit(500)];
   }, []);
 
   const { data: presupuestosFs, loading: loadingPres, error: errorPres } = useFirestoreQuery('presupuestos', presupuestosConstraints);
@@ -30,33 +29,50 @@ export default function Presupuestos() {
   const isLoading = loadingPres || loadingObras || loadingClientes || loadingInsumos;
   const errorFirestore = errorPres;
 
-  // 🔑 Filtrar presupuestos por responsable (si es jefe_obra)
   const presupuestosBase = useMemo(() => {
     const todos = Array.isArray(presupuestosFs) ? presupuestosFs : [];
     return filtrarPorResponsable(todos, user);
   }, [presupuestosFs, user]);
 
-  // 🔑 NUEVO: Filtramos por fecha en el cliente (Frontend) para asegurar que no se pierda ningún dato
+  // 🔑 Filtramos por fecha Y ordenamos en el Frontend
   const presupuestos = useMemo(() => {
-    if (!filtroFechaDesde && !filtroFechaHasta) return presupuestosBase;
+    let filtrados = [...presupuestosBase];
 
-    return presupuestosBase.filter(p => {
-      const fechaRaw = p._creadoEn || p.fecha_creacion || p.fecha;
-      if (!fechaRaw) return true; // Si no tiene fecha, no lo ocultamos (para no perder datos viejos)
+    // 1. Aplicar filtro de fechas (si hay alguna seleccionada)
+    if (filtroFechaDesde || filtroFechaHasta) {
+      filtrados = filtrados.filter(p => {
+        const fechaRaw = p._creadoEn || p.fecha_creacion || p.fecha;
+        if (!fechaRaw) return true; // Si no tiene fecha, no lo ocultamos
 
-      let fechaStr = "";
-      if (typeof fechaRaw === 'string') {
-        fechaStr = fechaRaw.split('T')[0]; // Toma solo YYYY-MM-DD
-      } else if (fechaRaw && typeof fechaRaw.toDate === 'function') {
-        fechaStr = fechaRaw.toDate().toISOString().split('T')[0];
-      } else if (fechaRaw instanceof Date) {
-        fechaStr = fechaRaw.toISOString().split('T')[0];
-      }
+        let fechaStr = "";
+        if (typeof fechaRaw === 'string') {
+          fechaStr = fechaRaw.split('T')[0];
+        } else if (fechaRaw && typeof fechaRaw.toDate === 'function') {
+          fechaStr = fechaRaw.toDate().toISOString().split('T')[0];
+        } else if (fechaRaw instanceof Date) {
+          fechaStr = fechaRaw.toISOString().split('T')[0];
+        }
 
-      if (filtroFechaDesde && fechaStr < filtroFechaDesde) return false;
-      if (filtroFechaHasta && fechaStr > filtroFechaHasta) return false;
+        if (filtroFechaDesde && fechaStr < filtroFechaDesde) return false;
+        if (filtroFechaHasta && fechaStr > filtroFechaHasta) return false;
+        return true;
+      });
+    }
+
+    // 2. Ordenar por fecha (los más nuevos primero)
+    return filtrados.sort((a, b) => {
+      let timeA = 0, timeB = 0;
+      const rawA = a._creadoEn || a.fecha_creacion || a.fecha;
+      const rawB = b._creadoEn || b.fecha_creacion || b.fecha;
+
+      if (rawA) timeA = rawA.toDate ? rawA.toDate().getTime() : new Date(rawA).getTime();
+      if (rawB) timeB = rawB.toDate ? rawB.toDate().getTime() : new Date(rawB).getTime();
+
+      // Si alguno no tiene fecha válida, lo mandamos al fondo
+      if (isNaN(timeA) || timeA === 0) return 1;
+      if (isNaN(timeB) || timeB === 0) return -1;
       
-      return true;
+      return timeB - timeA; // Descendente
     });
   }, [presupuestosBase, filtroFechaDesde, filtroFechaHasta]);
 
