@@ -5,6 +5,7 @@ import { GOOGLE_SCRIPT_URL } from '@/api';
 import CertificadoHorasHombreTab from './CertificadoHorasHombreTab';
 import CertificadoMaterialesTab from './CertificadoMaterialesTab';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+import { auth } from '@/firebase';
 
 export default function CertificacionesTab({
   presupuestos = [],
@@ -316,6 +317,23 @@ export default function CertificacionesTab({
     setIsSavingCert(true);
     const toastId = toast.loading('Guardando certificado...');
 
+    // 🔑 Obtener idToken fresco de Firebase ANTES de crear el doc en Firestore
+    let idToken = '';
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        toast.error('Sesión expirada. Vuelva a iniciar sesión.', { id: toastId });
+        setIsSavingCert(false);
+        return;
+      }
+      idToken = await user.getIdToken(true);
+    } catch (authErr) {
+      console.error('[Certificaciones AO] Error obteniendo idToken:', authErr);
+      toast.error('No se pudo validar la sesión. Vuelva a iniciar sesión.', { id: toastId });
+      setIsSavingCert(false);
+      return;
+    }
+
     try {
       const idLimpio = String(certPresupuestoId).trim();
       const r = resumenFinanciero;
@@ -355,6 +373,7 @@ export default function CertificacionesTab({
       try {
         const payloadCert = {
           action: 'guardarCertificado',
+          idToken,
           tabla: 'Certificados',
           presupuesto_id: idLimpio,
           presupuestoId: idLimpio,
@@ -381,6 +400,10 @@ export default function CertificacionesTab({
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(payloadCert)
         });
+
+        if (res.status === 403) {
+          throw new Error('Sesión no autorizada (403). Vuelva a iniciar sesión y reintente.');
+        }
 
         const textoCrudo = await res.text();
         const primerosChars = textoCrudo.trim().slice(0, 60);
