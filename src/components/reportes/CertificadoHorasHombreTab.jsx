@@ -5,6 +5,7 @@ import { Clock, Trash2, ShieldCheck, Loader2, FileText, ExternalLink } from 'luc
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+import { auth } from '@/firebase';
 
 export default function CertificadoHorasHombreTab({
   contratosList: propContratos = [],
@@ -338,6 +339,23 @@ export default function CertificadoHorasHombreTab({
     setIsSaving(true);
     const toastId = toast.loading('Guardando certificado...');
 
+    // 🔑 Obtener idToken fresco de Firebase ANTES de crear el doc en Firestore
+    let idToken = '';
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        toast.error('Sesión expirada. Vuelva a iniciar sesión.', { id: toastId });
+        setIsSaving(false);
+        return;
+      }
+      idToken = await user.getIdToken(true);
+    } catch (authErr) {
+      console.error('[CertificadoHH] Error obteniendo idToken:', authErr);
+      toast.error('No se pudo validar la sesión. Vuelva a iniciar sesión.', { id: toastId });
+      setIsSaving(false);
+      return;
+    }
+
     try {
       const partesUsados = Array.from(new Set(partesSeleccionados.map(f => String(f.nroParte))));
 
@@ -370,6 +388,7 @@ export default function CertificadoHorasHombreTab({
         const payloadGs = {
           tabla: 'CertificacionesHoras',
           action: 'guardar_certificado_horas',
+          idToken,
           contrato_id: String(contratoIdSeleccionado),
           contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
           nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
@@ -391,6 +410,10 @@ export default function CertificadoHorasHombreTab({
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(payloadGs)
         });
+
+        if (res.status === 403) {
+          throw new Error('Sesión no autorizada (403). Vuelva a iniciar sesión y reintente.');
+        }
 
         const textoCrudo = await res.text();
         const primerosChars = textoCrudo.trim().slice(0, 50);
