@@ -7,7 +7,7 @@ import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { useAuth } from '@/hooks/useAuth';
 import { filtrarPorResponsable } from '@/lib/permissions';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
-import { limit, orderBy, where } from 'firebase/firestore';
+import { limit, orderBy } from 'firebase/firestore';
 
 export default function Presupuestos() {
   const { user } = useAuth();
@@ -15,24 +15,14 @@ export default function Presupuestos() {
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
 
-  // 🔑 NUEVO: Optimizamos la carga de presupuestos con límites dinámicos
+  // 🔑 NUEVO: Traemos los últimos 500 presupuestos sin filtro de fecha desde Firebase
+  // para evitar que Firestore oculte documentos si el campo _creadoEn tiene otro formato.
   const presupuestosConstraints = useMemo(() => {
-    const c = [];
-    const isFiltered = filtroFechaDesde || filtroFechaHasta;
-    
-    // Usamos _creadoEn porque Presupuestos no tiene un campo 'fecha' explícito en el formulario
-    if (filtroFechaDesde) c.push(where('_creadoEn', '>=', filtroFechaDesde + 'T00:00:00.000Z'));
-    if (filtroFechaHasta) c.push(where('_creadoEn', '<=', filtroFechaHasta + 'T23:59:59.999Z'));
-    
-    c.push(orderBy('_creadoEn', 'desc'));
-    c.push(limit(isFiltered ? 500 : 100));
-    
-    return c;
-  }, [filtroFechaDesde, filtroFechaHasta]);
+    return [orderBy('_creadoEn', 'desc'), limit(500)];
+  }, []);
 
   const { data: presupuestosFs, loading: loadingPres, error: errorPres } = useFirestoreQuery('presupuestos', presupuestosConstraints);
   
-  // Las colecciones de apoyo (obras, clientes, insumos) no necesitan límite porque son más chicas
   const { data: obras, loading: loadingObras } = useFirestoreCollection('obras');
   const { data: clientes, loading: loadingClientes } = useFirestoreCollection('clientes');
   const { data: insumosActuales, loading: loadingInsumos } = useFirestoreCollection('insumos');
@@ -41,21 +31,42 @@ export default function Presupuestos() {
   const errorFirestore = errorPres;
 
   // 🔑 Filtrar presupuestos por responsable (si es jefe_obra)
-  // Nota: Esto se aplica sobre los 100 o 500 que trajimos de Firebase.
-  const presupuestos = useMemo(() => {
+  const presupuestosBase = useMemo(() => {
     const todos = Array.isArray(presupuestosFs) ? presupuestosFs : [];
     return filtrarPorResponsable(todos, user);
   }, [presupuestosFs, user]);
+
+  // 🔑 NUEVO: Filtramos por fecha en el cliente (Frontend) para asegurar que no se pierda ningún dato
+  const presupuestos = useMemo(() => {
+    if (!filtroFechaDesde && !filtroFechaHasta) return presupuestosBase;
+
+    return presupuestosBase.filter(p => {
+      const fechaRaw = p._creadoEn || p.fecha_creacion || p.fecha;
+      if (!fechaRaw) return true; // Si no tiene fecha, no lo ocultamos (para no perder datos viejos)
+
+      let fechaStr = "";
+      if (typeof fechaRaw === 'string') {
+        fechaStr = fechaRaw.split('T')[0]; // Toma solo YYYY-MM-DD
+      } else if (fechaRaw && typeof fechaRaw.toDate === 'function') {
+        fechaStr = fechaRaw.toDate().toISOString().split('T')[0];
+      } else if (fechaRaw instanceof Date) {
+        fechaStr = fechaRaw.toISOString().split('T')[0];
+      }
+
+      if (filtroFechaDesde && fechaStr < filtroFechaDesde) return false;
+      if (filtroFechaHasta && fechaStr > filtroFechaHasta) return false;
+      
+      return true;
+    });
+  }, [presupuestosBase, filtroFechaDesde, filtroFechaHasta]);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
-  // 🔑 searchParams + setSearchParams para leer y limpiar el ?obra=
   const [searchParams, setSearchParams] = useSearchParams();
   const obraIdDesdeUrl = searchParams.get('obra') || '';
 
-  // 📋 Modal de aprobación
   const [isAprobacionModalOpen, setIsAprobacionModalOpen] = useState(false);
   const [presupuestoAprobarId, setPresupuestoAprobarId] = useState(null);
   const [datosAprobacion, setDatosAprobacion] = useState({
@@ -568,7 +579,7 @@ export default function Presupuestos() {
       {error && <div className="p-4 bg-red-50 text-red-600 text-sm text-center border border-red-200 rounded-xl">{error}</div>}
 
       {/* 🔑 Aviso si se alcanzó el límite de datos */}
-      {presupuestosFs.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100) && (
+      {presupuestosFs.length === 500 && (
         <div className="bg-amber-100 border border-amber-300 p-3 rounded-xl text-xs text-amber-900 font-medium flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
           <span>Se alcanzó el límite máximo de visualización de presupuestos. Si buscás uno más antiguo, <b>ajustá el rango de fechas</b> para achicar el período.</span>
