@@ -2,10 +2,12 @@
 import React, { useState, useMemo } from 'react';
 import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip, Ban, AlertTriangle } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import BuscadorSelect from '@/components/BuscadorSelect';
-import { auth } from '@/firebase'; // 🔑 NUEVO
+import { auth } from '@/firebase';
+import { limit, orderBy, where } from 'firebase/firestore';
 
 const esNotaCredito = (tipoComprobante) => {
   return String(tipoComprobante || '').toUpperCase().includes('NOTA DE CREDITO');
@@ -115,16 +117,12 @@ const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo
 };
 
 export default function Tesoreria() {
-  const { data: movimientos } = useFirestoreCollection('tesoreria');
-  const { data: facturas } = useFirestoreCollection('facturas_compras');
-  const { data: facturasVenta } = useFirestoreCollection('facturas_ventas');
   const { data: proveedores } = useFirestoreCollection('proveedores');
   const { data: clientes } = useFirestoreCollection('clientes');
   const { data: obras } = useFirestoreCollection('obras');
   const { data: presupuestos } = useFirestoreCollection('presupuestos');
   const { data: rubros } = useFirestoreCollection('rubros');
   const { data: contratos } = useFirestoreCollection('contratos');
-  const { data: retenciones } = useFirestoreCollection('retenciones');
 
   const [activeTab, setActiveTab] = useState('movimientos');
   const [searchTerm, setSearchTerm] = useState('');
@@ -134,7 +132,57 @@ export default function Tesoreria() {
   const [filtroTipoMovimiento, setFiltroTipoMovimiento] = useState('');
   const [filtroOrigen, setFiltroOrigen] = useState('');
   const [filtroTipoRetencion, setFiltroTipoRetencion] = useState('');
+  
+  // 🔑 NUEVO: Filtros de fecha para que los KPIs tengan sentido
+  const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
+  const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
+
   const [subiendoCertificadoId, setSubiendoCertificadoId] = useState(null);
+
+  // 🔑 NUEVO: Consultas optimizadas con límites dinámicos
+  const movimientosConstraints = useMemo(() => {
+    const c = [];
+    const isFiltered = filtroFechaDesde || filtroFechaHasta;
+    if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
+    if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
+    c.push(orderBy('fecha', 'desc'));
+    c.push(limit(isFiltered ? 500 : 100));
+    return c;
+  }, [filtroFechaDesde, filtroFechaHasta]);
+  const { data: movimientos } = useFirestoreQuery('tesoreria', movimientosConstraints);
+
+  const facturasComprasConstraints = useMemo(() => {
+    const c = [];
+    const isFiltered = filtroFechaDesde || filtroFechaHasta;
+    if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
+    if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
+    c.push(orderBy('fecha', 'desc'));
+    c.push(limit(isFiltered ? 500 : 100));
+    return c;
+  }, [filtroFechaDesde, filtroFechaHasta]);
+  const { data: facturas } = useFirestoreQuery('facturas_compras', facturasComprasConstraints);
+
+  const facturasVentasConstraints = useMemo(() => {
+    const c = [];
+    const isFiltered = filtroFechaDesde || filtroFechaHasta;
+    if (filtroFechaDesde) c.push(where('fecha_emision', '>=', filtroFechaDesde));
+    if (filtroFechaHasta) c.push(where('fecha_emision', '<=', filtroFechaHasta));
+    c.push(orderBy('fecha_emision', 'desc'));
+    c.push(limit(isFiltered ? 500 : 100));
+    return c;
+  }, [filtroFechaDesde, filtroFechaHasta]);
+  const { data: facturasVenta } = useFirestoreQuery('facturas_ventas', facturasVentasConstraints);
+
+  const retencionesConstraints = useMemo(() => {
+    const c = [];
+    const isFiltered = filtroFechaDesde || filtroFechaHasta;
+    if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
+    if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
+    c.push(orderBy('fecha', 'desc'));
+    c.push(limit(isFiltered ? 500 : 100));
+    return c;
+  }, [filtroFechaDesde, filtroFechaHasta]);
+  const { data: retenciones } = useFirestoreQuery('retenciones', retencionesConstraints);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -265,7 +313,6 @@ export default function Tesoreria() {
   const subirArchivoADrive = async (base64, tabla) => {
     if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
     try {
-      // 🔑 Obtener token fresco
       let idToken = '';
       if (auth.currentUser) {
         idToken = await auth.currentUser.getIdToken(true); 
@@ -279,7 +326,7 @@ export default function Tesoreria() {
           base64,
           tabla,
           subseccion: '',
-          idToken: idToken // 🔑 Inyectado
+          idToken: idToken
         })
       });
       const data = await res.json();
@@ -562,7 +609,6 @@ export default function Tesoreria() {
         const base64Data = reader.result;
         setArchivoBase64Venta(base64Data);
         try {
-          // 🔑 NUEVO: Obtener el token antes de la petición
           let idToken = '';
           if (auth.currentUser) {
             idToken = await auth.currentUser.getIdToken(true);
@@ -576,7 +622,7 @@ export default function Tesoreria() {
               tabla: 'FacturasVenta',
               base64: base64Data,
               mimeType: archivo.type,
-              idToken: idToken // 🔑 Agregamos el token acá
+              idToken: idToken 
              })
         });
           const textoRespuesta = await res.text();
@@ -1125,7 +1171,6 @@ export default function Tesoreria() {
     return fechaB.localeCompare(fechaA);
   });
 
-// === CONTINÚA EN PARTE 2 ===
   const totalFacturasAPagar = facturasAPagar.reduce((acc, f) => {
     return acc + (Number(f.total || f.Total || f.TOTAL || 0) || 0);
   }, 0);
@@ -1159,7 +1204,6 @@ export default function Tesoreria() {
   const listaMensual = Object.keys(cashFlowMensualMap).sort().map(k => ({ periodo: k, ...cashFlowMensualMap[k] }));
   const listaAnual = Object.keys(cashFlowAnualMap).sort().map(k => ({ periodo: k, ...cashFlowAnualMap[k] }));
 
-  // 🔑 FIX IVA COMPRAS
   const totalIvaCompras = facturas.reduce((acc, f) => {
     const estado = String(f.estado_pago || '').toLowerCase();
     const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
@@ -1171,7 +1215,6 @@ export default function Tesoreria() {
     return acc + iva21 + iva105;
   }, 0);
 
-  // 🔑 FIX IVA VENTAS (A prueba de duplicados)
   const totalIvaVentas = useMemo(() => {
     const facturasUnicas = new Map();
 
@@ -1204,66 +1247,89 @@ export default function Tesoreria() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Tesorería</h1>
           <p className="text-slate-500 text-sm mt-1">Flujo de caja, IVA, retenciones y movimientos</p>
         </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => {
-            setPasoFacturaVenta('subir');
-            setArchivoBase64Venta('');
-            setNombreArchivoVenta('');
-            setCandidatosCliente([]);
-            setNombreClienteOCR('');
-            setFormDataVenta({
-              tipo_comprobante: 'FACTURA A',
-              punto_venta: '00001',
-              numero_comp: '',
-              cliente_id: '',
-              fecha_emision: new Date().toISOString().split('T')[0],
-              fecha_vencimiento: '',
-              items: [{ id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
-              neto_gravado: 0,
-              iva_21: 0,
-              iva_105: 0,
-              otros_tributos: 0,
-              total: 0,
-              archivo_url: '',
-              estado_pago: 'pendiente',
-              comprobante_anula: ''
-            });
-            setIsFacturaVentaModalOpen(true);
-          }} className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
-            <Plus className="w-4 h-4" /> + Nueva Factura Venta
-          </button>
-          <button onClick={() => {
-            setEditingId(null);
-            setFormData({
-              tipo: 'Egreso',
-              fecha: new Date().toISOString().split('T')[0],
-              concepto: '',
-              monto: 0,
-              obra_id: '',
-              presupuesto_id: '',
-              contrato_id: '',
-              rubro_imputacion: '',
-              tipo_insumo: 'Materiales',
-              medio_pago: 'transferencia',
-              referencia: '',
-              retencion_suss: 0,
-              retencion_iva: 0,
-              retencion_ganancias: 0,
-              retencion_iibb_pba: 0,
-              retencion_iibb_caba: 0,
-              facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }]
-            });
-            setIsModalOpen(true);
-          }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
-            <Plus className="w-4 h-4" /> Nuevo Movimiento
-          </button>
+        
+        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full xl:w-auto">
+          {/* 🔑 NUEVO: Filtros de fecha para el rendimiento del dashboard */}
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 w-full sm:w-auto">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Desde</span>
+              <input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)} className="bg-transparent text-xs font-semibold text-slate-700 outline-none" />
+            </div>
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 w-full sm:w-auto">
+              <span className="text-[10px] font-bold text-slate-500 uppercase">Hasta</span>
+              <input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)} className="bg-transparent text-xs font-semibold text-slate-700 outline-none" />
+            </div>
+          </div>
+
+          <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+            <button onClick={() => {
+              setPasoFacturaVenta('subir');
+              setArchivoBase64Venta('');
+              setNombreArchivoVenta('');
+              setCandidatosCliente([]);
+              setNombreClienteOCR('');
+              setFormDataVenta({
+                tipo_comprobante: 'FACTURA A',
+                punto_venta: '00001',
+                numero_comp: '',
+                cliente_id: '',
+                fecha_emision: new Date().toISOString().split('T')[0],
+                fecha_vencimiento: '',
+                items: [{ id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
+                neto_gravado: 0,
+                iva_21: 0,
+                iva_105: 0,
+                otros_tributos: 0,
+                total: 0,
+                archivo_url: '',
+                estado_pago: 'pendiente',
+                comprobante_anula: ''
+              });
+              setIsFacturaVentaModalOpen(true);
+            }} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm w-full sm:w-auto">
+              <Plus className="w-4 h-4" /> + Nueva Factura Venta
+            </button>
+            <button onClick={() => {
+              setEditingId(null);
+              setFormData({
+                tipo: 'Egreso',
+                fecha: new Date().toISOString().split('T')[0],
+                concepto: '',
+                monto: 0,
+                obra_id: '',
+                presupuesto_id: '',
+                contrato_id: '',
+                rubro_imputacion: '',
+                tipo_insumo: 'Materiales',
+                medio_pago: 'transferencia',
+                referencia: '',
+                retencion_suss: 0,
+                retencion_iva: 0,
+                retencion_ganancias: 0,
+                retencion_iibb_pba: 0,
+                retencion_iibb_caba: 0,
+                facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }]
+              });
+              setIsModalOpen(true);
+            }} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm w-full sm:w-auto">
+              <Plus className="w-4 h-4" /> Nuevo Movimiento
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* 🔑 NUEVO: Aviso si se alcanzó el límite de datos */}
+      {movimientos.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100) && (
+        <div className="bg-amber-100 border border-amber-300 p-3 rounded-xl text-xs text-amber-900 font-medium flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          <span>Se alcanzó el límite máximo de movimientos para calcular los KPIs. Si necesitás ver datos más antiguos, <b>ajustá el rango de fechas</b> para achicar el período.</span>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
