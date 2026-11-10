@@ -8,7 +8,7 @@ import BuscadorSelect from '@/components/BuscadorSelect';
 import { useAuth } from '@/hooks/useAuth';
 import { auth } from '@/firebase';
 import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
-import { limit, orderBy, where } from 'firebase/firestore'; // 🔑 NUEVO
+import { limit, orderBy, where } from 'firebase/firestore';
 
 const normalizarNombre = (str) => {
   return String(str || '')
@@ -125,13 +125,17 @@ export default function Compras() {
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroEstadoPago, setFiltroEstadoPago] = useState('');
 
-  // 🔑 NUEVO: Filtramos por fecha en el servidor (Firestore)
+  // 🔑 LÍMITE DINÁMICO: 100 por defecto, 500 si hay fechas seleccionadas
   const facturasConstraints = useMemo(() => {
     const c = [];
+    const isFiltered = filtroFechaDesde || filtroFechaHasta;
+    
     if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
     if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
+    
     c.push(orderBy('fecha', 'desc'));
-    c.push(limit(100)); 
+    c.push(limit(isFiltered ? 500 : 100)); 
+    
     return c;
   }, [filtroFechaDesde, filtroFechaHasta]);
 
@@ -390,7 +394,7 @@ export default function Compras() {
     try {
       let idToken = '';
       if (auth.currentUser) {
-        idToken = await auth.currentUser.getIdToken(true); // El (true) fuerza un token fresco
+        idToken = await auth.currentUser.getIdToken(true);
       }
 
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -1232,8 +1236,16 @@ export default function Compras() {
       {activeTab === 'facturas' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
           <div className="p-3 bg-slate-100 border-b text-[11px] text-slate-600 flex justify-between items-center">
-            <span>Total de facturas recibidas: <b>{facturas.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
+            <span>Total de facturas mostradas: <b>{facturas.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
           </div>
+
+          {/* 🔑 NUEVO: Aviso si se alcanzó el límite */}
+          {facturas.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100) && (
+            <div className="bg-amber-100 border-b border-amber-300 p-3 text-xs text-amber-900 font-medium flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>Se alcanzó el límite máximo de visualización. Si buscás una factura más antigua, <b>ajustá el rango de fechas (Desde/Hasta)</b> para achicar el período.</span>
+            </div>
+          )}
 
           {facturasFiltradas.length === 0 ? (
             <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
