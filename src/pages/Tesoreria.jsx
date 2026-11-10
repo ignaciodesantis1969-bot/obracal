@@ -5,6 +5,7 @@ import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import BuscadorSelect from '@/components/BuscadorSelect';
+import { auth } from '@/firebase'; // 🔑 NUEVO
 
 const esNotaCredito = (tipoComprobante) => {
   return String(tipoComprobante || '').toUpperCase().includes('NOTA DE CREDITO');
@@ -264,6 +265,12 @@ export default function Tesoreria() {
   const subirArchivoADrive = async (base64, tabla) => {
     if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
     try {
+      // 🔑 Obtener token fresco
+      let idToken = '';
+      if (auth.currentUser) {
+        idToken = await auth.currentUser.getIdToken(true); 
+      }
+
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -271,7 +278,8 @@ export default function Tesoreria() {
           action: 'subirArchivoDrive',
           base64,
           tabla,
-          subseccion: ''
+          subseccion: '',
+          idToken: idToken // 🔑 Inyectado
         })
       });
       const data = await res.json();
@@ -554,16 +562,23 @@ export default function Tesoreria() {
         const base64Data = reader.result;
         setArchivoBase64Venta(base64Data);
         try {
+          // 🔑 NUEVO: Obtener el token antes de la petición
+          let idToken = '';
+          if (auth.currentUser) {
+            idToken = await auth.currentUser.getIdToken(true);
+          }
+
           const res = await fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'procesarFacturaConAI',
+          method: 'POST',
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: JSON.stringify({
+             action: 'procesarFacturaConAI',
               tabla: 'FacturasVenta',
               base64: base64Data,
-              mimeType: archivo.type
-            })
-          });
+              mimeType: archivo.type,
+              idToken: idToken // 🔑 Agregamos el token acá
+             })
+        });
           const textoRespuesta = await res.text();
           let data;
           try {
