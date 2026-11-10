@@ -6,6 +6,7 @@ import { GOOGLE_SCRIPT_URL } from '../../api';
 import { useFirestoreCollection } from '../../hooks/useFirestoreCollection';
 import { OBRAS_CONFIG } from '../../config/constants';
 import { crearDoc, eliminarDoc } from '../../lib/firestoreHelpers';
+import { auth } from '../../firebase';
 
 export default function ReportesDiariosTab({
   contratosList: propContratos = [],
@@ -470,12 +471,30 @@ export default function ReportesDiariosTab({
     const rolActualUsuario = String(currentUser?.role || currentUser?.rol || '').trim().toLowerCase();
     const nombreUsuarioGenerador = (rolActualUsuario === 'administrador' || rolActualUsuario === 'admin') ? 'Administrador' : 'Operario';
 
+    // 🔑 Obtener idToken fresco de Firebase para autenticar el POST a Apps Script
+    let idToken = '';
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        toast.error('Sesión expirada. Vuelva a iniciar sesión.', { id: toastId });
+        setIsSavingSice(false);
+        return;
+      }
+      idToken = await user.getIdToken(true);
+    } catch (authErr) {
+      console.error('[ReportesDiarios] Error obteniendo idToken:', authErr);
+      toast.error('No se pudo validar la sesión. Vuelva a iniciar sesión.', { id: toastId });
+      setIsSavingSice(false);
+      return;
+    }
+
     try {
       const nroNuevo = calcularProximoNro();
       console.info('[ReportesDiarios] Nro calculado para nuevo parte:', nroNuevo);
 
       const payloadPdf = {
         action: 'guardarYGenerarPDF',
+        idToken,
         tabla: OBRAS_CONFIG?.TABLAS?.REPORTES_SICE || 'ReportesDiariosSice',
         contratoId: String(contratoSeleccionadoId),
         nroContratoCliente: String(nroContratoClienteDinamico),
@@ -495,6 +514,12 @@ export default function ReportesDiariosTab({
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify(payloadPdf)
       });
+
+      if (res.status === 403) {
+        toast.error('Sesión no autorizada (403). Vuelva a iniciar sesión y reintente.', { id: toastId });
+        setIsSavingSice(false);
+        return;
+      }
 
       let resultado = null;
       try {
