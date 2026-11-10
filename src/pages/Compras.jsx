@@ -7,6 +7,8 @@ import { GOOGLE_SCRIPT_URL } from '@/api';
 import BuscadorSelect from '@/components/BuscadorSelect';
 import { useAuth } from '@/hooks/useAuth';
 import { auth } from '@/firebase';
+import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
+import { limit, orderBy, where } from 'firebase/firestore'; // 🔑 NUEVO
 
 const normalizarNombre = (str) => {
   return String(str || '')
@@ -106,7 +108,6 @@ const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo
 };
 
 export default function Compras() {
-  const { data: facturas } = useFirestoreCollection('facturas_compras');
   const { data: ordenesCompra } = useFirestoreCollection('ordenes_compra');
   const { data: proveedores } = useFirestoreCollection('proveedores');
   const { data: obras } = useFirestoreCollection('obras');
@@ -123,6 +124,18 @@ export default function Compras() {
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroEstadoPago, setFiltroEstadoPago] = useState('');
+
+  // 🔑 NUEVO: Filtramos por fecha en el servidor (Firestore)
+  const facturasConstraints = useMemo(() => {
+    const c = [];
+    if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
+    if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
+    c.push(orderBy('fecha', 'desc'));
+    c.push(limit(100)); 
+    return c;
+  }, [filtroFechaDesde, filtroFechaHasta]);
+
+  const { data: facturas } = useFirestoreQuery('facturas_compras', facturasConstraints);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isFacturaModalOpen, setIsFacturaModalOpen] = useState(false);
@@ -614,9 +627,7 @@ export default function Compras() {
     e.preventDefault();
     if (isSaving) return;
 
-    // 🔑 NUEVO: Verificación ultra-robusta de duplicados
     if (!editingId && formData.n_factura) {
-      // Función para dejar solo números (ignora guiones y ceros iniciales)
       const limpiarNro = (nro) => String(nro || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
       
       const nroAComparar = limpiarNro(formData.n_factura);
@@ -628,12 +639,11 @@ export default function Compras() {
 
       if (facturaExistente) {
         alert(`⚠️ La factura N° ${formData.n_factura} ya se encuentra registrada en el sistema con el código ${facturaExistente.codigo || 'N/A'}.\n\nSi querés modificarla, buscá ese código en la lista y hacé clic en Editar.`);
-        return; // Corta acá y no guarda
+        return; 
       }
     }
 
     setIsSaving(true);
-    // ... el resto del código de guardar sigue igual
    
     try {
       const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
