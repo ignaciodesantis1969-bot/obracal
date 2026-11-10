@@ -133,13 +133,13 @@ export default function Tesoreria() {
   const [filtroOrigen, setFiltroOrigen] = useState('');
   const [filtroTipoRetencion, setFiltroTipoRetencion] = useState('');
   
-  // 🔑 NUEVO: Filtros de fecha para que los KPIs tengan sentido
+  // Filtros de fecha
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
 
   const [subiendoCertificadoId, setSubiendoCertificadoId] = useState(null);
 
-  // 🔑 NUEVO: Consultas optimizadas con límites dinámicos
+  // Consultas optimizadas con límites dinámicos
   const movimientosConstraints = useMemo(() => {
     const c = [];
     const isFiltered = filtroFechaDesde || filtroFechaHasta;
@@ -1247,83 +1247,70 @@ export default function Tesoreria() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col xl:flex-row justify-between items-start xl:items-center gap-4">
+      <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Tesorería</h1>
           <p className="text-slate-500 text-sm mt-1">Flujo de caja, IVA, retenciones y movimientos</p>
         </div>
         
-        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 w-full xl:w-auto">
-          {/* 🔑 NUEVO: Filtros de fecha para el rendimiento del dashboard */}
-          <div className="flex items-center gap-2 w-full sm:w-auto">
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 w-full sm:w-auto">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Desde</span>
-              <input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)} className="bg-transparent text-xs font-semibold text-slate-700 outline-none" />
-            </div>
-            <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 w-full sm:w-auto">
-              <span className="text-[10px] font-bold text-slate-500 uppercase">Hasta</span>
-              <input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)} className="bg-transparent text-xs font-semibold text-slate-700 outline-none" />
-            </div>
-          </div>
-
-          <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
-            <button onClick={() => {
-              setPasoFacturaVenta('subir');
-              setArchivoBase64Venta('');
-              setNombreArchivoVenta('');
-              setCandidatosCliente([]);
-              setNombreClienteOCR('');
-              setFormDataVenta({
-                tipo_comprobante: 'FACTURA A',
-                punto_venta: '00001',
-                numero_comp: '',
-                cliente_id: '',
-                fecha_emision: new Date().toISOString().split('T')[0],
-                fecha_vencimiento: '',
-                items: [{ id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
-                neto_gravado: 0,
-                iva_21: 0,
-                iva_105: 0,
-                otros_tributos: 0,
-                total: 0,
-                archivo_url: '',
-                estado_pago: 'pendiente',
-                comprobante_anula: ''
-              });
-              setIsFacturaVentaModalOpen(true);
-            }} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm w-full sm:w-auto">
-              <Plus className="w-4 h-4" /> + Nueva Factura Venta
-            </button>
-            <button onClick={() => {
-              setEditingId(null);
-              setFormData({
-                tipo: 'Egreso',
-                fecha: new Date().toISOString().split('T')[0],
-                concepto: '',
-                monto: 0,
-                obra_id: '',
-                presupuesto_id: '',
-                contrato_id: '',
-                rubro_imputacion: '',
-                tipo_insumo: 'Materiales',
-                medio_pago: 'transferencia',
-                referencia: '',
-                retencion_suss: 0,
-                retencion_iva: 0,
-                retencion_ganancias: 0,
-                retencion_iibb_pba: 0,
-                retencion_iibb_caba: 0,
-                facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }]
-              });
-              setIsModalOpen(true);
-            }} className="flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm w-full sm:w-auto">
-              <Plus className="w-4 h-4" /> Nuevo Movimiento
-            </button>
-          </div>
+        {/* Botones de acción */}
+        <div className="flex items-center gap-3 w-full md:w-auto">
+          <button onClick={() => {
+            setPasoFacturaVenta('subir');
+            setArchivoBase64Venta('');
+            setNombreArchivoVenta('');
+            setCandidatosCliente([]);
+            setNombreClienteOCR('');
+            setFormDataVenta({
+              tipo_comprobante: 'FACTURA A',
+              punto_venta: '00001',
+              numero_comp: '',
+              cliente_id: '',
+              fecha_emision: new Date().toISOString().split('T')[0],
+              fecha_vencimiento: '',
+              items: [{ id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
+              neto_gravado: 0,
+              iva_21: 0,
+              iva_105: 0,
+              otros_tributos: 0,
+              total: 0,
+              archivo_url: '',
+              estado_pago: 'pendiente',
+              comprobante_anula: ''
+            });
+            setIsFacturaVentaModalOpen(true);
+          }} className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
+            <Plus className="w-4 h-4" /> + Nueva Factura Venta
+          </button>
+          <button onClick={() => {
+            setEditingId(null);
+            setFormData({
+              tipo: 'Egreso',
+              fecha: new Date().toISOString().split('T')[0],
+              concepto: '',
+              monto: 0,
+              obra_id: '',
+              presupuesto_id: '',
+              contrato_id: '',
+              rubro_imputacion: '',
+              tipo_insumo: 'Materiales',
+              medio_pago: 'transferencia',
+              referencia: '',
+              retencion_suss: 0,
+              retencion_iva: 0,
+              retencion_ganancias: 0,
+              retencion_iibb_pba: 0,
+              retencion_iibb_caba: 0,
+              facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }]
+            });
+            setIsModalOpen(true);
+          }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
+            <Plus className="w-4 h-4" /> Nuevo Movimiento
+          </button>
         </div>
       </div>
 
-      {/* 🔑 NUEVO: Aviso si se alcanzó el límite de datos */}
+      {/* 🔑 Aviso si se alcanzó el límite de datos */}
       {movimientos.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100) && (
         <div className="bg-amber-100 border border-amber-300 p-3 rounded-xl text-xs text-amber-900 font-medium flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -1393,7 +1380,19 @@ export default function Tesoreria() {
         </div>
 
         {activeTab === 'movimientos' && (
-          <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap">
+          <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap justify-end">
+            {/* 🔑 Inputs de fecha movidos acá para estar junto a los filtros de la tabla */}
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Desde</span>
+                <input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)} className="bg-transparent text-xs font-semibold text-slate-700 outline-none" />
+              </div>
+              <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+                <span className="text-[10px] font-bold text-slate-500 uppercase">Hasta</span>
+                <input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)} className="bg-transparent text-xs font-semibold text-slate-700 outline-none" />
+              </div>
+            </div>
+
             <select
               value={filtroTipoMovimiento}
               onChange={(e) => setFiltroTipoMovimiento(e.target.value)}
@@ -1414,7 +1413,7 @@ export default function Tesoreria() {
               <option value="venta">Ventas (clientes)</option>
               <option value="compra">Compras (proveedores)</option>
             </select>
-            <div className="min-w-[200px]">
+            <div className="min-w-[180px]">
               <BuscadorSelect
                 opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
                 value={filtroProveedorMovimientos}
