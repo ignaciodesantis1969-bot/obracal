@@ -610,22 +610,30 @@ export default function Compras() {
     setIsFacturaModalOpen(true);
   };
 
-  const handleGuardarFactura = async (e) => {
-        e.preventDefault();
+    const handleGuardarFactura = async (e) => {
+    e.preventDefault();
     if (isSaving) return;
 
-    // 🔑 NUEVO: Verificar si la factura ya existe para evitar duplicados
+    // 🔑 NUEVO: Verificación ultra-robusta de duplicados
     if (!editingId && formData.n_factura) {
-      const facturaExistente = facturas.find(f => 
-        String(f.n_factura || f.N_factura || f.numero_comp || '').trim() === String(formData.n_factura).trim()
-      );
+      // Función para dejar solo números (ignora guiones y ceros iniciales)
+      const limpiarNro = (nro) => String(nro || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
+      
+      const nroAComparar = limpiarNro(formData.n_factura);
+      
+      const facturaExistente = facturas.find(f => {
+        const nroBase = f.n_factura || f.N_factura || f.numero_comp || '';
+        return limpiarNro(nroBase) === nroAComparar;
+      });
+
       if (facturaExistente) {
-        alert(`⚠️ La factura N° ${formData.n_factura} ya se encuentra registrada en el sistema con el código ${facturaExistente.codigo || 'N/A'}.`);
+        alert(`⚠️ La factura N° ${formData.n_factura} ya se encuentra registrada en el sistema con el código ${facturaExistente.codigo || 'N/A'}.\n\nSi querés modificarla, buscá ese código en la lista y hacé clic en Editar.`);
         return; // Corta acá y no guarda
       }
     }
 
     setIsSaving(true);
+    // ... el resto del código de guardar sigue igual
    
     try {
       const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
