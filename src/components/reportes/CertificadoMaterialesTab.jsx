@@ -5,6 +5,7 @@ import { Package, Trash2, ShieldCheck, Loader2, FileText, ExternalLink, DollarSi
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { GOOGLE_SCRIPT_URL } from '@/api';
+import { auth } from '@/firebase';
 
 export default function CertificadoMaterialesTab({
   contratosList: propContratos = [],
@@ -324,6 +325,23 @@ export default function CertificadoMaterialesTab({
     setIsSaving(true);
     const toastId = toast.loading('Guardando certificado de materiales...');
 
+    // 🔑 Obtener idToken fresco de Firebase ANTES de crear el doc en Firestore
+    let idToken = '';
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        toast.error('Sesión expirada. Vuelva a iniciar sesión.', { id: toastId });
+        setIsSaving(false);
+        return;
+      }
+      idToken = await user.getIdToken(true);
+    } catch (authErr) {
+      console.error('[CertificadoMateriales] Error obteniendo idToken:', authErr);
+      toast.error('No se pudo validar la sesión. Vuelva a iniciar sesión.', { id: toastId });
+      setIsSaving(false);
+      return;
+    }
+
     try {
       const facturasUsadas = Array.from(new Set(facturasSeleccionadas.map(f => String(f.nFactura))));
 
@@ -362,6 +380,7 @@ export default function CertificadoMaterialesTab({
       try {
         const payloadGs = {
           action: 'guardar_certificado_materiales',
+          idToken,
           contrato_id: String(contratoIdSeleccionado),
           contrato_codigo: codigoSICEReal === '---' ? '' : codigoSICEReal,
           nro_contrato_cliente: nroContratoClienteReal === '---' ? '' : nroContratoClienteReal,
@@ -383,6 +402,10 @@ export default function CertificadoMaterialesTab({
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
           body: JSON.stringify(payloadGs)
         });
+
+        if (res.status === 403) {
+          throw new Error('Sesión no autorizada (403). Vuelva a iniciar sesión y reintente.');
+        }
 
         const textoCrudo = await res.text();
         console.info('[CertificadoMateriales] Status:', res.status, '| Primeros chars:', textoCrudo.trim().slice(0, 60));
