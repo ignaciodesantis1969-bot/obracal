@@ -611,9 +611,22 @@ export default function Compras() {
   };
 
   const handleGuardarFactura = async (e) => {
-    e.preventDefault();
+        e.preventDefault();
     if (isSaving) return;
+
+    // 🔑 NUEVO: Verificar si la factura ya existe para evitar duplicados
+    if (!editingId && formData.n_factura) {
+      const facturaExistente = facturas.find(f => 
+        String(f.n_factura || f.N_factura || f.numero_comp || '').trim() === String(formData.n_factura).trim()
+      );
+      if (facturaExistente) {
+        alert(`⚠️ La factura N° ${formData.n_factura} ya se encuentra registrada en el sistema con el código ${facturaExistente.codigo || 'N/A'}.`);
+        return; // Corta acá y no guarda
+      }
+    }
+
     setIsSaving(true);
+   
     try {
       const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
       const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
