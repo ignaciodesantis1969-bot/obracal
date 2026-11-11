@@ -652,11 +652,11 @@ export default function Compras() {
   };
 
   // 🔑 HANDLER CON OPTIMISTIC UPDATE
-  const handleGuardarFactura = async (e) => {
+    const handleGuardarFactura = async (e) => {
     e.preventDefault();
     if (isSaving) return;
 
-    // Validación de duplicados (usa facturasRender para también incluir optimistas)
+    // 1. Validación de duplicados
     if (!editingId && formData.n_factura) {
       const limpiarNro = (nro) => String(nro || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
       const nroAComparar = limpiarNro(formData.n_factura);
@@ -672,10 +672,9 @@ export default function Compras() {
       }
     }
 
-    // 🔑 Armamos los datos del optimistic update
+    // Armamos los datos
     const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
-    const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
-                          String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
+    const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
     const factorSigno = esNotaCredito ? -1 : 1;
 
     const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
@@ -688,7 +687,7 @@ export default function Compras() {
       ...formData,
       id: tempId,
       codigo: codigoFinal,
-      archivo_url: '', // Se completa después del upload
+      archivo_url: '', // Se completa después
       subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
       iva_21: Math.abs(Number(formData.iva_21) || 0) * factorSigno,
       iva_10_5: Math.abs(Number(formData.iva_10_5) || 0) * factorSigno,
@@ -712,13 +711,13 @@ export default function Compras() {
       detalle_gasto: esGastoLibre ? formData.detalle_gasto : '', 
       es_nota_credito: esNotaCredito,
       comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : '',
-      remitente: formData.remitente,
-      notificado_proveedor: formData.notificado_proveedor
+      remitente: formData.remitente || '',
+      notificado_proveedor: Boolean(formData.notificado_proveedor)
     };
 
     const backupOptimistic = [...optimisticFacturas];
 
-    // 🔑 1. Actualizamos la UI al instante y cerramos el modal
+    // Optimistic Update (Cierra modal al instante)
     setOptimisticFacturas(prev => {
       if (editingId) return prev.map(p => p.id === editingId ? datosOptimistas : p);
       return [datosOptimistas, ...prev];
@@ -726,7 +725,6 @@ export default function Compras() {
     setIsFacturaModalOpen(false);
     setIsSaving(true);
 
-    // 🔑 2. Guardamos en Firebase en background
     try {
       let archivoUrlFinal = formData.archivo_url || '';
       if (archivoUrlFinal && archivoUrlFinal.indexOf('data:') === 0) {
@@ -738,65 +736,53 @@ export default function Compras() {
         archivo_url: archivoUrlFinal
       };
 
-      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
+      // 🔑 LIMPIAMOS LOS UNDEFINED PARA QUE FIRESTORE NO FALLE
+      const datosLimpios = {};
+      Object.keys(payloadData).forEach(key => {
+        if (payloadData[key] !== undefined) {
+          datosLimpios[key] = payloadData[key];
+        }
+      });
+      delete datosLimpios._creadoEn;
+      delete datosLimpios._actualizadoEn;
+      delete datosLimpios.id;
 
       let nuevoDocId = editingId;
       if (editingId) {
         await actualizarDoc('facturas_compras', editingId, datosLimpios);
-        // Actualizamos archivo_url en el optimistic ya existente
         setOptimisticFacturas(prev => prev.map(p => p.id === editingId ? { ...p, archivo_url: archivoUrlFinal } : p));
       } else {
         nuevoDocId = await crearDoc('facturas_compras', datosLimpios);
-        // 🔑 Reemplazamos el ID temporal por el real
         setOptimisticFacturas(prev => prev.map(p => p.id === tempId ? { ...p, id: nuevoDocId, archivo_url: archivoUrlFinal } : p));
       }
 
-      if (
-        formData.remitente && 
-        !formData.notificado_proveedor && 
-        formData.estado_pago !== 'a asignar' && 
-        formData.estado_pago !== 'A Asignar'
-      ) {
+      // Envío de mail...
+      if (formData.remitente && !formData.notificado_proveedor && formData.estado_pago !== 'a asignar' && formData.estado_pago !== 'A Asignar') {
         try {
           let idToken = '';
-          if (auth.currentUser) {
-            idToken = await auth.currentUser.getIdToken();
-          }
-
+          if (auth.currentUser) idToken = await auth.currentUser.getIdToken();
           const resMail = await fetch(GOOGLE_SCRIPT_URL, {
             method: 'POST',
             headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'enviarConfirmacionFactura',
-              email: formData.remitente,
-              n_factura: formData.n_factura,
-              proveedor: formData.proveedor,
-              idToken: idToken
-            })
+            body: JSON.stringify({ action: 'enviarConfirmacionFactura', email: formData.remitente, n_factura: formData.n_factura, proveedor: formData.proveedor, idToken })
           });
-          
           const dataMail = await resMail.json();
-          
-          if (!dataMail.success) {
-            alert("⚠️ La factura se guardó, pero FALLÓ el envío del mail:\n\n" + dataMail.error);
-            console.error("Error de Resend:", dataMail.error);
-          } else {
+          if (dataMail.success) {
             await actualizarDoc('facturas_compras', nuevoDocId, { notificado_proveedor: true });
           }
-          
         } catch (emailErr) {
-          console.error("Error enviando mail al proveedor:", emailErr);
-          alert("Error de red al intentar enviar el mail.");
+          console.error("Error enviando mail:", emailErr);
         }
       }
 
       setCandidatosProveedor([]);
       setNombreProveedorOCR('');
     } catch (err) {
-      // 🔑 3. ROLLBACK si falla
+      // 🔑 SI FIRESTORE FALLA, MOSTRAMOS EL ERROR CLARAMENTE
+      console.error("ERROR FIRESTORE:", err);
       setOptimisticFacturas(backupOptimistic);
-      alert("Error al guardar: " + err.message);
-      setIsFacturaModalOpen(true); // Reabrimos para reintentar
+      alert("⚠️ ATENCIÓN: La factura NO se guardó en la base de datos.\n\nMotivo: " + err.message);
+      setIsFacturaModalOpen(true); 
     } finally {
       setIsSaving(false);
     }
