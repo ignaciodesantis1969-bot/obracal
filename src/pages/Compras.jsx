@@ -1165,7 +1165,15 @@ export default function Compras() {
         }
       }
     });
-
+  
+    console.log("Total antes de agrupar:", filtradas.length);
+    console.log("Total después de agrupar:", unicosMap.size);
+    
+    // 🔑 ESTO TE VA A MOSTRAR LOS DUPLICADOS EN CONSOLA
+    const todosLosNros = filtradas.map(f => f.n_factura);
+    const duplicados = todosLosNros.filter((item, index) => todosLosNros.indexOf(item) !== index);
+    console.log("Números de factura duplicados:", [...new Set(duplicados)]);
+    
     return Array.from(unicosMap.values());
   }, [facturasRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto]);
 
