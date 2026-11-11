@@ -1,28 +1,30 @@
-import { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { useState, useMemo } from 'react';
+import { where, limit } from 'firebase/firestore';
+import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { AlertTriangle, XCircle, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
 const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n || 0);
 
 export default function AlertasPresupuesto() {
-  const [alertas, setAlertas] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
 
-  useEffect(() => {
-    calcularAlertas();
-  }, []);
+  // 1. Traemos las colecciones con límites para no colapsar la memoria
+  const { data: rubros = [], loading: loadRubros } = useFirestoreQuery('rubros', [limit(500)]);
+  const { data: tareas = [], loading: loadTareas } = useFirestoreQuery('tareas', [limit(2000)]); 
+  const { data: facturas = [], loading: loadFacturas } = useFirestoreQuery('facturas_compras', [
+    where('tipo', '==', 'compra'),
+    limit(1000)
+  ]);
+  const { data: presupuestos = [], loading: loadPresupuestos } = useFirestoreQuery('presupuestos', [limit(500)]);
+  const { data: obras = [], loading: loadObras } = useFirestoreQuery('obras', [limit(200)]);
 
-  const calcularAlertas = async () => {
-    const [rubros, tareas, facturas, presupuestos, obras] = await Promise.all([
-      base44.entities.Rubro.list(),
-      base44.entities.Tarea.list(),
-      base44.entities.Factura.filter({ tipo: 'compra' }),
-      base44.entities.Presupuesto.list(),
-      base44.entities.Obra.list(),
-    ]);
+  const isLoading = loadRubros || loadTareas || loadFacturas || loadPresupuestos || loadObras;
 
+  // 2. Hacemos el cruce de datos en memoria de forma optimizada
+  const alertas = useMemo(() => {
+    if (isLoading) return [];
+    
     const encontradas = [];
 
     rubros.forEach(rubro => {
@@ -39,18 +41,14 @@ export default function AlertasPresupuesto() {
         tareasDelRubro.flatMap(t => (t.insumos || []).map(i => i.insumo_id))
       );
 
-      // Total facturado: facturas del mismo presupuesto, sumando items que coincidan con insumos del rubro
-      // Si la factura no tiene items detallados, se proratea por rubro no es posible → usamos total por presupuesto
       let totalFacturado = 0;
 
       facturas
         .filter(f => f.presupuesto_id === presupuesto.id)
         .forEach(f => {
           const items = f.items || [];
-          if (items.length === 0) {
-            // Sin detalle de items: no podemos asignar a rubro específico, ignoramos
-            return;
-          }
+          if (items.length === 0) return;
+          
           items.forEach(item => {
             if (insumoIds.has(item.insumo_id)) {
               totalFacturado += item.precio_total || 0;
@@ -82,11 +80,10 @@ export default function AlertasPresupuesto() {
       return b.porcentaje - a.porcentaje;
     });
 
-    setAlertas(encontradas);
-    setLoading(false);
-  };
+    return encontradas;
+  }, [rubros, tareas, facturas, presupuestos, obras, isLoading]);
 
-  if (loading || alertas.length === 0) return null;
+  if (isLoading || alertas.length === 0) return null;
 
   const excedidos = alertas.filter(a => a.excedido).length;
   const enRiesgo = alertas.filter(a => !a.excedido).length;
