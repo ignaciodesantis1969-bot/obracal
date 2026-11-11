@@ -1,6 +1,6 @@
 // src/pages/Compras.jsx
 import React, { useState, useMemo, useCallback } from 'react';
-import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertCircle, CheckCircle2, Loader2, ShoppingCart, AlertTriangle, Mail } from 'lucide-react';
+import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertTriangle, Mail, Loader2, ShoppingCart } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { GOOGLE_SCRIPT_URL } from '@/api';
@@ -10,54 +10,9 @@ import { auth } from '@/firebase';
 import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { limit, orderBy, where } from 'firebase/firestore';
 
-const normalizarNombre = (str) => {
-  return String(str || '')
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\b(s\.?a\.?u?\.?|s\.?r\.?l\.?|sociedad anonima|sociedad de responsabilidad limitada)\b/gi, '')
-    .replace(/[.,;:()\-_/\\]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-};
-
-const buscarMejorMatch = (nombreOCR, lista) => {
-  if (!nombreOCR || !lista || lista.length === 0) {
-    return { mejor: null, candidatos: [], scoreMejor: 0 };
-  }
-
-  const normOCR = normalizarNombre(nombreOCR);
-  const palabrasOCR = normOCR.split(' ').filter(p => p.length >= 3);
-  if (palabrasOCR.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
-
-  const scored = lista.map(item => {
-    const nombreItem = item.razon_social || item.nombre || item.Razon_social || item.Nombre || '';
-    const normItem = normalizarNombre(nombreItem);
-
-    const coincidencias = palabrasOCR.filter(w => normItem.includes(w)).length;
-    const scorePalabras = (coincidencias / palabrasOCR.length) * 100;
-
-    if (normOCR === normItem) return { item, nombre: nombreItem, score: 100 };
-
-    if (normItem.includes(normOCR) || normOCR.includes(normItem)) {
-      return { item, nombre: nombreItem, score: Math.min(95, scorePalabras + 20) };
-    }
-
-    return { item, nombre: nombreItem, score: scorePalabras };
-  }).filter(s => s.score >= 60);
-
-  scored.sort((a, b) => b.score - a.score);
-
-  if (scored.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
-
-  const top = scored[0];
-  const candidatos = scored.filter(s => (top.score - s.score) < 15);
-
-  return {
-    mejor: top.item,
-    candidatos: candidatos.map(c => c.item),
-    scoreMejor: top.score
-  };
-};
+// 🔑 IMPORTAMOS LOS SERVICIOS Y EL NUEVO MODAL
+import { buscarMejorMatch, mapearTipoComprobante, subirArchivoADrive, procesarFacturaConAI } from '@/services/comprasService';
+import ModalFactura from '@/components/compras/ModalFactura';
 
 const esACompletar = (valor) => {
   return /\ba completar\b/i.test(String(valor || ''));
@@ -67,44 +22,6 @@ const normalizarEstadoPago = (raw) => {
   const s = String(raw || '').trim();
   if (s.toLowerCase() === 'a asignar') return 'pendiente';
   return s || 'pendiente';
-};
-
-const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
-  const t = String(tipoComprobanteOCR || '').toLowerCase();
-  const tf = String(tipoFacturaOCR || '').toLowerCase();
-  const nf = String(nombreArchivo || '').toUpperCase();
-
-  const esElectronica =
-    nf.includes('NCE') || nf.includes('NDE') || nf.includes('FCE') ||
-    nf.includes('NCA') || nf.includes('NDA') || nf.includes('FCA') ||
-    nf.includes('NCB') || nf.includes('NDB') || nf.includes('FCB') ||
-    nf.includes('ELECTRONICA') || nf.includes('MIPYME') ||
-    tf.includes('electronica') || tf.includes('fce') || tf.includes('mipyme');
-
-  const esTipoB = tf.includes(' b') || tf.endsWith('b') || /\bB\b/.test(nf);
-
-  if (t.includes('nota de credito') || t.includes('nota de crédito') || t === 'nc') {
-    if (esElectronica) {
-      return esTipoB ? 'Nota de Crédito Electrónica MiPyMEs (FCE) B' : 'Nota de Crédito Electrónica MiPyMEs (FCE) A';
-    }
-    return esTipoB ? 'Nota de Crédito B' : 'Nota de Crédito A';
-  }
-  if (t.includes('nota de debito') || t.includes('nota de débito') || t === 'nd') {
-    if (esElectronica) {
-      return esTipoB ? 'Nota de Débito Electrónica MiPyMEs (FCE) B' : 'Nota de Débito Electrónica MiPyMEs (FCE) A';
-    }
-    return esTipoB ? 'Nota de Débito B' : 'Nota de Débito A';
-  }
-  if (t.includes('ticket')) return 'Ticket';
-  if (t.includes('factura')) {
-    if (tf.includes(' c') || tf.endsWith('c')) return 'Factura C';
-    if (tf.includes(' b') || tf.endsWith('b')) return 'Factura B';
-    if (esElectronica) {
-      return esTipoB ? 'Factura de Crédito Electrónica MiPyMEs (FCE) B' : 'Factura de Crédito Electrónica MiPyMEs (FCE) A';
-    }
-    return 'Factura A';
-  }
-  return 'Factura A';
 };
 
 export default function Compras() {
@@ -131,12 +48,10 @@ export default function Compras() {
   const [optimisticOcs, setOptimisticOcs] = useState([]);
   const [deletedOcs, setDeletedOcs] = useState([]);
 
-  // 🔑 Helper para obtener el ID real y unificado de un documento (siempre como String)
   const obtenerIdReal = (obj) => {
     return String(obj.id || obj.ID || obj.Id || obj.codigo || '');
   };
 
-  // 🔑 LÍMITE DINÁMICO: 100 por defecto, 500 si hay fechas seleccionadas
   const facturasConstraints = useMemo(() => {
     const c = [];
     const isFiltered = filtroFechaDesde || filtroFechaHasta;
@@ -152,15 +67,12 @@ export default function Compras() {
 
   const { data: facturas } = useFirestoreQuery('facturas_compras', facturasConstraints);
 
-  // 🔑 DATA OPTIMISTA UNIFICADA (Firestore + cambios locales pendientes)
   const facturasRender = useMemo(() => {
     const idsBorrados = deletedFacturas.map(String);
     
-    // 1. Optimistas válidas (que no hayan sido borradas)
     const optimistasValidas = optimisticFacturas.filter(o => !idsBorrados.includes(obtenerIdReal(o)));
     const idsOptimistas = optimistasValidas.map(o => obtenerIdReal(o));
     
-    // 2. Reales válidas (que no estén borradas ni duplicadas por una optimista)
     const realesValidas = (facturas || []).filter(f => {
       const id = obtenerIdReal(f);
       return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
@@ -433,34 +345,6 @@ export default function Compras() {
     return `OC-${String(maxNum + 1).padStart(4, '0')}`;
   };
 
-  const subirArchivoADrive = async (base64, tabla) => {
-    if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
-    try {
-      let idToken = '';
-      if (auth.currentUser) {
-        idToken = await auth.currentUser.getIdToken(true);
-      }
-
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'subirArchivoDrive',
-          base64: base64,
-          tabla: tabla,
-          idToken: idToken
-        })
-      });
-      const data = await res.json();
-      if (data.success && data.archivo_url) return data.archivo_url;
-      console.warn("No se pudo subir archivo a Drive:", data.error);
-      return '';
-    } catch (err) {
-      console.error("Error subiendo archivo a Drive:", err);
-      return '';
-    }
-  };
-
   const handleArchivoSubido = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
       alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
@@ -476,32 +360,7 @@ export default function Compras() {
       reader.onload = async () => {
         const base64Data = reader.result;
         try {
-          let idToken = '';
-          if (auth.currentUser) {
-            idToken = await auth.currentUser.getIdToken();
-          }
-
-          const res = await fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({
-              action: 'procesarFacturaConAI',
-              base64: base64Data,
-              mimeType: archivo.type,
-              idToken: idToken
-            })
-          });
-          const textoRespuesta = await res.text();
-          let data;
-          try { data = JSON.parse(textoRespuesta); } catch (parseErr) { data = { success: false, error: "Respuesta no-JSON del servidor." }; }
-
-          if (!data || data.success === false) {
-            const errMsg = (data && data.error) || "El OCR no pudo procesar el archivo.";
-            alert("⚠️ Error al leer la factura:\n\n" + errMsg + "\n\nPodés cargar los datos manualmente.");
-            setLocalLoading(false);
-            e.target.value = "";
-            return;
-          }
+          const data = await procesarFacturaConAI(base64Data, archivo.type);
 
           let proveedorEncontradoId = '';
           let candidatosFinales = [];
@@ -579,7 +438,7 @@ export default function Compras() {
           setIsFacturaModalOpen(true);
         } catch (fetchErr) {
           console.error("Error en fetch OCR:", fetchErr);
-          alert("⚠️ Error de conexión con el servidor OCR:\n\n" + (fetchErr.message || fetchErr.toString()) + "\n\nPodés cargar los datos manualmente.");
+          alert("⚠️ Error al leer la factura:\n\n" + fetchErr.message + "\n\nPodés cargar los datos manualmente.");
         } finally {
           setLocalLoading(false);
           e.target.value = "";
@@ -675,7 +534,6 @@ export default function Compras() {
     e.preventDefault();
     if (isSaving) return;
 
-    // 1. Validación de duplicados
     if (!editingId && formData.n_factura) {
       const limpiarNro = (nro) => String(nro || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
       const nroAComparar = limpiarNro(formData.n_factura);
@@ -691,7 +549,6 @@ export default function Compras() {
       }
     }
 
-    // Armamos los datos
     const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
     const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
     const factorSigno = esNotaCredito ? -1 : 1;
@@ -706,7 +563,7 @@ export default function Compras() {
       ...formData,
       id: tempId,
       codigo: codigoFinal,
-      archivo_url: '', // Se completa después
+      archivo_url: '',
       subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
       iva_21: Math.abs(Number(formData.iva_21) || 0) * factorSigno,
       iva_10_5: Math.abs(Number(formData.iva_10_5) || 0) * factorSigno,
@@ -736,7 +593,6 @@ export default function Compras() {
 
     const backupOptimistic = [...optimisticFacturas];
 
-    // Optimistic Update (Cierra modal al instante)
     setOptimisticFacturas(prev => {
       if (editingId) return prev.map(p => p.id === editingId ? datosOptimistas : p);
       return [datosOptimistas, ...prev];
@@ -755,7 +611,6 @@ export default function Compras() {
         archivo_url: archivoUrlFinal
       };
 
-      // 🔑 LIMPIAMOS LOS UNDEFINED PARA QUE FIRESTORE NO FALLE
       const datosLimpios = {};
       Object.keys(payloadData).forEach(key => {
         if (payloadData[key] !== undefined) {
@@ -775,7 +630,6 @@ export default function Compras() {
         setOptimisticFacturas(prev => prev.map(p => p.id === tempId ? { ...p, id: nuevoDocId, archivo_url: archivoUrlFinal } : p));
       }
 
-      // Envío de mail...
       if (formData.remitente && !formData.notificado_proveedor && formData.estado_pago !== 'a asignar' && formData.estado_pago !== 'A Asignar') {
         try {
           let idToken = '';
@@ -797,7 +651,6 @@ export default function Compras() {
       setCandidatosProveedor([]);
       setNombreProveedorOCR('');
     } catch (err) {
-      // 🔑 SI FIRESTORE FALLA, MOSTRAMOS EL ERROR CLARAMENTE
       console.error("ERROR FIRESTORE:", err);
       setOptimisticFacturas(backupOptimistic);
       alert("⚠️ ATENCIÓN: La factura NO se guardó en la base de datos.\n\nMotivo: " + err.message);
@@ -830,11 +683,9 @@ export default function Compras() {
 
     if (!window.confirm("¿Estás seguro de eliminar esta factura?")) return;
 
-    // 🔑 Optimistic delete: Guardamos el string del ID
     setDeletedFacturas(prev => [...prev, facturaId]);
 
     try {
-      // Si el ID es temporal (optimista y todavía no se guardó), lo quitamos de la lista de optimistas
       if (facturaId.startsWith('temp_')) {
         setOptimisticFacturas(prev => prev.filter(x => obtenerIdReal(x) !== facturaId));
       } else {
@@ -842,7 +693,6 @@ export default function Compras() {
       }
     } catch (err) {
       console.error(err);
-      // 🔑 Rollback si falla
       setDeletedFacturas(prev => prev.filter(id => id !== facturaId));
       alert("Error al eliminar: " + (err.message || ''));
     }
@@ -920,7 +770,6 @@ export default function Compras() {
     const datosOptimistas = { ...payloadData, id: tempId };
     const backup = [...optimisticOcs];
 
-    // 🔑 1. UI al instante y cerramos modal
     setOptimisticOcs(prev => {
       if (editingOcId) return prev.map(p => p.id === editingOcId ? datosOptimistas : p);
       return [datosOptimistas, ...prev];
@@ -928,7 +777,6 @@ export default function Compras() {
     setIsOcModalOpen(false);
     setIsSaving(true);
 
-    // 🔑 2. Guardamos en background
     try {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
 
@@ -939,7 +787,6 @@ export default function Compras() {
         setOptimisticOcs(prev => prev.map(p => p.id === tempId ? { ...p, id: nuevoDocId } : p));
       }
     } catch (err) {
-      // 🔑 3. Rollback
       setOptimisticOcs(backup);
       alert("Error al guardar OC: " + (err.message || ''));
       setIsOcModalOpen(true);
@@ -952,7 +799,6 @@ export default function Compras() {
     const ocId = obtenerIdReal(oc);
     if (!ocId || !window.confirm("¿Eliminar Orden de Compra?")) return;
 
-    // 🔑 Optimistic delete
     setDeletedOcs(prev => [...prev, ocId]);
 
     try {
@@ -963,7 +809,6 @@ export default function Compras() {
       }
     } catch (err) {
       console.error(err);
-      // 🔑 Rollback
       setDeletedOcs(prev => prev.filter(id => id !== ocId));
       alert("Error al eliminar OC: " + (err.message || ''));
     }
@@ -1063,7 +908,6 @@ export default function Compras() {
     setEnviandoFacturas(true);
     try {
       const facturasParaEnviar = facturasFiltradas
-        // 🔑 Filtramos entradas con ID temporal (optimistas sin confirmar)
         .filter(f => {
           const id = obtenerIdReal(f);
           return !id.startsWith('temp_');
@@ -1165,15 +1009,7 @@ export default function Compras() {
         }
       }
     });
-  
-    console.log("Total antes de agrupar:", filtradas.length);
-    console.log("Total después de agrupar:", unicosMap.size);
-    
-    // 🔑 ESTO TE VA A MOSTRAR LOS DUPLICADOS EN CONSOLA
-    const todosLosNros = filtradas.map(f => f.n_factura);
-    const duplicados = todosLosNros.filter((item, index) => todosLosNros.indexOf(item) !== index);
-    console.log("Números de factura duplicados:", [...new Set(duplicados)]);
-    
+
     return Array.from(unicosMap.values());
   }, [facturasRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto]);
 
@@ -1188,14 +1024,6 @@ export default function Compras() {
       return matchProveedor && matchFecha;
     });
   }, [ordenesRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, buscarValorEnObjeto]);
-
-  const esTipoPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
-  const esTipoContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
-  const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
-  
-  const requiereObra = esTipoPresupuestario || esTipoContrato;
-  const esNotaCreditoForm = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
-                            String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -1344,7 +1172,6 @@ export default function Compras() {
             <span>Total de facturas mostradas: <b>{facturasRender.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
           </div>
 
-          {/* Aviso si se alcanzó el límite (basado en la data real de Firestore) */}
           {facturas.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100) && (
             <div className="bg-amber-100 border-b border-amber-300 p-3 text-xs text-amber-900 font-medium flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
@@ -1689,352 +1516,25 @@ export default function Compras() {
         </div>
       )}
 
-      {isFacturaModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
-            <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
-              <h3 className="font-bold text-slate-900">Nueva Factura / Nota de Crédito (Confirmación y Corrección de Datos)</h3>
-              <button onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50 cursor-pointer"><X className="w-5 h-5"/></button>
-            </div>
-            <form onSubmit={handleGuardarFactura} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-
-              <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-xl flex items-center gap-2 text-xs">
-                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>Verifique y corrija los datos leídos por la IA. Las Notas de Crédito se guardan como PENDIENTES y luego se contabilizan manualmente desde Tesorería → Facturas a pagar.</span>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo Comprobante</label>
-                  <select
-                    disabled={isSaving}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
-                    value={formData.comprobante_tipo}
-                    onChange={(e) => {
-                      const tipoVal = e.target.value;
-                      setFormData({
-                        ...formData,
-                        comprobante_tipo: tipoVal
-                      });
-                    }}
-                  >
-                    <optgroup label="── FACTURAS ──">
-                      <option value="Factura A">Factura A</option>
-                      <option value="Factura B">Factura B</option>
-                      <option value="Factura C">Factura C</option>
-                      <option value="Factura de Crédito Electrónica MiPyMEs (FCE) A">Factura de Crédito Electrónica MiPyMEs (FCE) A</option>
-                      <option value="Factura de Crédito Electrónica MiPyMEs (FCE) B">Factura de Crédito Electrónica MiPyMEs (FCE) B</option>
-                      <option value="Ticket">Ticket</option>
-                    </optgroup>
-                    <optgroup label="── NOTAS DE CRÉDITO ──">
-                      <option value="Nota de Crédito A">Nota de Crédito A</option>
-                      <option value="Nota de Crédito B">Nota de Crédito B</option>
-                      <option value="Nota de Crédito Electrónica MiPyMEs (FCE) A">Nota de Crédito Electrónica MiPyMEs (FCE) A</option>
-                      <option value="Nota de Crédito Electrónica MiPyMEs (FCE) B">Nota de Crédito Electrónica MiPyMEs (FCE) B</option>
-                    </optgroup>
-                    <optgroup label="── NOTAS DE DÉBITO ──">
-                      <option value="Nota de Débito A">Nota de Débito A</option>
-                      <option value="Nota de Débito B">Nota de Débito B</option>
-                      <option value="Nota de Débito Electrónica MiPyMEs (FCE) A">Nota de Débito Electrónica MiPyMEs (FCE) A</option>
-                      <option value="Nota de Débito Electrónica MiPyMEs (FCE) B">Nota de Débito Electrónica MiPyMEs (FCE) B</option>
-                    </optgroup>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">N° Factura / NC</label>
-                  <input type="text" required disabled={isSaving} placeholder="Ej: 0002-00011834" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.n_factura} onChange={(e) => setFormData({...formData, n_factura: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Proveedor</label>
-                  <BuscadorSelect
-                    opciones={opcionesProveedores}
-                    value={formData.proveedor_id}
-                    onChange={(id) => setFormData({ ...formData, proveedor_id: id })}
-                    placeholder="Seleccione proveedor..."
-                    minChars={3}
-                    disabled={isSaving}
-                  />
-                </div>
-
-                {candidatosProveedor.length > 1 && (
-                  <div className="sm:col-span-3 bg-amber-50 border-2 border-amber-400 rounded-lg px-4 py-3">
-                    <div className="flex items-start gap-2 mb-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                      <div>
-                        <p className="text-xs font-bold text-amber-900">
-                          El OCR detectó "<strong>{nombreProveedorOCR}</strong>" — hay {candidatosProveedor.length} proveedores parecidos.
-                        </p>
-                        <p className="text-[10px] text-amber-700 mt-1">Elegí el correcto:</p>
-                      </div>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {candidatosProveedor.map((provCand) => {
-                        const provIdCand = buscarValorEnObjeto(provCand, ['id', 'ID']);
-                        const provNomCand = buscarValorEnObjeto(provCand, ['razon_social', 'nombre']);
-                        const seleccionado = String(formData.proveedor_id) === String(provIdCand);
-                        return (
-                          <button
-                            key={provIdCand}
-                            type="button"
-                            onClick={() => setFormData({ ...formData, proveedor_id: provIdCand })}
-                            className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors ${
-                              seleccionado
-                                ? 'bg-amber-500 text-white border-amber-600'
-                                : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-100'
-                            }`}
-                          >
-                            {seleccionado ? '✓ ' : ''}{provNomCand}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {esNotaCreditoForm && (
-                  <div className="sm:col-span-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
-                    <label className="block text-xs font-bold text-amber-800 uppercase mb-1">
-                      Comprobante que Anula/Ajusta (Opcional)
-                    </label>
-                    <input
-                      type="text"
-                      disabled={isSaving}
-                      placeholder="Ej: 0012-00008916 (dejar vacío si es NC parcial por devolución)"
-                      className="w-full bg-white border border-amber-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100"
-                      value={formData.comprobante_anula}
-                      onChange={(e) => setFormData({ ...formData, comprobante_anula: e.target.value })}
-                    />
-                    <p className="text-[10px] text-amber-700 mt-1">
-                      💡 Si es una NC parcial por devolución de ítems, podés dejarlo vacío. La factura original NO se marca como anulada; solo se registra la NC con su monto en negativo. La NC queda pendiente hasta contabilizarla.
-                    </p>
-                  </div>
-                )}
-
-                {requiereObra && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra *</label>
-                    <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.obra_id} onChange={(e) => setFormData({...formData, obra_id: e.target.value})}>
-                      <option value="">Seleccione obra...</option>
-                      {obras.map(o => <option key={buscarValorEnObjeto(o, ['id', 'ID'])} value={buscarValorEnObjeto(o, ['id', 'ID'])}>[{o.codigo}] {o.nombre || o.nombre_obra}</option>)}
-                    </select>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Gasto *</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-amber-700 outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
-                    value={formData.tipo_gasto}
-                    onChange={(e) => {
-                      const val = e.target.value;
-                      setFormData({
-                        ...formData,
-                        tipo_gasto: val,
-                        presupuesto_id: '',
-                        contrato_id: '',
-                        rubro_imputacion: val === 'Contrato de Mantenimiento' ? 'Materiales del Contrato' : '',
-                        tipo_insumo: val === 'Contrato de Mantenimiento' ? 'Material' : 'Material',
-                        detalle_gasto: ''
-                      });
-                    }}>
-                    <option value="Presupuesto">Presupuesto Aprobado</option>
-                    <option value="Contrato de Mantenimiento">Contrato de Mantenimiento Aprobado</option>
-                    <option value="Viaticos-Nafta">Viáticos - Nafta</option>
-                    <option value="Gastos Directos">Gastos Directos</option>
-                    <option value="Gasto Corriente">Gasto Corriente</option>
-                    <option value="Gasto Extra">Gasto Extra</option>
-                  </select>
-                </div>
-
-                {esTipoPresupuestario && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Documento Aprobado *</label>
-                    <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.presupuesto_id} onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value})}>
-                      <option value="">Seleccione presupuesto...</option>
-                      {listaPresupuestosFinal.map(pr => <option key={buscarValorEnObjeto(pr, ['id', 'ID'])} value={buscarValorEnObjeto(pr, ['id', 'ID'])}>{pr.codigo} - {pr.nombre}</option>)}
-                    </select>
-                  </div>
-                )}
-
-                {esTipoContrato && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Documento Aprobado *</label>
-                    <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.contrato_id} onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}>
-                      <option value="">Seleccione contrato ({listaContratosFinal.length} disp.)...</option>
-                      {listaContratosFinal.map((c, i) => {
-                        const cId = String(buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id']) || i);
-                        const cCod = buscarValorEnObjeto(c, ['codigo', 'Codigo', 'nro_contrato', 'numero']) || 'S/C';
-                        const cNom = buscarValorEnObjeto(c, ['nombre', 'nombre_contrato', 'Nombre_contrato', 'nombreContrato', 'cliente', 'Cliente', 'razon_social']) || 'Contrato';
-                        return (
-                          <option key={cId} value={cId}>[{cCod}] {cNom}</option>
-                        );
-                      })}
-                    </select>
-                  </div>
-                )}
-
-                {(esTipoPresupuestario || esTipoContrato) && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro Imputación *</label>
-                    {esTipoContrato ? (
-                      <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer" value={formData.rubro_imputacion} onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}>
-                        <option value="Materiales del Contrato">Materiales del Contrato</option>
-                      </select>
-                    ) : (
-                      <select
-                        required
-                        disabled={isSaving}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
-                        value={formData.rubro_imputacion}
-                        onChange={(e) => {
-                          const nuevoRubro = e.target.value;
-                          setFormData({
-                            ...formData,
-                            rubro_imputacion: nuevoRubro,
-                            tipo_insumo: formData.tipo_gasto === 'Viaticos-Nafta' ? 'Mano de Obra' : 'Material'
-                          });
-                        }}
-                      >
-                        <option value="">Seleccionar rubro...</option>
-                        <option value="Gastos Generales">-- GASTOS GENERALES --</option>
-                        {rubrosDelPresupuesto.length === 0 ? (
-                          <option disabled value="">⚠️ Este presupuesto no tiene rubros en su detalle</option>
-                        ) : (
-                          rubrosDelPresupuesto.map((nombreRubro, idx) => (
-                            <option key={idx} value={nombreRubro}>{nombreRubro}</option>
-                          ))
-                        )}
-                      </select>
-                    )}
-                  </div>
-                )}
-
-                {esGastoLibre && (
-                  <div className="sm:col-span-3">
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Detalle del Gasto *</label>
-                    <input type="text" required disabled={isSaving} placeholder="Ej: Servicio de Asesoramiento en HyS..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.detalle_gasto} onChange={(e) => setFormData({...formData, detalle_gasto: e.target.value})} />
-                  </div>
-                )}
-
-                {(esTipoPresupuestario || esTipoContrato) && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                      {formData.rubro_imputacion === 'Gastos Generales' ? 'Renglón Gastos Generales *' : 'Tipo de Insumo *'}
-                    </label>
-                    <select
-                      required
-                      disabled={isSaving}
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100 cursor-pointer"
-                      value={formData.tipo_insumo}
-                      onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value})}
-                    >
-                      {esTipoContrato ? (
-                        <option value="Material">Material</option>
-                      ) : formData.tipo_gasto === 'Viaticos-Nafta' ? (
-                        <option value="Mano de Obra">Mano de Obra</option>
-                      ) : formData.rubro_imputacion === 'Gastos Generales' ? (
-                        <>
-                          <option value="">Seleccionar gasto general...</option>
-                          {gastosGeneralesDelPresupuesto.map((item, idx) => (
-                            <option key={idx} value={item}>{item}</option>
-                          ))}
-                          <option value="Comisión de Venta">Comisión de Venta</option>
-                          <option value="Imprevistos">Imprevistos</option>
-                        </>
-                      ) : (
-                        <>
-                          <option value="Material">Material</option>
-                          <option value="Subcontrato">Subcontrato</option>
-                          <option value="Equipo / Herramienta">Equipo / Herramienta</option>
-                          <option value="Mano de Obra">Mano de Obra</option>
-                        </>
-                      )}
-                    </select>
-                  </div>
-                )}
-
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha</label>
-                  <input type="date" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.fecha} onChange={(e) => setFormData({...formData, fecha: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Vencimiento</label>
-                  <input type="date" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.vencimiento} onChange={(e) => setFormData({...formData, vencimiento: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Estado Pago</label>
-                  {formData.estado_pago === 'pagado' ? (
-                    <>
-                      <div className="w-full bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs font-bold text-emerald-800 uppercase">
-                        Pagado
-                      </div>
-                      <p className="text-[10px] text-emerald-700 mt-1 font-semibold">
-                        🔒 Gestionado desde Tesorería — no editable acá.
-                      </p>
-                    </>
-                  ) : (
-                    <select
-                      disabled={isSaving || esNotaCreditoForm}
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100 cursor-pointer"
-                      value={formData.estado_pago}
-                      onChange={(e) => setFormData({...formData, estado_pago: e.target.value})}
-                    >
-                      <option value="pendiente">Pendiente</option>
-                      {!esNotaCreditoForm && <option value="contabilizado">Contabilizado</option>}
-                    </select>
-                  )}
-                  {esNotaCreditoForm && formData.estado_pago !== 'pagado' && (
-                    <p className="text-[10px] text-amber-700 mt-1 font-semibold">
-                      La NC arranca pendiente. Se contabiliza desde Tesorería → Facturas a pagar.
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subtotal ($)</label>
-                  <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.subtotal} onChange={(e) => setFormData({...formData, subtotal: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 21% ($)</label>
-                  <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.iva_21} onChange={(e) => setFormData({...formData, iva_21: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 10.5% ($)</label>
-                  <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.iva_10_5} onChange={(e) => setFormData({...formData, iva_10_5: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Persp. IIBB Bs.As. ($)</label>
-                  <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.persp_iibb_bs_as} onChange={(e) => setFormData({...formData, persp_iibb_bs_as: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Persp. IIBB CABA ($)</label>
-                  <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.persp_iibb_caba} onChange={(e) => setFormData({...formData, persp_iibb_caba: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Otros Impuestos ($)</label>
-                  <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.otros_impuestos} onChange={(e) => setFormData({...formData, otros_impuestos: e.target.value})} />
-                </div>
-                <div className="sm:col-span-3">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Total ($)</label>
-                  <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-amber-600 outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.total} onChange={(e) => setFormData({...formData, total: e.target.value})} />
-                </div>
-              </div>
-
-              {formData.archivo_url && (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-4 py-2.5 rounded-xl flex items-center justify-between text-xs">
-                  <span className="font-bold flex items-center gap-2"><CheckCircle2 className="w-4 h-4 text-emerald-600"/> Comprobante adjunto cargado correctamente</span>
-                </div>
-              )}
-
-              <div className="flex justify-end gap-2 pt-4 border-t">
-                <button type="button" onClick={() => setIsFacturaModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50 cursor-pointer">Cancelar</button>
-                <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer">
-                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {isSaving ? 'Guardando...' : (editingId ? 'Actualizar Comprobante' : 'Crear Comprobante')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      {/* 🔑 REEMPLAZAMOS EL MONSTRUOSO MODAL DE FACTURA POR EL COMPONENTE */}
+      <ModalFactura
+        isOpen={isFacturaModalOpen}
+        onClose={() => setIsFacturaModalOpen(false)}
+        onSubmit={handleGuardarFactura}
+        formData={formData}
+        setFormData={setFormData}
+        isSaving={isSaving}
+        editingId={editingId}
+        candidatosProveedor={candidatosProveedor}
+        nombreProveedorOCR={nombreProveedorOCR}
+        opcionesProveedores={opcionesProveedores}
+        obras={obras}
+        listaPresupuestosFinal={listaPresupuestosFinal}
+        listaContratosFinal={listaContratosFinal}
+        rubrosDelPresupuesto={rubrosDelPresupuesto}
+        gastosGeneralesDelPresupuesto={gastosGeneralesDelPresupuesto}
+        buscarValorEnObjeto={buscarValorEnObjeto}
+      />
 
       {isEnviarContadorModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
