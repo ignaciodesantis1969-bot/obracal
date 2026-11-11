@@ -6,7 +6,7 @@ import { crearDoc, actualizarDoc, eliminarDoc, eliminarDocsFiltrados } from '@/l
 // 🔑 FIX: Apps Script solo se usa para subir archivos a Drive
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { collection, onSnapshot } from 'firebase/firestore';
-import { db } from '@/firebase'; // Asegurate de que esta ruta sea correcta para tu proyecto
+import { db, auth } from '@/firebase'; 
 import { doc, getDoc } from 'firebase/firestore';
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -317,6 +317,12 @@ export default function Rrhh() {
   const subirArchivoADrive = async (base64, tabla, subseccion = '') => {
     if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
     try {
+      // 🔑 1. Obtenemos el token
+      let idToken = '';
+      if (auth.currentUser) {
+        idToken = await auth.currentUser.getIdToken(true);
+      }
+
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -324,7 +330,9 @@ export default function Rrhh() {
           action: 'subirArchivoDrive',
           base64,
           tabla,
-          subseccion
+          subseccion,
+          // 🔑 2. Lo enviamos en el body igual que en Compras.jsx
+          idToken: idToken 
         })
       });
       const data = await res.json();
