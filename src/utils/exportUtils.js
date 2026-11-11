@@ -2,7 +2,6 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const XLSX = XLSXModule.default || XLSXModule;
 
 export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = false, coeficiente = 1, notas = {}) => {
   try {
