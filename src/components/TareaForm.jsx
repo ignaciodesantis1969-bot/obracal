@@ -20,14 +20,14 @@ function calcDuracion(insumosConCantidad, cantidadTarea) {
 }
 
 export default function TareaForm({ tarea, onSave, onCancel, saving }) {
-  // 1. Traemos datos optimizados con Firestore (Server-side)
-  const { data: insumos = [] } = useFirestoreQuery('Insumo', [
+   // 1. Traemos datos optimizados con Firestore (usando los nombres REALES de tus colecciones)
+  const { data: insumos = [] } = useFirestoreQuery('insumos', [
     where('estado', '==', 'activo'),
     limit(500)
   ]);
   
-  const { data: templates = [] } = useFirestoreQuery('TareaTemplate', [
-    limit(200)
+  const { data: templates = [] } = useFirestoreQuery('maestro', [
+    limit(300)
   ]);
 
   const [templateSearch, setTemplateSearch] = useState('');
