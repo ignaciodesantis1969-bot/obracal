@@ -10,6 +10,8 @@ import { auth } from '@/firebase';
 import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { limit, orderBy, where } from 'firebase/firestore';
 
+// esto no hace nada
+
 // 🔑 IMPORTAMOS LOS SERVICIOS Y EL NUEVO MODAL
 import { buscarMejorMatch, mapearTipoComprobante, subirArchivoADrive, procesarFacturaConAI } from '@/services/comprasService';
 import ModalFactura from '@/components/compras/ModalFactura';

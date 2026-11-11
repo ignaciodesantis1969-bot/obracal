@@ -2,7 +2,7 @@
 import React from 'react';
 import { X, AlertCircle, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import BuscadorSelect from '@/components/BuscadorSelect';
-
+// esto no hace nada
 export default function ModalFactura({
   isOpen,
   onClose,
