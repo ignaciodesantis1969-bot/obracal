@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus, ChevronDown, ChevronRight, Pencil, Trash2, Package, CheckCircle2 } from 'lucide-react';
+import { Plus, ChevronDown, ChevronRight, Pencil, Trash2, Package } from 'lucide-react';
 import { toast } from 'sonner';
 import TareaForm from './TareaForm';
 
@@ -30,33 +30,50 @@ export default function RubroTareaSection({ presupuestoId, rubros, tareas, setRu
   const handleSaveRubro = async () => {
     if (!rubroForm.nombre.trim()) { toast.error('El nombre es obligatorio'); return; }
     setSaving(true);
-    if (rubroEdit) {
-      const updated = await base44.entities.Rubro.update(rubroEdit.id, rubroForm);
-      setRubros(prev => prev.map(r => r.id === rubroEdit.id ? { ...r, ...rubroForm } : r));
-      toast.success('Rubro actualizado');
-    } else {
-      const orden = rubros.length;
-      const created = await base44.entities.Rubro.create({ ...rubroForm, presupuesto_id: presupuestoId, orden, costo_total: 0 });
-      setRubros(prev => [...prev, created]);
-      setExpandedRubros(e => ({ ...e, [created.id]: true }));
-      toast.success('Rubro creado');
+    try {
+      if (rubroEdit) {
+        await actualizarDoc('rubros', rubroEdit.id, rubroForm);
+        setRubros(prev => prev.map(r => r.id === rubroEdit.id ? { ...r, ...rubroForm } : r));
+        toast.success('Rubro actualizado');
+      } else {
+        const orden = rubros.length;
+        const created = await crearDoc('rubros', { ...rubroForm, presupuesto_id: presupuestoId, orden, costo_total: 0 });
+        setRubros(prev => [...prev, created]);
+        setExpandedRubros(e => ({ ...e, [created.id]: true }));
+        toast.success('Rubro creado');
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error('Error al guardar el rubro');
+    } finally {
+      setSaving(false);
+      setRubroModal(false);
     }
-    setSaving(false);
-    setRubroModal(false);
   };
 
   const handleDeleteRubro = async () => {
-    // Eliminar tareas del rubro
-    const rubTareas = tareas.filter(t => t.rubro_id === selectedRubro.id);
-    for (const t of rubTareas) await base44.entities.Tarea.delete(t.id);
-    await base44.entities.Rubro.delete(selectedRubro.id);
-    const newTareas = tareas.filter(t => t.rubro_id !== selectedRubro.id);
-    const newRubros = rubros.filter(r => r.id !== selectedRubro.id);
-    setRubros(newRubros);
-    setTareas(newTareas);
-    onRecalcular(newRubros, newTareas);
-    toast.success('Rubro eliminado');
-    setDeleteRubroOpen(false);
+    setSaving(true);
+    try {
+      // Eliminar tareas del rubro
+      const rubTareas = tareas.filter(t => t.rubro_id === selectedRubro.id);
+      for (const t of rubTareas) {
+        await eliminarDoc('tareas', t.id);
+      }
+      await eliminarDoc('rubros', selectedRubro.id);
+      
+      const newTareas = tareas.filter(t => t.rubro_id !== selectedRubro.id);
+      const newRubros = rubros.filter(r => r.id !== selectedRubro.id);
+      setRubros(newRubros);
+      setTareas(newTareas);
+      onRecalcular(newRubros, newTareas);
+      toast.success('Rubro eliminado');
+    } catch (error) {
+      console.error(error);
+      toast.error('Error al eliminar el rubro');
+    } finally {
+      setSaving(false);
+      setDeleteRubroOpen(false);
+    }
   };
 
   const openNewTarea = (rubroId) => { setTareaEdit(null); setTareaRubroId(rubroId); setTareaModal(true); };
@@ -64,52 +81,82 @@ export default function RubroTareaSection({ presupuestoId, rubros, tareas, setRu
 
   const handleSaveTarea = async (tareaData) => {
     setSaving(true);
-    if (tareaEdit) {
-      await base44.entities.Tarea.update(tareaEdit.id, tareaData);
-      const newTareas = tareas.map(t => t.id === tareaEdit.id ? { ...t, ...tareaData } : t);
-      setTareas(newTareas);
-      onRecalcular(rubros, newTareas);
-      toast.success('Tarea actualizada');
-    } else {
-      const orden = tareas.filter(t => t.rubro_id === tareaRubroId).length;
-      const created = await base44.entities.Tarea.create({ ...tareaData, presupuesto_id: presupuestoId, rubro_id: tareaRubroId, orden });
-      const newTareas = [...tareas, created];
-      setTareas(newTareas);
-      onRecalcular(rubros, newTareas);
-      // Guardar también en el Maestro de Tareas si tiene nombre y es nueva
-      if (tareaData.nombre?.trim()) {
-        const insumosTemplate = (tareaData.insumos || []).map(i => ({
-          insumo_id: i.insumo_id,
-          insumo_nombre: i.insumo_nombre,
-          insumo_tipo: i.insumo_tipo,
-          cantidad_por_unidad: i.cantidad || 0,
-          unidad: i.unidad,
-          costo_unitario: i.costo_unitario || 0
-        }));
-        const hsMO = insumosTemplate.filter(i => i.insumo_tipo === 'mano_de_obra').reduce((s, i) => s + (i.cantidad_por_unidad || 0), 0);
-        const cu = insumosTemplate.reduce((s, i) => s + (i.cantidad_por_unidad || 0) * (i.costo_unitario || 0), 0);
-        base44.entities.TareaTemplate.create({
-          nombre: tareaData.nombre,
-          descripcion: tareaData.descripcion || '',
-          unidad: tareaData.unidad || '',
-          insumos: insumosTemplate,
-          costo_unitario: cu,
-          horas_mo_por_unidad: hsMO
-        }).catch(() => {}); // silencioso, no bloquear el flujo
+    try {
+      if (tareaEdit) {
+        await actualizarDoc('tareas', tareaEdit.id, tareaData);
+        const newTareas = tareas.map(t => t.id === tareaEdit.id ? { ...t, ...tareaData } : t);
+        setTareas(newTareas);
+        onRecalcular(rubros, newTareas);
+        toast.success('Tarea actualizada');
+      } else {
+        const orden = tareas.filter(t => t.rubro_id === tareaRubroId).length;
+        const created = await crearDoc('tareas', { ...tareaData, presupuesto_id: presupuestoId, rubro_id: tareaRubroId, orden });
+        const newTareas = [...tareas, created];
+        setTareas(newTareas);
+        onRecalcular(rubros, newTareas);
+        
+        // Guardar también en el Maestro de Tareas si tiene nombre y es nueva
+        if (tareaData.nombre?.trim()) {
+          const insumosTemplate = (tareaData.insumos || []).map(i => ({
+            insumo_id: i.insumo_id,
+            insumo_nombre: i.insumo_nombre,
+            insumo_tipo: i.insumo_tipo,
+            cantidad_por_unidad: i.cantidad || 0,
+            unidad: i.unidad,
+            costo_unitario: i.costo_unitario || 0
+          }));
+          const hsMO = insumosTemplate.filter(i => i.insumo_tipo === 'mano_de_obra').reduce((s, i) => s + (i.cantidad_por_unidad || 0), 0);
+          const cu = insumosTemplate.reduce((s, i) => s + (i.cantidad_por_unidad || 0) * (i.costo_unitario || 0), 0);
+          
+          crearDoc('maestro', {
+            nombre: tareaData.nombre,
+            descripcion: tareaData.descripcion || '',
+            unidad: tareaData.unidad || '',
+            insumos: insumosTemplate,
+            costo_unitario: cu,
+            horas_mo_por_unidad: hsMO
+          }).catch(err => console.error("Error guardando en maestro:", err)); // silencioso
+        }
+        toast.success('Tarea creada y guardada en Maestro de Tareas');
       }
-      toast.success('Tarea creada y guardada en Maestro de Tareas');
+    } catch (error) {
+      console.error(error);
+      toast.error('Error al guardar la tarea');
+    } finally {
+      setSaving(false);
+      setTareaModal(false);
     }
-    setSaving(false);
-    setTareaModal(false);
   };
 
   const handleDeleteTarea = async () => {
-    await base44.entities.Tarea.delete(selectedTarea.id);
-    const newTareas = tareas.filter(t => t.id !== selectedTarea.id);
-    setTareas(newTareas);
-    onRecalcular(rubros, newTareas);
-    toast.success('Tarea eliminada');
-    setDeleteTareaOpen(false);
+    setSaving(true);
+    try {
+      await eliminarDoc('tareas', selectedTarea.id);
+      const newTareas = tareas.filter(t => t.id !== selectedTarea.id);
+      setTareas(newTareas);
+      onRecalcular(rubros, newTareas);
+      toast.success('Tarea eliminada');
+    } catch (error) {
+      console.error(error);
+      toast.error('Error al eliminar la tarea');
+    } finally {
+      setSaving(false);
+      setDeleteTareaOpen(false);
+    }
+  };
+
+  // Actualización optimista del avance físico desde la tabla
+  const handleAvanceChange = async (tareaId, val) => {
+    const avanceVal = Math.min(100, Math.max(0, parseFloat(val) || 0));
+    // Actualizamos la vista al instante
+    setTareas(prev => prev.map(x => x.id === tareaId ? { ...x, avance_fisico: avanceVal } : x));
+    
+    try {
+      await actualizarDoc('tareas', tareaId, { avance_fisico: avanceVal });
+    } catch (error) {
+      console.error("Error al actualizar avance:", error);
+      toast.error("No se pudo guardar el avance");
+    }
   };
 
   const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n || 0);
@@ -206,11 +253,7 @@ export default function RubroTareaSection({ presupuestoId, rubros, tareas, setRu
                                     min="0" max="100" step="1"
                                     value={avance}
                                     className="w-14 text-xs text-center border border-slate-200 rounded px-1 py-0.5 hover:border-amber-400 focus:outline-none focus:border-amber-500"
-                                    onChange={async (e) => {
-                                      const val = Math.min(100, Math.max(0, parseFloat(e.target.value) || 0));
-                                      await base44.entities.Tarea.update(t.id, { avance_fisico: val });
-                                      setTareas(prev => prev.map(x => x.id === t.id ? { ...x, avance_fisico: val } : x));
-                                    }}
+                                    onChange={(e) => handleAvanceChange(t.id, e.target.value)}
                                   />
                                   <span className="text-xs text-slate-400">%</span>
                                 </div>
@@ -254,7 +297,7 @@ export default function RubroTareaSection({ presupuestoId, rubros, tareas, setRu
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRubroModal(false)}>Cancelar</Button>
+            <Button variant="outline" onClick={() => setRubroModal(false)} disabled={saving}>Cancelar</Button>
             <Button onClick={handleSaveRubro} disabled={saving} className="bg-amber-500 hover:bg-amber-600 text-white">
               {rubroEdit ? 'Guardar' : 'Crear Rubro'}
             </Button>
@@ -281,8 +324,10 @@ export default function RubroTareaSection({ presupuestoId, rubros, tareas, setRu
           <DialogHeader><DialogTitle>Eliminar Rubro</DialogTitle></DialogHeader>
           <p className="text-slate-600 text-sm">¿Eliminar <strong>{selectedRubro?.nombre}</strong> y todas sus tareas?</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteRubroOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleDeleteRubro}>Eliminar</Button>
+            <Button variant="outline" onClick={() => setDeleteRubroOpen(false)} disabled={saving}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteRubro} disabled={saving}>
+              {saving ? 'Eliminando...' : 'Eliminar'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -293,8 +338,10 @@ export default function RubroTareaSection({ presupuestoId, rubros, tareas, setRu
           <DialogHeader><DialogTitle>Eliminar Tarea</DialogTitle></DialogHeader>
           <p className="text-slate-600 text-sm">¿Eliminar la tarea <strong>{selectedTarea?.nombre}</strong>?</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTareaOpen(false)}>Cancelar</Button>
-            <Button variant="destructive" onClick={handleDeleteTarea}>Eliminar</Button>
+            <Button variant="outline" onClick={() => setDeleteTareaOpen(false)} disabled={saving}>Cancelar</Button>
+            <Button variant="destructive" onClick={handleDeleteTarea} disabled={saving}>
+              {saving ? 'Eliminando...' : 'Eliminar'}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -1,12 +1,12 @@
 import { useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { db } from '@/firebase'; // Ajustá la ruta si es necesario
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { Button } from '@/components/ui/button';
 import { FileDown, Loader2 } from 'lucide-react';
 
 const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n || 0);
-const fmtPct = (n) => `${(n || 0).toFixed(1)}%`;
 
-function buildHTML({ presupuesto, obra, cliente, rubros, tareas, tablaComparativa, facturas }) {
+function buildHTML({ presupuesto, obra, cliente, rubros, tareas, facturas }) {
   const costoTotal = tareas.reduce((s, t) => s + (t.costo_total || 0), 0);
   const avancePromedio = tareas.length > 0
     ? tareas.reduce((s, t) => s + (t.avance_fisico || 0), 0) / tareas.length
@@ -24,7 +24,6 @@ function buildHTML({ presupuesto, obra, cliente, rubros, tareas, tablaComparativ
   const rubrosHTML = rubros.map(rub => {
     const ts = tareas.filter(t => t.rubro_id === rub.id);
     const rubTotal = ts.reduce((s, t) => s + (t.costo_total || 0), 0);
-    const rubAvg = ts.length > 0 ? ts.reduce((s, t) => s + (t.avance_fisico || 0), 0) / ts.length : 0;
 
     const tareasRows = ts.map(t => `
       <tr>
@@ -113,7 +112,6 @@ function buildHTML({ presupuesto, obra, cliente, rubros, tareas, tablaComparativ
       </style>
     </head>
     <body>
-      <!-- Encabezado -->
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;border-bottom:3px solid #f59e0b;padding-bottom:16px;">
         <div>
           <div style="background:#f59e0b;color:white;display:inline-block;padding:4px 12px;border-radius:6px;font-size:11px;font-weight:700;margin-bottom:6px;">${presupuesto?.codigo || ''}</div>
@@ -129,7 +127,6 @@ function buildHTML({ presupuesto, obra, cliente, rubros, tareas, tablaComparativ
         </div>
       </div>
 
-      <!-- KPIs -->
       <div class="kpi-grid">
         <div class="kpi"><label>Costo Directo</label><span>${fmt(presupuesto?.costo_directo_total)}</span></div>
         <div class="kpi"><label>Precio de Venta</label><span style="color:#059669">${fmt(presupuesto?.precio_venta_total)}</span></div>
@@ -137,11 +134,9 @@ function buildHTML({ presupuesto, obra, cliente, rubros, tareas, tablaComparativ
         <div class="kpi"><label>Avance Físico Promedio</label><span style="color:#d97706">${avancePromedio.toFixed(1)}%</span></div>
       </div>
 
-      <!-- Presupuesto Detallado -->
       <h2>Presupuesto Detallado por Rubro</h2>
       ${rubrosHTML}
 
-      <!-- Comparativa -->
       <h2 style="margin-top:32px;">Comparativa Real vs. Presupuestado</h2>
       <table style="font-size:12px;">
         <thead>
@@ -179,7 +174,20 @@ export default function ExportarPDF({ presupuesto, obra, cliente, rubros, tareas
 
   const handleExport = async () => {
     setLoading(true);
-    const facturas = await base44.entities.Factura.filter({ presupuesto_id: presupuesto?.id, tipo: 'compra' }).catch(() => []);
+    let facturas = [];
+    try {
+      // Consulta directa a Firestore al momento de exportar
+      const q = query(
+        collection(db, 'facturas_compras'),
+        where('presupuesto_id', '==', presupuesto?.id),
+        where('tipo', '==', 'compra')
+      );
+      const snapshot = await getDocs(q);
+      facturas = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    } catch (error) {
+      console.error("Error al obtener facturas para el PDF:", error);
+    }
+
     const html = buildHTML({ presupuesto, obra, cliente, rubros, tareas, facturas });
     const win = window.open('', '_blank');
     win.document.write(html);
