@@ -1,17 +1,16 @@
-import { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { where, limit } from 'firebase/firestore';
+import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 
 const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n || 0);
 
 export default function TablaComparativaPresupuesto({ presupuestoId, rubros, tareas }) {
-  const [facturas, setFacturas] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    base44.entities.Factura.filter({ presupuesto_id: presupuestoId, tipo: 'compra' })
-      .then(f => { setFacturas(f); setLoading(false); });
-  }, [presupuestoId]);
+  // 🔑 Hook optimizado: filtramos en el servidor por presupuesto y tipo
+  const { data: facturas = [], loading } = useFirestoreQuery('facturas_compras', [
+    where('presupuesto_id', '==', presupuestoId),
+    where('tipo', '==', 'compra'),
+    limit(500) 
+  ]);
 
   if (loading) return (
     <div className="flex justify-center py-12">
