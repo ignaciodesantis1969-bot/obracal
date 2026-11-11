@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { base44 } from '@/api/base44Client';
+import { where, limit } from 'firebase/firestore';
+import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Trash2, BookTemplate, X } from 'lucide-react';
+import { Trash2, BookTemplate } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 
 const TIPO_COLORS = { material:'bg-blue-100 text-blue-700', mano_de_obra:'bg-orange-100 text-orange-700', equipo:'bg-purple-100 text-purple-700', subcontrato:'bg-teal-100 text-teal-700' };
@@ -19,8 +20,16 @@ function calcDuracion(insumosConCantidad, cantidadTarea) {
 }
 
 export default function TareaForm({ tarea, onSave, onCancel, saving }) {
-  const [insumos, setInsumos] = useState([]);
-  const [templates, setTemplates] = useState([]);
+  // 1. Traemos datos optimizados con Firestore (Server-side)
+  const { data: insumos = [] } = useFirestoreQuery('Insumo', [
+    where('estado', '==', 'activo'),
+    limit(500)
+  ]);
+  
+  const { data: templates = [] } = useFirestoreQuery('TareaTemplate', [
+    limit(200)
+  ]);
+
   const [templateSearch, setTemplateSearch] = useState('');
   const [insumoSearch, setInsumoSearch] = useState('');
   const [form, setForm] = useState({
@@ -28,12 +37,8 @@ export default function TareaForm({ tarea, onSave, onCancel, saving }) {
     insumos: [], costo_unitario: 0, costo_total: 0, horas_mano_obra: 0
   });
 
+  // 2. Efecto solo para cargar tarea si estamos editando
   useEffect(() => {
-    Promise.all([
-      base44.entities.Insumo.filter({ estado: 'activo' }),
-      base44.entities.TareaTemplate.list()
-    ]).then(([ins, tmpl]) => { setInsumos(ins); setTemplates(tmpl); });
-
     if (tarea) {
       setForm({
         nombre: tarea.nombre || '',

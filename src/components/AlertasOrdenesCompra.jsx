@@ -1,40 +1,40 @@
-import { useEffect, useState } from 'react';
-import { base44 } from '@/api/base44Client';
+import { useMemo, useState } from 'react';
+import { where, limit } from 'firebase/firestore';
+import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { Clock, PackageCheck, ChevronDown, ChevronUp, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { differenceInDays, parseISO } from 'date-fns';
 
 export default function AlertasOrdenesCompra() {
-  const [alertas, setAlertas] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [expanded, setExpanded] = useState(true);
 
-  useEffect(() => {
-    cargarAlertas();
-  }, []);
+  // 1. Traemos SOLO las OC que nos importan (pendientes o aprobadas) y limitamos a 200
+  const { data: ordenes = [], loading } = useFirestoreQuery('OrdenCompra', [
+    where('estado', 'in', ['pendiente', 'aprobada']),
+    limit(200)
+  ]);
 
-  const cargarAlertas = async () => {
-    const ordenes = await base44.entities.OrdenCompra.list();
+  // 2. Procesamos las alertas en memoria (es rápido porque ya filtramos en el server)
+  const alertas = useMemo(() => {
+    if (!ordenes || ordenes.length === 0) return [];
     const hoy = new Date();
 
-    const proximas = ordenes
-      .filter(oc => oc.estado === 'pendiente' || oc.estado === 'aprobada')
-      .filter(oc => oc.fecha_entrega)
+    return ordenes
+      .filter(oc => oc.fecha_entrega) // Descartamos las que no tienen fecha
       .map(oc => {
+        // Nota: Si Firebase devuelve un Timestamp, habría que usar oc.fecha_entrega.toDate(). 
+        // Asumimos que es string (ISO) por el parseISO original.
         const diasRestantes = differenceInDays(parseISO(oc.fecha_entrega), hoy);
         return { ...oc, diasRestantes };
       })
-      .filter(oc => oc.diasRestantes <= 7) // próximas en 7 días o vencidas
+      .filter(oc => oc.diasRestantes <= 7) // Próximas en 7 días o vencidas
       .sort((a, b) => a.diasRestantes - b.diasRestantes);
-
-    setAlertas(proximas);
-    setLoading(false);
-  };
+  }, [ordenes]);
 
   if (loading || alertas.length === 0) return null;
 
   const vencidas = alertas.filter(a => a.diasRestantes < 0).length;
-  const hoy = alertas.filter(a => a.diasRestantes === 0).length;
+  const hoyCount = alertas.filter(a => a.diasRestantes === 0).length;
   const proximas7 = alertas.filter(a => a.diasRestantes > 0).length;
 
   const getDiaLabel = (dias) => {
@@ -53,6 +53,7 @@ export default function AlertasOrdenesCompra() {
   const fmt = (n) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(n || 0);
 
   return (
+    // ... (El JSX de retorno se mantiene exactamente igual, no es necesario cambiarlo) ...
     <div className="rounded-xl border border-amber-200 bg-amber-50 overflow-hidden">
       <button
         onClick={() => setExpanded(e => !e)}
@@ -83,6 +84,7 @@ export default function AlertasOrdenesCompra() {
         <div className="border-t border-amber-200 divide-y divide-amber-100">
           {alertas.map((oc) => (
             <div key={oc.id} className="px-4 py-3 flex items-center justify-between gap-4 bg-white/60 flex-wrap">
+              {/* ... Tu JSX original ... */}
               <div className="flex items-center gap-3 min-w-0">
                 <PackageCheck className="w-4 h-4 text-amber-500 flex-shrink-0" />
                 <div className="min-w-0">
