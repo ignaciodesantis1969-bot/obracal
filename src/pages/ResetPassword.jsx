@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { Link, useSearchParams } from "react-router-dom";
-import { base44 } from "@/api/base44Client";
+import { Link, useSearchParams, useNavigate } from "react-router-dom";
+import { auth } from "@/firebase";
+import { confirmPasswordReset } from "firebase/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,8 +9,10 @@ import { Lock, Loader2, AlertTriangle } from "lucide-react";
 import AuthLayout from "@/components/AuthLayout";
 
 export default function ResetPassword() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const resetToken = searchParams.get("token");
+  // Firebase envía el código en el parámetro 'oobCode'
+  const oobCode = searchParams.get("oobCode");
 
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -25,16 +28,16 @@ export default function ResetPassword() {
     }
     setLoading(true);
     try {
-      await base44.auth.resetPassword({ resetToken, newPassword });
-      window.location.href = "/login";
+      await confirmPasswordReset(auth, oobCode, newPassword);
+      navigate("/login"); // Redirigir al login en vez de recargar toda la página
     } catch (err) {
-      setError(err.message || "Failed to reset password");
+      setError(err.message || "Failed to reset password. The link may be expired.");
     } finally {
       setLoading(false);
     }
   };
 
-  if (!resetToken) {
+  if (!oobCode) {
     return (
       <AuthLayout
         icon={AlertTriangle}
