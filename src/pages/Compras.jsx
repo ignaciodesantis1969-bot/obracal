@@ -125,6 +125,12 @@ export default function Compras() {
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroEstadoPago, setFiltroEstadoPago] = useState('');
 
+  // 🔑 OPTIMISTIC UPDATES STATES
+  const [optimisticFacturas, setOptimisticFacturas] = useState([]);
+  const [deletedFacturas, setDeletedFacturas] = useState([]);
+  const [optimisticOcs, setOptimisticOcs] = useState([]);
+  const [deletedOcs, setDeletedOcs] = useState([]);
+
   // 🔑 LÍMITE DINÁMICO: 100 por defecto, 500 si hay fechas seleccionadas
   const facturasConstraints = useMemo(() => {
     const c = [];
@@ -140,6 +146,21 @@ export default function Compras() {
   }, [filtroFechaDesde, filtroFechaHasta]);
 
   const { data: facturas } = useFirestoreQuery('facturas_compras', facturasConstraints);
+
+  // 🔑 DATA OPTIMISTA UNIFICADA (Firestore + cambios locales pendientes)
+  const facturasRender = useMemo(() => {
+    const listaReal = (facturas || []).filter(f => !deletedFacturas.includes(f.id || f.ID));
+    const idsOptimistas = optimisticFacturas.map(o => o.id);
+    const listaLimpia = listaReal.filter(f => !idsOptimistas.includes(f.id || f.ID));
+    return [...optimisticFacturas, ...listaLimpia];
+  }, [facturas, optimisticFacturas, deletedFacturas]);
+
+  const ordenesRender = useMemo(() => {
+    const listaReal = (ordenesCompra || []).filter(oc => !deletedOcs.includes(oc.id || oc.ID));
+    const idsOptimistas = optimisticOcs.map(o => o.id);
+    const listaLimpia = listaReal.filter(oc => !idsOptimistas.includes(oc.id || oc.ID));
+    return [...optimisticOcs, ...listaLimpia];
+  }, [ordenesCompra, optimisticOcs, deletedOcs]);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isFacturaModalOpen, setIsFacturaModalOpen] = useState(false);
@@ -361,9 +382,11 @@ export default function Compras() {
     return str;
   };
 
+  // 🔑 Contamos también los optimistas para evitar colisión de códigos
   const generarSiguienteCodigoFactura = () => {
-    if (!facturas || facturas.length === 0) return 'FAC-0001';
-    const maxNum = facturas.reduce((max, f) => {
+    const todas = [...(facturas || []), ...optimisticFacturas];
+    if (todas.length === 0) return 'FAC-0001';
+    const maxNum = todas.reduce((max, f) => {
       const codeStr = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || '';
       const match = codeStr.match(/FAC-(\d+)/i);
       if (match) {
@@ -376,8 +399,9 @@ export default function Compras() {
   };
 
   const generarSiguienteCodigoOc = () => {
-    if (!ordenesCompra || ordenesCompra.length === 0) return 'OC-0001';
-    const maxNum = ordenesCompra.reduce((max, oc) => {
+    const todas = [...(ordenesCompra || []), ...optimisticOcs];
+    if (todas.length === 0) return 'OC-0001';
+    const maxNum = todas.reduce((max, oc) => {
       const codeStr = buscarValorEnObjeto(oc, ['codigo', 'Codigo', 'CODIGO']) || '';
       const match = codeStr.match(/OC-(\d+)/i);
       if (match) {
@@ -627,16 +651,17 @@ export default function Compras() {
     setIsFacturaModalOpen(true);
   };
 
-    const handleGuardarFactura = async (e) => {
+  // 🔑 HANDLER CON OPTIMISTIC UPDATE
+  const handleGuardarFactura = async (e) => {
     e.preventDefault();
     if (isSaving) return;
 
+    // Validación de duplicados (usa facturasRender para también incluir optimistas)
     if (!editingId && formData.n_factura) {
       const limpiarNro = (nro) => String(nro || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
-      
       const nroAComparar = limpiarNro(formData.n_factura);
       
-      const facturaExistente = facturas.find(f => {
+      const facturaExistente = facturasRender.find(f => {
         const nroBase = f.n_factura || f.N_factura || f.numero_comp || '';
         return limpiarNro(nroBase) === nroAComparar;
       });
@@ -647,52 +672,70 @@ export default function Compras() {
       }
     }
 
+    // 🔑 Armamos los datos del optimistic update
+    const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
+    const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
+                          String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
+    const factorSigno = esNotaCredito ? -1 : 1;
+
+    const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
+    const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
+    const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
+
+    const tempId = editingId || `temp_${Date.now()}`;
+
+    const datosOptimistas = {
+      ...formData,
+      id: tempId,
+      codigo: codigoFinal,
+      archivo_url: '', // Se completa después del upload
+      subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
+      iva_21: Math.abs(Number(formData.iva_21) || 0) * factorSigno,
+      iva_10_5: Math.abs(Number(formData.iva_10_5) || 0) * factorSigno,
+      persp_iibb_bs_as: Math.abs(Number(formData.persp_iibb_bs_as) || 0) * factorSigno,
+      persp_iibb_caba: Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno,
+      otros_impuestos: Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno,
+      total: Math.abs(Number(formData.total) || 0) * factorSigno,
+      estado_pago: esNotaCredito ? 'pendiente' : formData.estado_pago,
+      n_factura: formData.n_factura,
+      numero_comp: formData.n_factura,
+      proveedor_id: formData.proveedor_id,
+      proveedor: formData.proveedor,
+      obra_id: (esPresupuestario || esContrato) ? formData.obra_id : '',
+      presupuesto_id: esPresupuestario ? formData.presupuesto_id : '',
+      contrato_id: esContrato ? formData.contrato_id : '',
+      rubro_imputacion: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
+      rubro_presupuesto: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
+      rubro: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
+      tipo_insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '',
+      insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '',
+      detalle_gasto: esGastoLibre ? formData.detalle_gasto : '', 
+      es_nota_credito: esNotaCredito,
+      comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : '',
+      remitente: formData.remitente,
+      notificado_proveedor: formData.notificado_proveedor
+    };
+
+    const backupOptimistic = [...optimisticFacturas];
+
+    // 🔑 1. Actualizamos la UI al instante y cerramos el modal
+    setOptimisticFacturas(prev => {
+      if (editingId) return prev.map(p => p.id === editingId ? datosOptimistas : p);
+      return [datosOptimistas, ...prev];
+    });
+    setIsFacturaModalOpen(false);
     setIsSaving(true);
-   
+
+    // 🔑 2. Guardamos en Firebase en background
     try {
-      const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
-      const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
-                            String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
-      const factorSigno = esNotaCredito ? -1 : 1;
-
-      const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
-      const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
-      const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
-
       let archivoUrlFinal = formData.archivo_url || '';
       if (archivoUrlFinal && archivoUrlFinal.indexOf('data:') === 0) {
         archivoUrlFinal = await subirArchivoADrive(archivoUrlFinal, 'Facturas');
       }
 
       const payloadData = {
-        ...formData,
-        archivo_url: archivoUrlFinal,
-        subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
-        iva_21: Math.abs(Number(formData.iva_21) || 0) * factorSigno,
-        iva_10_5: Math.abs(Number(formData.iva_10_5) || 0) * factorSigno,
-        persp_iibb_bs_as: Math.abs(Number(formData.persp_iibb_bs_as) || 0) * factorSigno,
-        persp_iibb_caba: Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno,
-        otros_impuestos: Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno,
-        total: Math.abs(Number(formData.total) || 0) * factorSigno,
-        estado_pago: esNotaCredito ? 'pendiente' : formData.estado_pago,
-        codigo: codigoFinal,
-        n_factura: formData.n_factura,
-        numero_comp: formData.n_factura,
-        proveedor_id: formData.proveedor_id,
-        proveedor: formData.proveedor,
-        obra_id: (esPresupuestario || esContrato) ? formData.obra_id : '',
-        presupuesto_id: esPresupuestario ? formData.presupuesto_id : '',
-        contrato_id: esContrato ? formData.contrato_id : '',
-        rubro_imputacion: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
-        rubro_presupuesto: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
-        rubro: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
-        tipo_insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '',
-        insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '',
-        detalle_gasto: esGastoLibre ? formData.detalle_gasto : '', 
-        es_nota_credito: esNotaCredito,
-        comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : '',
-        remitente: formData.remitente,
-        notificado_proveedor: formData.notificado_proveedor
+        ...datosOptimistas,
+        archivo_url: archivoUrlFinal
       };
 
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
@@ -700,8 +743,12 @@ export default function Compras() {
       let nuevoDocId = editingId;
       if (editingId) {
         await actualizarDoc('facturas_compras', editingId, datosLimpios);
+        // Actualizamos archivo_url en el optimistic ya existente
+        setOptimisticFacturas(prev => prev.map(p => p.id === editingId ? { ...p, archivo_url: archivoUrlFinal } : p));
       } else {
         nuevoDocId = await crearDoc('facturas_compras', datosLimpios);
+        // 🔑 Reemplazamos el ID temporal por el real
+        setOptimisticFacturas(prev => prev.map(p => p.id === tempId ? { ...p, id: nuevoDocId, archivo_url: archivoUrlFinal } : p));
       }
 
       if (
@@ -745,14 +792,17 @@ export default function Compras() {
 
       setCandidatosProveedor([]);
       setNombreProveedorOCR('');
-      setIsFacturaModalOpen(false);
     } catch (err) {
+      // 🔑 3. ROLLBACK si falla
+      setOptimisticFacturas(backupOptimistic);
       alert("Error al guardar: " + err.message);
+      setIsFacturaModalOpen(true); // Reabrimos para reintentar
     } finally {
       setIsSaving(false);
     }
   };
 
+  // 🔑 HANDLER CON OPTIMISTIC DELETE
   const handleEliminarFactura = async (f) => {
     const facturaId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     if (!facturaId) {
@@ -774,10 +824,15 @@ export default function Compras() {
     }
 
     if (!window.confirm("¿Estás seguro de eliminar esta factura?")) return;
+
+    // 🔑 Optimistic delete: la ocultamos al instante
+    setDeletedFacturas(prev => [...prev, facturaId]);
+
     try {
       await eliminarDoc('facturas_compras', facturaId);
     } catch (err) {
-      console.error(err);
+      // 🔑 Rollback: la volvemos a mostrar
+      setDeletedFacturas(prev => prev.filter(id => id !== facturaId));
       alert("Error al eliminar: " + (err.message || ''));
     }
   };
@@ -838,42 +893,64 @@ export default function Compras() {
     setIsOcModalOpen(true);
   };
 
+  // 🔑 HANDLER CON OPTIMISTIC UPDATE
   const handleGuardarOc = async (e) => {
     e.preventDefault();
     if (isSaving) return;
-    setIsSaving(true);
-    try {
-      const codigoFinal = editingOcId ? formDataOc.codigo : generarSiguienteCodigoOc();
-      const payloadData = {
-        ...formDataOc,
-        codigo: codigoFinal,
-        insumos_oc: JSON.stringify(formDataOc.insumos_oc)
-      };
 
+    const codigoFinal = editingOcId ? formDataOc.codigo : generarSiguienteCodigoOc();
+    const tempId = editingOcId || `temp_${Date.now()}`;
+
+    const payloadData = {
+      ...formDataOc,
+      codigo: codigoFinal,
+      insumos_oc: JSON.stringify(formDataOc.insumos_oc)
+    };
+
+    const datosOptimistas = { ...payloadData, id: tempId };
+    const backup = [...optimisticOcs];
+
+    // 🔑 1. UI al instante y cerramos modal
+    setOptimisticOcs(prev => {
+      if (editingOcId) return prev.map(p => p.id === editingOcId ? datosOptimistas : p);
+      return [datosOptimistas, ...prev];
+    });
+    setIsOcModalOpen(false);
+    setIsSaving(true);
+
+    // 🔑 2. Guardamos en background
+    try {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
 
       if (editingOcId) {
         await actualizarDoc('ordenes_compra', editingOcId, datosLimpios);
       } else {
-        await crearDoc('ordenes_compra', datosLimpios);
+        const nuevoDocId = await crearDoc('ordenes_compra', datosLimpios);
+        setOptimisticOcs(prev => prev.map(p => p.id === tempId ? { ...p, id: nuevoDocId } : p));
       }
-
-      setIsOcModalOpen(false);
     } catch (err) {
-      console.error(err);
+      // 🔑 3. Rollback
+      setOptimisticOcs(backup);
       alert("Error al guardar OC: " + (err.message || ''));
+      setIsOcModalOpen(true);
     } finally {
       setIsSaving(false);
     }
   };
 
+  // 🔑 HANDLER CON OPTIMISTIC DELETE
   const handleEliminarOc = async (oc) => {
     const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
     if (!ocId || !window.confirm("¿Eliminar Orden de Compra?")) return;
+
+    // 🔑 Optimistic delete
+    setDeletedOcs(prev => [...prev, ocId]);
+
     try {
       await eliminarDoc('ordenes_compra', ocId);
     } catch (err) {
-      console.error(err);
+      // 🔑 Rollback
+      setDeletedOcs(prev => prev.filter(id => id !== ocId));
       alert("Error al eliminar OC: " + (err.message || ''));
     }
   };
@@ -971,17 +1048,23 @@ export default function Compras() {
 
     setEnviandoFacturas(true);
     try {
-      const facturasParaEnviar = facturasFiltradas.map(f => {
-        const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
-        const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
-        
-        const provNombre = provObj?.razon_social || provObj?.nombre || provObj?.Razon_social || f.proveedor || 'Proveedor Desconocido';
+      const facturasParaEnviar = facturasFiltradas
+        // 🔑 Filtramos entradas con ID temporal (optimistas sin confirmar)
+        .filter(f => {
+          const id = String(buscarValorEnObjeto(f, ['id', 'ID']) || '');
+          return !id.startsWith('temp_');
+        })
+        .map(f => {
+          const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
+          const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
+          
+          const provNombre = provObj?.razon_social || provObj?.nombre || provObj?.Razon_social || f.proveedor || 'Proveedor Desconocido';
 
-        return {
-          ...f,
-          proveedor: provNombre 
-        };
-      });
+          return {
+            ...f,
+            proveedor: provNombre 
+          };
+        });
 
       let idToken = '';
       if (auth.currentUser) {
@@ -1017,8 +1100,9 @@ export default function Compras() {
     }
   };
 
+  // 🔑 facturasFiltradas ahora filtra sobre facturasRender (incluye optimistas)
   const facturasFiltradas = useMemo(() => {
-    const filtradas = facturas.filter(f => {
+    const filtradas = facturasRender.filter(f => {
       const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
       const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
       const fFecha = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
@@ -1070,10 +1154,11 @@ export default function Compras() {
     });
 
     return Array.from(unicosMap.values());
-  }, [facturas, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto]);
+  }, [facturasRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto]);
 
+  // 🔑 ordenesFiltradas ahora filtra sobre ordenesRender (incluye optimistas)
   const ordenesFiltradas = useMemo(() => {
-    return ordenesCompra.filter(oc => {
+    return ordenesRender.filter(oc => {
       const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
       const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
       const ocFecha = buscarValorEnObjeto(oc, ['fecha', 'Fecha', 'FECHA']);
@@ -1082,7 +1167,7 @@ export default function Compras() {
       if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
       return matchProveedor && matchFecha;
     });
-  }, [ordenesCompra, filtroProveedor, filtroFechaDesde, filtroFechaHasta, buscarValorEnObjeto]);
+  }, [ordenesRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, buscarValorEnObjeto]);
 
   const esTipoPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
   const esTipoContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
@@ -1229,17 +1314,17 @@ export default function Compras() {
       </div>
 
       <div className="flex gap-2 border-b border-slate-200 pb-2">
-        <button onClick={() => setActiveTab('ordenes')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'ordenes' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Órdenes de Compra ({ordenesCompra.length})</button>
-        <button onClick={() => setActiveTab('facturas')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'facturas' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Facturas ({facturas.length})</button>
+        <button onClick={() => setActiveTab('ordenes')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'ordenes' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Órdenes de Compra ({ordenesRender.length})</button>
+        <button onClick={() => setActiveTab('facturas')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeTab === 'facturas' ? 'bg-amber-500 text-white shadow-sm' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>Facturas ({facturasRender.length})</button>
       </div>
 
       {activeTab === 'facturas' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
           <div className="p-3 bg-slate-100 border-b text-[11px] text-slate-600 flex justify-between items-center">
-            <span>Total de facturas mostradas: <b>{facturas.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
+            <span>Total de facturas mostradas: <b>{facturasRender.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
           </div>
 
-          {/* 🔑 NUEVO: Aviso si se alcanzó el límite */}
+          {/* Aviso si se alcanzó el límite (basado en la data real de Firestore) */}
           {facturas.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100) && (
             <div className="bg-amber-100 border-b border-amber-300 p-3 text-xs text-amber-900 font-medium flex items-center gap-2">
               <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
