@@ -131,6 +131,11 @@ export default function Compras() {
   const [optimisticOcs, setOptimisticOcs] = useState([]);
   const [deletedOcs, setDeletedOcs] = useState([]);
 
+  // 🔑 Helper para obtener el ID real y unificado de un documento (siempre como String)
+  const obtenerIdReal = (obj) => {
+    return String(obj.id || obj.ID || obj.Id || obj.codigo || '');
+  };
+
   // 🔑 LÍMITE DINÁMICO: 100 por defecto, 500 si hay fechas seleccionadas
   const facturasConstraints = useMemo(() => {
     const c = [];
@@ -149,17 +154,33 @@ export default function Compras() {
 
   // 🔑 DATA OPTIMISTA UNIFICADA (Firestore + cambios locales pendientes)
   const facturasRender = useMemo(() => {
-    const listaReal = (facturas || []).filter(f => !deletedFacturas.includes(f.id || f.ID));
-    const idsOptimistas = optimisticFacturas.map(o => o.id);
-    const listaLimpia = listaReal.filter(f => !idsOptimistas.includes(f.id || f.ID));
-    return [...optimisticFacturas, ...listaLimpia];
+    const idsBorrados = deletedFacturas.map(String);
+    
+    // 1. Optimistas válidas (que no hayan sido borradas)
+    const optimistasValidas = optimisticFacturas.filter(o => !idsBorrados.includes(obtenerIdReal(o)));
+    const idsOptimistas = optimistasValidas.map(o => obtenerIdReal(o));
+    
+    // 2. Reales válidas (que no estén borradas ni duplicadas por una optimista)
+    const realesValidas = (facturas || []).filter(f => {
+      const id = obtenerIdReal(f);
+      return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
+    });
+
+    return [...optimistasValidas, ...realesValidas];
   }, [facturas, optimisticFacturas, deletedFacturas]);
 
   const ordenesRender = useMemo(() => {
-    const listaReal = (ordenesCompra || []).filter(oc => !deletedOcs.includes(oc.id || oc.ID));
-    const idsOptimistas = optimisticOcs.map(o => o.id);
-    const listaLimpia = listaReal.filter(oc => !idsOptimistas.includes(oc.id || oc.ID));
-    return [...optimisticOcs, ...listaLimpia];
+    const idsBorrados = deletedOcs.map(String);
+    
+    const optimistasValidas = optimisticOcs.filter(o => !idsBorrados.includes(obtenerIdReal(o)));
+    const idsOptimistas = optimistasValidas.map(o => obtenerIdReal(o));
+    
+    const realesValidas = (ordenesCompra || []).filter(oc => {
+      const id = obtenerIdReal(oc);
+      return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
+    });
+
+    return [...optimistasValidas, ...realesValidas];
   }, [ordenesCompra, optimisticOcs, deletedOcs]);
 
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
@@ -382,7 +403,6 @@ export default function Compras() {
     return str;
   };
 
-  // 🔑 Contamos también los optimistas para evitar colisión de códigos
   const generarSiguienteCodigoFactura = () => {
     const todas = [...(facturas || []), ...optimisticFacturas];
     if (todas.length === 0) return 'FAC-0001';
@@ -651,8 +671,7 @@ export default function Compras() {
     setIsFacturaModalOpen(true);
   };
 
-  // 🔑 HANDLER CON OPTIMISTIC UPDATE
-    const handleGuardarFactura = async (e) => {
+  const handleGuardarFactura = async (e) => {
     e.preventDefault();
     if (isSaving) return;
 
@@ -788,11 +807,11 @@ export default function Compras() {
     }
   };
 
-  // 🔑 HANDLER CON OPTIMISTIC DELETE
   const handleEliminarFactura = async (f) => {
-    const facturaId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
+    const facturaId = obtenerIdReal(f); 
+    
     if (!facturaId) {
-      alert("⚠️ Error: No se pudo identificar el ID.");
+      alert("⚠️ Error: No se pudo identificar el ID de la factura.");
       return;
     }
 
@@ -811,13 +830,19 @@ export default function Compras() {
 
     if (!window.confirm("¿Estás seguro de eliminar esta factura?")) return;
 
-    // 🔑 Optimistic delete: la ocultamos al instante
+    // 🔑 Optimistic delete: Guardamos el string del ID
     setDeletedFacturas(prev => [...prev, facturaId]);
 
     try {
-      await eliminarDoc('facturas_compras', facturaId);
+      // Si el ID es temporal (optimista y todavía no se guardó), lo quitamos de la lista de optimistas
+      if (facturaId.startsWith('temp_')) {
+        setOptimisticFacturas(prev => prev.filter(x => obtenerIdReal(x) !== facturaId));
+      } else {
+        await eliminarDoc('facturas_compras', facturaId);
+      }
     } catch (err) {
-      // 🔑 Rollback: la volvemos a mostrar
+      console.error(err);
+      // 🔑 Rollback si falla
       setDeletedFacturas(prev => prev.filter(id => id !== facturaId));
       alert("Error al eliminar: " + (err.message || ''));
     }
@@ -879,7 +904,6 @@ export default function Compras() {
     setIsOcModalOpen(true);
   };
 
-  // 🔑 HANDLER CON OPTIMISTIC UPDATE
   const handleGuardarOc = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -924,17 +948,21 @@ export default function Compras() {
     }
   };
 
-  // 🔑 HANDLER CON OPTIMISTIC DELETE
   const handleEliminarOc = async (oc) => {
-    const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
+    const ocId = obtenerIdReal(oc);
     if (!ocId || !window.confirm("¿Eliminar Orden de Compra?")) return;
 
     // 🔑 Optimistic delete
     setDeletedOcs(prev => [...prev, ocId]);
 
     try {
-      await eliminarDoc('ordenes_compra', ocId);
+      if (ocId.startsWith('temp_')) {
+        setOptimisticOcs(prev => prev.filter(x => obtenerIdReal(x) !== ocId));
+      } else {
+        await eliminarDoc('ordenes_compra', ocId);
+      }
     } catch (err) {
+      console.error(err);
       // 🔑 Rollback
       setDeletedOcs(prev => prev.filter(id => id !== ocId));
       alert("Error al eliminar OC: " + (err.message || ''));
@@ -1037,7 +1065,7 @@ export default function Compras() {
       const facturasParaEnviar = facturasFiltradas
         // 🔑 Filtramos entradas con ID temporal (optimistas sin confirmar)
         .filter(f => {
-          const id = String(buscarValorEnObjeto(f, ['id', 'ID']) || '');
+          const id = obtenerIdReal(f);
           return !id.startsWith('temp_');
         })
         .map(f => {
@@ -1086,7 +1114,6 @@ export default function Compras() {
     }
   };
 
-  // 🔑 facturasFiltradas ahora filtra sobre facturasRender (incluye optimistas)
   const facturasFiltradas = useMemo(() => {
     const filtradas = facturasRender.filter(f => {
       const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
@@ -1142,7 +1169,6 @@ export default function Compras() {
     return Array.from(unicosMap.values());
   }, [facturasRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto]);
 
-  // 🔑 ordenesFiltradas ahora filtra sobre ordenesRender (incluye optimistas)
   const ordenesFiltradas = useMemo(() => {
     return ordenesRender.filter(oc => {
       const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
@@ -1365,7 +1391,7 @@ export default function Compras() {
 
                   const fechaFactura = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
 
-                  const rowKey = `${buscarValorEnObjeto(f, ['id', 'ID']) || codigoDisplay}-${numeroFacturaDisplay}-${index}`;
+                  const rowKey = `${obtenerIdReal(f)}-${numeroFacturaDisplay}-${index}`;
 
                   return (
                     <tr key={rowKey} className={`hover:bg-slate-50 transition-colors ${esNCRow ? 'bg-amber-50/40' : ''}`}>
@@ -1461,7 +1487,7 @@ export default function Compras() {
                   const totalVal = Number(buscarValorEnObjeto(oc, ['total', 'Total', 'TOTAL'])) || 0;
                   const estadoOc = String(buscarValorEnObjeto(oc, ['estado', 'Estado']) || 'pendiente').toLowerCase();
                   const codigoDisplay = buscarValorEnObjeto(oc, ['codigo', 'Codigo']) || `OC-${String(index + 1).padStart(4, '0')}`;
-                  const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
+                  const ocId = obtenerIdReal(oc);
 
                   return (
                     <tr key={ocId || index} className="hover:bg-slate-50 transition-colors">
