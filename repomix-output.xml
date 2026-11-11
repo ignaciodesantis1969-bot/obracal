@@ -193,7 +193,6 @@ src/
     ExportarPDF.jsx
     FacturaUploadReader.jsx
     GoogleIcon.jsx
-    ImportarInsumosExcel.jsx
     Layout.jsx
     PresupuestoMultiplicador.jsx
     ProtectedRoute.jsx
