@@ -9,6 +9,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { auth } from '@/firebase';
 import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { limit, orderBy, where } from 'firebase/firestore';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 // Servicios
 import { buscarMejorMatch, mapearTipoComprobante, subirArchivoADrive, procesarFacturaConAI } from '@/services/comprasService';
@@ -261,7 +262,7 @@ export default function Compras() {
   };
 
   const handleArchivoSubido = async (e) => {
-    if (!GOOGLE_SCRIPT_URL) return alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
+    if (!GOOGLE_SCRIPT_URL) return toast.error("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
     const archivo = e.target.files[0];
     if (!archivo) return;
     setLocalLoading(true);
@@ -317,13 +318,13 @@ export default function Compras() {
           }));
 
           if (nombreProvBusqueda && !proveedorEncontradoId && candidatosFinales.length === 0) {
-            setTimeout(() => alert(`⚠️ El OCR detectó el proveedor "${nombreProvBusqueda}" pero no se encontró.`), 100);
+            setTimeout(() => toast.error(`⚠️ El OCR detectó el proveedor "${nombreProvBusqueda}" pero no se encontró.`), 100);
           }
 
           setIsUploadModalOpen(false);
           setIsFacturaModalOpen(true);
         } catch (fetchErr) {
-          alert("⚠️ Error al leer factura: " + fetchErr.message);
+          toast.error("⚠️ Error al leer factura: " + fetchErr.message);
         } finally {
           setLocalLoading(false);
           e.target.value = "";
@@ -331,13 +332,13 @@ export default function Compras() {
       };
     } catch (err) {
       setLocalLoading(false);
-      alert("Error: " + err.message);
+      toast.error("Error: " + err.message);
     }
   };
 
   const handleVerArchivo = (f) => {
     const archivoUrl = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo']) || '';
-    if (!archivoUrl || archivoUrl === 'Comprobante_Adjunto') return alert("No hay un enlace válido.");
+    if (!archivoUrl || archivoUrl === 'Comprobante_Adjunto') return toast.error("No hay un enlace válido.");
     window.open(archivoUrl, '_blank');
   };
 
@@ -370,7 +371,7 @@ export default function Compras() {
     if (!editingId && formData.n_factura) {
       const limpiarNro = (nro) => String(nro || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
       const facturaExistente = facturasRender.find(f => limpiarNro(f.n_factura) === limpiarNro(formData.n_factura));
-      if (facturaExistente) return alert(`⚠️ La factura N° ${formData.n_factura} ya existe.`);
+      if (facturaExistente) return toast.error(`⚠️ La factura N° ${formData.n_factura} ya existe.`);
     }
 
     const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
@@ -396,8 +397,8 @@ export default function Compras() {
         try {
           archivoUrlFinal = await subirArchivoADrive(archivoUrlFinal, 'Facturas');
         } catch (errorDrive) {
-          alert("⚠️ No se pudo subir el archivo a Drive: " + errorDrive.message);
-          archivoUrlFinal = ''; // Se guarda la factura pero sin archivo
+          toast.error("⚠️ No se pudo subir el archivo a Drive: " + errorDrive.message);
+          archivoUrlFinal = '';
         }
       }
 
@@ -426,9 +427,10 @@ export default function Compras() {
 
       setCandidatosProveedor([]);
       setNombreProveedorOCR('');
+      toast.success('Factura guardada correctamente');
     } catch (err) {
       setOptimisticFacturas(backupOptimistic);
-      alert("⚠️ Error al guardar: " + err.message);
+      toast.error("⚠️ Error al guardar: " + err.message);
       setIsFacturaModalOpen(true); 
     } finally {
       setIsSaving(false);
@@ -437,11 +439,11 @@ export default function Compras() {
 
   const handleEliminarFactura = async (f) => {
     const facturaId = obtenerIdReal(f); 
-    if (!facturaId) return alert("⚠️ Error: No se pudo identificar el ID.");
+    if (!facturaId) return toast.error("⚠️ Error: No se pudo identificar el ID.");
     
     const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago']) || '').toLowerCase();
     const esNC = String(buscarValorEnObjeto(f, ['comprobante_tipo']) || '').toLowerCase().includes('nota de crédito');
-    if (esNC && estadoPago === 'contabilizado') return alert("⚠️ NC Contabilizada. Descontabilizar primero.");
+    if (esNC && estadoPago === 'contabilizado') return toast.error("⚠️ NC Contabilizada. Descontabilizar primero.");
 
     if (!window.confirm("¿Eliminar esta factura?")) return;
 
@@ -449,9 +451,10 @@ export default function Compras() {
     try {
       if (facturaId.startsWith('temp_')) setOptimisticFacturas(prev => prev.filter(x => obtenerIdReal(x) !== facturaId));
       else await eliminarDoc('facturas_compras', facturaId);
+      toast.success('Factura eliminada');
     } catch (err) {
       setDeletedFacturas(prev => prev.filter(id => id !== facturaId));
-      alert("Error: " + err.message);
+      toast.error("Error: " + err.message);
     }
   };
 
@@ -500,7 +503,6 @@ export default function Compras() {
     setIsSaving(true);
 
     try {
-      // 🔑 LIMPIAMOS LOS UNDEFINED
       const datosLimpios = {};
       Object.keys(payloadData).forEach(key => {
         if (payloadData[key] !== undefined) datosLimpios[key] = payloadData[key];
@@ -515,9 +517,10 @@ export default function Compras() {
         const nuevoDocId = await crearDoc('ordenes_compra', datosLimpios);
         setOptimisticOcs(prev => prev.map(p => p.id === tempId ? { ...p, id: nuevoDocId } : p));
       }
+      toast.success('Orden de Compra guardada');
     } catch (err) {
       setOptimisticOcs(backup); 
-      alert("Error al guardar OC: " + err.message); 
+      toast.error("Error al guardar OC: " + err.message); 
       setIsOcModalOpen(true);
     } finally {
       setIsSaving(false);
@@ -531,13 +534,15 @@ export default function Compras() {
     try {
       if (ocId.startsWith('temp_')) setOptimisticOcs(prev => prev.filter(x => obtenerIdReal(x) !== ocId));
       else await eliminarDoc('ordenes_compra', ocId);
+      toast.success('OC eliminada');
     } catch (err) {
-      setDeletedOcs(prev => prev.filter(id => id !== ocId)); alert("Error: " + err.message);
+      setDeletedOcs(prev => prev.filter(id => id !== ocId)); 
+      toast.error("Error: " + err.message);
     }
   };
 
   const handleGenerarPdfOc = async (oc) => {
-    if (!GOOGLE_SCRIPT_URL) return alert("ERROR: GOOGLE_SCRIPT_URL no configurada.");
+    if (!GOOGLE_SCRIPT_URL) return toast.error("ERROR: GOOGLE_SCRIPT_URL no configurada.");
     const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
     setGenerandoPdfOcId(ocId);
 
@@ -553,14 +558,14 @@ export default function Compras() {
       const data = await res.json();
 
       if (data && data.success && data.pdf_url) window.open(data.pdf_url, '_blank');
-      else alert('Error PDF: ' + (data.error || 'desconocido'));
-    } catch (err) { alert('Error: ' + err.message); } finally { setGenerandoPdfOcId(null); }
+      else toast.error('Error PDF: ' + (data.error || 'desconocido'));
+    } catch (err) { toast.error('Error: ' + err.message); } finally { setGenerandoPdfOcId(null); }
   };
 
   const handleEnviarAlContador = async (e) => {
     e.preventDefault();
-    if (!emailContador || emailContador.indexOf('@') === -1) return alert("Correo inválido.");
-    if (facturasFiltradas.length === 0) return alert("No hay facturas para enviar.");
+    if (!emailContador || emailContador.indexOf('@') === -1) return toast.error("Correo inválido.");
+    if (facturasFiltradas.length === 0) return toast.error("No hay facturas para enviar.");
 
     setEnviandoFacturas(true);
     try {
@@ -570,7 +575,6 @@ export default function Compras() {
           const provId = buscarValorEnObjeto(f, ['proveedor_id']);
           const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id'])) === String(provId));
           
-          // 🔑 SI EL CODIGO ES UN NUMERO DE FACTURA, LE ASIGNAMOS UN CODIGO FAC-X
           let codigoReal = buscarValorEnObjeto(f, ['codigo']);
           if (!codigoReal || !String(codigoReal).startsWith('FAC-')) {
             codigoReal = `FAC-${String(index + 1).padStart(4, '0')}`;
@@ -586,9 +590,9 @@ export default function Compras() {
       let idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
       const res = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'enviarFacturasAlContador', email: emailContador, fechaDesde: filtroFechaDesde ? formatearFechaDisplay(filtroFechaDesde) : 'Inicio', fechaHasta: filtroFechaHasta ? formatearFechaDisplay(filtroFechaHasta) : 'Fin', facturas: facturasParaEnviar, idToken }) });
       const data = await res.json();
-      if (data.success) { alert("✅ Correo enviado."); setIsEnviarContadorModalOpen(false); setEmailContador(''); }
-      else alert("⚠️ Error: " + data.error);
-    } catch (err) { alert("Error de red."); } finally { setEnviandoFacturas(false); }
+      if (data.success) { toast.success("✅ Correo enviado."); setIsEnviarContadorModalOpen(false); setEmailContador(''); }
+      else toast.error("⚠️ Error: " + data.error);
+    } catch (err) { toast.error("Error de red."); } finally { setEnviandoFacturas(false); }
   };
 
   const facturasFiltradas = useMemo(() => {
