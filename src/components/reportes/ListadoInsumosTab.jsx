@@ -3,6 +3,7 @@ import toast from 'react-hot-toast';
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { Package, FileText, Filter, ArrowUpDown } from 'lucide-react';
 import { useObraData } from '../../hooks/useObraData';
+import { auth } from '@/firebase'; // 🔑 IMPORTAMOS AUTH
 
 export default function ListadoInsumosTab({
   presupuestos = [],
@@ -184,7 +185,6 @@ export default function ListadoInsumosTab({
               t?.costo_unitario || t?.costoUnitario || t?.precio_unitario || t?.precioUnitario || t?.precio || t?.unitario || t?.costo || 0
             );
 
-            // Capturamos el total asignado a la tarea o rubro completo
             const totalTareaDirecto = Number(t?.total || t?.subtotal || t?.monto || (cantidadTarea * costoUnitarioTarea) || 0);
 
             if (!Array.isArray(insumosList) || insumosList.length === 0) {
@@ -212,8 +212,6 @@ export default function ListadoInsumosTab({
                 total: finalTotal
               });
             } else {
-              // Si la tarea tiene insumos detallados pero su suma no alcanza el total de la tarea, 
-              // ajustamos el costo proporcionalmente o incorporamos el remanente para que cuadre con el presupuesto real.
               let sumaTotalInsumosTarea = 0;
               const insumosProcesadosTemp = insumosList.map(ins => {
                 const codigoIns = String(ins?.codigo || ins?.Cod || '').trim().toLowerCase();
@@ -249,7 +247,6 @@ export default function ListadoInsumosTab({
                 };
               });
 
-              // Factor de conciliación si el total de la tarea es mayor a la suma de sus partes (ej. costos globales o indirectos)
               const factorAjuste = (totalTareaDirecto > 0 && sumaTotalInsumosTarea > 0 && totalTareaDirecto > sumaTotalInsumosTarea)
                 ? totalTareaDirecto / sumaTotalInsumosTarea 
                 : 1;
@@ -336,8 +333,6 @@ export default function ListadoInsumosTab({
       }
     }
 
-    // Validación de control final: Si el total calculado en los rubros difiere significativamente del total general del presupuesto, 
-    // verificamos si hay un monto global en el presupuesto para integrarlo proporcionalmente.
     const presupuestoTotalGlobal = Number(
       presupuestoInsumosSeleccionado?.total_general || 
       presupuestoInsumosSeleccionado?.totalGeneral || 
@@ -401,14 +396,22 @@ export default function ListadoInsumosTab({
     setIsSavingInsumosPdf(true);
     const toastId = toast.loading('Generando PDF de Insumos en Drive...');
     try {
+      // 🔑 OBTENEMOS EL TOKEN
+      let idToken = '';
+      if (auth.currentUser) {
+        idToken = await auth.currentUser.getIdToken();
+      }
+
       const payload = {
         action: 'guardarYGenerarPDF',
         tipoReporte: 'insumos',
         tabla: 'InsumosPresupuesto',
         presupuesto_id: String(insumoPresupuestoId),
         obra: presupuestoInsumosSeleccionado?.nombre || presupuestoInsumosSeleccionado?.nombre_obra || 'Insumos Obra',
-        insumos: insumosGenerales
+        insumos: insumosGenerales,
+        idToken: idToken // 🔑 LO AGREGAMOS AL PAYLOAD
       };
+      
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
