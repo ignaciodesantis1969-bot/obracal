@@ -41,11 +41,18 @@ export default function Compras() {
   const nombreUsuarioLogueado = user?.nombre || user?.displayName || (user?.email ? user.email.split('@')[0] : '');
 
   const [activeTab, setActiveTab] = useState('facturas');
+  
+  // 🔑 FILTROS INDEPENDIENTES PARA FACTURAS
   const [filtroProveedor, setFiltroProveedor] = useState('');
   const [filtroDocumento, setFiltroDocumento] = useState('');
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroEstadoPago, setFiltroEstadoPago] = useState('');
+
+  // 🔑 FILTROS INDEPENDIENTES PARA ÓRDENES DE COMPRA
+  const [filtroProveedorOc, setFiltroProveedorOc] = useState('');
+  const [filtroFechaDesdeOc, setFiltroFechaDesdeOc] = useState('');
+  const [filtroFechaHastaOc, setFiltroFechaHastaOc] = useState('');
   const [filtroEstadoOc, setFiltroEstadoOc] = useState('');
 
   const [optimisticFacturas, setOptimisticFacturas] = useState([]);
@@ -616,13 +623,12 @@ export default function Compras() {
 
   const ordenesFiltradas = useMemo(() => {
     return ordenesRender.filter(oc => {
-      const matchProv = !filtroProveedor || String(buscarValorEnObjeto(oc, ['proveedor_id'])) === String(filtroProveedor);
+      const matchProv = !filtroProveedorOc || String(buscarValorEnObjeto(oc, ['proveedor_id'])) === String(filtroProveedorOc);
       const ocFecha = buscarValorEnObjeto(oc, ['fecha']);
       let matchFecha = true;
-      if (filtroFechaDesde && ocFecha && ocFecha < filtroFechaDesde) matchFecha = false;
-      if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
+      if (filtroFechaDesdeOc && ocFecha && ocFecha < filtroFechaDesdeOc) matchFecha = false;
+      if (filtroFechaHastaOc && ocFecha && ocFecha > filtroFechaHastaOc) matchFecha = false;
       
-      // 🔑 NUEVO FILTRO DE ESTADO
       let matchEstado = true;
       if (filtroEstadoOc) {
         matchEstado = String(buscarValorEnObjeto(oc, ['estado']) || 'pendiente').toLowerCase() === filtroEstadoOc.toLowerCase();
@@ -630,7 +636,7 @@ export default function Compras() {
 
       return matchProv && matchFecha && matchEstado;
     });
-  }, [ordenesRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroEstadoOc, buscarValorEnObjeto]);
+  }, [ordenesRender, filtroProveedorOc, filtroFechaDesdeOc, filtroFechaHastaOc, filtroEstadoOc, buscarValorEnObjeto]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -666,8 +672,8 @@ export default function Compras() {
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
           <BuscadorSelect 
             opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]} 
-            value={filtroProveedor} 
-            onChange={setFiltroProveedor} 
+            value={activeTab === 'facturas' ? filtroProveedor : filtroProveedorOc} 
+            onChange={activeTab === 'facturas' ? setFiltroProveedor : setFiltroProveedorOc} 
             placeholder="Todos" 
             minChars={3} 
           />
@@ -706,11 +712,27 @@ export default function Compras() {
 
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Desde</label>
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"><Calendar className="w-4 h-4 text-slate-400 shrink-0" /><input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" /></div>
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+            <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+            <input 
+              type="date" 
+              value={activeTab === 'facturas' ? filtroFechaDesde : filtroFechaDesdeOc} 
+              onChange={(e) => activeTab === 'facturas' ? setFiltroFechaDesde(e.target.value) : setFiltroFechaDesdeOc(e.target.value)} 
+              className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" 
+            />
+          </div>
         </div>
         <div>
           <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Hasta</label>
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"><Calendar className="w-4 h-4 text-slate-400 shrink-0" /><input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" /></div>
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+            <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+            <input 
+              type="date" 
+              value={activeTab === 'facturas' ? filtroFechaHasta : filtroFechaHastaOc} 
+              onChange={(e) => activeTab === 'facturas' ? setFiltroFechaHasta(e.target.value) : setFiltroFechaHastaOc(e.target.value)} 
+              className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" 
+            />
+          </div>
         </div>
       </div>
 
