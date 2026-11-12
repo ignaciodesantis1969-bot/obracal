@@ -1,6 +1,6 @@
 // src/pages/Compras.jsx
 import React, { useState, useMemo, useCallback } from 'react';
-import { Plus, Calendar, FileText, Paperclip, Edit2, Trash2, X, Upload, AlertTriangle, Mail, Loader2, ShoppingCart } from 'lucide-react';
+import { Plus, Calendar, AlertTriangle, Mail } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { GOOGLE_SCRIPT_URL } from '@/api';
@@ -9,17 +9,19 @@ import { useAuth } from '@/hooks/useAuth';
 import { auth } from '@/firebase';
 import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
 import { limit, orderBy, where } from 'firebase/firestore';
-import ModalOrdenCompra from '@/components/compras/ModalOrdenCompra';
 
-// esto no hace nada
-
-// 🔑 IMPORTAMOS LOS SERVICIOS Y EL NUEVO MODAL
+// Servicios
 import { buscarMejorMatch, mapearTipoComprobante, subirArchivoADrive, procesarFacturaConAI } from '@/services/comprasService';
-import ModalFactura from '@/components/compras/ModalFactura';
 
-const esACompletar = (valor) => {
-  return /\ba completar\b/i.test(String(valor || ''));
-};
+// Componentes
+import ModalFactura from '@/components/compras/ModalFactura';
+import ModalOrdenCompra from '@/components/compras/ModalOrdenCompra';
+import ModalSubirFactura from '@/components/compras/ModalSubirFactura';
+import ModalEnviarContador from '@/components/compras/ModalEnviarContador';
+import TablaFacturas from '@/components/compras/TablaFacturas';
+import TablaOrdenesCompra from '@/components/compras/TablaOrdenesCompra';
+
+const esACompletar = (valor) => /\ba completar\b/i.test(String(valor || ''));
 
 const normalizarEstadoPago = (raw) => {
   const s = String(raw || '').trim();
@@ -45,15 +47,12 @@ export default function Compras() {
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroEstadoPago, setFiltroEstadoPago] = useState('');
 
-  // 🔑 OPTIMISTIC UPDATES STATES
   const [optimisticFacturas, setOptimisticFacturas] = useState([]);
   const [deletedFacturas, setDeletedFacturas] = useState([]);
   const [optimisticOcs, setOptimisticOcs] = useState([]);
   const [deletedOcs, setDeletedOcs] = useState([]);
 
-  const obtenerIdReal = (obj) => {
-    return String(obj.id || obj.ID || obj.Id || obj.codigo || '');
-  };
+  const obtenerIdReal = (obj) => String(obj.id || obj.ID || obj.Id || obj.codigo || '');
 
   const facturasConstraints = useMemo(() => {
     const c = [];
@@ -72,43 +71,36 @@ export default function Compras() {
 
   const facturasRender = useMemo(() => {
     const idsBorrados = deletedFacturas.map(String);
-    
     const optimistasValidas = optimisticFacturas.filter(o => !idsBorrados.includes(obtenerIdReal(o)));
     const idsOptimistas = optimistasValidas.map(o => obtenerIdReal(o));
-    
     const realesValidas = (facturas || []).filter(f => {
       const id = obtenerIdReal(f);
       return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
     });
-
     return [...optimistasValidas, ...realesValidas];
   }, [facturas, optimisticFacturas, deletedFacturas]);
 
   const ordenesRender = useMemo(() => {
     const idsBorrados = deletedOcs.map(String);
-    
     const optimistasValidas = optimisticOcs.filter(o => !idsBorrados.includes(obtenerIdReal(o)));
     const idsOptimistas = optimistasValidas.map(o => obtenerIdReal(o));
-    
     const realesValidas = (ordenesCompra || []).filter(oc => {
       const id = obtenerIdReal(oc);
       return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
     });
-
     return [...optimistasValidas, ...realesValidas];
   }, [ordenesCompra, optimisticOcs, deletedOcs]);
 
+  // Estados de Modales
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isFacturaModalOpen, setIsFacturaModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-
   const [isOcModalOpen, setIsOcModalOpen] = useState(false);
   const [editingOcId, setEditingOcId] = useState(null);
-
   const [isEnviarContadorModalOpen, setIsEnviarContadorModalOpen] = useState(false);
+  
   const [emailContador, setEmailContador] = useState('');
   const [enviandoFacturas, setEnviandoFacturas] = useState(false);
-
   const [localLoading, setLocalLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [generandoPdfOcId, setGenerandoPdfOcId] = useState(null);
@@ -117,59 +109,15 @@ export default function Compras() {
   const [nombreProveedorOCR, setNombreProveedorOCR] = useState('');
 
   const [formData, setFormData] = useState({
-    codigo: 'FAC-0001',
-    comprobante_tipo: 'Factura A',
-    punto_venta: '',
-    n_factura: '',
-    proveedor_id: '',
-    proveedor: '',
-    obra_id: '',
-    presupuesto_id: '',
-    contrato_id: '',
-    tipo_gasto: 'Presupuesto',
-    rubro_imputacion: '',
-    tipo_insumo: 'Material',
-    detalle_gasto: '',
-    fecha: new Date().toISOString().split('T')[0],
-    vencimiento: '',
-    estado_pago: 'pendiente',
-    subtotal: 0,
-    iva_21: 0,
-    iva_10_5: 0,
-    persp_iibb_bs_as: 0,
-    persp_iibb_caba: 0,
-    otros_impuestos: 0,
-    total: 0,
-    archivo_url: '',
-    comprobante_anula: '',
-    remitente: '',
-    notificado_proveedor: false
+    codigo: 'FAC-0001', comprobante_tipo: 'Factura A', punto_venta: '', n_factura: '', proveedor_id: '', proveedor: '', obra_id: '', presupuesto_id: '', contrato_id: '', tipo_gasto: 'Presupuesto', rubro_imputacion: '', tipo_insumo: 'Material', detalle_gasto: '', fecha: new Date().toISOString().split('T')[0], vencimiento: '', estado_pago: 'pendiente', subtotal: 0, iva_21: 0, iva_10_5: 0, persp_iibb_bs_as: 0, persp_iibb_caba: 0, otros_impuestos: 0, total: 0, archivo_url: '', comprobante_anula: '', remitente: '', notificado_proveedor: false
   });
 
   const [formDataOc, setFormDataOc] = useState({
-    codigo: 'OC-0001',
-    proveedor_id: '',
-    obra_id: '',
-    fecha: new Date().toISOString().split('T')[0],
-    fecha_entrega: '',
-    estado: 'pendiente',
-    subtotal: 0,
-    iva_21: 0,
-    total: 0,
-    condiciones_pago: '',
-    plazo_entrega: '',
-    lugar_entrega: '',
-    observaciones: '',
-    firma_sice: '',
-    firma_proveedor: '',
-    insumos_oc: [
-      { id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }
-    ]
+    codigo: 'OC-0001', proveedor_id: '', obra_id: '', fecha: new Date().toISOString().split('T')[0], fecha_entrega: '', estado: 'pendiente', subtotal: 0, iva_21: 0, total: 0, condiciones_pago: '', plazo_entrega: '', lugar_entrega: '', observaciones: '', firma_sice: '', firma_proveedor: '', insumos_oc: [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }]
   });
 
   const buscarValorEnObjeto = useCallback((obj, keys) => {
     if (!obj || typeof obj !== 'object') return '';
-
     const normalizar = (str) => String(str || '').toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, '');
     const objKeys = Object.keys(obj);
 
@@ -177,17 +125,13 @@ export default function Compras() {
       if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') return obj[key];
       const keyNorm = normalizar(key);
       const realKey = objKeys.find(k => normalizar(k) === keyNorm);
-      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
-        return obj[realKey];
-      }
+      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') return obj[realKey];
     }
 
     for (const key of keys) {
       const keyNorm = normalizar(key);
       const realKey = objKeys.find(k => normalizar(k).includes(keyNorm) || keyNorm.includes(normalizar(k)));
-      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') {
-        return obj[realKey];
-      }
+      if (realKey && obj[realKey] !== undefined && obj[realKey] !== null && obj[realKey] !== '') return obj[realKey];
     }
 
     return '';
@@ -207,12 +151,10 @@ export default function Compras() {
     return [];
   }, []);
 
-  const presupuestosAprobados = useMemo(() => {
-    return presupuestos.filter(pr => {
-      const est = String(buscarValorEnObjeto(pr, ['estado', 'Estado', 'ESTADO']) || '').toLowerCase();
-      return !est || est.includes('aprobad') || est.includes('aprobado');
-    });
-  }, [presupuestos, buscarValorEnObjeto]);
+  const presupuestosAprobados = useMemo(() => presupuestos.filter(pr => {
+    const est = String(buscarValorEnObjeto(pr, ['estado', 'Estado', 'ESTADO']) || '').toLowerCase();
+    return !est || est.includes('aprobad') || est.includes('aprobado');
+  }), [presupuestos, buscarValorEnObjeto]);
 
   const listaPresupuestosFinal = presupuestosAprobados.length > 0 ? presupuestosAprobados : presupuestos;
 
@@ -222,9 +164,7 @@ export default function Compras() {
     todos.forEach((item, index) => {
       if (!item) return;
       const key = String(buscarValorEnObjeto(item, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id', 'nro_contrato']) || index);
-      if (!unicosMap.has(key)) {
-        unicosMap.set(key, item);
-      }
+      if (!unicosMap.has(key)) unicosMap.set(key, item);
     });
     return Array.from(unicosMap.values());
   }, [contratosList, extraerArrayDatos, buscarValorEnObjeto]);
@@ -240,10 +180,7 @@ export default function Compras() {
 
   const presupuestoSeleccionadoObj = useMemo(() => {
     if (!formData.presupuesto_id) return null;
-    return presupuestos.find(pr => {
-      const pId = buscarValorEnObjeto(pr, ['id', 'ID', 'Id']);
-      return String(pId).trim() === String(formData.presupuesto_id).trim();
-    });
+    return presupuestos.find(pr => String(buscarValorEnObjeto(pr, ['id', 'ID', 'Id'])).trim() === String(formData.presupuesto_id).trim());
   }, [presupuestos, formData.presupuesto_id, buscarValorEnObjeto]);
 
   const { rubrosDelPresupuesto, gastosGeneralesDelPresupuesto } = useMemo(() => {
@@ -253,55 +190,34 @@ export default function Compras() {
       const rawItemsDetalle = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['items_detalle', 'Items_detalle', 'items', 'detalle']);
       try {
         let parsedData = rawItemsDetalle;
-        if (typeof rawItemsDetalle === 'string') {
-          parsedData = JSON.parse(rawItemsDetalle);
-        }
-        if (parsedData && Array.isArray(parsedData.rubros)) {
-          rubrosArr = parsedData.rubros.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
-        } else if (Array.isArray(parsedData)) {
-          rubrosArr = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
-        }
+        if (typeof rawItemsDetalle === 'string') parsedData = JSON.parse(rawItemsDetalle);
+        if (parsedData && Array.isArray(parsedData.rubros)) rubrosArr = parsedData.rubros.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
+        else if (Array.isArray(parsedData)) rubrosArr = parsedData.map(r => r.nombre || r.rubro || r.Rubro).filter(Boolean);
 
         let rawGG = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['gastos_generales_insumos', 'Gastos_generales_insumos', 'gastos_generales', 'Gastos_generales']);
-        if (!rawGG && parsedData && typeof parsedData === 'object') {
-          rawGG = parsedData.gastos_generales_insumos || parsedData.gastos_generales || (parsedData.comercial && (parsedData.comercial.gastos_generales_insumos || parsedData.comercial.gastos_generales));
-        }
+        if (!rawGG && parsedData && typeof parsedData === 'object') rawGG = parsedData.gastos_generales_insumos || parsedData.gastos_generales || (parsedData.comercial && (parsedData.comercial.gastos_generales_insumos || parsedData.comercial.gastos_generales));
 
         let comercialObj = buscarValorEnObjeto(presupuestoSeleccionadoObj, ['comercial', 'Comercial']);
-        if (typeof comercialObj === 'string') {
-          try { comercialObj = JSON.parse(comercialObj); } catch(e) {}
-        }
-        if (!rawGG && comercialObj && typeof comercialObj === 'object') {
-          rawGG = comercialObj.gastos_generales_insumos || comercialObj.gastos_generales;
-        }
+        if (typeof comercialObj === 'string') try { comercialObj = JSON.parse(comercialObj); } catch(e) {}
+        if (!rawGG && comercialObj && typeof comercialObj === 'object') rawGG = comercialObj.gastos_generales_insumos || comercialObj.gastos_generales;
 
-        if (typeof rawGG === 'string') {
-          try { rawGG = JSON.parse(rawGG); } catch(e) {}
-        }
-        if (Array.isArray(rawGG)) {
-          gastosGenerales = rawGG.map(item => item.concepto || item.nombre || item.descripcion).filter(Boolean);
-        }
-      } catch (e) {
-        console.error("Error al parsear presupuesto:", e);
-      }
+        if (typeof rawGG === 'string') try { rawGG = JSON.parse(rawGG); } catch(e) {}
+        if (Array.isArray(rawGG)) gastosGenerales = rawGG.map(item => item.concepto || item.nombre || item.descripcion).filter(Boolean);
+      } catch (e) { console.error("Error parse presupuesto:", e); }
     }
     return { rubrosDelPresupuesto: rubrosArr, gastosGeneralesDelPresupuesto: gastosGenerales };
   }, [presupuestoSeleccionadoObj, buscarValorEnObjeto]);
 
-  const opcionesProveedores = useMemo(() => {
-    return (proveedores || []).map(p => ({
-      id: buscarValorEnObjeto(p, ['id', 'ID']),
-      label: buscarValorEnObjeto(p, ['razon_social', 'nombre', 'Razon_social']) || 'Sin nombre'
-    }));
-  }, [proveedores, buscarValorEnObjeto]);
+  const opcionesProveedores = useMemo(() => (proveedores || []).map(p => ({
+    id: buscarValorEnObjeto(p, ['id', 'ID']),
+    label: buscarValorEnObjeto(p, ['razon_social', 'nombre', 'Razon_social']) || 'Sin nombre'
+  })), [proveedores, buscarValorEnObjeto]);
 
   const formatearFechaDisplay = (fechaStr) => {
     if (!fechaStr) return '---';
     const str = String(fechaStr).split('T')[0];
     const partes = str.split('-');
-    if (partes.length === 3) {
-      return `${partes[2]}/${partes[1]}/${partes[0]}`;
-    }
+    if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
     return fechaStr;
   };
 
@@ -310,9 +226,7 @@ export default function Compras() {
     const str = String(fechaStr).trim().split('T')[0];
     if (str.includes('/')) {
       const partes = str.split('/');
-      if (partes.length === 3) {
-        return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
-      }
+      if (partes.length === 3) return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
     }
     if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
     return str;
@@ -322,13 +236,8 @@ export default function Compras() {
     const todas = [...(facturas || []), ...optimisticFacturas];
     if (todas.length === 0) return 'FAC-0001';
     const maxNum = todas.reduce((max, f) => {
-      const codeStr = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || '';
-      const match = codeStr.match(/FAC-(\d+)/i);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        return num > max ? num : max;
-      }
-      return max;
+      const match = (buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || '').match(/FAC-(\d+)/i);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
     }, 0);
     return `FAC-${String(maxNum + 1).padStart(4, '0')}`;
   };
@@ -337,22 +246,14 @@ export default function Compras() {
     const todas = [...(ordenesCompra || []), ...optimisticOcs];
     if (todas.length === 0) return 'OC-0001';
     const maxNum = todas.reduce((max, oc) => {
-      const codeStr = buscarValorEnObjeto(oc, ['codigo', 'Codigo', 'CODIGO']) || '';
-      const match = codeStr.match(/OC-(\d+)/i);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        return num > max ? num : max;
-      }
-      return max;
+      const match = (buscarValorEnObjeto(oc, ['codigo', 'Codigo', 'CODIGO']) || '').match(/OC-(\d+)/i);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
     }, 0);
     return `OC-${String(maxNum + 1).padStart(4, '0')}`;
   };
 
   const handleArchivoSubido = async (e) => {
-    if (!GOOGLE_SCRIPT_URL) {
-      alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
-      return;
-    }
+    if (!GOOGLE_SCRIPT_URL) return alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
     const archivo = e.target.files[0];
     if (!archivo) return;
     setLocalLoading(true);
@@ -364,7 +265,6 @@ export default function Compras() {
         const base64Data = reader.result;
         try {
           const data = await procesarFacturaConAI(base64Data, archivo.type);
-
           let proveedorEncontradoId = '';
           let candidatosFinales = [];
           const nombreProvBusqueda = data.proveedor || '';
@@ -379,15 +279,9 @@ export default function Compras() {
               proveedorEncontradoId = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
             }
           }
-
           setCandidatosProveedor(candidatosFinales);
 
-          const tipoComprobanteMapeado = mapearTipoComprobante(
-            data.tipo_comprobante,
-            data.tipo_factura,
-            archivo.name || ''
-          );
-          
+          const tipoComprobanteMapeado = mapearTipoComprobante(data.tipo_comprobante, data.tipo_factura, archivo.name || '');
           const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
           const nCompDetectado = String(data.n_factura || data.numero_comp || data.numero_factura || '').trim();
           let ptoVtaDetectado = '';
@@ -411,37 +305,17 @@ export default function Compras() {
           }
 
           setFormData(prev => ({
-            ...prev,
-            comprobante_tipo: tipoComprobanteMapeado,
-            n_factura: nFacturaCompleto || prev.n_factura,
-            punto_venta: ptoVtaDetectado || prev.punto_venta || '',
-            proveedor_id: proveedorEncontradoId || prev.proveedor_id,
-            proveedor: nombreProvBusqueda || prev.proveedor,
-            fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha,
-            vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento,
-            estado_pago: 'pendiente',
-            subtotal: Math.abs(Number(data && data.subtotal) || prev.subtotal),
-            iva_21: Math.abs(Number(data && data.iva_21) || prev.iva_21),
-            iva_10_5: Math.abs(Number(data && data.iva_10_5) || prev.iva_10_5),
-            persp_iibb_bs_as: Math.abs(Number(data && (data.persp_iibb_bs_as || data.percepcion_iibb || data.iibb_bs_as)) || prev.persp_iibb_bs_as),
-            persp_iibb_caba: Math.abs(Number(data && (data.persp_iibb_caba || data.percepcion_iibb_caba)) || prev.persp_iibb_caba),
-            otros_impuestos: Math.abs(Number(data && data.otros_impuestos) || prev.otros_impuestos),
-            total: Math.abs(Number(data && data.total) || prev.total),
-            archivo_url: base64Data,
-            comprobante_anula: comprobanteAnulaDetectado || prev.comprobante_anula
+            ...prev, comprobante_tipo: tipoComprobanteMapeado, n_factura: nFacturaCompleto || prev.n_factura, punto_venta: ptoVtaDetectado || prev.punto_venta || '', proveedor_id: proveedorEncontradoId || prev.proveedor_id, proveedor: nombreProvBusqueda || prev.proveedor, fecha: (data && formatearFechaParaInput(data.fecha)) || prev.fecha, vencimiento: (data && formatearFechaParaInput(data.vencimiento)) || prev.vencimiento, estado_pago: 'pendiente', subtotal: Math.abs(Number(data && data.subtotal) || prev.subtotal), iva_21: Math.abs(Number(data && data.iva_21) || prev.iva_21), iva_10_5: Math.abs(Number(data && data.iva_10_5) || prev.iva_10_5), persp_iibb_bs_as: Math.abs(Number(data && (data.persp_iibb_bs_as || data.percepcion_iibb || data.iibb_bs_as)) || prev.persp_iibb_bs_as), persp_iibb_caba: Math.abs(Number(data && (data.persp_iibb_caba || data.percepcion_iibb_caba)) || prev.persp_iibb_caba), otros_impuestos: Math.abs(Number(data && data.otros_impuestos) || prev.otros_impuestos), total: Math.abs(Number(data && data.total) || prev.total), archivo_url: base64Data, comprobante_anula: comprobanteAnulaDetectado || prev.comprobante_anula
           }));
 
           if (nombreProvBusqueda && !proveedorEncontradoId && candidatosFinales.length === 0) {
-            setTimeout(() => {
-              alert(`⚠️ El OCR detectó el proveedor "${nombreProvBusqueda}" pero no se encontró en el sistema.\n\nCreá el proveedor primero desde la sección Proveedores, o seleccionalo manualmente si ya existe con otro nombre.`);
-            }, 100);
+            setTimeout(() => alert(`⚠️ El OCR detectó el proveedor "${nombreProvBusqueda}" pero no se encontró.`), 100);
           }
 
           setIsUploadModalOpen(false);
           setIsFacturaModalOpen(true);
         } catch (fetchErr) {
-          console.error("Error en fetch OCR:", fetchErr);
-          alert("⚠️ Error al leer la factura:\n\n" + fetchErr.message + "\n\nPodés cargar los datos manualmente.");
+          alert("⚠️ Error al leer factura: " + fetchErr.message);
         } finally {
           setLocalLoading(false);
           e.target.value = "";
@@ -455,10 +329,7 @@ export default function Compras() {
 
   const handleVerArchivo = (f) => {
     const archivoUrl = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo']) || '';
-    if (!archivoUrl || archivoUrl === 'Comprobante_Adjunto') {
-      alert("No hay un enlace de archivo válido.");
-      return;
-    }
+    if (!archivoUrl || archivoUrl === 'Comprobante_Adjunto') return alert("No hay un enlace válido.");
     window.open(archivoUrl, '_blank');
   };
 
@@ -468,67 +339,18 @@ export default function Compras() {
     setCandidatosProveedor([]);
     setNombreProveedorOCR('');
 
-    const fechaCruda = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
-    const vencCrudo = buscarValorEnObjeto(f, ['vencimiento', 'Vencimiento', 'VENCIMIENTO']);
-    
-    let rubroImputacionVal = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro']);
-    if (rubroImputacionVal === 'A completar') rubroImputacionVal = '';
+    let rubroImputacionVal = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion']) === 'A completar' ? '' : buscarValorEnObjeto(f, ['rubro_imputacion']);
+    let tipoInsumoVal = buscarValorEnObjeto(f, ['tipo_insumo']) === 'A completar' ? 'Material' : (buscarValorEnObjeto(f, ['tipo_insumo']) || 'Material');
+    let tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto']) === 'A completar' || !buscarValorEnObjeto(f, ['tipo_gasto']) ? 'Presupuesto' : buscarValorEnObjeto(f, ['tipo_gasto']);
 
-    let tipoInsumoVal = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon']) || 'Material';
-    if (tipoInsumoVal === 'A completar') tipoInsumoVal = 'Material';
-
-    const tipoComp = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
-    
-    let tipoGastoObtenido = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto']) || 'Presupuesto';
-    if (tipoGastoObtenido === 'A completar' || tipoGastoObtenido === '') tipoGastoObtenido = 'Presupuesto';
-
-    let provIdVal = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
-    let provNombreVal = buscarValorEnObjeto(f, ['proveedor', 'Proveedor']) || '';
-
-    if ((!provIdVal || provIdVal === 0) && provNombreVal && proveedores.length > 0) {
-       const { mejor } = buscarMejorMatch(provNombreVal, proveedores);
-       if (mejor) {
-         provIdVal = buscarValorEnObjeto(mejor, ['id', 'ID', 'Id']);
-       }
+    let provIdVal = buscarValorEnObjeto(f, ['proveedor_id']);
+    if ((!provIdVal || provIdVal === 0) && buscarValorEnObjeto(f, ['proveedor']) && proveedores.length > 0) {
+       const { mejor } = buscarMejorMatch(buscarValorEnObjeto(f, ['proveedor']), proveedores);
+       if (mejor) provIdVal = buscarValorEnObjeto(mejor, ['id', 'ID']);
     }
 
-    let presupuestoIdVal = tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' || tipoGastoObtenido === 'Gastos Directos' ? buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id']) : '';
-    if (presupuestoIdVal === 'A completar') presupuestoIdVal = '';
-
-    let contratoIdVal = tipoGastoObtenido === 'Contrato de Mantenimiento' ? buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id']) : '';
-    if (contratoIdVal === 'A completar') contratoIdVal = '';
-
-    let obraIdVal = buscarValorEnObjeto(f, ['obra_id', 'Obra_id', 'OBRA_ID', 'obraid']) || '';
-    if (obraIdVal === 'A completar') obraIdVal = '';
-
     setFormData({
-      ...f,
-      comprobante_tipo: tipoComp,
-      punto_venta: buscarValorEnObjeto(f, ['punto_venta', 'Punto_venta']) || '',
-      n_factura: buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '',
-      proveedor_id: provIdVal || '',
-      proveedor: provNombreVal, 
-      obra_id: obraIdVal,
-      presupuesto_id: presupuestoIdVal,
-      contrato_id: contratoIdVal,
-      tipo_gasto: tipoGastoObtenido,
-      rubro_imputacion: rubroImputacionVal,
-      tipo_insumo: tipoInsumoVal,
-      detalle_gasto: buscarValorEnObjeto(f, ['detalle_gasto', 'Detalle_gasto']) || '',
-      fecha: formatearFechaParaInput(fechaCruda),
-      vencimiento: formatearFechaParaInput(vencCrudo),
-      estado_pago: normalizarEstadoPago(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO'])),
-      subtotal: Math.abs(Number(buscarValorEnObjeto(f, ['subtotal', 'Subtotal']) || 0)),
-      iva_21: Math.abs(Number(buscarValorEnObjeto(f, ['iva_21', 'Iva_21']) || 0)),
-      iva_10_5: Math.abs(Number(buscarValorEnObjeto(f, ['iva_10_5', 'Iva_10_5']) || 0)),
-      persp_iibb_bs_as: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_bs_as', 'Persp_iibb_bs_as', 'percepcion_iibb', 'iibb_bs_as']) || 0)),
-      persp_iibb_caba: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_caba', 'Persp_iibb_caba', 'percepcion_iibb_caba']) || 0)),
-      otros_impuestos: Math.abs(Number(buscarValorEnObjeto(f, ['otros_impuestos', 'Otros_impuestos']) || 0)),
-      total: Math.abs(Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL']) || 0)),
-      archivo_url: buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo']) || '',
-      comprobante_anula: buscarValorEnObjeto(f, ['comprobante_anula', 'Comprobante_anula']) || '',
-      remitente: buscarValorEnObjeto(f, ['remitente', 'Remitente', 'from']) || '',
-      notificado_proveedor: Boolean(buscarValorEnObjeto(f, ['notificado_proveedor', 'Notificado_proveedor']))
+      ...f, comprobante_tipo: buscarValorEnObjeto(f, ['comprobante_tipo']) || 'Factura A', punto_venta: buscarValorEnObjeto(f, ['punto_venta']) || '', n_factura: buscarValorEnObjeto(f, ['n_factura']) || '', proveedor_id: provIdVal || '', proveedor: buscarValorEnObjeto(f, ['proveedor']) || '', obra_id: buscarValorEnObjeto(f, ['obra_id']) === 'A completar' ? '' : (buscarValorEnObjeto(f, ['obra_id']) || ''), presupuesto_id: tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta' || tipoGastoObtenido === 'Gastos Directos' ? (buscarValorEnObjeto(f, ['presupuesto_id']) === 'A completar' ? '' : buscarValorEnObjeto(f, ['presupuesto_id'])) : '', contrato_id: tipoGastoObtenido === 'Contrato de Mantenimiento' ? (buscarValorEnObjeto(f, ['contrato_id']) === 'A completar' ? '' : buscarValorEnObjeto(f, ['contrato_id'])) : '', tipo_gasto: tipoGastoObtenido, rubro_imputacion: rubroImputacionVal, tipo_insumo: tipoInsumoVal, detalle_gasto: buscarValorEnObjeto(f, ['detalle_gasto']) || '', fecha: formatearFechaParaInput(buscarValorEnObjeto(f, ['fecha'])), vencimiento: formatearFechaParaInput(buscarValorEnObjeto(f, ['vencimiento'])), estado_pago: normalizarEstadoPago(buscarValorEnObjeto(f, ['estado_pago'])), subtotal: Math.abs(Number(buscarValorEnObjeto(f, ['subtotal']) || 0)), iva_21: Math.abs(Number(buscarValorEnObjeto(f, ['iva_21']) || 0)), iva_10_5: Math.abs(Number(buscarValorEnObjeto(f, ['iva_10_5']) || 0)), persp_iibb_bs_as: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_bs_as']) || 0)), persp_iibb_caba: Math.abs(Number(buscarValorEnObjeto(f, ['persp_iibb_caba']) || 0)), otros_impuestos: Math.abs(Number(buscarValorEnObjeto(f, ['otros_impuestos']) || 0)), total: Math.abs(Number(buscarValorEnObjeto(f, ['total']) || 0)), archivo_url: buscarValorEnObjeto(f, ['archivo_url']) || '', comprobante_anula: buscarValorEnObjeto(f, ['comprobante_anula']) || '', remitente: buscarValorEnObjeto(f, ['remitente']) || '', notificado_proveedor: Boolean(buscarValorEnObjeto(f, ['notificado_proveedor']))
     });
     setIsFacturaModalOpen(true);
   };
@@ -539,90 +361,35 @@ export default function Compras() {
 
     if (!editingId && formData.n_factura) {
       const limpiarNro = (nro) => String(nro || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
-      const nroAComparar = limpiarNro(formData.n_factura);
-      
-      const facturaExistente = facturasRender.find(f => {
-        const nroBase = f.n_factura || f.N_factura || f.numero_comp || '';
-        return limpiarNro(nroBase) === nroAComparar;
-      });
-
-      if (facturaExistente) {
-        alert(`⚠️ La factura N° ${formData.n_factura} ya se encuentra registrada en el sistema con el código ${facturaExistente.codigo || 'N/A'}.\n\nSi querés modificarla, buscá ese código en la lista y hacé clic en Editar.`);
-        return; 
-      }
+      const facturaExistente = facturasRender.find(f => limpiarNro(f.n_factura) === limpiarNro(formData.n_factura));
+      if (facturaExistente) return alert(`⚠️ La factura N° ${formData.n_factura} ya existe.`);
     }
 
     const codigoFinal = editingId ? (formData.codigo || generarSiguienteCodigoFactura()) : generarSiguienteCodigoFactura();
     const esNotaCredito = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') || String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
     const factorSigno = esNotaCredito ? -1 : 1;
-
     const esPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
     const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
     const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
-
     const tempId = editingId || `temp_${Date.now()}`;
 
     const datosOptimistas = {
-      ...formData,
-      id: tempId,
-      codigo: codigoFinal,
-      archivo_url: '',
-      subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno,
-      iva_21: Math.abs(Number(formData.iva_21) || 0) * factorSigno,
-      iva_10_5: Math.abs(Number(formData.iva_10_5) || 0) * factorSigno,
-      persp_iibb_bs_as: Math.abs(Number(formData.persp_iibb_bs_as) || 0) * factorSigno,
-      persp_iibb_caba: Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno,
-      otros_impuestos: Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno,
-      total: Math.abs(Number(formData.total) || 0) * factorSigno,
-      estado_pago: esNotaCredito ? 'pendiente' : formData.estado_pago,
-      n_factura: formData.n_factura,
-      numero_comp: formData.n_factura,
-      proveedor_id: formData.proveedor_id,
-      proveedor: formData.proveedor,
-      obra_id: (esPresupuestario || esContrato) ? formData.obra_id : '',
-      presupuesto_id: esPresupuestario ? formData.presupuesto_id : '',
-      contrato_id: esContrato ? formData.contrato_id : '',
-      rubro_imputacion: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
-      rubro_presupuesto: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
-      rubro: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '',
-      tipo_insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '',
-      insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '',
-      detalle_gasto: esGastoLibre ? formData.detalle_gasto : '', 
-      es_nota_credito: esNotaCredito,
-      comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : '',
-      remitente: formData.remitente || '',
-      notificado_proveedor: Boolean(formData.notificado_proveedor)
+      ...formData, id: tempId, codigo: codigoFinal, archivo_url: '', subtotal: Math.abs(Number(formData.subtotal) || 0) * factorSigno, iva_21: Math.abs(Number(formData.iva_21) || 0) * factorSigno, iva_10_5: Math.abs(Number(formData.iva_10_5) || 0) * factorSigno, persp_iibb_bs_as: Math.abs(Number(formData.persp_iibb_bs_as) || 0) * factorSigno, persp_iibb_caba: Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno, otros_impuestos: Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno, total: Math.abs(Number(formData.total) || 0) * factorSigno, estado_pago: esNotaCredito ? 'pendiente' : formData.estado_pago, n_factura: formData.n_factura, numero_comp: formData.n_factura, proveedor_id: formData.proveedor_id, proveedor: formData.proveedor, obra_id: (esPresupuestario || esContrato) ? formData.obra_id : '', presupuesto_id: esPresupuestario ? formData.presupuesto_id : '', contrato_id: esContrato ? formData.contrato_id : '', rubro_imputacion: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '', rubro_presupuesto: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '', rubro: (esPresupuestario || esContrato) ? formData.rubro_imputacion : '', tipo_insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '', insumo: (esPresupuestario || esContrato) ? formData.tipo_insumo : '', detalle_gasto: esGastoLibre ? formData.detalle_gasto : '', es_nota_credito: esNotaCredito, comprobante_anula: esNotaCredito ? (formData.comprobante_anula || '') : '', remitente: formData.remitente || '', notificado_proveedor: Boolean(formData.notificado_proveedor)
     };
 
     const backupOptimistic = [...optimisticFacturas];
-
-    setOptimisticFacturas(prev => {
-      if (editingId) return prev.map(p => p.id === editingId ? datosOptimistas : p);
-      return [datosOptimistas, ...prev];
-    });
+    setOptimisticFacturas(prev => editingId ? prev.map(p => p.id === editingId ? datosOptimistas : p) : [datosOptimistas, ...prev]);
     setIsFacturaModalOpen(false);
     setIsSaving(true);
 
     try {
       let archivoUrlFinal = formData.archivo_url || '';
-      if (archivoUrlFinal && archivoUrlFinal.indexOf('data:') === 0) {
-        archivoUrlFinal = await subirArchivoADrive(archivoUrlFinal, 'Facturas');
-      }
+      if (archivoUrlFinal && archivoUrlFinal.indexOf('data:') === 0) archivoUrlFinal = await subirArchivoADrive(archivoUrlFinal, 'Facturas');
 
-      const payloadData = {
-        ...datosOptimistas,
-        archivo_url: archivoUrlFinal
-      };
-
+      const payloadData = { ...datosOptimistas, archivo_url: archivoUrlFinal };
       const datosLimpios = {};
-      Object.keys(payloadData).forEach(key => {
-        if (payloadData[key] !== undefined) {
-          datosLimpios[key] = payloadData[key];
-        }
-      });
-      delete datosLimpios._creadoEn;
-      delete datosLimpios._actualizadoEn;
-      delete datosLimpios.id;
+      Object.keys(payloadData).forEach(key => { if (payloadData[key] !== undefined) datosLimpios[key] = payloadData[key]; });
+      delete datosLimpios._creadoEn; delete datosLimpios._actualizadoEn; delete datosLimpios.id;
 
       let nuevoDocId = editingId;
       if (editingId) {
@@ -633,30 +400,20 @@ export default function Compras() {
         setOptimisticFacturas(prev => prev.map(p => p.id === tempId ? { ...p, id: nuevoDocId, archivo_url: archivoUrlFinal } : p));
       }
 
-      if (formData.remitente && !formData.notificado_proveedor && formData.estado_pago !== 'a asignar' && formData.estado_pago !== 'A Asignar') {
+      if (formData.remitente && !formData.notificado_proveedor && formData.estado_pago !== 'a asignar') {
         try {
-          let idToken = '';
-          if (auth.currentUser) idToken = await auth.currentUser.getIdToken();
-          const resMail = await fetch(GOOGLE_SCRIPT_URL, {
-            method: 'POST',
-            headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-            body: JSON.stringify({ action: 'enviarConfirmacionFactura', email: formData.remitente, n_factura: formData.n_factura, proveedor: formData.proveedor, idToken })
-          });
+          let idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+          const resMail = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'enviarConfirmacionFactura', email: formData.remitente, n_factura: formData.n_factura, proveedor: formData.proveedor, idToken }) });
           const dataMail = await resMail.json();
-          if (dataMail.success) {
-            await actualizarDoc('facturas_compras', nuevoDocId, { notificado_proveedor: true });
-          }
-        } catch (emailErr) {
-          console.error("Error enviando mail:", emailErr);
-        }
+          if (dataMail.success) await actualizarDoc('facturas_compras', nuevoDocId, { notificado_proveedor: true });
+        } catch (e) { console.error(e); }
       }
 
       setCandidatosProveedor([]);
       setNombreProveedorOCR('');
     } catch (err) {
-      console.error("ERROR FIRESTORE:", err);
       setOptimisticFacturas(backupOptimistic);
-      alert("⚠️ ATENCIÓN: La factura NO se guardó en la base de datos.\n\nMotivo: " + err.message);
+      alert("⚠️ Error al guardar: " + err.message);
       setIsFacturaModalOpen(true); 
     } finally {
       setIsSaving(false);
@@ -665,56 +422,31 @@ export default function Compras() {
 
   const handleEliminarFactura = async (f) => {
     const facturaId = obtenerIdReal(f); 
+    if (!facturaId) return alert("⚠️ Error: No se pudo identificar el ID.");
     
-    if (!facturaId) {
-      alert("⚠️ Error: No se pudo identificar el ID de la factura.");
-      return;
-    }
+    const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago']) || '').toLowerCase();
+    const esNC = String(buscarValorEnObjeto(f, ['comprobante_tipo']) || '').toLowerCase().includes('nota de crédito');
+    if (esNC && estadoPago === 'contabilizado') return alert("⚠️ NC Contabilizada. Descontabilizar primero.");
 
-    const tipoComp = String(buscarValorEnObjeto(f, ['comprobante_tipo', 'tipo_comprobante']) || '');
-    const esNC = tipoComp.toLowerCase().includes('nota de crédito') || tipoComp.toLowerCase().includes('nota de credito');
-    const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago']) || '').toLowerCase();
-
-    if (esNC && estadoPago === 'contabilizado') {
-      alert(
-        "⚠️ Esta Nota de Crédito ya está CONTABILIZADA en Tesorería.\n\n" +
-        "Para eliminarla primero tenés que descontabilizarla (borrar el movimiento asociado en Tesorería).\n\n" +
-        "Si querés eliminar todo el registro, hacelo desde Tesorería → Movimientos."
-      );
-      return;
-    }
-
-    if (!window.confirm("¿Estás seguro de eliminar esta factura?")) return;
+    if (!window.confirm("¿Eliminar esta factura?")) return;
 
     setDeletedFacturas(prev => [...prev, facturaId]);
-
     try {
-      if (facturaId.startsWith('temp_')) {
-        setOptimisticFacturas(prev => prev.filter(x => obtenerIdReal(x) !== facturaId));
-      } else {
-        await eliminarDoc('facturas_compras', facturaId);
-      }
+      if (facturaId.startsWith('temp_')) setOptimisticFacturas(prev => prev.filter(x => obtenerIdReal(x) !== facturaId));
+      else await eliminarDoc('facturas_compras', facturaId);
     } catch (err) {
-      console.error(err);
       setDeletedFacturas(prev => prev.filter(id => id !== facturaId));
-      alert("Error al eliminar: " + (err.message || ''));
+      alert("Error: " + err.message);
     }
   };
 
-  const handleAgregarInsumoOc = () => {
-    setFormDataOc(prev => ({
-      ...prev,
-      insumos_oc: [...prev.insumos_oc, { id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }]
-    }));
-  };
+  const handleAgregarInsumoOc = () => setFormDataOc(prev => ({ ...prev, insumos_oc: [...prev.insumos_oc, { id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }] }));
 
   const handleCambiarInsumoOc = (id, campo, valor) => {
     const nuevos = formDataOc.insumos_oc.map(item => {
       if (item.id === id) {
         const actualizado = { ...item, [campo]: valor };
-        if (campo === 'cantidad' || campo === 'p_unitario') {
-          actualizado.total = (Number(actualizado.cantidad) || 0) * (Number(actualizado.p_unitario) || 0);
-        }
+        if (campo === 'cantidad' || campo === 'p_unitario') actualizado.total = (Number(actualizado.cantidad) || 0) * (Number(actualizado.p_unitario) || 0);
         return actualizado;
       }
       return item;
@@ -730,69 +462,36 @@ export default function Compras() {
   };
 
   const handleEditarOcClick = (oc) => {
-    const realId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
-    setEditingOcId(realId);
+    setEditingOcId(buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']));
     let insumosParseados = [];
-    const rawInsumos = buscarValorEnObjeto(oc, ['insumos_oc', 'Insumos_oc', 'INSUMOS_OC']);
-    try {
-      insumosParseados = typeof rawInsumos === 'string' ? JSON.parse(rawInsumos) : (Array.isArray(rawInsumos) ? rawInsumos : []);
-    } catch (err) { insumosParseados = []; }
-
-    if (insumosParseados.length === 0) {
-      insumosParseados = [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
-    }
-
-    setFormDataOc({
-      ...oc,
-      fecha: formatearFechaParaInput(buscarValorEnObjeto(oc, ['fecha', 'Fecha'])),
-      fecha_entrega: formatearFechaParaInput(buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega'])),
-      condiciones_pago: buscarValorEnObjeto(oc, ['condiciones_pago', 'Condiciones_pago']) || '',
-      plazo_entrega: buscarValorEnObjeto(oc, ['plazo_entrega', 'Plazo_entrega']) || '',
-      lugar_entrega: buscarValorEnObjeto(oc, ['lugar_entrega', 'Lugar_entrega']) || '',
-      observaciones: buscarValorEnObjeto(oc, ['observaciones', 'Observaciones']) || '',
-      firma_sice: buscarValorEnObjeto(oc, ['firma_sice', 'Firma_sice']) || '',
-      firma_proveedor: buscarValorEnObjeto(oc, ['firma_proveedor', 'Firma_proveedor']) || '',
-      insumos_oc: insumosParseados
-    });
+    try { insumosParseados = typeof oc.insumos_oc === 'string' ? JSON.parse(oc.insumos_oc) : (Array.isArray(oc.insumos_oc) ? oc.insumos_oc : []); } catch (err) { insumosParseados = []; }
+    if (insumosParseados.length === 0) insumosParseados = [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }];
+    setFormDataOc({ ...oc, fecha: formatearFechaParaInput(oc.fecha), fecha_entrega: formatearFechaParaInput(oc.fecha_entrega), condiciones_pago: oc.condiciones_pago || '', plazo_entrega: oc.plazo_entrega || '', lugar_entrega: oc.lugar_entrega || '', observaciones: oc.observaciones || '', firma_sice: oc.firma_sice || '', firma_proveedor: oc.firma_proveedor || '', insumos_oc: insumosParseados });
     setIsOcModalOpen(true);
   };
 
   const handleGuardarOc = async (e) => {
     e.preventDefault();
     if (isSaving) return;
-
     const codigoFinal = editingOcId ? formDataOc.codigo : generarSiguienteCodigoOc();
     const tempId = editingOcId || `temp_${Date.now()}`;
-
-    const payloadData = {
-      ...formDataOc,
-      codigo: codigoFinal,
-      insumos_oc: JSON.stringify(formDataOc.insumos_oc)
-    };
-
+    const payloadData = { ...formDataOc, codigo: codigoFinal, insumos_oc: JSON.stringify(formDataOc.insumos_oc) };
     const datosOptimistas = { ...payloadData, id: tempId };
     const backup = [...optimisticOcs];
 
-    setOptimisticOcs(prev => {
-      if (editingOcId) return prev.map(p => p.id === editingOcId ? datosOptimistas : p);
-      return [datosOptimistas, ...prev];
-    });
+    setOptimisticOcs(prev => editingOcId ? prev.map(p => p.id === editingOcId ? datosOptimistas : p) : [datosOptimistas, ...prev]);
     setIsOcModalOpen(false);
     setIsSaving(true);
 
     try {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
-
-      if (editingOcId) {
-        await actualizarDoc('ordenes_compra', editingOcId, datosLimpios);
-      } else {
+      if (editingOcId) await actualizarDoc('ordenes_compra', editingOcId, datosLimpios);
+      else {
         const nuevoDocId = await crearDoc('ordenes_compra', datosLimpios);
         setOptimisticOcs(prev => prev.map(p => p.id === tempId ? { ...p, id: nuevoDocId } : p));
       }
     } catch (err) {
-      setOptimisticOcs(backup);
-      alert("Error al guardar OC: " + (err.message || ''));
-      setIsOcModalOpen(true);
+      setOptimisticOcs(backup); alert("Error al guardar OC: " + err.message); setIsOcModalOpen(true);
     } finally {
       setIsSaving(false);
     }
@@ -801,230 +500,90 @@ export default function Compras() {
   const handleEliminarOc = async (oc) => {
     const ocId = obtenerIdReal(oc);
     if (!ocId || !window.confirm("¿Eliminar Orden de Compra?")) return;
-
     setDeletedOcs(prev => [...prev, ocId]);
-
     try {
-      if (ocId.startsWith('temp_')) {
-        setOptimisticOcs(prev => prev.filter(x => obtenerIdReal(x) !== ocId));
-      } else {
-        await eliminarDoc('ordenes_compra', ocId);
-      }
+      if (ocId.startsWith('temp_')) setOptimisticOcs(prev => prev.filter(x => obtenerIdReal(x) !== ocId));
+      else await eliminarDoc('ordenes_compra', ocId);
     } catch (err) {
-      console.error(err);
-      setDeletedOcs(prev => prev.filter(id => id !== ocId));
-      alert("Error al eliminar OC: " + (err.message || ''));
+      setDeletedOcs(prev => prev.filter(id => id !== ocId)); alert("Error: " + err.message);
     }
   };
 
   const handleGenerarPdfOc = async (oc) => {
-    if (!GOOGLE_SCRIPT_URL) {
-      alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
-      return;
-    }
-
+    if (!GOOGLE_SCRIPT_URL) return alert("ERROR: GOOGLE_SCRIPT_URL no configurada.");
     const ocId = buscarValorEnObjeto(oc, ['id', 'ID', 'Id', 'codigo']);
     setGenerandoPdfOcId(ocId);
 
     try {
-      const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id']);
-      const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
+      const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id'])) === String(buscarValorEnObjeto(oc, ['proveedor_id'])));
+      const obra = obras.find(o => String(buscarValorEnObjeto(o, ['id'])) === String(buscarValorEnObjeto(oc, ['obra_id'])));
+      let insumos = []; try { insumos = typeof oc.insumos_oc === 'string' ? JSON.parse(oc.insumos_oc) : (Array.isArray(oc.insumos_oc) ? oc.insumos_oc : []); } catch (e) {}
 
-      const obraId = buscarValorEnObjeto(oc, ['obra_id', 'Obra_id']);
-      const obra = obras.find(o => String(buscarValorEnObjeto(o, ['id', 'ID'])) === String(obraId));
+      const payload = { action: 'generar_pdf_orden_compra', tabla: 'OrdenesCompra', orden: { codigo: oc.codigo, fecha: oc.fecha, fecha_entrega: oc.fecha_entrega, subtotal: oc.subtotal || 0, iva_21: oc.iva_21 || 0, total: oc.total || 0, condiciones_pago: oc.condiciones_pago || '', plazo_entrega: oc.plazo_entrega || '', lugar_entrega: oc.lugar_entrega || '', observaciones: oc.observaciones || '', firma_sice: oc.firma_sice || '', firma_proveedor: oc.firma_proveedor || '' }, proveedor: { razon_social: prov?.razon_social || '', cuit: prov?.cuit || '', direccion: prov?.direccion || '', telefono: prov?.telefono || '' }, obra: { codigo: obra?.codigo || '', nombre: obra?.nombre || obra?.nombre_obra || '' }, insumos };
+      payload.idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
 
-      const rawInsumos = buscarValorEnObjeto(oc, ['insumos_oc', 'Insumos_oc']);
-      let insumos = [];
-      try {
-        insumos = typeof rawInsumos === 'string' ? JSON.parse(rawInsumos) : (Array.isArray(rawInsumos) ? rawInsumos : []);
-      } catch (e) { insumos = []; }
-
-      const payload = {
-        action: 'generar_pdf_orden_compra',
-        tabla: 'OrdenesCompra',
-        orden: {
-          codigo: buscarValorEnObjeto(oc, ['codigo', 'Codigo']),
-          fecha: buscarValorEnObjeto(oc, ['fecha', 'Fecha']),
-          fecha_entrega: buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega']),
-          subtotal: Number(buscarValorEnObjeto(oc, ['subtotal', 'Subtotal'])) || 0,
-          iva_21: Number(buscarValorEnObjeto(oc, ['iva_21', 'Iva_21'])) || 0,
-          total: Number(buscarValorEnObjeto(oc, ['total', 'Total'])) || 0,
-          condiciones_pago: buscarValorEnObjeto(oc, ['condiciones_pago', 'Condiciones_pago']) || '',
-          plazo_entrega: buscarValorEnObjeto(oc, ['plazo_entrega', 'Plazo_entrega']) || '',
-          lugar_entrega: buscarValorEnObjeto(oc, ['lugar_entrega', 'Lugar_entrega']) || '',
-          observaciones: buscarValorEnObjeto(oc, ['observaciones', 'Observaciones']) || '',
-          firma_sice: buscarValorEnObjeto(oc, ['firma_sice', 'Firma_sice']) || '',
-          firma_proveedor: buscarValorEnObjeto(oc, ['firma_proveedor', 'Firma_proveedor']) || ''
-        },
-        proveedor: {
-          razon_social: buscarValorEnObjeto(prov, ['razon_social', 'nombre', 'Razon_social']) || '',
-          cuit: buscarValorEnObjeto(prov, ['cuit', 'CUIT', 'Cuit']) || '',
-          direccion: buscarValorEnObjeto(prov, ['direccion', 'Direccion']) || '',
-          telefono: buscarValorEnObjeto(prov, ['telefono', 'Telefono']) || ''
-        },
-        obra: {
-          codigo: buscarValorEnObjeto(obra, ['codigo', 'Codigo']) || '',
-          nombre: buscarValorEnObjeto(obra, ['nombre', 'nombre_obra', 'Nombre']) || ''
-        },
-        insumos
-      };
-
-      let idToken = '';
-      if (auth.currentUser) {
-        idToken = await auth.currentUser.getIdToken();
-      }
-
-      payload.idToken = idToken;
-
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify(payload)
-      });
-      
+      const res = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify(payload) });
       const data = await res.json();
 
-      if (data && data.success && data.pdf_url) {
-        window.open(data.pdf_url, '_blank');
-      } else {
-        alert('Error generando PDF: ' + ((data && data.error) || 'desconocido'));
-      }
-    } catch (err) {
-      console.error('[PDF OC] Error:', err);
-      alert('Error generando PDF: ' + (err.message || ''));
-    } finally {
-      setGenerandoPdfOcId(null);
-    }
+      if (data && data.success && data.pdf_url) window.open(data.pdf_url, '_blank');
+      else alert('Error PDF: ' + (data.error || 'desconocido'));
+    } catch (err) { alert('Error: ' + err.message); } finally { setGenerandoPdfOcId(null); }
   };
 
   const handleEnviarAlContador = async (e) => {
     e.preventDefault();
-    if (!emailContador || emailContador.indexOf('@') === -1) {
-      alert("Por favor, ingresá un correo válido.");
-      return;
-    }
-    if (facturasFiltradas.length === 0) {
-      alert("No hay facturas en el período seleccionado para enviar.");
-      return;
-    }
+    if (!emailContador || emailContador.indexOf('@') === -1) return alert("Correo inválido.");
+    if (facturasFiltradas.length === 0) return alert("No hay facturas para enviar.");
 
     setEnviandoFacturas(true);
     try {
-      const facturasParaEnviar = facturasFiltradas
-        .filter(f => {
-          const id = obtenerIdReal(f);
-          return !id.startsWith('temp_');
-        })
-        .map(f => {
-          const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
-          const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
-          
-          const provNombre = provObj?.razon_social || provObj?.nombre || provObj?.Razon_social || f.proveedor || 'Proveedor Desconocido';
-
-          return {
-            ...f,
-            proveedor: provNombre 
-          };
-        });
-
-      let idToken = '';
-      if (auth.currentUser) {
-        idToken = await auth.currentUser.getIdToken();
-      }
-
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'enviarFacturasAlContador',
-          email: emailContador,
-          fechaDesde: filtroFechaDesde ? formatearFechaDisplay(filtroFechaDesde) : 'Inicio',
-          fechaHasta: filtroFechaHasta ? formatearFechaDisplay(filtroFechaHasta) : 'Fin',
-          facturas: facturasParaEnviar,
-          idToken: idToken
-        })
-      });
-      
+      const facturasParaEnviar = facturasFiltradas.filter(f => !obtenerIdReal(f).startsWith('temp_')).map(f => ({ ...f, proveedor: proveedores.find(p => String(buscarValorEnObjeto(p, ['id'])) === String(buscarValorEnObjeto(f, ['proveedor_id'])))?.razon_social || f.proveedor || 'Proveedor Desconocido' }));
+      let idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
+      const res = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'enviarFacturasAlContador', email: emailContador, fechaDesde: filtroFechaDesde ? formatearFechaDisplay(filtroFechaDesde) : 'Inicio', fechaHasta: filtroFechaHasta ? formatearFechaDisplay(filtroFechaHasta) : 'Fin', facturas: facturasParaEnviar, idToken }) });
       const data = await res.json();
-      if (data.success) {
-        alert("✅ Correo enviado al contador con éxito.");
-        setIsEnviarContadorModalOpen(false);
-        setEmailContador('');
-      } else {
-        alert("⚠️ Error al enviar: " + data.error);
-      }
-    } catch (err) {
-      console.error(err);
-      alert("Error de red al intentar enviar las facturas.");
-    } finally {
-      setEnviandoFacturas(false);
-    }
+      if (data.success) { alert("✅ Correo enviado."); setIsEnviarContadorModalOpen(false); setEmailContador(''); }
+      else alert("⚠️ Error: " + data.error);
+    } catch (err) { alert("Error de red."); } finally { setEnviandoFacturas(false); }
   };
 
   const facturasFiltradas = useMemo(() => {
     const filtradas = facturasRender.filter(f => {
-      const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
-      const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
-      const fFecha = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
+      const provId = buscarValorEnObjeto(f, ['proveedor_id']);
+      const matchProv = !filtroProveedor || String(provId) === String(filtroProveedor);
+      const fFecha = buscarValorEnObjeto(f, ['fecha']);
       let matchFecha = true;
       if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
       if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
-
-      let matchDocumento = true;
+      let matchDoc = true;
       if (filtroDocumento) {
-        const presId = buscarValorEnObjeto(f, ['presupuesto_id', 'Presupuesto_id', 'presupuestoid', 'presupuesto']);
-        const contId = buscarValorEnObjeto(f, ['contrato_id', 'Contrato_id', 'contratoid', 'contrato']);
-
-        if (filtroDocumento.startsWith('PRES-')) {
-          const idLimpio = filtroDocumento.replace('PRES-', '');
-          matchDocumento = String(presId).trim() === String(idLimpio).trim();
-        } else if (filtroDocumento.startsWith('CONT-')) {
-          const idLimpio = filtroDocumento.replace('CONT-', '');
-          matchDocumento = String(contId).trim() === String(idLimpio).trim();
-        }
+        if (filtroDocumento.startsWith('PRES-')) matchDoc = String(buscarValorEnObjeto(f, ['presupuesto_id'])).trim() === String(filtroDocumento.replace('PRES-', '')).trim();
+        else if (filtroDocumento.startsWith('CONT-')) matchDoc = String(buscarValorEnObjeto(f, ['contrato_id'])).trim() === String(filtroDocumento.replace('CONT-', '')).trim();
       }
-
-      let matchEstadoPago = true;
-      if (filtroEstadoPago) {
-        const estadoPagoFactura = String(
-          buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO', 'estadopago']) || 'pendiente'
-        ).toLowerCase().trim();
-        matchEstadoPago = estadoPagoFactura === filtroEstadoPago.toLowerCase();
-      }
-
-      return matchProveedor && matchFecha && matchDocumento && matchEstadoPago;
+      let matchPago = true;
+      if (filtroEstadoPago) matchPago = String(buscarValorEnObjeto(f, ['estado_pago']) || 'pendiente').toLowerCase().trim() === filtroEstadoPago.toLowerCase();
+      return matchProv && matchFecha && matchDoc && matchPago;
     });
 
     const unicosMap = new Map();
     filtradas.forEach(f => {
-      const nFactura = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']);
-      const total = buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL']);
-      const key = nFactura ? `${nFactura}-${total}` : `key-${Math.random()}`;
-      
-      if (!unicosMap.has(key)) {
-        unicosMap.set(key, f);
-      } else {
-        const existente = unicosMap.get(key);
-        const fechaExistente = new Date(existente._actualizadoEn || existente._creadoEn || 0).getTime();
-        const fechaNueva = new Date(f._actualizadoEn || f._creadoEn || 0).getTime();
-        if (fechaNueva > fechaExistente) {
-          unicosMap.set(key, f);
-        }
+      const key = buscarValorEnObjeto(f, ['n_factura']) ? `${buscarValorEnObjeto(f, ['n_factura'])}-${buscarValorEnObjeto(f, ['total'])}` : `key-${Math.random()}`;
+      if (!unicosMap.has(key)) unicosMap.set(key, f);
+      else {
+        const ext = unicosMap.get(key);
+        if (new Date(f._actualizadoEn || f._creadoEn || 0).getTime() > new Date(ext._actualizadoEn || ext._creadoEn || 0).getTime()) unicosMap.set(key, f);
       }
     });
-
     return Array.from(unicosMap.values());
   }, [facturasRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto]);
 
   const ordenesFiltradas = useMemo(() => {
     return ordenesRender.filter(oc => {
-      const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
-      const matchProveedor = !filtroProveedor || String(provId) === String(filtroProveedor);
-      const ocFecha = buscarValorEnObjeto(oc, ['fecha', 'Fecha', 'FECHA']);
+      const matchProv = !filtroProveedor || String(buscarValorEnObjeto(oc, ['proveedor_id'])) === String(filtroProveedor);
+      const ocFecha = buscarValorEnObjeto(oc, ['fecha']);
       let matchFecha = true;
       if (filtroFechaDesde && ocFecha && ocFecha < filtroFechaDesde) matchFecha = false;
       if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
-      return matchProveedor && matchFecha;
+      return matchProv && matchFecha;
     });
   }, [ordenesRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, buscarValorEnObjeto]);
 
@@ -1038,61 +597,14 @@ export default function Compras() {
         <div className="flex gap-3">
           <button onClick={() => {
             setEditingOcId(null);
-            setFormDataOc({
-              codigo: generarSiguienteCodigoOc(),
-              proveedor_id: '',
-              obra_id: '',
-              fecha: new Date().toISOString().split('T')[0],
-              fecha_entrega: '',
-              estado: 'pendiente',
-              subtotal: 0,
-              iva_21: 0,
-              total: 0,
-              condiciones_pago: '',
-              plazo_entrega: '',
-              lugar_entrega: '',
-              observaciones: '',
-              firma_sice: nombreUsuarioLogueado,
-              firma_proveedor: '',
-              insumos_oc: [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }]
-            });
+            setFormDataOc({ codigo: generarSiguienteCodigoOc(), proveedor_id: '', obra_id: '', fecha: new Date().toISOString().split('T')[0], fecha_entrega: '', estado: 'pendiente', subtotal: 0, iva_21: 0, total: 0, condiciones_pago: '', plazo_entrega: '', lugar_entrega: '', observaciones: '', firma_sice: nombreUsuarioLogueado, firma_proveedor: '', insumos_oc: [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }] });
             setIsOcModalOpen(true);
           }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer">
             <Plus className="w-4 h-4" /> Nueva OC
           </button>
           <button onClick={() => {
-            setEditingId(null);
-            setCandidatosProveedor([]);
-            setNombreProveedorOCR('');
-            setFormData({
-              codigo: generarSiguienteCodigoFactura(),
-              comprobante_tipo: 'Factura A',
-              punto_venta: '',
-              n_factura: '',
-              proveedor_id: '',
-              proveedor: '',
-              obra_id: '',
-              presupuesto_id: '',
-              contrato_id: '',
-              tipo_gasto: 'Presupuesto',
-              rubro_imputacion: '',
-              tipo_insumo: 'Material',
-              detalle_gasto: '',
-              fecha: new Date().toISOString().split('T')[0],
-              vencimiento: '',
-              estado_pago: 'pendiente',
-              subtotal: 0,
-              iva_21: 0,
-              iva_10_5: 0,
-              persp_iibb_bs_as: 0,
-              persp_iibb_caba: 0,
-              otros_impuestos: 0,
-              total: 0,
-              archivo_url: '',
-              comprobante_anula: '',
-              remitente: '',
-              notificado_proveedor: false
-            });
+            setEditingId(null); setCandidatosProveedor([]); setNombreProveedorOCR('');
+            setFormData({ codigo: generarSiguienteCodigoFactura(), comprobante_tipo: 'Factura A', punto_venta: '', n_factura: '', proveedor_id: '', proveedor: '', obra_id: '', presupuesto_id: '', contrato_id: '', tipo_gasto: 'Presupuesto', rubro_imputacion: '', tipo_insumo: 'Material', detalle_gasto: '', fecha: new Date().toISOString().split('T')[0], vencimiento: '', estado_pago: 'pendiente', subtotal: 0, iva_21: 0, iva_10_5: 0, persp_iibb_bs_as: 0, persp_iibb_caba: 0, otros_impuestos: 0, total: 0, archivo_url: '', comprobante_anula: '', remitente: '', notificado_proveedor: false });
             setIsUploadModalOpen(true);
           }} className="flex items-center gap-2 px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer">
             <Plus className="w-4 h-4" /> Nueva Factura
@@ -1104,64 +616,11 @@ export default function Compras() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
-        <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
-          <BuscadorSelect
-            opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
-            value={filtroProveedor}
-            onChange={setFiltroProveedor}
-            placeholder="Todos los Proveedores"
-            minChars={3}
-          />
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de Pago</label>
-          <select
-            value={filtroEstadoPago}
-            onChange={(e) => setFiltroEstadoPago(e.target.value)}
-            className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"
-          >
-            <option value="">Todos</option>
-            <option value="a asignar">A Asignar</option>
-            <option value="pendiente">Pendiente</option>
-            <option value="contabilizado">Contabilizado</option>
-            <option value="pagado">Pagado</option>
-          </select>
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Doc. Aprobado (Presup. / Contrato)</label>
-          <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
-            <option value="">Todos los Documentos</option>
-            <optgroup label="Presupuestos">
-              {listaPresupuestosFinal.map(pr => {
-                const prId = buscarValorEnObjeto(pr, ['id', 'ID']);
-                return <option key={`pr-${prId}`} value={`PRES-${prId}`}>{pr.codigo} - {pr.nombre}</option>;
-              })}
-            </optgroup>
-            <optgroup label="Contratos">
-              {listaContratosFinal.map((c, idx) => {
-                const cId = buscarValorEnObjeto(c, ['id', 'ID', 'codigo', 'Codigo', 'contrato_id']) || idx;
-                const cCod = buscarValorEnObjeto(c, ['codigo', 'nro_contrato', 'numero']) || 'S/C';
-                const cNom = buscarValorEnObjeto(c, ['nombre', 'cliente', 'razon_social']) || 'Contrato';
-                return <option key={`c-${cId}`} value={`CONT-${cId}`}>[{cCod}] {cNom}</option>;
-              })}
-            </optgroup>
-          </select>
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Desde</label>
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
-            <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-            <input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" />
-          </div>
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Hasta</label>
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
-            <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-            <input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" />
-          </div>
-        </div>
+        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label><BuscadorSelect opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]} value={filtroProveedor} onChange={setFiltroProveedor} placeholder="Todos" minChars={3} /></div>
+        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de Pago</label><select value={filtroEstadoPago} onChange={(e) => setFiltroEstadoPago(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"><option value="">Todos</option><option value="a asignar">A Asignar</option><option value="pendiente">Pendiente</option><option value="contabilizado">Contabilizado</option><option value="pagado">Pagado</option></select></div>
+        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Doc. Aprobado</label><select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"><option value="">Todos</option><optgroup label="Presupuestos">{listaPresupuestosFinal.map(pr => <option key={`pr-${pr.id}`} value={`PRES-${pr.id}`}>{pr.codigo} - {pr.nombre}</option>)}</optgroup><optgroup label="Contratos">{listaContratosFinal.map((c, idx) => <option key={`c-${c.id || idx}`} value={`CONT-${c.id || idx}`}>[{c.codigo || 'S/C'}] {c.nombre || 'Contrato'}</option>)}</optgroup></select></div>
+        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Desde</label><div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"><Calendar className="w-4 h-4 text-slate-400 shrink-0" /><input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" /></div></div>
+        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Hasta</label><div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"><Calendar className="w-4 h-4 text-slate-400 shrink-0" /><input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" /></div></div>
       </div>
 
       <div className="flex gap-2 border-b border-slate-200 pb-2">
@@ -1171,299 +630,95 @@ export default function Compras() {
 
       {activeTab === 'facturas' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-          <div className="p-3 bg-slate-100 border-b text-[11px] text-slate-600 flex justify-between items-center">
-            <span>Total de facturas mostradas: <b>{facturasRender.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span>
-          </div>
-
-          {facturas.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100) && (
-            <div className="bg-amber-100 border-b border-amber-300 p-3 text-xs text-amber-900 font-medium flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-              <span>Se alcanzó el límite máximo de visualización. Si buscás una factura más antigua, <b>ajustá el rango de fechas (Desde/Hasta)</b> para achicar el período.</span>
-            </div>
-          )}
-
-          {facturasFiltradas.length === 0 ? (
-            <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
-              <FileText className="w-10 h-10 text-slate-300" />
-              <span>No hay facturas registradas con los filtros seleccionados.</span>
-            </div>
-          ) : (
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="px-6 py-4">Código</th>
-                  <th className="px-4 py-4">N° Factura</th>
-                  <th className="px-4 py-4">Imputación</th>
-                  <th className="px-6 py-4">Proveedor</th>
-                  <th className="px-4 py-4">Rubro / Detalle</th>
-                  <th className="px-4 py-4">Fecha</th>
-                  <th className="px-4 py-4 text-right">Total</th>
-                  <th className="px-4 py-4 text-center">Pago</th>
-                  <th className="px-4 py-4 text-center">Arch.</th>
-                  <th className="px-6 py-4 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {facturasFiltradas.map((f, index) => {
-                  const provId = buscarValorEnObjeto(f, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
-                  const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
-                  const totalVal = Number(buscarValorEnObjeto(f, ['total', 'Total', 'TOTAL'])) || 0;
-                  const estadoPago = String(buscarValorEnObjeto(f, ['estado_pago', 'Estado_pago', 'ESTADO_PAGO', 'estadopago']) || 'pendiente').toLowerCase();
-
-                  const numeroFacturaDisplay = buscarValorEnObjeto(f, ['n_factura', 'N_factura', 'N_FACTURA', 'numero_comp', 'numero', 'numero_factura', 'nfactura']) || '---';
-                  const codigoDisplay = buscarValorEnObjeto(f, ['codigo', 'Codigo', 'CODIGO']) || `FAC-${String(index + 1).padStart(4, '0')}`;
-                  const archivoLink = buscarValorEnObjeto(f, ['archivo_url', 'Archivo_url', 'archivo', 'Archivo', 'archivourl']) || '';
-                  const tipoGastoDisplay = buscarValorEnObjeto(f, ['tipo_gasto', 'Tipo_gasto', 'tipogasto']) || 'Presupuesto';
-                  const tipoCompDisplay = buscarValorEnObjeto(f, ['comprobante_tipo', 'Comprobante_tipo', 'tipo_comprobante']) || 'Factura A';
-                  const esNCRow = String(tipoCompDisplay).toLowerCase().includes('nota de crédito') ||
-                                  String(tipoCompDisplay).toLowerCase().includes('nota de credito');
-
-                  const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro', 'rubroimputacion']);
-                  const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon', 'tipoinsumo']);
-                  const detalleGasto = buscarValorEnObjeto(f, ['detalle_gasto', 'detalle', 'Detalle_gasto']);
-                  
-                  const esGastoLibreRow = tipoGastoDisplay === 'Gasto Corriente' || tipoGastoDisplay === 'Gasto Extra';
-                  const textoImputacion = esGastoLibreRow 
-                                          ? (detalleGasto || '---')
-                                          : `${rubroImputacion || '---'} ${tipoInsumo && tipoInsumo !== 'Material' ? '('+tipoInsumo+')' : ''}`;
-
-                  const fechaFactura = buscarValorEnObjeto(f, ['fecha', 'Fecha', 'FECHA']);
-
-                  const rowKey = `${obtenerIdReal(f)}-${numeroFacturaDisplay}-${index}`;
-
-                  return (
-                    <tr key={rowKey} className={`hover:bg-slate-50 transition-colors ${esNCRow ? 'bg-amber-50/40' : ''}`}>
-                      <td className="px-6 py-4 font-bold text-blue-600">
-                        {codigoDisplay}
-                        {esNCRow && <span className="ml-2 px-1.5 py-0.5 bg-amber-200 text-amber-900 text-[9px] font-bold rounded">NC</span>}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={esACompletar(numeroFacturaDisplay) ? 'text-slate-400 italic font-normal' : 'font-semibold text-slate-800'}>
-                          {numeroFacturaDisplay}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${esACompletar(tipoGastoDisplay) ? 'bg-slate-100 text-slate-400 italic' : 'bg-amber-50 text-amber-800'}`}>
-                          {tipoGastoDisplay}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 font-bold text-slate-900">
-                        {prov?.razon_social || prov?.nombre || prov?.Razon_social || buscarValorEnObjeto(f, ['proveedor']) || 'Proveedor'}
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={esACompletar(textoImputacion) ? 'text-slate-400 italic font-normal' : 'text-slate-600 font-medium'}>
-                          {textoImputacion}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(fechaFactura)}</td>
-                      <td className={`px-4 py-4 text-right font-black ${totalVal < 0 ? 'text-rose-600' : 'text-slate-900'}`}>$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-4 text-center">
-                        {estadoPago === 'a asignar' ? (
-                          <button
-                            type="button"
-                            onClick={() => handleEditarFacturaClick(f)}
-                            className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] uppercase shadow-sm cursor-pointer transition-colors"
-                            title="Asignar estado de pago"
-                          >
-                            Asignar
-                          </button>
-                        ) : (
-                          <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado' ? 'bg-emerald-100 text-emerald-800' : estadoPago === 'contabilizado' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
-                            {estadoPago}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        {archivoLink && archivoLink !== 'Comprobante_Adjunto' ? (
-                          <button type="button" onClick={() => handleVerArchivo(f)} className="text-blue-600 hover:text-blue-800 p-1.5 bg-blue-50 rounded-lg shadow-sm cursor-pointer" title="Ver comprobante"><Paperclip className="w-4 h-4" /></button>
-                        ) : (
-                          <span className="text-slate-300">-</span>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button onClick={() => handleEditarFacturaClick(f)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarFactura(f)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+          <div className="p-3 bg-slate-100 border-b text-[11px] text-slate-600 flex justify-between items-center"><span>Total: <b>{facturasRender.length}</b> | Filtradas: <b>{facturasFiltradas.length}</b></span></div>
+          {facturas.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100) && (<div className="bg-amber-100 border-b border-amber-300 p-3 text-xs text-amber-900 font-medium flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" /><span>Límite alcanzado. Ajustá fechas para ver más.</span></div>)}
+          
+          <TablaFacturas 
+            facturasFiltradas={facturasFiltradas} 
+            proveedores={proveedores} 
+            buscarValorEnObjeto={buscarValorEnObjeto} 
+            handleVerArchivo={handleVerArchivo} 
+            handleEditarFacturaClick={handleEditarFacturaClick} 
+            handleEliminarFactura={handleEliminarFactura} 
+            formatearFechaDisplay={formatearFechaDisplay} 
+            esACompletar={esACompletar} 
+            obtenerIdReal={obtenerIdReal} 
+          />
         </div>
       )}
 
       {activeTab === 'ordenes' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-          {ordenesFiltradas.length === 0 ? (
-            <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
-              <ShoppingCart className="w-10 h-10 text-slate-300" />
-              <span>No hay órdenes de compra registradas con los filtros seleccionados.</span>
-            </div>
-          ) : (
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="px-6 py-4">Código OC</th>
-                  <th className="px-6 py-4">Proveedor</th>
-                  <th className="px-4 py-4">Obra</th>
-                  <th className="px-4 py-4">Fecha</th>
-                  <th className="px-4 py-4">Entrega</th>
-                  <th className="px-4 py-4 text-right">Total</th>
-                  <th className="px-4 py-4 text-center">Estado</th>
-                  <th className="px-6 py-4 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {ordenesFiltradas.map((oc, index) => {
-                  const provId = buscarValorEnObjeto(oc, ['proveedor_id', 'Proveedor_id', 'PROVEEDOR_ID', 'proveedorid']);
-                  const obraId = buscarValorEnObjeto(oc, ['obra_id', 'Obra_id', 'obraid']);
-                  const prov = proveedores.find(p => String(buscarValorEnObjeto(p, ['id', 'ID'])) === String(provId));
-                  const obra = obras.find(o => String(buscarValorEnObjeto(o, ['id', 'ID'])) === String(obraId));
-                  const totalVal = Number(buscarValorEnObjeto(oc, ['total', 'Total', 'TOTAL'])) || 0;
-                  const estadoOc = String(buscarValorEnObjeto(oc, ['estado', 'Estado']) || 'pendiente').toLowerCase();
-                  const codigoDisplay = buscarValorEnObjeto(oc, ['codigo', 'Codigo']) || `OC-${String(index + 1).padStart(4, '0')}`;
-                  const ocId = obtenerIdReal(oc);
-
-                  return (
-                    <tr key={ocId || index} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-blue-600">{codigoDisplay}</td>
-                      <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
-                      <td className="px-4 py-4 text-slate-600">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : (obra?.nombre || '---')}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(buscarValorEnObjeto(oc, ['fecha', 'Fecha']))}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(buscarValorEnObjeto(oc, ['fecha_entrega', 'Fecha_entrega']))}</td>
-                      <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-4 text-center">
-                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoOc === 'aprobada' ? 'bg-emerald-100 text-emerald-800' : estadoOc === 'recibida' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {estadoOc}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end gap-2">
-                          <button
-                            onClick={() => handleGenerarPdfOc(oc)}
-                            disabled={generandoPdfOcId === ocId}
-                            className="p-1.5 text-slate-500 hover:text-emerald-600 bg-white border rounded shadow-sm cursor-pointer disabled:opacity-50"
-                            title="Generar PDF de la Orden de Compra"
-                          >
-                            {generandoPdfOcId === ocId
-                              ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              : <FileText className="w-3.5 h-3.5" />
-                            }
-                          </button>
-                          <button onClick={() => handleEditarOcClick(oc)} className="p-1.5 text-slate-500 hover:text-amber-600 bg-white border rounded shadow-sm cursor-pointer" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => handleEliminarOc(oc)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm cursor-pointer" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+          <TablaOrdenesCompra 
+            ordenesFiltradas={ordenesFiltradas} 
+            proveedores={proveedores} 
+            obras={obras} 
+            buscarValorEnObjeto={buscarValorEnObjeto} 
+            handleGenerarPdfOc={handleGenerarPdfOc} 
+            generandoPdfOcId={generandoPdfOcId} 
+            handleEditarOcClick={handleEditarOcClick} 
+            handleEliminarOc={handleEliminarOc} 
+            formatearFechaDisplay={formatearFechaDisplay} 
+            obtenerIdReal={obtenerIdReal} 
+          />
         </div>
       )}
 
-      <ModalOrdenCompra
-        isOpen={isOcModalOpen}
-        onClose={() => setIsOcModalOpen(false)}
-        onSubmit={handleGuardarOc}
-        formDataOc={formDataOc}
-        setFormDataOc={setFormDataOc}
-        isSaving={isSaving}
-        editingOcId={editingOcId}
-        obras={obras}
-        opcionesProveedores={opcionesProveedores}
-        handleAgregarInsumoOc={handleAgregarInsumoOc}
-        handleCambiarInsumoOc={handleCambiarInsumoOc}
-        handleQuitarInsumoOc={handleQuitarInsumoOc}
-        buscarValorEnObjeto={buscarValorEnObjeto}
+      <ModalOrdenCompra 
+        isOpen={isOcModalOpen} 
+        onClose={() => setIsOcModalOpen(false)} 
+        onSubmit={handleGuardarOc} 
+        formDataOc={formDataOc} 
+        setFormDataOc={setFormDataOc} 
+        isSaving={isSaving} 
+        editingOcId={editingOcId} 
+        obras={obras} 
+        opcionesProveedores={opcionesProveedores} 
+        handleAgregarInsumoOc={handleAgregarInsumoOc} 
+        handleCambiarInsumoOc={handleCambiarInsumoOc} 
+        handleQuitarInsumoOc={handleQuitarInsumoOc} 
+        buscarValorEnObjeto={buscarValorEnObjeto} 
       />
 
-      {isUploadModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-lg overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
-              <h3 className="font-bold text-slate-900">Nueva Factura — Subir comprobante</h3>
-              <button onClick={() => setIsUploadModalOpen(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer"><X className="w-5 h-5"/></button>
-            </div>
-            <div className="p-8 text-center space-y-6">
-              <p className="text-xs text-slate-500">Sube el archivo de la factura o nota de crédito. La IA leerá automáticamente los datos.</p>
-              <label className="border-2 border-dashed border-amber-300 bg-amber-50/50 hover:bg-amber-50 rounded-2xl p-8 flex flex-col items-center justify-center cursor-pointer transition-colors block">
-                {localLoading ? <Loader2 className="w-10 h-10 animate-spin text-amber-500 mb-3" /> : <Upload className="w-10 h-10 text-amber-500 mb-3" />}
-                <span className="font-bold text-sm text-slate-800">{localLoading ? "Procesando con IA..." : "Sube el archivo del comprobante"}</span>
-                <span className="text-[11px] text-slate-500 mt-1">Extracción automática por Inteligencia Artificial</span>
-                <input type="file" className="hidden" onChange={handleArchivoSubido} disabled={localLoading} />
-              </label>
-              <div className="flex justify-between items-center pt-2">
-                <button onClick={() => setIsUploadModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600 cursor-pointer">Cancelar</button>
-                <button onClick={() => { setIsUploadModalOpen(false); setIsFacturaModalOpen(true); }} className="text-xs font-bold text-amber-600 hover:underline cursor-pointer">Cargar sin comprobante</button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 🔑 REEMPLAZAMOS EL MONSTRUOSO MODAL DE FACTURA POR EL COMPONENTE */}
-      <ModalFactura
-        isOpen={isFacturaModalOpen}
-        onClose={() => setIsFacturaModalOpen(false)}
-        onSubmit={handleGuardarFactura}
-        formData={formData}
-        setFormData={setFormData}
-        isSaving={isSaving}
-        editingId={editingId}
-        candidatosProveedor={candidatosProveedor}
-        nombreProveedorOCR={nombreProveedorOCR}
-        opcionesProveedores={opcionesProveedores}
-        obras={obras}
-        listaPresupuestosFinal={listaPresupuestosFinal}
-        listaContratosFinal={listaContratosFinal}
-        rubrosDelPresupuesto={rubrosDelPresupuesto}
-        gastosGeneralesDelPresupuesto={gastosGeneralesDelPresupuesto}
-        buscarValorEnObjeto={buscarValorEnObjeto}
+      <ModalSubirFactura 
+        isOpen={isUploadModalOpen} 
+        onClose={() => setIsUploadModalOpen(false)} 
+        onCargarSinComprobante={() => { setIsUploadModalOpen(false); setIsFacturaModalOpen(true); }} 
+        handleArchivoSubido={handleArchivoSubido} 
+        localLoading={localLoading} 
       />
 
-      {isEnviarContadorModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
-            <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
-              <h3 className="font-bold text-slate-900">Enviar Facturas al Contador</h3>
-              <button onClick={() => setIsEnviarContadorModalOpen(false)} className="text-slate-400 hover:text-slate-700 cursor-pointer"><X className="w-5 h-5"/></button>
-            </div>
-            <form onSubmit={handleEnviarAlContador} className="p-6 space-y-4">
-              <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded-lg">
-                Se enviarán <b>{facturasFiltradas.length}</b> facturas en PDF y un resumen en Excel.
-                {filtroFechaDesde && ` Desde: ${formatearFechaDisplay(filtroFechaDesde)}`}
-                {filtroFechaHasta && ` Hasta: ${formatearFechaDisplay(filtroFechaHasta)}`}
-              </div>
-              
-              <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Email del Contador *</label>
-                <input 
-                  type="email" 
-                  required 
-                  disabled={enviandoFacturas}
-                  placeholder="contador@estudio.com" 
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-blue-500 disabled:bg-slate-100" 
-                  value={emailContador} 
-                  onChange={(e) => setEmailContador(e.target.value)} 
-                />
-              </div>
+      <ModalFactura 
+        isOpen={isFacturaModalOpen} 
+        onClose={() => setIsFacturaModalOpen(false)} 
+        onSubmit={handleGuardarFactura} 
+        formData={formData} 
+        setFormData={setFormData} 
+        isSaving={isSaving} 
+        editingId={editingId} 
+        candidatosProveedor={candidatosProveedor} 
+        nombreProveedorOCR={nombreProveedorOCR} 
+        opcionesProveedores={opcionesProveedores} 
+        obras={obras} 
+        listaPresupuestosFinal={listaPresupuestosFinal} 
+        listaContratosFinal={listaContratosFinal} 
+        rubrosDelPresupuesto={rubrosDelPresupuesto} 
+        gastosGeneralesDelPresupuesto={gastosGeneralesDelPresupuesto} 
+        buscarValorEnObjeto={buscarValorEnObjeto} 
+      />
 
-              <div className="flex justify-end gap-2 pt-4 border-t">
-                <button type="button" onClick={() => setIsEnviarContadorModalOpen(false)} disabled={enviandoFacturas} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50 cursor-pointer">Cancelar</button>
-                <button type="submit" disabled={enviandoFacturas} className="px-6 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer">
-                  {enviandoFacturas && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {enviandoFacturas ? 'Enviando...' : 'Enviar Correo'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <ModalEnviarContador 
+        isOpen={isEnviarContadorModalOpen} 
+        onClose={() => setIsEnviarContadorModalOpen(false)} 
+        onSubmit={handleEnviarAlContador} 
+        emailContador={emailContador} 
+        setEmailContador={setEmailContador} 
+        enviandoFacturas={enviandoFacturas} 
+        cantidadFacturas={facturasFiltradas.length} 
+        filtroFechaDesde={filtroFechaDesde} 
+        filtroFechaHasta={filtroFechaHasta} 
+        formatearFechaDisplay={formatearFechaDisplay} 
+      />
     </div>
   );
 }
