@@ -8,6 +8,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { filtrarPorResponsable } from '@/lib/permissions';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { limit } from 'firebase/firestore';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function Presupuestos() {
   const { user } = useAuth();
@@ -172,9 +173,10 @@ export default function Presupuestos() {
 
       setIsModalOpen(false);
       setNuevoPresupuesto({ codigo: '', nombre: '', obra_id: '', coeficiente_pase: 1.30, estado_presupuesto: 'borrador', version: 'v1' });
+      toast.success('Presupuesto creado correctamente');
     } catch (err) {
       console.error("Error:", err);
-      alert("Error al crear presupuesto: " + (err.message || ''));
+      toast.error("Error al crear presupuesto: " + (err.message || ''));
     } finally {
       setIsSaving(false);
     }
@@ -185,7 +187,7 @@ export default function Presupuestos() {
       await actualizarDoc('presupuestos', id, datosActualizacion);
     } catch (err) {
       console.error("Error al cambiar estado:", err);
-      alert("Error al cambiar el estado: " + (err.message || ''));
+      toast.error("Error al cambiar el estado: " + (err.message || ''));
       throw err;
     }
   };
@@ -193,7 +195,7 @@ export default function Presupuestos() {
   const handleCambioCondiciones = async (presupuestoActual) => {
     const estActual = normalizarEstado(presupuestoActual?.estado_presupuesto || presupuestoActual?.estado || '');
     if (estActual === 'aprobado' || estActual === 'rechazado') {
-      alert(`⚠️ No se puede generar un Cambio de Condiciones desde un presupuesto '${estActual}'.`);
+      toast.error(`⚠️ No se puede generar un Cambio de Condiciones desde un presupuesto '${estActual}'.`);
       return;
     }
 
@@ -246,10 +248,10 @@ export default function Presupuestos() {
       await crearDoc('presupuestos', datosLimpios);
 
       setActiveTab('workspace');
-      alert(`✅ Presupuesto archivado como "Cambio de Condiciones".\n\nSe creó la versión ${nuevaVersionStr} en Borrador para que trabajes sobre ella.`);
+      toast.success(`✅ Presupuesto archivado como "Cambio de Condiciones". Se creó la versión ${nuevaVersionStr} en Borrador.`);
     } catch (err) {
       console.error('Error al generar Cambio de Condiciones:', err);
-      alert('Ocurrió un error: ' + (err.message || ''));
+      toast.error('Ocurrió un error: ' + (err.message || ''));
     }
   };
 
@@ -258,17 +260,17 @@ export default function Presupuestos() {
     const estadoActual = String(p?.estado_presupuesto || p?.estado || 'borrador').toLowerCase();
 
     if (estadoActual === 'aprobado' || estadoActual === 'rechazado') {
-      alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede cambiar su estado base.`);
+      toast.error(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede cambiar su estado base.`);
       return;
     }
 
     if (estadoActual === 'cambio_condiciones') {
-      alert(`⚠️ Este presupuesto ya está archivado como 'Cambio de Condiciones' y no puede cambiar de estado.`);
+      toast.error(`⚠️ Este presupuesto ya está archivado como 'Cambio de Condiciones' y no puede cambiar de estado.`);
       return;
     }
 
     if (estadoActual === 'entregado' && nuevoEstado === 'borrador') {
-      alert(`⚠️ Un presupuesto entregado no puede volver a estado borrador. Solo puede pasar a Aprobado o Rechazado.`);
+      toast.error(`⚠️ Un presupuesto entregado no puede volver a estado borrador. Solo puede pasar a Aprobado o Rechazado.`);
       return;
     }
 
@@ -305,6 +307,7 @@ export default function Presupuestos() {
       });
       setIsAprobacionModalOpen(false);
       setPresupuestoAprobarId(null);
+      toast.success('Presupuesto aprobado correctamente');
     } finally {
       setIsSaving(false);
     }
@@ -313,7 +316,7 @@ export default function Presupuestos() {
   const handleToggleEnEjecucion = async (p) => {
     const estadoBase = String(p.estado_presupuesto || p.estado || '').toLowerCase();
     if (estadoBase !== 'aprobado') {
-      alert('⚠️ Solo los presupuestos APROBADOS pueden marcarse como En Ejecución.');
+      toast.error('⚠️ Solo los presupuestos APROBADOS pueden marcarse como En Ejecución.');
       return;
     }
     const nuevoValor = !Boolean(p.en_ejecucion);
@@ -325,18 +328,18 @@ export default function Presupuestos() {
       await actualizarDoc('presupuestos', p.id, update);
     } catch (err) {
       console.error('Error al cambiar En Ejecución:', err);
-      alert('Error: ' + (err.message || ''));
+      toast.error('Error: ' + (err.message || ''));
     }
   };
 
   const handleToggleFinalizado = async (p) => {
     const estadoBase = String(p.estado_presupuesto || p.estado || '').toLowerCase();
     if (estadoBase !== 'aprobado') {
-      alert('⚠️ Solo los presupuestos APROBADOS pueden marcarse como Finalizados.');
+      toast.error('⚠️ Solo los presupuestos APROBADOS pueden marcarse como Finalizados.');
       return;
     }
     if (!p.en_ejecucion) {
-      alert('⚠️ Primero hay que marcar "En Ejecución" para poder marcar "Finalizado".');
+      toast.error('⚠️ Primero hay que marcar "En Ejecución" para poder marcar "Finalizado".');
       return;
     }
     const nuevoValor = !Boolean(p.finalizado);
@@ -344,14 +347,14 @@ export default function Presupuestos() {
       await actualizarDoc('presupuestos', p.id, { finalizado: nuevoValor });
     } catch (err) {
       console.error('Error al cambiar Finalizado:', err);
-      alert('Error: ' + (err.message || ''));
+      toast.error('Error: ' + (err.message || ''));
     }
   };
 
   const handleActualizarPresupuestoVersion = async (presupuestoActual) => {
     const estadoOriginal = String(presupuestoActual?.estado_presupuesto || presupuestoActual?.estado || 'borrador').toLowerCase();
     if (estadoOriginal === 'aprobado') {
-      alert('⚠️ No se puede generar una nueva versión de un presupuesto Aprobado. Solo se puede versionar desde Borrador, Entregado o Rechazado.');
+      toast.error('⚠️ No se puede generar una nueva versión de un presupuesto Aprobado. Solo se puede versionar desde Borrador, Entregado o Rechazado.');
       return;
     }
 
@@ -468,26 +471,27 @@ export default function Presupuestos() {
 
       setActiveTab('workspace');
 
-      alert(`¡Se ha generado la versión ${nuevaVersionStr} exitosamente con los precios actualizados!\n\nLa vas a encontrar en la pestaña "Espacio de Trabajo" con estado "Borrador".`);
+      toast.success(`¡Se ha generado la versión ${nuevaVersionStr} exitosamente con los precios actualizados!`);
     } catch (err) {
       console.error("Error al actualizar versión del presupuesto:", err);
-      alert("Ocurrió un error al procesar la actualización.");
+      toast.error("Ocurrió un error al procesar la actualización.");
     }
   };
 
   const handleEliminar = async (id, estadoActual) => {
     const est = String(estadoActual || '').toLowerCase();
     if (est === 'aprobado' || est === 'entregado') {
-      alert(`⚠️ Este presupuesto se encuentra en estado '${est}' y no puede ser modificado ni eliminado.`);
+      toast.error(`⚠️ Este presupuesto se encuentra en estado '${est}' y no puede ser modificado ni eliminado.`);
       return;
     }
 
     if (!window.confirm("¿Estás seguro de eliminar este presupuesto?")) return;
     try {
       await eliminarDoc('presupuestos', id);
+      toast.success('Presupuesto eliminado correctamente');
     } catch (err) {
       console.error("Error al eliminar:", err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''));
     }
   };
 

@@ -3,24 +3,24 @@ import { useState, useMemo } from 'react';
 import { Package, Search, MapPin, User, Plus, Edit2, Trash2, Loader2 } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function Inventario() {
   const { data: inventario, loading } = useFirestoreCollection('inventario');
-  const { data: obras } = useFirestoreCollection('obras'); // 🔑 Traemos las obras
+  const { data: obras } = useFirestoreCollection('obras');
 
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
 
-  // Estado del formulario con los campos nuevos
   const [formData, setFormData] = useState({
     nombre: '',
     codigo: '',
     tipo: 'Herramienta Manual',
     descripcion: '',
-    estado: 'Activa', // 🔑 Nuevo estado
-    obra_id: '',      // 🔑 Nueva obra
+    estado: 'Activa',
+    obra_id: '',
     costo_inicial: '',
     depreciacion_anual: ''
   });
@@ -60,6 +60,7 @@ export default function Inventario() {
     e.preventDefault();
     if (isSaving) return;
     setIsSaving(true);
+    const toastId = toast.loading('Guardando herramienta...');
     try {
       const datosLimpios = {
         ...formData,
@@ -69,13 +70,15 @@ export default function Inventario() {
 
       if (editingId) {
         await actualizarDoc('inventario', editingId, datosLimpios);
+        toast.success('Herramienta actualizada con éxito', { id: toastId });
       } else {
         await crearDoc('inventario', { ...datosLimpios, fecha_registro: new Date().toISOString() });
+        toast.success('Herramienta agregada al inventario', { id: toastId });
       }
       setIsFormOpen(false);
     } catch (err) {
       console.error(err);
-      alert("Error al guardar: " + (err.message || ''));
+      toast.error("Error al guardar: " + (err.message || ''), { id: toastId });
     } finally {
       setIsSaving(false);
     }
@@ -83,15 +86,16 @@ export default function Inventario() {
 
   const handleEliminar = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar esta herramienta del inventario?")) return;
+    const toastId = toast.loading('Eliminando herramienta...');
     try {
       await eliminarDoc('inventario', id);
+      toast.success('Herramienta eliminada', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''), { id: toastId });
     }
   };
 
-  // 🔑 Función para obtener el nombre de la obra
   const obtenerNombreObra = (obraId) => {
     const obra = obras?.find(o => String(o.id) === String(obraId));
     return obra ? obra.nombre : 'Sin asignar';
@@ -99,7 +103,6 @@ export default function Inventario() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* HEADER */}
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900 flex items-center gap-2">
@@ -115,7 +118,6 @@ export default function Inventario() {
         </button>
       </div>
 
-      {/* FORMULARIO DESPLEGABLE */}
       {isFormOpen && (
         <div className="bg-slate-200/90 p-6 rounded-xl border border-slate-400 shadow-md animate-in fade-in slide-in-from-top-4 duration-200">
           <h2 className="text-base font-semibold mb-4 text-slate-800 flex items-center justify-between">
@@ -151,7 +153,6 @@ export default function Inventario() {
               <option value="Otro">Otro</option>
             </select>
 
-            {/* 🔑 Selector de Obra en el formulario */}
             <select
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm md:col-span-2"
               value={formData.obra_id}
@@ -171,7 +172,6 @@ export default function Inventario() {
               onChange={(e) => setFormData({ ...formData, descripcion: e.target.value })}
             />
 
-            {/* 🔑 Nuevos estados */}
             <select
               className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-amber-500 shadow-sm"
               value={formData.estado}
@@ -182,7 +182,6 @@ export default function Inventario() {
               <option value="De Baja">De Baja</option>
             </select>
 
-            {/* CAMPOS CONTABLES */}
             <input
               type="number"
               placeholder="Costo Inicial ($)"
@@ -220,7 +219,6 @@ export default function Inventario() {
         </div>
       )}
 
-      {/* TABLA Y BUSCADOR */}
       <div className="bg-white border border-slate-300 rounded-xl shadow-sm overflow-hidden flex flex-col">
         <div className="p-4 border-b border-slate-200 bg-white">
           <div className="relative w-full sm:w-80">
@@ -241,7 +239,7 @@ export default function Inventario() {
               <tr className="bg-slate-100 text-xs font-semibold text-slate-600 uppercase tracking-wider border-b border-slate-300">
                 <th className="px-6 py-4">Foto</th>
                 <th className="px-6 py-4">Herramienta / Máquina</th>
-                <th className="px-6 py-4">Obra</th> {/* 🔑 Nueva Columna */}
+                <th className="px-6 py-4">Obra</th>
                 <th className="px-6 py-4">Tipo</th>
                 <th className="px-6 py-4">Estado</th>
                 <th className="px-6 py-4">Costo Inicial</th>
@@ -280,7 +278,6 @@ export default function Inventario() {
                           <span className="text-xs text-slate-500">Cód: {item.codigo || '---'}</span>
                         </div>
                       </td>
-                      {/* 🔑 Mostramos la obra */}
                       <td className="px-6 py-4 text-sm text-slate-700 font-medium">
                         {obtenerNombreObra(item.obra_id)}
                       </td>
@@ -289,7 +286,6 @@ export default function Inventario() {
                           {item.tipo}
                         </span>
                       </td>
-                      {/* 🔑 Nuevos estados con colores */}
                       <td className="px-6 py-4 text-sm text-slate-700">
                         <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${
                           item.estado === 'Activa' ? 'bg-emerald-100 text-emerald-800' :

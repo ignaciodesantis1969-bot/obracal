@@ -3,14 +3,13 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronUp, ChevronRight, FileText, CheckSquare, Square, ListChecks } from 'lucide-react';
 import { exportarPresupuestoExcel, exportarPresupuestoPDF } from '../utils/exportUtils';
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc } from '@/lib/firestoreHelpers';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function PresupuestoDetalle() {
   const { id: presupuestoId } = useParams();
 
-  // 🔑 NUEVO: leemos todas las colecciones necesarias en paralelo
   const { data: presupuestos, loading: loadingPres } = useFirestoreCollection('presupuestos');
   const { data: obras, loading: loadingObras } = useFirestoreCollection('obras');
   const { data: clientes } = useFirestoreCollection('clientes');
@@ -22,7 +21,6 @@ export default function PresupuestoDetalle() {
   const isLoading = loadingPres || loadingObras;
   const errorFirestore = null;
 
-  // 🔑 NUEVO: encontrar el presupuesto actual y sus datos relacionados
   const presupuesto = useMemo(
     () => presupuestos.find(p => String(p.id).trim() === String(presupuestoId).trim()) || {},
     [presupuestos, presupuestoId]
@@ -38,7 +36,6 @@ export default function PresupuestoDetalle() {
     return clientes.find(c => String(c.id).trim() === String(clienteId || '').trim()) || {};
   }, [clientes, obra]);
 
-  // 🔑 NUEVO: aplanar el maestro de tareas
   const maestroTareas = useMemo(() => {
     let tareasPlanas = [];
     if (Array.isArray(maestroRaw)) {
@@ -92,7 +89,6 @@ export default function PresupuestoDetalle() {
     insumos: ''
   });
 
-  // 🔑 NUEVO (cambio c): estado para multi-select de tareas desde el Maestro
   const [tareasSeleccionadas, setTareasSeleccionadas] = useState([]);
 
   const [gastosGeneralesInsumos, setGastosGeneralesInsumos] = useState([]);
@@ -112,7 +108,6 @@ export default function PresupuestoDetalle() {
   const [rubrosConOrden, setRubrosConOrden] = useState([]);
   const [itemsDetalle, setItemsDetalle] = useState([]);
 
-  // 🔑 NUEVO: cuando llega el presupuesto desde Firestore, parseamos su items_detalle y comercial
   useEffect(() => {
     if (!presupuesto || !presupuesto.id) return;
 
@@ -215,7 +210,7 @@ export default function PresupuestoDetalle() {
 
     const yaExiste = itemsDetalle.some(r => r.rubro !== nombreRubro && Number(r.numero) === nuevoNumero);
     if (yaExiste) {
-      alert(`¡Atención! El número ${nuevoNumero} ya está asignado a otro rubro. Por favor elige uno diferente para evitar duplicados.`);
+      toast.error(`¡Atención! El número ${nuevoNumero} ya está asignado a otro rubro. Por favor elige uno diferente para evitar duplicados.`);
       return;
     }
 
@@ -233,10 +228,9 @@ export default function PresupuestoDetalle() {
   const esAprobado = estadoActual === 'aprobado';
   const esRechazado = estadoActual === 'rechazado';
 
-  // 🔑 FIX: guardado directo a Firestore
   const guardarEstructuraPresupuesto = async (nuevosItems, nuevoCoef = null) => {
     if (!esBorrador) {
-      alert(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede ser modificado.`);
+      toast.error(`⚠️ Este presupuesto está en estado '${estadoActual}' y no puede ser modificado.`);
       return;
     }
 
@@ -306,7 +300,7 @@ export default function PresupuestoDetalle() {
       setItemsDetalle(itemsValidados);
     } catch (err) {
       console.error("Error al guardar en Firestore:", err);
-      alert("Hubo un error al guardar los cambios: " + (err.message || ''));
+      toast.error("Hubo un error al guardar los cambios: " + (err.message || ''));
     }
   };
 
@@ -328,7 +322,7 @@ export default function PresupuestoDetalle() {
     if (isSavingRubro) return;
 
     if (!esBorrador) {
-      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
+      toast.error(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
     if (!nombreNuevoRubro.trim()) return;
@@ -338,7 +332,7 @@ export default function PresupuestoDetalle() {
       const nombreRubroUpper = nombreNuevoRubro.trim().toUpperCase();
 
       if (itemsDetalle.some(r => r.rubro === nombreRubroUpper)) {
-        alert("El rubro ya existe en este presupuesto.");
+        toast.error("El rubro ya existe en este presupuesto.");
         return;
       }
 
@@ -357,9 +351,10 @@ export default function PresupuestoDetalle() {
 
       setNombreNuevoRubro('');
       setIsRubroModalOpen(false);
+      toast.success('Rubro creado correctamente');
     } catch (err) {
       console.error("Error al guardar el rubro en Firestore:", err);
-      alert("Error al guardar el rubro: " + (err.message || ''));
+      toast.error("Error al guardar el rubro: " + (err.message || ''));
     } finally {
       setIsSavingRubro(false);
     }
@@ -367,7 +362,7 @@ export default function PresupuestoDetalle() {
 
   const handleEliminarRubro = (nombreRubro) => {
     if (!esBorrador) {
-      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
+      toast.error(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
     if (window.confirm(`¿Estás seguro de eliminar el rubro "${nombreRubro}" y todas sus tareas asociadas?`)) {
@@ -377,29 +372,26 @@ export default function PresupuestoDetalle() {
     }
   };
 
-  // 🔑 FIX (cambio c): ahora puede agregar 1 tarea (manual o editada) o N tareas (multi-select)
   const handleGuardarTarea = async (e) => {
     e.preventDefault();
     if (isSavingTarea) return;
 
     if (!esBorrador) {
-      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
+      toast.error(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
 
-    // 🔑 Si hay tareas seleccionadas del Maestro → modo multi-agregar
     const modoMultiSelect = tareasSeleccionadas.length > 0 && !editingTarea;
 
     if (modoMultiSelect) {
       if (!nuevaTarea.rubro) {
-        alert("Seleccione un rubro antes de agregar las tareas.");
+        toast.error("Seleccione un rubro antes de agregar las tareas.");
         return;
       }
 
       setIsSavingTarea(true);
       try {
         const nuevasTareas = tareasSeleccionadas.map((tareaMt, idx) => {
-          // Parsear los insumos del Maestro
           let insDetalleParsed = tareaMt.insumos_detalle || tareaMt.Insumos_detalle || [];
           if (typeof insDetalleParsed === 'string' && insDetalleParsed.trim()) {
             try { insDetalleParsed = JSON.parse(insDetalleParsed); } catch { insDetalleParsed = []; }
@@ -440,18 +432,18 @@ export default function PresupuestoDetalle() {
         setEditingTarea(null);
         setTareasSeleccionadas([]);
         setNuevaTarea({ rubro: '', tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
+        toast.success('Tareas agregadas correctamente');
         return;
       } catch (err) {
         console.error("Error al guardar tareas múltiples:", err);
-        alert("Hubo un error al guardar las tareas.");
+        toast.error("Hubo un error al guardar las tareas.");
       } finally {
         setIsSavingTarea(false);
       }
     }
 
-    // 🔑 Modo individual (1 tarea) — el flujo original
     if (!nuevaTarea.rubro || !nuevaTarea.tarea) {
-      alert("Complete el rubro y el nombre de la tarea.");
+      toast.error("Complete el rubro y el nombre de la tarea.");
       return;
     }
 
@@ -499,9 +491,10 @@ export default function PresupuestoDetalle() {
       setEditingTarea(null);
       setTareasSeleccionadas([]);
       setNuevaTarea({ rubro: '', tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
+      toast.success(editingTarea ? 'Tarea actualizada' : 'Tarea agregada');
     } catch (err) {
       console.error("Error al guardar tarea:", err);
-      alert("Hubo un error al guardar la tarea.");
+      toast.error("Hubo un error al guardar la tarea.");
     } finally {
       setIsSavingTarea(false);
     }
@@ -509,7 +502,7 @@ export default function PresupuestoDetalle() {
 
   const handleEditarTareaClick = (rubroName, tarea) => {
     if (!esBorrador) {
-      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
+      toast.error(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
     setNuevaTarea({
@@ -527,7 +520,7 @@ export default function PresupuestoDetalle() {
 
   const handleEliminarTarea = (nombreRubro, tareaId) => {
     if (!esBorrador) {
-      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
+      toast.error(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
     if (window.confirm("¿Eliminar esta tarea?")) {
@@ -545,10 +538,9 @@ export default function PresupuestoDetalle() {
     }
   };
 
-  // 🔑 NUEVO (cambio d): mover tarea arriba/abajo dentro de su rubro
   const handleMoverTarea = (nombreRubro, tareaId, direccion) => {
     if (!esBorrador) {
-      alert(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
+      toast.error(`⚠️ Presupuesto bloqueado (${estadoActual}).`);
       return;
     }
 
@@ -605,8 +597,9 @@ export default function PresupuestoDetalle() {
 
       setIsNuevoGGModalOpen(false);
       setNuevoGastoGeneral({ concepto: '', unitario: '' });
+      toast.success('Gasto general agregado al maestro y al presupuesto');
     } catch (err) {
-      alert("Error al guardar el gasto general en Firestore: " + (err.message || ''));
+      toast.error("Error al guardar el gasto general en Firestore: " + (err.message || ''));
     } finally {
       setIsSavingGG(false);
     }
@@ -662,7 +655,6 @@ export default function PresupuestoDetalle() {
     return rubroMaestro === rubroSeleccionado && m.tarea !== '---';
   });
 
-  // 🔑 NUEVO (cambio c): helpers para multi-select
   const toggleTareaSeleccionada = (tareaMt) => {
     setTareasSeleccionadas(prev => {
       const existe = prev.some(t => String(t.id) === String(tareaMt.id));
@@ -759,7 +751,7 @@ export default function PresupuestoDetalle() {
           <button
             disabled={!esBorrador}
             onClick={() => {
-              if (itemsDetalle.length === 0) { alert("Cree un rubro primero."); return; }
+              if (itemsDetalle.length === 0) { toast.error("Cree un rubro primero."); return; }
               setEditingTarea(null);
               setTareasSeleccionadas([]);
               setNuevaTarea({ rubro: itemsDetalle[0].rubro, tarea: '', unidad: 'm2', cantidad: 1, costo_unitario: 0, insumos: '' });
@@ -917,7 +909,6 @@ export default function PresupuestoDetalle() {
                                     <td className="w-[14%] px-4 py-3 text-right">
                                       {esBorrador && (
                                         <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                          {/* 🔑 NUEVO (cambio d): flechas para reordenar */}
                                           <button
                                             onClick={() => handleMoverTarea(nombreRubro, t.id, 'arriba')}
                                             disabled={tIdx === 0}
@@ -1388,7 +1379,7 @@ export default function PresupuestoDetalle() {
               disabled={!esBorrador}
               onClick={() => {
                 guardarEstructuraPresupuesto(itemsDetalle, coeficientePaseCalculado);
-                alert("¡Coeficiente de Pase y datos comerciales aplicados y guardados con éxito!");
+                toast.success("¡Coeficiente de Pase y datos comerciales aplicados y guardados con éxito!");
               }}
               className="px-6 py-3 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-300 disabled:cursor-not-allowed text-white rounded-xl font-bold text-sm shadow-md transition-colors flex items-center gap-2"
             >
@@ -1521,7 +1512,6 @@ export default function PresupuestoDetalle() {
                 </select>
               </div>
 
-              {/* 🔑 NUEVO (cambio c): multi-select del Maestro */}
               {!editingTarea && (
                 <div className="border border-amber-300 bg-amber-50/40 rounded-xl p-4 space-y-3">
                   <div className="flex items-center justify-between">
@@ -1590,7 +1580,6 @@ export default function PresupuestoDetalle() {
                 </div>
               )}
 
-              {/* Nombre de la tarea — solo si no hay multi-select activo */}
               {!editingTarea && tareasSeleccionadas.length === 0 && (
                 <div className="text-center py-2 text-[11px] text-slate-400 italic">
                   — O cargá una tarea manualmente —
