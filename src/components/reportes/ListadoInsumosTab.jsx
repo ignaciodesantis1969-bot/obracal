@@ -1,9 +1,11 @@
+// src/components/reportes/ListadoInsumosTab.jsx
 import React, { useState, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-import { Package, FileText, Filter, ArrowUpDown } from 'lucide-react';
+import { Package, FileText, Filter, ArrowUpDown, FileSpreadsheet } from 'lucide-react'; // 🔑 Agregamos FileSpreadsheet
 import { useObraData } from '../../hooks/useObraData';
-import { auth } from '@/firebase'; // 🔑 IMPORTAMOS AUTH
+import { auth } from '@/firebase';
+import * as XLSX from 'xlsx'; // 🔑 Importamos XLSX
 
 export default function ListadoInsumosTab({
   presupuestos = [],
@@ -396,7 +398,6 @@ export default function ListadoInsumosTab({
     setIsSavingInsumosPdf(true);
     const toastId = toast.loading('Generando PDF de Insumos en Drive...');
     try {
-      // 🔑 OBTENEMOS EL TOKEN
       let idToken = '';
       if (auth.currentUser) {
         idToken = await auth.currentUser.getIdToken();
@@ -409,7 +410,7 @@ export default function ListadoInsumosTab({
         presupuesto_id: String(insumoPresupuestoId),
         obra: presupuestoInsumosSeleccionado?.nombre || presupuestoInsumosSeleccionado?.nombre_obra || 'Insumos Obra',
         insumos: insumosGenerales,
-        idToken: idToken // 🔑 LO AGREGAMOS AL PAYLOAD
+        idToken: idToken
       };
       
       const res = await fetch(GOOGLE_SCRIPT_URL, {
@@ -431,6 +432,112 @@ export default function ListadoInsumosTab({
       toast.error('Error de conexión al exportar insumos.', { id: toastId });
     } finally {
       setIsSavingInsumosPdf(false);
+    }
+  };
+
+  // 🔑 NUEVA FUNCIÓN PARA EXPORTAR A EXCEL
+  const exportarInsumosExcel = () => {
+    if (!presupuestoInsumosSeleccionado) {
+      toast.error('Seleccione un presupuesto para exportar insumos.');
+      return;
+    }
+
+    try {
+      const toastId = toast.loading('Generando Excel...');
+
+      // Armamos la matriz de datos
+      const wscols = [
+        { wch: 20 }, // Categoría
+        { wch: 50 }, // Insumo
+        { wch: 30 }, // Proveedor
+        { wch: 10 }, // Unidad
+        { wch: 15 }, // Cantidad
+        { wch: 20 }, // Costo Unitario
+        { wch: 20 }  // Total
+      ];
+
+      const datosExcel = [];
+      
+      // Título y encabezado
+      datosExcel.push(['LISTADO DE INSUMOS POR PRESUPUESTO']);
+      datosExcel.push([`Obra: ${presupuestoInsumosSeleccionado?.nombre || presupuestoInsumosSeleccionado?.nombre_obra || 'Insumos Obra'}`]);
+      datosExcel.push([`Código Presupuesto: ${presupuestoInsumosSeleccionado?.codigo || insumoPresupuestoId}`]);
+      datosExcel.push([`Fecha de Emisión: ${new Date().toLocaleDateString('es-AR')}`]);
+      datosExcel.push([]); // Fila vacía
+
+      // Encabezados de tabla
+      datosExcel.push(['Categoría', 'Insumo / Artículo', 'Proveedor', 'Unidad', 'Cant.', 'Costo Unitario ($)', 'Total ($)']);
+
+      // Datos agrupados
+      ordenCategorias.forEach(cat => {
+        const itemsCat = insumosGenerales[cat] || [];
+        
+        // Aplicamos el mismo filtro de proveedor de la pantalla
+        const itemsFiltrados = proveedorFiltro 
+          ? itemsCat.filter(it => String(it?.proveedor).toLowerCase() === proveedorFiltro.toLowerCase())
+          : itemsCat;
+
+        if (itemsFiltrados.length === 0) return;
+
+        // Agrupamos igual que en la vista
+        const agrupadosMap = {};
+        itemsFiltrados.forEach(it => {
+          const nombreNorm = String(it?.nombre || 'Sin nombre').trim();
+          const provNorm = String(it?.proveedor || 'Sin Proveedor').trim();
+          const uniqueKey = `${nombreNorm.toLowerCase()}_${provNorm.toLowerCase()}`;
+
+          if (!agrupadosMap[uniqueKey]) {
+            agrupadosMap[uniqueKey] = {
+              nombre: nombreNorm,
+              proveedor: provNorm,
+              unidad: String(it?.unidad || 'un').toLowerCase(),
+              cantidad: 0,
+              total: 0
+            };
+          }
+          agrupadosMap[uniqueKey].cantidad += Number(it?.cantidad) || 0;
+          agrupadosMap[uniqueKey].total += Number(it?.total) || 0;
+        });
+
+        let itemsAgrupados = Object.values(agrupadosMap);
+
+        // Ordenamos igual que en la pantalla
+        itemsAgrupados.sort((a, b) => {
+          if (ordenPrecio === 'mayorPrecioTotal') return Number(b.total) - Number(a.total);
+          if (ordenPrecio === 'menorPrecioTotal') return Number(a.total) - Number(b.total);
+          return a.nombre.localeCompare(b.nombre);
+        });
+
+        itemsAgrupados.forEach(item => {
+          const costoUnit = item.cantidad > 0 ? item.total / item.cantidad : 0;
+          
+          datosExcel.push([
+            cat,
+            item.nombre,
+            item.proveedor,
+            item.unidad,
+            item.cantidad,
+            costoUnit,
+            item.total
+          ]);
+        });
+      });
+
+      // Creamos el libro y la hoja
+      const ws = XLSX.utils.aoa_to_sheet(datosExcel);
+      ws['!cols'] = wscols; // Aplicamos anchos de columna
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, "Insumos");
+
+      // Descargamos el archivo
+      const nombreArchivo = `Insumos_${presupuestoInsumosSeleccionado?.codigo || 'Obra'}_${new Date().getTime()}.xlsx`;
+      XLSX.writeFile(wb, nombreArchivo);
+
+      toast.success('¡Excel descargado correctamente!', { id: toastId });
+    } catch (error) {
+      console.error("Error al generar Excel:", error);
+      toast.error('Error al generar el Excel.');
     }
   };
 
@@ -495,6 +602,15 @@ export default function ListadoInsumosTab({
           >
             {vistaGeneralInsumos ? 'Ver por Rubros' : 'Ver Vista General'}
           </button>
+          
+          {/* 🔑 NUEVO BOTÓN DE EXCEL */}
+          <button
+            onClick={exportarInsumosExcel}
+            className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
+          >
+            <FileSpreadsheet className="w-4 h-4" /> Exportar Excel
+          </button>
+
           <button
             onClick={exportarInsumosPDF}
             disabled={isSavingInsumosPdf}
