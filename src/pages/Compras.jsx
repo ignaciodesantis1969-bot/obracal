@@ -46,6 +46,7 @@ export default function Compras() {
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
   const [filtroEstadoPago, setFiltroEstadoPago] = useState('');
+  const [filtroEstadoOc, setFiltroEstadoOc] = useState('');
 
   const [optimisticFacturas, setOptimisticFacturas] = useState([]);
   const [deletedFacturas, setDeletedFacturas] = useState([]);
@@ -384,7 +385,14 @@ export default function Compras() {
 
     try {
       let archivoUrlFinal = formData.archivo_url || '';
-      if (archivoUrlFinal && archivoUrlFinal.indexOf('data:') === 0) archivoUrlFinal = await subirArchivoADrive(archivoUrlFinal, 'Facturas');
+      if (archivoUrlFinal && archivoUrlFinal.indexOf('data:') === 0) {
+        try {
+          archivoUrlFinal = await subirArchivoADrive(archivoUrlFinal, 'Facturas');
+        } catch (errorDrive) {
+          alert("⚠️ No se pudo subir el archivo a Drive: " + errorDrive.message);
+          archivoUrlFinal = ''; // Se guarda la factura pero sin archivo
+        }
+      }
 
       const payloadData = { ...datosOptimistas, archivo_url: archivoUrlFinal };
       const datosLimpios = {};
@@ -476,6 +484,7 @@ export default function Compras() {
     const codigoFinal = editingOcId ? formDataOc.codigo : generarSiguienteCodigoOc();
     const tempId = editingOcId || `temp_${Date.now()}`;
     const payloadData = { ...formDataOc, codigo: codigoFinal, insumos_oc: JSON.stringify(formDataOc.insumos_oc) };
+    
     const datosOptimistas = { ...payloadData, id: tempId };
     const backup = [...optimisticOcs];
 
@@ -484,14 +493,25 @@ export default function Compras() {
     setIsSaving(true);
 
     try {
-      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
-      if (editingOcId) await actualizarDoc('ordenes_compra', editingOcId, datosLimpios);
-      else {
+      // 🔑 LIMPIAMOS LOS UNDEFINED
+      const datosLimpios = {};
+      Object.keys(payloadData).forEach(key => {
+        if (payloadData[key] !== undefined) datosLimpios[key] = payloadData[key];
+      });
+      delete datosLimpios._creadoEn; 
+      delete datosLimpios._actualizadoEn; 
+      delete datosLimpios.id;
+
+      if (editingOcId) {
+        await actualizarDoc('ordenes_compra', editingOcId, datosLimpios);
+      } else {
         const nuevoDocId = await crearDoc('ordenes_compra', datosLimpios);
         setOptimisticOcs(prev => prev.map(p => p.id === tempId ? { ...p, id: nuevoDocId } : p));
       }
     } catch (err) {
-      setOptimisticOcs(backup); alert("Error al guardar OC: " + err.message); setIsOcModalOpen(true);
+      setOptimisticOcs(backup); 
+      alert("Error al guardar OC: " + err.message); 
+      setIsOcModalOpen(true);
     } finally {
       setIsSaving(false);
     }
@@ -537,7 +557,25 @@ export default function Compras() {
 
     setEnviandoFacturas(true);
     try {
-      const facturasParaEnviar = facturasFiltradas.filter(f => !obtenerIdReal(f).startsWith('temp_')).map(f => ({ ...f, proveedor: proveedores.find(p => String(buscarValorEnObjeto(p, ['id'])) === String(buscarValorEnObjeto(f, ['proveedor_id'])))?.razon_social || f.proveedor || 'Proveedor Desconocido' }));
+      const facturasParaEnviar = facturasFiltradas
+        .filter(f => !obtenerIdReal(f).startsWith('temp_'))
+        .map((f, index) => {
+          const provId = buscarValorEnObjeto(f, ['proveedor_id']);
+          const provObj = proveedores.find(p => String(buscarValorEnObjeto(p, ['id'])) === String(provId));
+          
+          // 🔑 SI EL CODIGO ES UN NUMERO DE FACTURA, LE ASIGNAMOS UN CODIGO FAC-X
+          let codigoReal = buscarValorEnObjeto(f, ['codigo']);
+          if (!codigoReal || !String(codigoReal).startsWith('FAC-')) {
+            codigoReal = `FAC-${String(index + 1).padStart(4, '0')}`;
+          }
+
+          return {
+            ...f,
+            codigo: codigoReal,
+            proveedor: provObj?.razon_social || provObj?.nombre || f.proveedor || 'Proveedor Desconocido'
+          };
+        });
+
       let idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
       const res = await fetch(GOOGLE_SCRIPT_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'enviarFacturasAlContador', email: emailContador, fechaDesde: filtroFechaDesde ? formatearFechaDisplay(filtroFechaDesde) : 'Inicio', fechaHasta: filtroFechaHasta ? formatearFechaDisplay(filtroFechaHasta) : 'Fin', facturas: facturasParaEnviar, idToken }) });
       const data = await res.json();
@@ -583,9 +621,16 @@ export default function Compras() {
       let matchFecha = true;
       if (filtroFechaDesde && ocFecha && ocFecha < filtroFechaDesde) matchFecha = false;
       if (filtroFechaHasta && ocFecha && ocFecha > filtroFechaHasta) matchFecha = false;
-      return matchProv && matchFecha;
+      
+      // 🔑 NUEVO FILTRO DE ESTADO
+      let matchEstado = true;
+      if (filtroEstadoOc) {
+        matchEstado = String(buscarValorEnObjeto(oc, ['estado']) || 'pendiente').toLowerCase() === filtroEstadoOc.toLowerCase();
+      }
+
+      return matchProv && matchFecha && matchEstado;
     });
-  }, [ordenesRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, buscarValorEnObjeto]);
+  }, [ordenesRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroEstadoOc, buscarValorEnObjeto]);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -615,12 +660,58 @@ export default function Compras() {
         </div>
       </div>
 
+      {/* 🔑 FILTROS DINÁMICOS SEGÚN LA PESTAÑA */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
-        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label><BuscadorSelect opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]} value={filtroProveedor} onChange={setFiltroProveedor} placeholder="Todos" minChars={3} /></div>
-        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de Pago</label><select value={filtroEstadoPago} onChange={(e) => setFiltroEstadoPago(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"><option value="">Todos</option><option value="a asignar">A Asignar</option><option value="pendiente">Pendiente</option><option value="contabilizado">Contabilizado</option><option value="pagado">Pagado</option></select></div>
-        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Doc. Aprobado</label><select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"><option value="">Todos</option><optgroup label="Presupuestos">{listaPresupuestosFinal.map(pr => <option key={`pr-${pr.id}`} value={`PRES-${pr.id}`}>{pr.codigo} - {pr.nombre}</option>)}</optgroup><optgroup label="Contratos">{listaContratosFinal.map((c, idx) => <option key={`c-${c.id || idx}`} value={`CONT-${c.id || idx}`}>[{c.codigo || 'S/C'}] {c.nombre || 'Contrato'}</option>)}</optgroup></select></div>
-        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Desde</label><div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"><Calendar className="w-4 h-4 text-slate-400 shrink-0" /><input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" /></div></div>
-        <div><label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Hasta</label><div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"><Calendar className="w-4 h-4 text-slate-400 shrink-0" /><input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" /></div></div>
+        <div>
+          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
+          <BuscadorSelect 
+            opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]} 
+            value={filtroProveedor} 
+            onChange={setFiltroProveedor} 
+            placeholder="Todos" 
+            minChars={3} 
+          />
+        </div>
+
+        {activeTab === 'facturas' && (
+          <>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de Pago</label>
+              <select value={filtroEstadoPago} onChange={(e) => setFiltroEstadoPago(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
+                <option value="">Todos</option><option value="a asignar">A Asignar</option><option value="pendiente">Pendiente</option><option value="contabilizado">Contabilizado</option><option value="pagado">Pagado</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Doc. Aprobado</label>
+              <select value={filtroDocumento} onChange={(e) => setFiltroDocumento(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
+                <option value="">Todos</option>
+                <optgroup label="Presupuestos">{listaPresupuestosFinal.map(pr => <option key={`pr-${pr.id}`} value={`PRES-${pr.id}`}>{pr.codigo} - {pr.nombre}</option>)}</optgroup>
+                <optgroup label="Contratos">{listaContratosFinal.map((c, idx) => <option key={`c-${c.id || idx}`} value={`CONT-${c.id || idx}`}>[{c.codigo || 'S/C'}] {c.nombre || 'Contrato'}</option>)}</optgroup>
+              </select>
+            </div>
+          </>
+        )}
+
+        {activeTab === 'ordenes' && (
+          <>
+            <div>
+              <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de la OC</label>
+              <select value={filtroEstadoOc} onChange={(e) => setFiltroEstadoOc(e.target.value)} className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer">
+                <option value="">Todos</option><option value="pendiente">Pendiente</option><option value="aprobada">Aprobada</option><option value="recibida">Recibida</option>
+              </select>
+            </div>
+            <div></div>
+          </>
+        )}
+
+        <div>
+          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Desde</label>
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"><Calendar className="w-4 h-4 text-slate-400 shrink-0" /><input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" /></div>
+        </div>
+        <div>
+          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Hasta</label>
+          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2"><Calendar className="w-4 h-4 text-slate-400 shrink-0" /><input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)} className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none" /></div>
+        </div>
       </div>
 
       <div className="flex gap-2 border-b border-slate-200 pb-2">

@@ -116,12 +116,15 @@ export const subirArchivoADrive = async (base64, tabla) => {
       })
     });
     const data = await res.json();
-    if (data.success && data.archivo_url) return data.archivo_url;
-    console.warn("No se pudo subir archivo a Drive:", data.error);
-    return '';
+    
+    // 🔑 AHORA LANZAMOS EL ERROR PARA QUE SE VEA EN PANTALLA
+    if (!data.success || !data.archivo_url) {
+      throw new Error(data.error || 'El servidor no devolvió una URL válida');
+    }
+    return data.archivo_url;
   } catch (err) {
     console.error("Error subiendo archivo a Drive:", err);
-    return '';
+    throw err;
   }
 };
 
