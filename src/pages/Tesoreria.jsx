@@ -1,146 +1,133 @@
 // src/pages/Tesoreria.jsx
 import React, { useState, useMemo } from 'react';
-import { Plus, Calendar, FileText, ArrowUpRight, ArrowDownLeft, Wallet, Search, Trash2, X, CheckCircle2, Edit2, BarChart3, Clock, Upload, ArrowLeft, Sparkles, Check, Loader2, Paperclip, Ban, AlertTriangle } from 'lucide-react';
+import { Plus, Search, AlertTriangle, Mail } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { useFirestoreQuery } from '@/hooks/useFirestoreQuery';
-import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
-import { GOOGLE_SCRIPT_URL } from '@/api';
-import BuscadorSelect from '@/components/BuscadorSelect';
 import { auth } from '@/firebase';
+import { GOOGLE_SCRIPT_URL } from '@/api';
 import { limit, orderBy, where } from 'firebase/firestore';
-import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
+import toast from 'react-hot-toast';
 
-const esNotaCredito = (tipoComprobante) => {
-  return String(tipoComprobante || '').toUpperCase().includes('NOTA DE CREDITO');
-};
-const esNotaDebito = (tipoComprobante) => {
-  return String(tipoComprobante || '').toUpperCase().includes('NOTA DE DEBITO');
-};
-const tipoMovimientoDesdeComprobante = (tipoComprobante) => {
-  if (esNotaCredito(tipoComprobante)) return 'contabilizada';
-  if (esNotaDebito(tipoComprobante)) return 'contabilizada';
-  return 'Ingreso';
-};
-const normalizarNombre = (str) => {
-  return String(str || '')
-    .toLowerCase()
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/\b(s\.?a\.?u?\.?|s\.?r\.?l\.?|sociedad anonima|sociedad de responsabilidad limitada)\b/gi, '')
-    .replace(/[.,;:()\-_/\\]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-};
-const normalizarNumComp = (s) => {
-  return String(s || '').replace(/\D/g, '').replace(/^0+/, '') || '0';
-};
-const buscarMejorMatch = (nombreOCR, lista) => {
-  if (!nombreOCR || !lista || lista.length === 0) {
-    return { mejor: null, candidatos: [], scoreMejor: 0 };
-  }
-  const normOCR = normalizarNombre(nombreOCR);
-  const palabrasOCR = normOCR.split(' ').filter(p => p.length >= 3);
-  if (palabrasOCR.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
-  const scored = lista.map(item => {
-    const nombreItem = item.razon_social || item.nombre || item.Razon_social || item.Nombre || '';
-    const normItem = normalizarNombre(nombreItem);
-    const coincidencias = palabrasOCR.filter(w => normItem.includes(w)).length;
-    const scorePalabras = (coincidencias / palabrasOCR.length) * 100;
-    if (normOCR === normItem) return { item, nombre: nombreItem, score: 100 };
-    if (normItem.includes(normOCR) || normOCR.includes(normItem)) {
-      return { item, nombre: nombreItem, score: Math.min(95, scorePalabras + 20) };
-    }
-    return { item, nombre: nombreItem, score: scorePalabras };
-  }).filter(s => s.score >= 60);
-  scored.sort((a, b) => b.score - a.score);
-  if (scored.length === 0) return { mejor: null, candidatos: [], scoreMejor: 0 };
-  const top = scored[0];
-  const candidatos = scored.filter(s => (top.score - s.score) < 15);
-  return { mejor: top.item, candidatos: candidatos.map(c => c.item), scoreMejor: top.score };
-};
-const inferirOrigenMovimiento = (m) => {
-  if (m.origen) return m.origen;
-  const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
-  const tipo = String(m.tipo || m.Tipo || '').toLowerCase();
-  if (concepto.startsWith('pago factura')) return 'compra';
-  if (concepto.startsWith('cobro')) return 'venta';
-  if (concepto.includes('nota de crédito') || concepto.includes('nota de credito') ||
-      concepto.includes('nota de débito') || concepto.includes('nota de debito')) {
-    const match = concepto.match(/(\d{3,5})-(\d{4,8})/);
-    if (match) {
-      const pv = match[1];
-      if (pv.length === 5) return 'venta';
-      if (pv.length === 4) return 'compra';
-    }
-    if (tipo.includes('anulad')) return 'venta';
-    const rubroImp = String(m.rubro_imputacion || '').trim();
-    if (rubroImp && rubroImp !== '---') return 'compra';
-    return 'venta';
-  }
-  if (tipo === 'anulada') return 'venta';
-  return '';
-};
-const mapearTipoComprobante = (tipoComprobanteOCR, tipoFacturaOCR, nombreArchivo = '') => {
-  const t = String(tipoComprobanteOCR || '').toLowerCase();
-  const tf = String(tipoFacturaOCR || '').toLowerCase();
-  const nf = String(nombreArchivo || '').toUpperCase();
-  const esElectronica =
-    nf.includes('NCE') || nf.includes('NDE') || nf.includes('FCE') ||
-    nf.includes('NCA') || nf.includes('NDA') || nf.includes('FCA') ||
-    nf.includes('NCB') || nf.includes('NDB') || nf.includes('FCB') ||
-    nf.includes('ELECTRONICA') || nf.includes('MIPYME') ||
-    tf.includes('electronica') || tf.includes('fce') || tf.includes('mipyme');
-  const esTipoB = tf.includes(' b') || tf.endsWith('b') || /\bB\b/.test(nf);
-  if (t.includes('nota de credito') || t.includes('nota de crédito') || t === 'nc') {
-    if (esElectronica) {
-      return esTipoB
-        ? 'NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B'
-        : 'NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
-    }
-    return esTipoB ? 'NOTA DE CREDITO B' : 'NOTA DE CREDITO A';
-  }
-  if (t.includes('nota de debito') || t.includes('nota de débito') || t === 'nd') {
-    if (esElectronica) {
-      return esTipoB
-        ? 'NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B'
-        : 'NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A';
-    }
-    return esTipoB ? 'NOTA DE DEBITO B' : 'NOTA DE DEBITO A';
-  }
-  if (t.includes('recibo')) {
-    return esTipoB ? 'RECIBO B' : 'RECIBO A';
-  }
-  if (esElectronica) {
-    return esTipoB
-      ? 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B'
-      : 'FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A';
-  }
-  return esTipoB ? 'FACTURA B' : 'FACTURA A';
-};
+// Servicios
+import {
+  guardarMovimientoTesoreria,
+  eliminarMovimientoTesoreria,
+  contabilizarNCCompra,
+  crearFacturaVenta,
+  actualizarFacturaVenta,
+  subirCertificadoRetencion,
+  procesarFacturaVentaConIA,
+  subirArchivoADrive,
+  enviarRetencionesAlContador,
+} from '@/services/tesoreriaService';
+
+// Helpers
+import {
+  buscarMejorMatch,
+  mapearTipoComprobante,
+  formatearFechaDisplay,
+  formatearFechaParaInput,
+  inferirOrigenMovimiento,
+} from '@/utils/tesoreriaHelpers';
+
+// Componentes
+import TabsTesoreria from '@/components/tesoreria/TabsTesoreria';
+import TablaMovimientos from '@/components/tesoreria/TablaMovimientos';
+import TablaFacturasPagar from '@/components/tesoreria/TablaFacturasPagar';
+import TablaFacturasCobrar from '@/components/tesoreria/TablaFacturasCobrar';
+import TablaRetenciones from '@/components/tesoreria/TablaRetenciones';
+import CashFlowTabla from '@/components/tesoreria/CashFlowTabla';
+import ModalMovimiento from '@/components/tesoreria/modal/ModalMovimiento';
+import ModalFacturaVenta from '@/components/tesoreria/modal/ModalFacturaVenta';
+import ModalEnviarContador from '@/components/tesoreria/modal/ModalEnviarContador';
+import BuscadorSelect from '@/components/BuscadorSelect';
+
+const FORM_DATA_MOV_INICIAL = () => ({
+  tipo: 'Egreso',
+  fecha: new Date().toISOString().split('T')[0],
+  concepto: '',
+  monto: 0,
+  obra_id: '',
+  presupuesto_id: '',
+  contrato_id: '',
+  rubro_imputacion: '',
+  tipo_insumo: 'Materiales',
+  medio_pago: 'transferencia',
+  referencia: '',
+  retencion_suss: 0,
+  retencion_iva: 0,
+  retencion_ganancias: 0,
+  retencion_iibb_pba: 0,
+  retencion_iibb_caba: 0,
+  facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }],
+});
+
+const FORM_DATA_VENTA_INICIAL = () => ({
+  tipo_comprobante: 'FACTURA A',
+  punto_venta: '00001',
+  numero_comp: '',
+  cliente_id: '',
+  obra_id: '',
+  fecha_emision: new Date().toISOString().split('T')[0],
+  fecha_vencimiento: '',
+  items: [{ id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
+  neto_gravado: 0,
+  iva_21: 0,
+  iva_105: 0,
+  otros_tributos: 0,
+  total: 0,
+  archivo_url: '',
+  estado_pago: 'pendiente',
+  comprobante_anula: '',
+});
 
 export default function Tesoreria() {
   const { data: proveedores } = useFirestoreCollection('proveedores');
   const { data: clientes } = useFirestoreCollection('clientes');
   const { data: obras } = useFirestoreCollection('obras');
   const { data: presupuestos } = useFirestoreCollection('presupuestos');
-  const { data: rubros } = useFirestoreCollection('rubros');
   const { data: contratos } = useFirestoreCollection('contratos');
 
   const [activeTab, setActiveTab] = useState('movimientos');
-  const [searchTerm, setSearchTerm] = useState('');
 
-  const [filtroProveedorMovimientos, setFiltroProveedorMovimientos] = useState('');
-  const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
-  const [filtroTipoMovimiento, setFiltroTipoMovimiento] = useState('');
-  const [filtroOrigen, setFiltroOrigen] = useState('');
-  const [filtroTipoRetencion, setFiltroTipoRetencion] = useState('');
-  
-  // Filtros de fecha
+  // Filtros
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
   const [filtroFechaHasta, setFiltroFechaHasta] = useState('');
 
+  const [filtroProveedorMovimientos, setFiltroProveedorMovimientos] = useState('');
+  const [filtroTipoMovimiento, setFiltroTipoMovimiento] = useState('');
+  const [filtroOrigen, setFiltroOrigen] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+
+  const [filtroProveedorPagar, setFiltroProveedorPagar] = useState('');
+  const [filtroClienteCobrar, setFiltroClienteCobrar] = useState('');
+  const [filtroClienteRetencion, setFiltroClienteRetencion] = useState('');
+  const [filtroTipoRetencion, setFiltroTipoRetencion] = useState('');
+
+  // Modales
+  const [isModalMovOpen, setIsModalMovOpen] = useState(false);
+  const [editingMovId, setEditingMovId] = useState(null);
+  const [formDataMov, setFormDataMov] = useState(FORM_DATA_MOV_INICIAL());
+  const [isSavingMov, setIsSavingMov] = useState(false);
+
+  const [isModalVentaOpen, setIsModalVentaOpen] = useState(false);
+  const [editingVentaId, setEditingVentaId] = useState(null);
+  const [pasoFacturaVenta, setPasoFacturaVenta] = useState('subir');
+  const [leyendoFactura, setLeyendoFactura] = useState(false);
+  const [formDataVenta, setFormDataVenta] = useState(FORM_DATA_VENTA_INICIAL());
+  const [archivoBase64Venta, setArchivoBase64Venta] = useState('');
+  const [nombreArchivoVenta, setNombreArchivoVenta] = useState('');
+  const [candidatosCliente, setCandidatosCliente] = useState([]);
+  const [nombreClienteOCR, setNombreClienteOCR] = useState('');
+  const [isSavingVenta, setIsSavingVenta] = useState(false);
+
   const [subiendoCertificadoId, setSubiendoCertificadoId] = useState(null);
 
-  // Consultas optimizadas con límites dinámicos
+  const [isEnviarContadorOpen, setIsEnviarContadorOpen] = useState(false);
+  const [emailContador, setEmailContador] = useState('');
+  const [enviandoRetenciones, setEnviandoRetenciones] = useState(false);
+
+  // Queries
   const movimientosConstraints = useMemo(() => {
     const c = [];
     const isFiltered = filtroFechaDesde || filtroFechaHasta;
@@ -161,7 +148,7 @@ export default function Tesoreria() {
     c.push(limit(isFiltered ? 500 : 100));
     return c;
   }, [filtroFechaDesde, filtroFechaHasta]);
-  const { data: facturas } = useFirestoreQuery('facturas_compras', facturasComprasConstraints);
+  const { data: facturasCompras } = useFirestoreQuery('facturas_compras', facturasComprasConstraints);
 
   const facturasVentasConstraints = useMemo(() => {
     const c = [];
@@ -172,7 +159,7 @@ export default function Tesoreria() {
     c.push(limit(isFiltered ? 500 : 100));
     return c;
   }, [filtroFechaDesde, filtroFechaHasta]);
-  const { data: facturasVenta } = useFirestoreQuery('facturas_ventas', facturasVentasConstraints);
+  const { data: facturasVentas } = useFirestoreQuery('facturas_ventas', facturasVentasConstraints);
 
   const retencionesConstraints = useMemo(() => {
     const c = [];
@@ -185,1069 +172,712 @@ export default function Tesoreria() {
   }, [filtroFechaDesde, filtroFechaHasta]);
   const { data: retenciones } = useFirestoreQuery('retenciones', retencionesConstraints);
 
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingId, setEditingId] = useState(null);
+  // Derivados
+  const opcionesProveedores = useMemo(
+    () => (proveedores || []).map(p => ({ id: p.id || p.ID, label: p.razon_social || p.nombre || 'Sin nombre' })),
+    [proveedores]
+  );
+  const opcionesClientes = useMemo(
+    () => (clientes || []).map(c => ({ id: c.id || c.ID, label: c.razon_social || c.nombre || 'Sin nombre' })),
+    [clientes]
+  );
+  const opcionesTerceros = useMemo(() => {
+    const map = new Map();
+    (proveedores || []).forEach(p => map.set(String(p.id || p.ID), p.razon_social || p.nombre || 'Sin nombre'));
+    (clientes || []).forEach(c => {
+      const key = String(c.id || c.ID);
+      if (!map.has(key)) map.set(key, c.razon_social || c.nombre || 'Sin nombre');
+    });
+    return Array.from(map.entries()).map(([id, label]) => ({ id, label }));
+  }, [proveedores, clientes]);
 
-  const [isFacturaVentaModalOpen, setIsFacturaVentaModalOpen] = useState(false);
-  const [pasoFacturaVenta, setPasoFacturaVenta] = useState('subir');
-  const [leyendoFactura, setLeyendoFactura] = useState(false);
+  const presupuestosDisponibles = useMemo(() => {
+    return (presupuestos || []).filter(p => {
+      if (!formDataMov.obra_id) return false;
+      const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
+      const estado = String(p.estado || p.Estado || '').toLowerCase();
+      return pObraId === String(formDataMov.obra_id) && (estado === 'aprobado' || estado === 'activo' || estado === '');
+    });
+  }, [presupuestos, formDataMov.obra_id]);
 
-  const [archivoBase64Venta, setArchivoBase64Venta] = useState('');
-  const [nombreArchivoVenta, setNombreArchivoVenta] = useState('');
-
-  const [candidatosCliente, setCandidatosCliente] = useState([]);
-  const [nombreClienteOCR, setNombreClienteOCR] = useState('');
-
-  const [isSaving, setIsSaving] = useState(false);
-  const [isSavingVenta, setIsSavingVenta] = useState(false);
-
-  const [formData, setFormData] = useState({
-    tipo: 'Egreso',
-    fecha: new Date().toISOString().split('T')[0],
-    concepto: '',
-    monto: 0,
-    obra_id: '',
-    presupuesto_id: '',
-    contrato_id: '',
-    rubro_imputacion: '',
-    tipo_insumo: 'Materiales',
-    medio_pago: 'transferencia',
-    referencia: '',
-    retencion_suss: 0,
-    retencion_iva: 0,
-    retencion_ganancias: 0,
-    retencion_iibb_pba: 0,
-    retencion_iibb_caba: 0,
-    facturas_aplicadas: [
-      { id: Date.now(), factura_id: '', monto: 0 }
-    ]
-  });
-
-  const [formDataVenta, setFormDataVenta] = useState({
-    tipo_comprobante: 'FACTURA A',
-    punto_venta: '00001',
-    numero_comp: '',
-    cliente_id: '',
-    fecha_emision: new Date().toISOString().split('T')[0],
-    fecha_vencimiento: '',
-    items: [
-      { id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }
-    ],
-    neto_gravado: 0,
-    iva_21: 0,
-    iva_105: 0,
-    otros_tributos: 0,
-    total: 0,
-    archivo_url: '',
-    estado_pago: 'pendiente',
-    comprobante_anula: ''
-  });
-
-  const opcionesProveedores = useMemo(() => {
-    return (proveedores || []).map(p => ({
-      id: p.id || p.ID,
-      label: p.razon_social || p.nombre || 'Sin nombre'
-    }));
-  }, [proveedores]);
-
-  const presupuestosDisponibles = presupuestos.filter(p => {
-    if (!formData.obra_id) return false;
-    const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
-    const estado = String(p.estado || p.Estado || '').toLowerCase();
-    return pObraId === String(formData.obra_id) && (estado === 'aprobado' || estado === 'activo' || estado === '');
-  });
-
-  const obtenerRubrosDelPresupuesto = () => {
-    if (!formData.presupuesto_id) return [];
-    const presuSel = presupuestos.find(p => String(p.id || p.ID) === String(formData.presupuesto_id));
-    if (!presuSel) return [];
-    const itemsDetalleStr = presuSel.items_detalle || presuSel.Items_detalle || '';
-    if (!itemsDetalleStr) return [];
+  const rubrosDelPresupuesto = useMemo(() => {
+    if (!formDataMov.presupuesto_id) return [];
+    const presu = (presupuestos || []).find(p => String(p.id || p.ID) === String(formDataMov.presupuesto_id));
+    if (!presu) return [];
+    const raw = presu.items_detalle || presu.Items_detalle || '';
+    if (!raw) return [];
     try {
-      const parsed = typeof itemsDetalleStr === 'string' ? JSON.parse(itemsDetalleStr) : itemsDetalleStr;
-      const listaRubrosJson = parsed.rubros || parsed.Rubros || [];
-      const extraidos = listaRubrosJson.map(r => r.rubro || r.Rubro || r.nombre || r.Nombre).filter(Boolean);
-      if (extraidos.length > 0) return extraidos;
-    } catch (e) {}
-    return [];
-  };
-  const rubrosDelPresupuesto = obtenerRubrosDelPresupuesto();
+      const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      const listaRubros = parsed.rubros || parsed.Rubros || [];
+      return listaRubros.map(r => r.rubro || r.Rubro || r.nombre || r.Nombre).filter(Boolean);
+    } catch {
+      return [];
+    }
+  }, [presupuestos, formDataMov.presupuesto_id]);
 
-  const obtenerGastosGeneralesDelPresupuesto = () => {
-    if (!formData.presupuesto_id) return [];
-    const presuSel = presupuestos.find(p => String(p.id || p.ID) === String(formData.presupuesto_id));
-    if (!presuSel) return [];
-    const itemsDetalleRaw = presuSel.items_detalle || presuSel.Items_detalle || '';
-    if (!itemsDetalleRaw) return [];
-    let parsed = itemsDetalleRaw;
+  const gastosGeneralesConceptos = useMemo(() => {
+    if (!formDataMov.presupuesto_id) return [];
+    const presu = (presupuestos || []).find(p => String(p.id || p.ID) === String(formDataMov.presupuesto_id));
+    if (!presu) return [];
+    const raw = presu.items_detalle || presu.Items_detalle || '';
+    if (!raw) return [];
+    let parsed = raw;
     if (typeof parsed === 'string') {
       try { parsed = JSON.parse(parsed); } catch { return []; }
     }
     const insumosGG = parsed?.comercial?.gastos_generales_insumos || [];
     if (!Array.isArray(insumosGG)) return [];
     return insumosGG.map(g => (g.concepto || g.Concepto || '').trim()).filter(Boolean);
-  };
-  const gastosGeneralesConceptos = obtenerGastosGeneralesDelPresupuesto();
+  }, [presupuestos, formDataMov.presupuesto_id]);
 
-  const formatearFechaDisplay = (fechaStr) => {
-    if (!fechaStr) return '---';
-    const partes = String(fechaStr).split('T')[0].split('-');
-    if (partes.length === 3) {
-      return `${partes[2]}/${partes[1]}/${partes[0]}`;
-    }
-    return fechaStr;
-  };
+  const totalRetencionesMov =
+    Number(formDataMov.retencion_suss || 0) +
+    Number(formDataMov.retencion_iva || 0) +
+    Number(formDataMov.retencion_ganancias || 0) +
+    Number(formDataMov.retencion_iibb_pba || 0) +
+    Number(formDataMov.retencion_iibb_caba || 0);
+  const montoNetoEfectivo = Math.max(0, Number(formDataMov.monto || 0) - totalRetencionesMov);
 
-  const formatearFechaParaInput = (fechaStr) => {
-    if (!fechaStr) return '';
-    const str = String(fechaStr).trim().split('T')[0];
-    if (str.includes('/')) {
-      const partes = str.split('/');
-      if (partes.length === 3) {
-        return `${partes[2]}-${partes[1].padStart(2, '0')}-${partes[0].padStart(2, '0')}`;
+  const movimientosFiltrados = useMemo(() => {
+    return (movimientos || []).filter(m => {
+      const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
+      const ref = String(m.referencia || m.Referencia || '').toLowerCase();
+      const matchTexto = concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
+      let matchProveedor = true;
+      if (filtroProveedorMovimientos) {
+        const prov = (proveedores || []).find(p => String(p.id || p.ID) === String(filtroProveedorMovimientos));
+        const nombreProv = prov ? (prov.razon_social || prov.nombre || '').toLowerCase() : '';
+        matchProveedor = concepto.includes(nombreProv);
       }
-    }
-    if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-    return str;
-  };
-
-  const subirArchivoADrive = async (base64, tabla) => {
-    if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
-    try {
-      let idToken = '';
-      if (auth.currentUser) {
-        idToken = await auth.currentUser.getIdToken(true); 
+      let matchTipo = true;
+      if (filtroTipoMovimiento) {
+        const tipoMov = String(m.tipo || m.Tipo || '').toLowerCase().replace(/o$/, 'a');
+        matchTipo = tipoMov === filtroTipoMovimiento.toLowerCase().replace(/o$/, 'a');
       }
+      let matchOrigen = true;
+      if (filtroOrigen) matchOrigen = inferirOrigenMovimiento(m) === filtroOrigen;
+      return matchTexto && matchProveedor && matchTipo && matchOrigen;
+    });
+  }, [movimientos, searchTerm, filtroProveedorMovimientos, filtroTipoMovimiento, filtroOrigen, proveedores]);
 
-      const res = await fetch(GOOGLE_SCRIPT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({
-          action: 'subirArchivoDrive',
-          base64,
-          tabla,
-          subseccion: '',
-          idToken: idToken
-        })
-      });
-      const data = await res.json();
-      if (data.success && data.archivo_url) return data.archivo_url;
-      console.warn("No se pudo subir archivo a Drive:", data.error);
-      return '';
-    } catch (err) {
-      console.error("Error subiendo archivo a Drive:", err);
-      return '';
-    }
+  const retencionesFiltradas = useMemo(() => {
+    return (retenciones || []).filter(r => {
+      if (filtroTipoRetencion && r.tipo !== filtroTipoRetencion) return false;
+      if (filtroClienteRetencion) {
+        const match = String(r.cliente_id) === String(filtroClienteRetencion) || String(r.proveedor_id) === String(filtroClienteRetencion);
+        if (!match) return false;
+      }
+      return true;
+    });
+  }, [retenciones, filtroTipoRetencion, filtroClienteRetencion]);
+
+  const facturasAPagar = useMemo(() => {
+    return (facturasCompras || []).filter(f => {
+      const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
+      if (estado === 'anulada') return false;
+      const esPendiente = estado === 'pendiente' || estado === 'pagado parcial' || estado === 'a asignar';
+      const provId = String(f.proveedor_id || f.Proveedor_id || '');
+      const matchProv = !filtroProveedorPagar || provId === String(filtroProveedorPagar);
+      return esPendiente && matchProv;
+    });
+  }, [facturasCompras, filtroProveedorPagar]);
+
+  const facturasACobrar = useMemo(() => {
+    return (facturasVentas || []).filter(f => {
+      const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
+      if (estado === 'anulada') return false;
+      if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
+      if (estado !== 'pendiente' && estado !== 'pagado parcial') return false;
+      if (filtroClienteCobrar && String(f.cliente_id || f.Cliente_id) !== String(filtroClienteCobrar)) return false;
+      return true;
+    });
+  }, [facturasVentas, filtroClienteCobrar]);
+
+  // KPIs
+  const totalIngresos = (movimientos || [])
+    .filter(m => String(m.tipo || m.Tipo || '').toLowerCase() === 'ingreso')
+    .reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
+  const totalEgresos = (movimientos || [])
+    .filter(m => String(m.tipo || m.Tipo || '').toLowerCase() === 'egreso')
+    .reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
+  const balance = totalIngresos - totalEgresos;
+
+  const totalFacturasAPagar = facturasAPagar.reduce((acc, f) => acc + (Number(f.total || f.Total || 0) || 0), 0);
+  const totalFacturasACobrar = facturasACobrar.reduce((acc, f) => acc + (Number(f.total || f.Total || 0) || 0), 0);
+  const flujoNetoPendiente = totalFacturasACobrar - totalFacturasAPagar;
+
+  // Cash flow
+  const { listaMensual, listaAnual } = useMemo(() => {
+    const mensualMap = {};
+    const anualMap = {};
+    (movimientos || []).forEach(m => {
+      const fecha = m.fecha || m.Fecha;
+      if (!fecha) return;
+      const mesAnio = String(fecha).substring(0, 7);
+      const anio = String(fecha).substring(0, 4);
+      const tipo = String(m.tipo || m.Tipo || '').toLowerCase().replace(/o$/, 'a');
+      const monto = Number(m.monto || m.Monto) || 0;
+      if (tipo === 'anulada') return;
+      if (!mensualMap[mesAnio]) mensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
+      if (!anualMap[anio]) anualMap[anio] = { ingresos: 0, egresos: 0 };
+      if (tipo === 'ingreso' || tipo === 'contabilizada') {
+        mensualMap[mesAnio].ingresos += monto;
+        anualMap[anio].ingresos += monto;
+      } else if (tipo === 'egreso') {
+        mensualMap[mesAnio].egresos += monto;
+        anualMap[anio].egresos += monto;
+      }
+    });
+    return {
+      listaMensual: Object.keys(mensualMap).sort().map(k => ({ periodo: k, ...mensualMap[k] })),
+      listaAnual: Object.keys(anualMap).sort().map(k => ({ periodo: k, ...anualMap[k] })),
+    };
+  }, [movimientos]);
+
+  // IVA
+  const totalIvaCompras = (facturasCompras || []).reduce((acc, f) => {
+    const estado = String(f.estado_pago || '').toLowerCase();
+    const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
+    if (estado === 'anulada' || esNC) return acc;
+    return acc + Number(f.iva_21 || f.iva21 || 0) + Number(f.iva_105 || f.iva105 || 0);
+  }, 0);
+
+  const totalIvaVentas = useMemo(() => {
+    const unicas = new Map();
+    (facturasVentas || []).forEach(f => {
+      const estado = String(f.estado_pago || '').toLowerCase();
+      const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
+      if (estado === 'anulada' || esNC) return;
+      const pv = String(f.punto_venta || '').padStart(5, '0');
+      const nc = String(f.numero_comp || '').padStart(8, '0');
+      const key = `${pv}-${nc}`;
+      if (!unicas.has(key)) unicas.set(key, f);
+    });
+    return Array.from(unicas.values()).reduce(
+      (acc, f) => acc + Number(f.iva_21 || f.iva21 || 0) + Number(f.iva_105 || f.iva105 || 0),
+      0
+    );
+  }, [facturasVentas]);
+
+  const totalRetencionesIva = (movimientos || []).reduce(
+    (acc, m) => acc + Number(m.retencion_iva || m.Retencion_iva || 0),
+    0
+  );
+  const posicionIva = totalIvaVentas - totalIvaCompras - totalRetencionesIva;
+
+  // ────────────────────────────────────────────────────────
+  // Handlers: Movimientos
+  // ────────────────────────────────────────────────────────
+
+  const abrirNuevoMovimiento = () => {
+    setEditingMovId(null);
+    setFormDataMov(FORM_DATA_MOV_INICIAL());
+    setIsModalMovOpen(true);
   };
 
   const handleEditarMovimiento = (m) => {
-    const mId = m.id || m.ID || m.Id;
-    setEditingId(mId);
-    let facturasAplicadasParsed = [{ id: Date.now(), factura_id: '', monto: 0 }];
+    setEditingMovId(m.id || m.ID);
+    let facturasAplicadas = [{ id: Date.now(), factura_id: '', monto: 0 }];
     const faRaw = m.facturas_aplicadas || m.Facturas_aplicadas;
     if (faRaw) {
       try {
-        facturasAplicadasParsed = typeof faRaw === 'string' ? JSON.parse(faRaw) : faRaw;
-        if (!Array.isArray(facturasAplicadasParsed) || facturasAplicadasParsed.length === 0) {
-          facturasAplicadasParsed = [{ id: Date.now(), factura_id: '', monto: 0 }];
-        }
-      } catch (e) {}
+        const parsed = typeof faRaw === 'string' ? JSON.parse(faRaw) : faRaw;
+        if (Array.isArray(parsed) && parsed.length > 0) facturasAplicadas = parsed;
+      } catch { /* noop */ }
     }
-    const brutoOriginal = Number(m.monto || m.Monto || 0) +
-                          Number(m.retencion_suss || m.Retencion_suss || 0) +
-                          Number(m.retencion_iva || m.Retencion_iva || 0) +
-                          Number(m.retencion_ganancias || m.Retencion_ganancias || 0) +
-                          Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0) +
-                          Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0);
-    setFormData({
-      tipo: m.tipo || m.Tipo || 'Egreso',
-      fecha: formatearFechaParaInput(m.fecha || m.Fecha) || new Date().toISOString().split('T')[0],
-      concepto: m.concepto || m.Concepto || '',
-      monto: brutoOriginal > 0 ? brutoOriginal : Number(m.monto || m.Monto || 0),
-      obra_id: m.obra_id || m.Obra_id || '',
-      presupuesto_id: m.presupuesto_id || m.Presupuesto_id || '',
-      contrato_id: m.contrato_id || m.Contrato_id || m.contratoid || '',
-      rubro_imputacion: m.rubro_imputacion || m.Rubro_imputacion || '',
-      tipo_insumo: m.tipo_insumo || m.Tipo_insumo || 'Materiales',
-      medio_pago: m.medio_pago || m.Medio_pago || 'transferencia',
-      referencia: m.referencia || m.Referencia || '',
-      retencion_suss: Number(m.retencion_suss || m.Retencion_suss || 0),
-      retencion_iva: Number(m.retencion_iva || m.Retencion_iva || 0),
-      retencion_ganancias: Number(m.retencion_ganancias || m.Retencion_ganancias || 0),
-      retencion_iibb_pba: Number(m.retencion_iibb_pba || m.Retencion_iibb_pba || 0),
-      retencion_iibb_caba: Number(m.retencion_iibb_caba || m.Retencion_iibb_caba || 0),
-      facturas_aplicadas: facturasAplicadasParsed
+    const bruto = Number(m.monto || 0) +
+      Number(m.retencion_suss || 0) +
+      Number(m.retencion_iva || 0) +
+      Number(m.retencion_ganancias || 0) +
+      Number(m.retencion_iibb_pba || 0) +
+      Number(m.retencion_iibb_caba || 0);
+    setFormDataMov({
+      tipo: m.tipo || 'Egreso',
+      fecha: formatearFechaParaInput(m.fecha) || new Date().toISOString().split('T')[0],
+      concepto: m.concepto || '',
+      monto: bruto > 0 ? bruto : Number(m.monto || 0),
+      obra_id: m.obra_id || '',
+      presupuesto_id: m.presupuesto_id || '',
+      contrato_id: m.contrato_id || '',
+      rubro_imputacion: m.rubro_imputacion || '',
+      tipo_insumo: m.tipo_insumo || 'Materiales',
+      medio_pago: m.medio_pago || 'transferencia',
+      referencia: m.referencia || '',
+      retencion_suss: Number(m.retencion_suss || 0),
+      retencion_iva: Number(m.retencion_iva || 0),
+      retencion_ganancias: Number(m.retencion_ganancias || 0),
+      retencion_iibb_pba: Number(m.retencion_iibb_pba || 0),
+      retencion_iibb_caba: Number(m.retencion_iibb_caba || 0),
+      facturas_aplicadas: facturasAplicadas,
     });
-    setIsModalOpen(true);
+    setIsModalMovOpen(true);
   };
 
-  const handleCobrarFacturaVenta = (f) => {
-    const facturaIdReal = f.id || f.ID;
-    const clienteObj = clientes.find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
-    const montoTotalFac = Number(f.total || f.Total || 0);
-    setEditingId(null);
-    setFormData({
-      tipo: 'Ingreso',
-      fecha: new Date().toISOString().split('T')[0],
-      concepto: `Cobro ${f.tipo_comprobante || 'Factura'} N° ${f.numero_comp || ''} - ${clienteObj?.razon_social || clienteObj?.nombre || ''}`,
-      monto: montoTotalFac,
-      obra_id: f.obra_id || '',
-      presupuesto_id: f.presupuesto_id || '',
-      contrato_id: f.contrato_id || '',
-      rubro_imputacion: f.rubro_imputacion || '',
-      tipo_insumo: f.tipo_insumo || 'Materiales',
-      medio_pago: 'transferencia',
-      referencia: '',
-      retencion_suss: 0,
-      retencion_iva: 0,
-      retencion_ganancias: 0,
-      retencion_iibb_pba: 0,
-      retencion_iibb_caba: 0,
-      facturas_aplicadas: [
-        { id: Date.now(), factura_id: facturaIdReal, monto: montoTotalFac }
-      ]
-    });
-    setIsModalOpen(true);
-  };
-
-  const handlePagarFacturaCompra = (f) => {
-    const facturaIdReal = f.id || f.ID;
-    const provObj = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
-    const montoTotalFac = Number(f.total || f.Total || 0);
-    setEditingId(null);
-    setFormData({
-      tipo: 'Egreso',
-      fecha: new Date().toISOString().split('T')[0],
-      concepto: `Pago Factura ${f.codigo || f.n_factura || ''} - ${provObj?.razon_social || provObj?.nombre || ''}`,
-      monto: montoTotalFac,
-      obra_id: f.obra_id || '',
-      presupuesto_id: f.presupuesto_id || '',
-      contrato_id: f.contrato_id || '',
-      rubro_imputacion: f.rubro_imputacion || '',
-      tipo_insumo: f.tipo_insumo || 'Materiales',
-      medio_pago: 'transferencia',
-      referencia: '',
-      retencion_suss: 0,
-      retencion_iva: 0,
-      retencion_ganancias: 0,
-      retencion_iibb_pba: 0,
-      retencion_iibb_caba: 0,
-      facturas_aplicadas: [
-        { id: Date.now(), factura_id: facturaIdReal, monto: montoTotalFac }
-      ]
-    });
-    setIsModalOpen(true);
-  };
-
-  const handleContabilizarNC = async (f) => {
-    const facturaId = f.id || f.ID;
-    if (!facturaId) {
-      toast.error("No se pudo identificar la NC.");
-      return;
-    }
-    if (!window.confirm(
-      "¿Contabilizar esta Nota de Crédito?\n\n" +
-      "Se va a crear un movimiento contable en Tesorería con el monto en negativo. " +
-      "Esto afectará los totales de compras e IVA."
-    )) return;
-    const toastId = toast.loading('Contabilizando NC...');
+  const handleGuardarMovimiento = async (e) => {
+    e.preventDefault();
+    if (isSavingMov) return;
+    setIsSavingMov(true);
+    const toastId = toast.loading('Guardando movimiento...');
     try {
-      const provObj = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
-      const nombreProv = provObj?.razon_social || provObj?.nombre || 'Proveedor';
-      const tipoComp = f.comprobante_tipo || f.tipo_comprobante || 'Nota de Crédito';
-      const nFactura = f.n_factura || f.numero_comp || 'S/N';
-      const conceptoMov = `${tipoComp} ${nFactura} - ${nombreProv}`;
-      const movimiento = {
-        tipo: 'contabilizada',
-        origen: 'compra',
-        fecha: f.fecha || f.Fecha || new Date().toISOString().split('T')[0],
-        concepto: conceptoMov,
-        monto: Number(f.total || f.Total || 0),
-        obra_id: f.obra_id || '',
-        presupuesto_id: f.presupuesto_id || '',
-        contrato_id: f.contrato_id || '',
-        rubro_imputacion: f.rubro_imputacion || '',
-        tipo_insumo: f.tipo_insumo || '',
-        medio_pago: '',
-        referencia: f.comprobante_anula ? `Anula/ajusta: ${f.comprobante_anula}` : 'NC parcial por devolución',
-        retencion_suss: 0,
-        retencion_iva: 0,
-        retencion_ganancias: 0,
-        retencion_iibb_pba: 0,
-        retencion_iibb_caba: 0,
-        facturas_aplicadas: JSON.stringify([]),
-        es_autogenerado: true,
-        factura_compra_id: facturaId
-      };
-      await crearDoc('tesoreria', movimiento);
-      await actualizarDoc('facturas_compras', facturaId, { estado_pago: 'contabilizado' });
-      toast.success(`NC contabilizada: ${conceptoMov}`, { id: toastId });
+      await guardarMovimientoTesoreria({
+        formData: formDataMov,
+        editingId: editingMovId,
+        montoNetoEfectivo,
+        retencionesExistentes: retenciones,
+        facturasCompras,
+        facturasVentas,
+        proveedores,
+        clientes,
+      });
+      setIsModalMovOpen(false);
+      toast.success('Movimiento guardado correctamente', { id: toastId });
     } catch (err) {
-      console.error('[Tesoreria] Error al contabilizar NC:', err);
-      toast.error('Error al contabilizar la NC: ' + (err.message || ''), { id: toastId });
+      console.error(err);
+      toast.error('Error al guardar: ' + (err.message || ''), { id: toastId });
+    } finally {
+      setIsSavingMov(false);
+    }
+  };
+
+  const handleEliminarMovimiento = async (m) => {
+    const id = m.id || m.ID;
+    if (!id) return;
+    if (!window.confirm('¿Estás seguro de eliminar este movimiento?')) return;
+    const toastId = toast.loading('Eliminando movimiento...');
+    try {
+      const retsAsociadas = (retenciones || []).filter(r => String(r.tesoreria_id) === String(id));
+      await eliminarMovimientoTesoreria(id, retsAsociadas);
+      toast.success('Movimiento eliminado', { id: toastId });
+    } catch (err) {
+      toast.error('Error al eliminar: ' + (err.message || ''), { id: toastId });
     }
   };
 
   const handleAgregarFacturaFila = () => {
-    setFormData(prev => ({
+    setFormDataMov(prev => ({
       ...prev,
-      facturas_aplicadas: [
-        ...prev.facturas_aplicadas,
-        { id: Date.now(), factura_id: '', monto: 0 }
-      ]
+      facturas_aplicadas: [...prev.facturas_aplicadas, { id: Date.now(), factura_id: '', monto: 0 }],
     }));
   };
 
   const handleCambiarFacturaFila = (id, campo, valor) => {
-    const nuevas = formData.facturas_aplicadas.map(item => {
-      if (item.id === id) {
-        let actualizado = { ...item, [campo]: valor };
-        if (campo === 'factura_id') {
-          const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
-          const listaBusqueda = esIngreso ? facturasVenta : facturas;
-          const facEncontrada = listaBusqueda.find(f => String(f.id || f.ID) === String(valor));
-          if (facEncontrada) {
-            actualizado.monto = Number(facEncontrada.total || facEncontrada.Total || facEncontrada.TOTAL || 0);
-          }
-        }
-        return actualizado;
+    const nuevas = formDataMov.facturas_aplicadas.map(item => {
+      if (item.id !== id) return item;
+      const actualizado = { ...item, [campo]: valor };
+      if (campo === 'factura_id') {
+        const esIngreso = String(formDataMov.tipo).toLowerCase() === 'ingreso';
+        const lista = esIngreso ? facturasVentas : facturasCompras;
+        const fac = lista.find(f => String(f.id || f.ID) === String(valor));
+        if (fac) actualizado.monto = Number(fac.total || fac.Total || 0);
       }
-      return item;
+      return actualizado;
     });
-    const sumaTotal = nuevas.reduce((acc, curr) => acc + (Number(curr.monto) || 0), 0);
-    setFormData(prev => ({
+    const suma = nuevas.reduce((acc, curr) => acc + (Number(curr.monto) || 0), 0);
+    setFormDataMov(prev => ({
       ...prev,
       facturas_aplicadas: nuevas,
-      monto: sumaTotal > 0 ? sumaTotal : prev.monto
+      monto: suma > 0 ? suma : prev.monto,
     }));
   };
 
   const handleQuitarFacturaFila = (id) => {
-    const nuevas = formData.facturas_aplicadas.filter(i => i.id !== id);
-    const sumaTotal = nuevas.reduce((acc, curr) => acc + (Number(curr.monto) || 0), 0);
-    setFormData(prev => ({
-      ...prev,
-      facturas_aplicadas: nuevas,
-      monto: sumaTotal
-    }));
+    const nuevas = formDataMov.facturas_aplicadas.filter(i => i.id !== id);
+    const suma = nuevas.reduce((acc, curr) => acc + (Number(curr.monto) || 0), 0);
+    setFormDataMov(prev => ({ ...prev, facturas_aplicadas: nuevas, monto: suma }));
   };
 
-  const totalRetenciones = Number(formData.retencion_suss || 0) +
-                         Number(formData.retencion_iva || 0) +
-                         Number(formData.retencion_ganancias || 0) +
-                         Number(formData.retencion_iibb_pba || 0) +
-                         Number(formData.retencion_iibb_caba || 0);
-  const montoBrutoFacturas = Number(formData.monto || 0);
-  const montoNetoEfectivo = Math.max(0, montoBrutoFacturas - totalRetenciones);
+  // ────────────────────────────────────────────────────────
+  // Handlers: Facturas a pagar
+  // ────────────────────────────────────────────────────────
 
-  const handleAgregarItemVenta = () => {
-    setFormDataVenta(prev => ({
-      ...prev,
-      items: [
-        ...prev.items,
-        { id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }
-      ]
-    }));
-  };
-
-  const recalcularTotalesVenta = (items) => {
-    const nuevoNeto = items.reduce((acc, curr) => acc + (Number(curr.subtotal) || 0), 0);
-    const nuevoIva21 = nuevoNeto * 0.21;
-    const nuevoIva105 = Number(formDataVenta.iva_105 || 0);
-    const nuevoTotal = nuevoNeto + nuevoIva21 + nuevoIva105 + Number(formDataVenta.otros_tributos || 0);
-    return { nuevoNeto, nuevoIva21, nuevoIva105, nuevoTotal };
-  };
-
-  const handleCambiarItemVenta = (id, campo, valor) => {
-    const nuevosItems = formDataVenta.items.map(item => {
-      if (item.id === id) {
-        const actualizado = { ...item, [campo]: valor };
-        if (campo === 'cantidad' || campo === 'precio_unitario') {
-          const cant = campo === 'cantidad' ? Number(valor) || 0 : Number(item.cantidad) || 0;
-          const precio = campo === 'precio_unitario' ? Number(valor) || 0 : Number(item.precio_unitario) || 0;
-          actualizado.subtotal = cant * precio;
-        }
-        return actualizado;
-      }
-      return item;
+  const handlePagarFacturaCompra = (f) => {
+    const prov = (proveedores || []).find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
+    const monto = Number(f.total || f.Total || 0);
+    setEditingMovId(null);
+    setFormDataMov({
+      ...FORM_DATA_MOV_INICIAL(),
+      tipo: 'Egreso',
+      concepto: `Pago Factura ${f.codigo || f.n_factura || ''} - ${prov?.razon_social || prov?.nombre || ''}`,
+      monto,
+      obra_id: f.obra_id || '',
+      presupuesto_id: f.presupuesto_id || '',
+      contrato_id: f.contrato_id || '',
+      rubro_imputacion: f.rubro_imputacion || '',
+      tipo_insumo: f.tipo_insumo || 'Materiales',
+      facturas_aplicadas: [{ id: Date.now(), factura_id: f.id || f.ID, monto }],
     });
-    const { nuevoNeto, nuevoIva21, nuevoIva105, nuevoTotal } = recalcularTotalesVenta(nuevosItems);
-    setFormDataVenta(prev => ({
-      ...prev,
-      items: nuevosItems,
-      neto_gravado: nuevoNeto,
-      iva_21: nuevoIva21,
-      iva_105: nuevoIva105,
-      total: nuevoTotal
-    }));
+    setIsModalMovOpen(true);
   };
 
-  const handleQuitarItemVenta = (id) => {
-    const nuevosItems = formDataVenta.items.filter(i => i.id !== id);
-    const { nuevoNeto, nuevoIva21, nuevoIva105, nuevoTotal } = recalcularTotalesVenta(nuevosItems);
-    setFormDataVenta(prev => ({
-      ...prev,
-      items: nuevosItems,
-      neto_gravado: nuevoNeto,
-      iva_21: nuevoIva21,
-      iva_105: nuevoIva105,
-      total: nuevoTotal
-    }));
+  const handleContabilizarNC = async (f) => {
+    if (!window.confirm(
+      '¿Contabilizar esta Nota de Crédito?\n\n' +
+      'Se va a crear un movimiento contable con el monto en negativo. ' +
+      'Esto afectará los totales de compras e IVA.'
+    )) return;
+    const toastId = toast.loading('Contabilizando NC...');
+    try {
+      const concepto = await contabilizarNCCompra(f, proveedores);
+      toast.success(`NC contabilizada: ${concepto}`, { id: toastId });
+    } catch (err) {
+      toast.error('Error: ' + (err.message || ''), { id: toastId });
+    }
+  };
+
+  // ────────────────────────────────────────────────────────
+  // Handlers: Facturas a cobrar
+  // ────────────────────────────────────────────────────────
+
+  const handleCobrarFacturaVenta = (f) => {
+    const cli = (clientes || []).find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
+    const monto = Number(f.total || f.Total || 0);
+    setEditingMovId(null);
+    setFormDataMov({
+      ...FORM_DATA_MOV_INICIAL(),
+      tipo: 'Ingreso',
+      concepto: `Cobro ${f.tipo_comprobante || 'Factura'} N° ${f.numero_comp || ''} - ${cli?.razon_social || cli?.nombre || ''}`,
+      monto,
+      obra_id: f.obra_id || '',
+      presupuesto_id: f.presupuesto_id || '',
+      contrato_id: f.contrato_id || '',
+      rubro_imputacion: f.rubro_imputacion || '',
+      tipo_insumo: f.tipo_insumo || 'Materiales',
+      facturas_aplicadas: [{ id: Date.now(), factura_id: f.id || f.ID, monto }],
+    });
+    setIsModalMovOpen(true);
+  };
+
+  const handleEditarFacturaVenta = (f) => {
+    setEditingVentaId(f.id || f.ID);
+    let items = [{ id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }];
+    try {
+      const parsed = typeof f.items === 'string' ? JSON.parse(f.items) : f.items;
+      if (Array.isArray(parsed) && parsed.length > 0) items = parsed;
+    } catch { /* noop */ }
+    setFormDataVenta({
+      ...FORM_DATA_VENTA_INICIAL(),
+      tipo_comprobante: f.tipo_comprobante || 'FACTURA A',
+      punto_venta: f.punto_venta || '00001',
+      numero_comp: f.numero_comp || '',
+      cliente_id: f.cliente_id || '',
+      obra_id: f.obra_id || '',
+      fecha_emision: formatearFechaParaInput(f.fecha_emision || f.fecha) || new Date().toISOString().split('T')[0],
+      fecha_vencimiento: formatearFechaParaInput(f.fecha_vencimiento || f.vencimiento) || '',
+      items,
+      neto_gravado: Number(f.neto_gravado || 0),
+      iva_21: Number(f.iva_21 || 0),
+      iva_105: Number(f.iva_105 || 0),
+      otros_tributos: Number(f.otros_tributos || 0),
+      total: Number(f.total || 0),
+      archivo_url: f.archivo_url || '',
+      estado_pago: f.estado_pago || 'pendiente',
+      comprobante_anula: f.comprobante_anula || '',
+      es_nota_credito: f.es_nota_credito === true,
+      es_nota_debito: f.es_nota_debito === true,
+    });
+    setArchivoBase64Venta('');
+    setNombreArchivoVenta('');
+    setCandidatosCliente([]);
+    setNombreClienteOCR('');
+    setPasoFacturaVenta('formulario');
+    setIsModalVentaOpen(true);
+  };
+
+  const handleNuevaFacturaVenta = () => {
+    setEditingVentaId(null);
+    setFormDataVenta(FORM_DATA_VENTA_INICIAL());
+    setArchivoBase64Venta('');
+    setNombreArchivoVenta('');
+    setCandidatosCliente([]);
+    setNombreClienteOCR('');
+    setPasoFacturaVenta('subir');
+    setIsModalVentaOpen(true);
   };
 
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
-      toast.error("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
+      toast.error('ERROR: GOOGLE_SCRIPT_URL no está configurada.');
       return;
     }
     const archivo = e.target.files[0];
     if (!archivo) return;
     setLeyendoFactura(true);
     setNombreArchivoVenta(archivo.name);
-    try {
-      const reader = new FileReader();
-      reader.readAsDataURL(archivo);
-      reader.onload = async () => {
-        const base64Data = reader.result;
-        setArchivoBase64Venta(base64Data);
-        try {
-          let idToken = '';
-          if (auth.currentUser) {
-            idToken = await auth.currentUser.getIdToken(true);
-          }
 
-          const res = await fetch(GOOGLE_SCRIPT_URL, {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-          body: JSON.stringify({
-             action: 'procesarFacturaConAI',
-              tabla: 'FacturasVenta',
-              base64: base64Data,
-              mimeType: archivo.type,
-              idToken: idToken 
-             })
-        });
-          const textoRespuesta = await res.text();
-          let data;
-          try {
-            data = JSON.parse(textoRespuesta);
-          } catch (parseErr) {
-            throw new Error("El servidor no devolvió un formato JSON válido.");
+    const reader = new FileReader();
+    reader.readAsDataURL(archivo);
+    reader.onload = async () => {
+      const base64Data = reader.result;
+      setArchivoBase64Venta(base64Data);
+      try {
+        const data = await procesarFacturaVentaConIA({ base64: base64Data, mimeType: archivo.type });
+        let clienteId = '';
+        let candidatosFinales = [];
+        const nombreBusqueda = data.cliente || data.proveedor || '';
+        setNombreClienteOCR(nombreBusqueda);
+        if (nombreBusqueda && (clientes || []).length > 0) {
+          const { mejor, candidatos } = buscarMejorMatch(nombreBusqueda, clientes);
+          if (mejor && candidatos.length === 1) clienteId = mejor.id || mejor.ID || '';
+          else if (mejor && candidatos.length > 1) {
+            candidatosFinales = candidatos;
+            clienteId = mejor.id || mejor.ID || '';
           }
-          if (data.success && !data.error) {
-            let clienteEncontradoId = '';
-            let candidatosFinales = [];
-            const nombreClienteBusqueda = data.cliente || data.proveedor || '';
-            setNombreClienteOCR(nombreClienteBusqueda);
-            if (nombreClienteBusqueda && clientes.length > 0) {
-              const { mejor, candidatos, scoreMejor } = buscarMejorMatch(nombreClienteBusqueda, clientes);
-              if (mejor && candidatos.length === 1) {
-                clienteEncontradoId = mejor.id || mejor.ID || mejor.Id || '';
-              } else if (mejor && candidatos.length > 1) {
-                candidatosFinales = candidatos;
-                clienteEncontradoId = mejor.id || mejor.ID || mejor.Id || '';
-              }
-            }
-            setCandidatosCliente(candidatosFinales);
-            const nCompDetectado = data.n_factura || data.numero_factura || data.nro_factura || data.numero_comp || '';
-            let ptoVtaDetectado = '00001';
-            let nCompLimpio = nCompDetectado;
-            if (nCompDetectado.includes('-')) {
-              const partes = nCompDetectado.split('-');
-              if (partes.length >= 2) {
-                ptoVtaDetectado = partes[0].trim().padStart(5, '0');
-                nCompLimpio = partes[1].trim();
-              }
-            }
-            const netoVal = Number(data.subtotal || data.neto) || 0;
-            const ivaVal = Number(data.iva_21 || data.iva) || (netoVal * 0.21);
-            const iva105Val = Number(data.iva_105 || 0) || 0;
-            const totalVal = Number(data.total) || (netoVal + ivaVal + iva105Val);
-            let descItem = `Factura N° ${nCompLimpio || '---'}`;
-            if (data.items && Array.isArray(data.items) && data.items.length > 0 && data.items[0].descripcion) {
-              descItem = data.items[0].descripcion;
-            } else if (data.concepto || data.descripcion) {
-              descItem = data.concepto || data.descripcion;
-            }
-            const comprobanteAnulaDetectado = data.comprobante_anula || data.comprobanteAnula || '';
-            const tipoComprobanteMapeado = mapearTipoComprobante(
-              data.tipo_comprobante,
-              data.tipo_factura,
-              archivo.name || ''
-            );
-            setFormDataVenta(prev => ({
-              ...prev,
-              tipo_comprobante: tipoComprobanteMapeado,
-              punto_venta: ptoVtaDetectado,
-              numero_comp: nCompLimpio || prev.numero_comp,
-              cliente_id: clienteEncontradoId || prev.cliente_id,
-              fecha_emision: formatearFechaParaInput(data.fecha || data.Fecha || data.FECHA) || prev.fecha_emision,
-              fecha_vencimiento: formatearFechaParaInput(data.vencimiento || data.Vencimiento || data.VENCIMIENTO) || prev.fecha_vencimiento,
-              neto_gravado: netoVal || prev.neto_gravado,
-              iva_21: ivaVal || prev.iva_21,
-              iva_105: iva105Val || prev.iva_105,
-              total: totalVal || prev.total,
-              archivo_url: base64Data,
-              comprobante_anula: comprobanteAnulaDetectado || prev.comprobante_anula,
-              items: [
-                {
-                  id: Date.now(),
-                  descripcion: descItem,
-                  cantidad: 1,
-                  precio_unitario: netoVal || prev.neto_gravado,
-                  subtotal: netoVal || prev.neto_gravado
-                }
-              ]
-            }));
-            if (nombreClienteBusqueda && !clienteEncontradoId && candidatosFinales.length === 0) {
-              setTimeout(() => {
-                toast.error(
-                  `⚠️ El OCR detectó el cliente "${nombreClienteBusqueda}" pero no se encontró en el sistema.\n\n` +
-                  `Creá el cliente primero desde la sección Clientes, o seleccionalo manualmente si ya existe con otro nombre.`
-                );
-              }, 100);
-            }
-            setIsFacturaVentaModalOpen(false);
-            setPasoFacturaVenta('formulario');
-            setIsFacturaVentaModalOpen(true);
-          } else {
-            toast.error("Error de IA: " + (data.error || "No se pudieron extraer los datos."));
-          }
-        } catch (fetchErr) {
-          console.error("Error en el fetch:", fetchErr);
-          toast.error("Error de conexión con el servidor.");
-        } finally {
-          setLeyendoFactura(false);
-          e.target.value = "";
         }
-      };
-      reader.onerror = () => {
+        setCandidatosCliente(candidatosFinales);
+
+        const nComp = data.n_factura || data.numero_factura || '';
+        let pv = '00001';
+        let nLimpio = nComp;
+        if (nComp.includes('-')) {
+          const partes = nComp.split('-');
+          pv = partes[0].trim().padStart(5, '0');
+          nLimpio = partes[1].trim();
+        }
+        const netoVal = Number(data.subtotal || data.neto) || 0;
+        const ivaVal = Number(data.iva_21 || data.iva) || netoVal * 0.21;
+        const iva105Val = Number(data.iva_105 || 0) || 0;
+        const totalVal = Number(data.total) || netoVal + ivaVal + iva105Val;
+        const tipoMapeado = mapearTipoComprobante(data.tipo_comprobante, data.tipo_factura, archivo.name || '');
+
+        setFormDataVenta(prev => ({
+          ...prev,
+          tipo_comprobante: tipoMapeado,
+          punto_venta: pv,
+          numero_comp: nLimpio || prev.numero_comp,
+          cliente_id: clienteId || prev.cliente_id,
+          fecha_emision: formatearFechaParaInput(data.fecha) || prev.fecha_emision,
+          fecha_vencimiento: formatearFechaParaInput(data.vencimiento) || prev.fecha_vencimiento,
+          neto_gravado: netoVal || prev.neto_gravado,
+          iva_21: ivaVal || prev.iva_21,
+          iva_105: iva105Val || prev.iva_105,
+          total: totalVal || prev.total,
+          archivo_url: base64Data,
+          comprobante_anula: data.comprobante_anula || prev.comprobante_anula,
+          items: [{
+            id: Date.now(),
+            descripcion: (data.items && data.items[0]?.descripcion) || `Factura N° ${nLimpio || '---'}`,
+            cantidad: 1,
+            precio_unitario: netoVal || prev.neto_gravado,
+            subtotal: netoVal || prev.neto_gravado,
+          }],
+        }));
+
+        if (nombreBusqueda && !clienteId && candidatosFinales.length === 0) {
+          setTimeout(() => {
+            toast.error(`⚠️ El OCR detectó "${nombreBusqueda}" pero no se encontró. Creá el cliente primero.`);
+          }, 100);
+        }
+
+        setPasoFacturaVenta('formulario');
+      } catch (err) {
+        toast.error('Error de IA: ' + (err.message || 'Error desconocido.'));
+      } finally {
         setLeyendoFactura(false);
-        toast.error("Error al leer el archivo local.");
-      };
-    } catch (err) {
+        e.target.value = '';
+      }
+    };
+    reader.onerror = () => {
       setLeyendoFactura(false);
-      toast.error("Error inesperado: " + err.message);
-    }
+      toast.error('Error al leer el archivo local.');
+    };
   };
 
-  const handleGuardarMovimiento = async (e) => {
-    e.preventDefault();
-    if (isSaving) return;
-    setIsSaving(true);
-    const toastId = toast.loading('Guardando movimiento...');
-    try {
-      const payloadData = {
-        ...formData,
-        monto: montoNetoEfectivo,
-        facturas_aplicadas: JSON.stringify(formData.facturas_aplicadas)
-      };
-      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = payloadData;
-      let nuevoDocId = editingId;
-      if (editingId) {
-        await actualizarDoc('tesoreria', editingId, datosLimpios);
-      } else {
-        nuevoDocId = await crearDoc('tesoreria', datosLimpios);
+  const handleAgregarItem = () => {
+    setFormDataVenta(prev => ({
+      ...prev,
+      items: [...prev.items, { id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
+    }));
+  };
+
+  const recalcular = (items) => {
+    const neto = items.reduce((acc, i) => acc + (Number(i.subtotal) || 0), 0);
+    const iva21 = neto * 0.21;
+    const iva105 = Number(formDataVenta.iva_105 || 0);
+    return { neto, iva21, iva105, total: neto + iva21 + iva105 + Number(formDataVenta.otros_tributos || 0) };
+  };
+
+  const handleCambiarItem = (id, campo, valor) => {
+    const nuevos = formDataVenta.items.map(item => {
+      if (item.id !== id) return item;
+      const act = { ...item, [campo]: valor };
+      if (campo === 'cantidad' || campo === 'precio_unitario') {
+        const cant = campo === 'cantidad' ? Number(valor) || 0 : Number(item.cantidad) || 0;
+        const precio = campo === 'precio_unitario' ? Number(valor) || 0 : Number(item.precio_unitario) || 0;
+        act.subtotal = cant * precio;
       }
+      return act;
+    });
+    const totales = recalcular(nuevos);
+    setFormDataVenta(prev => ({
+      ...prev,
+      items: nuevos,
+      neto_gravado: totales.neto,
+      iva_21: totales.iva21,
+      iva_105: totales.iva105,
+      total: totales.total,
+    }));
+  };
 
-      if (nuevoDocId) {
-        const tiposRetencion = [
-          { campo: 'retencion_suss', tipo: 'SUSS' },
-          { campo: 'retencion_iva', tipo: 'IVA' },
-          { campo: 'retencion_ganancias', tipo: 'Ganancias' },
-          { campo: 'retencion_iibb_pba', tipo: 'IIBB PBA' },
-          { campo: 'retencion_iibb_caba', tipo: 'IIBB CABA' },
-        ];
-
-        if (editingId) {
-          const retsViejas = retenciones.filter(r => String(r.tesoreria_id) === String(editingId));
-          for (const r of retsViejas) {
-            try {
-              await eliminarDoc('retenciones', r.id || r.ID);
-            } catch (errDel) {
-              console.error(`Error al borrar retención vieja ${r.id}:`, errDel);
-            }
-          }
-        }
-
-        const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
-        const facturaAsociadaId = formData.facturas_aplicadas?.find(f => f.factura_id)?.factura_id || '';
-        
-        let nroComprobanteTexto = '---';
-        let proveedorIdReal = formData.proveedor_id || '';
-        let clienteIdReal = formData.cliente_id || '';
-
-        if (facturaAsociadaId) {
-          if (esIngreso) {
-            const facObj = facturasVenta.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
-            if (facObj) {
-              const pv = facObj.punto_venta ? String(facObj.punto_venta).padStart(5, '0') : '';
-              const nc = facObj.numero_comp ? String(facObj.numero_comp).padStart(8, '0') : '';
-              nroComprobanteTexto = pv && nc ? `${pv}-${nc}` : (facObj.numero_comp || '---');
-              if (!clienteIdReal) clienteIdReal = facObj.cliente_id || facObj.Cliente_id || '';
-            }
-          } else {
-            const facObj = facturas.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
-            if (facObj) {
-              const pv = facObj.punto_venta ? String(facObj.punto_venta).padStart(5, '0') : '';
-              const nc = facObj.numero_comp ? String(facObj.numero_comp).padStart(8, '0') : '';
-              nroComprobanteTexto = pv && nc ? `${pv}-${nc}` : (facObj.n_factura || facObj.numero_comp || '---');
-              if (!proveedorIdReal) proveedorIdReal = facObj.proveedor_id || facObj.Proveedor_id || '';
-            }
-          }
-        }
-
-        if (formData.concepto) {
-          const conceptoLower = formData.concepto.toLowerCase();
-          
-          if (esIngreso && !clienteIdReal) {
-            const matchCliente = clientes.find(c => {
-              const nombre = String(c.razon_social || c.nombre || '').toLowerCase();
-              return nombre.length > 3 && conceptoLower.includes(nombre);
-            });
-            if (matchCliente) clienteIdReal = matchCliente.id || matchCliente.ID;
-          } else if (!esIngreso && !proveedorIdReal) {
-            const matchProveedor = proveedores.find(p => {
-              const nombre = String(p.razon_social || p.nombre || '').toLowerCase();
-              return nombre.length > 3 && conceptoLower.includes(nombre);
-            });
-            if (matchProveedor) proveedorIdReal = matchProveedor.id || matchProveedor.ID;
-          }
-
-          if (nroComprobanteTexto === '---') {
-            const matchNro = formData.concepto.match(/(\d{3,5}[-]\d{4,8})/);
-            if (matchNro) nroComprobanteTexto = matchNro[0];
-          }
-        }
-
-        for (const t of tiposRetencion) {
-          const montoRet = Number(formData[t.campo] || 0);
-          if (montoRet > 0) {
-            try {
-              await crearDoc('retenciones', {
-                tesoreria_id: nuevoDocId,
-                tipo: t.tipo,
-                monto: montoRet,
-                fecha: formData.fecha,
-                concepto: `Retención ${t.tipo} - ${formData.concepto}`,
-                proveedor_id: esIngreso ? '' : proveedorIdReal,
-                cliente_id: esIngreso ? clienteIdReal : '',
-                obra_id: formData.obra_id || '',
-                presupuesto_id: formData.presupuesto_id || '',
-                comprobante_asociado: nroComprobanteTexto,
-                certificado_url: '',
-                es_manual: false,
-              });
-            } catch (errRet) {
-              console.error(`Error al crear retención ${t.tipo}:`, errRet);
-            }
-          }
-        }
-      }
-
-      if (Array.isArray(formData.facturas_aplicadas)) {
-        for (const item of formData.facturas_aplicadas) {
-          if (!item.factura_id) continue;
-          const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
-          const listaObjetivo = esIngreso ? facturasVenta : facturas;
-          const coleccionObjetivo = esIngreso ? 'facturas_ventas' : 'facturas_compras';
-          const facturaObj = listaObjetivo.find(f => String(f.id || f.ID) === String(item.factura_id));
-          if (facturaObj) {
-            const totalFactura = Number(facturaObj.total || facturaObj.Total || 0);
-            const montoAplicado = Number(item.monto || 0);
-            let nuevoEstado = 'pendiente';
-            if (montoAplicado >= totalFactura) {
-              nuevoEstado = 'pagado';
-            } else if (montoAplicado > 0) {
-              nuevoEstado = 'pagado parcial';
-            }
-            const facturaIdReal = facturaObj.id || facturaObj.ID;
-            try {
-              await actualizarDoc(coleccionObjetivo, facturaIdReal, { estado_pago: nuevoEstado });
-            } catch (err) {
-              console.error("Error al actualizar estado_pago de factura:", err);
-            }
-          }
-        }
-      }
-      setIsModalOpen(false);
-      toast.success('Movimiento guardado correctamente', { id: toastId });
-    } catch (err) {
-      console.error(err);
-      toast.error("Error al guardar movimiento: " + (err.message || ''), { id: toastId });
-    } finally {
-      setIsSaving(false);
-    }
+  const handleQuitarItem = (id) => {
+    const nuevos = formDataVenta.items.filter(i => i.id !== id);
+    const totales = recalcular(nuevos);
+    setFormDataVenta(prev => ({
+      ...prev,
+      items: nuevos,
+      neto_gravado: totales.neto,
+      iva_21: totales.iva21,
+      iva_105: totales.iva105,
+      total: totales.total,
+    }));
   };
 
   const handleGuardarFacturaVenta = async (e) => {
     e.preventDefault();
     if (isSavingVenta) return;
     setIsSavingVenta(true);
-    const toastId = toast.loading('Guardando factura de venta...');
+    const toastId = toast.loading(editingVentaId ? 'Actualizando factura...' : 'Guardando factura...');
     try {
-      let archivoUrlFinal = formDataVenta.archivo_url || '';
-      if (archivoBase64Venta && archivoBase64Venta.indexOf('data:') === 0) {
-        archivoUrlFinal = await subirArchivoADrive(archivoBase64Venta, 'FacturasVenta');
-      }
-      const esNC = esNotaCredito(formDataVenta.tipo_comprobante);
-      const esND = esNotaDebito(formDataVenta.tipo_comprobante);
-      const signo = esNC ? -1 : 1;
-      const netoFinal = Number(formDataVenta.neto_gravado || 0) * signo;
-      const iva21Final = Number(formDataVenta.iva_21 || 0) * signo;
-      const iva105Final = Number(formDataVenta.iva_105 || 0) * signo;
-      const otrosTributosFinal = Number(formDataVenta.otros_tributos || 0) * signo;
-      const totalFinal = Number(formDataVenta.total || 0) * signo;
-      const datosNuevaVenta = {
-        ...formDataVenta,
-        neto_gravado: netoFinal,
-        iva_21: iva21Final,
-        iva_105: iva105Final,
-        otros_tributos: otrosTributosFinal,
-        total: totalFinal,
-        archivo_url: archivoUrlFinal,
-        estado_pago: esNC ? 'anulada' : 'pendiente',
-        es_nota_credito: esNC,
-        es_nota_debito: esND,
-        items: JSON.stringify(formDataVenta.items)
-      };
-      const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = datosNuevaVenta;
-      const nuevoDocId = await crearDoc('facturas_ventas', datosLimpios);
-
-      if (esNC && formDataVenta.comprobante_anula) {
-        try {
-          const anulaLimpio = String(formDataVenta.comprobante_anula).trim();
-          let ptoVtaAnula = '';
-          let nCompAnula = '';
-          if (anulaLimpio.includes('-')) {
-            const partes = anulaLimpio.split('-');
-            ptoVtaAnula = partes[0].trim();
-            nCompAnula = partes[1].trim();
-          } else {
-            nCompAnula = anulaLimpio;
-          }
-          const ptoVtaAnulaNorm = normalizarNumComp(ptoVtaAnula);
-          const nCompAnulaNorm = normalizarNumComp(nCompAnula);
-          let facturaOriginal = facturasVenta.find(f => {
-            if (String(f.estado_pago || '').toLowerCase() === 'anulada') return false;
-            if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
-            const fpvNorm = normalizarNumComp(f.punto_venta);
-            const fncNorm = normalizarNumComp(f.numero_comp);
-            if (ptoVtaAnulaNorm && nCompAnulaNorm) {
-              return fpvNorm === ptoVtaAnulaNorm && fncNorm === nCompAnulaNorm;
-            }
-            return fncNorm === nCompAnulaNorm;
-          });
-          if (!facturaOriginal && nCompAnulaNorm) {
-            facturaOriginal = facturasVenta.find(f => {
-              if (String(f.estado_pago || '').toLowerCase() === 'anulada') return false;
-              if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
-              return normalizarNumComp(f.numero_comp) === nCompAnulaNorm;
-            });
-          }
-          if (facturaOriginal) {
-            const facturaOrigId = facturaOriginal.id || facturaOriginal.ID;
-            await actualizarDoc('facturas_ventas', facturaOrigId, {
-              estado_pago: 'anulada',
-              anulada_por_nc_id: nuevoDocId,
-              anulada_por_nc_numero: `${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`,
-              anulada_fecha: formDataVenta.fecha_emision
-            });
-            try {
-              const tipoFacturaAnulada = facturaOriginal.tipo_comprobante || 'Factura';
-              const pvFacturaAnulada = String(facturaOriginal.punto_venta || ptoVtaAnula || '').padStart(5, '0');
-              const nroFacturaAnulada = String(facturaOriginal.numero_comp || nCompAnula || '').padStart(8, '0');
-              const movimientoAnulacion = {
-                tipo: 'anulada',
-                origen: 'venta',
-                fecha: formDataVenta.fecha_emision,
-                concepto: `ANULACIÓN ${tipoFacturaAnulada} ${pvFacturaAnulada}-${nroFacturaAnulada}`,
-                monto: 0,
-                obra_id: facturaOriginal.obra_id || '',
-                presupuesto_id: facturaOriginal.presupuesto_id || '',
-                contrato_id: facturaOriginal.contrato_id || '',
-                rubro_imputacion: '',
-                tipo_insumo: '',
-                medio_pago: '',
-                referencia: `Anulada por NC ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`,
-                retencion_suss: 0,
-                retencion_iva: 0,
-                retencion_ganancias: 0,
-                retencion_iibb_pba: 0,
-                retencion_iibb_caba: 0,
-                facturas_aplicadas: JSON.stringify([]),
-                es_autogenerado: true,
-                es_anulacion: true,
-                factura_anulada_id: facturaOrigId,
-                nota_credito_id: nuevoDocId
-              };
-              await crearDoc('tesoreria', movimientoAnulacion);
-            } catch (errAnul) {
-              console.error("Error creando movimiento de anulación:", errAnul);
-            }
-          } else {
-            toast.error(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} en el sistema. La Nota de Crédito se guardó pero la factura no se marcó como anulada.`);
-          }
-        } catch (errNC) {
-          console.error("Error al anular factura original:", errNC);
+      // Modo edición: solo actualiza el doc
+      if (editingVentaId) {
+        let archivoUrlFinal = formDataVenta.archivo_url || '';
+        if (archivoBase64Venta && archivoBase64Venta.startsWith('data:')) {
+          archivoUrlFinal = await subirArchivoADrive(archivoBase64Venta, 'FacturasVenta');
         }
+        await actualizarFacturaVenta(editingVentaId, {
+          ...formDataVenta,
+          archivo_url: archivoUrlFinal,
+          items: formDataVenta.items,
+        });
+        setIsModalVentaOpen(false);
+        toast.success('Factura actualizada', { id: toastId });
+        return;
       }
 
-      if (esNC || esND) {
-        try {
-          const tipoMov = 'contabilizada';
-          const conceptoMov = esNC
-            ? `Nota de Crédito ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`
-            : `Nota de Débito ${formDataVenta.punto_venta}-${formDataVenta.numero_comp}`;
-          const movimientoAuto = {
-            tipo: tipoMov,
-            origen: 'venta',
-            fecha: formDataVenta.fecha_emision,
-            concepto: conceptoMov,
-            monto: totalFinal,
-            obra_id: '',
-            presupuesto_id: '',
-            contrato_id: '',
-            rubro_imputacion: '',
-            tipo_insumo: '',
-            medio_pago: '',
-            referencia: `Comprobante que anula: ${formDataVenta.comprobante_anula || '---'}`,
-            retencion_suss: 0,
-            retencion_iva: 0,
-            retencion_ganancias: 0,
-            retencion_iibb_pba: 0,
-            retencion_iibb_caba: 0,
-            facturas_aplicadas: JSON.stringify([]),
-            es_autogenerado: true,
-            factura_venta_id: nuevoDocId
-          };
-          await crearDoc('tesoreria', movimientoAuto);
-        } catch (errMov) {
-          console.error("Error al crear movimiento contable:", errMov);
-        }
+      // Modo creación: flujo completo
+      const { totalFinal, esNC, esND, anulacionFallida } = await crearFacturaVenta({
+        formDataVenta,
+        archivoBase64: archivoBase64Venta,
+        facturasVentas,
+      });
+
+      if (anulacionFallida) {
+        toast.error(`⚠️ NC guardada, pero no se pudo anular la factura original: ${anulacionFallida}`, { id: toastId, duration: 8000 });
+      } else if (esNC) {
+        toast.success(
+          `Nota de Crédito registrada (total: $${Math.abs(totalFinal).toLocaleString('es-AR')}). Movimientos generados.`,
+          { id: toastId, duration: 6000 }
+        );
+      } else if (esND) {
+        toast.success(`Nota de Débito registrada (total: $${totalFinal.toLocaleString('es-AR')}).`, { id: toastId, duration: 6000 });
+      } else {
+        toast.success('Factura de Venta registrada correctamente.', { id: toastId });
       }
 
       setCandidatosCliente([]);
       setNombreClienteOCR('');
-      setIsFacturaVentaModalOpen(false);
+      setIsModalVentaOpen(false);
       setArchivoBase64Venta('');
       setNombreArchivoVenta('');
-      
-      toast.success(
-        esNC
-          ? `Nota de Crédito registrada. Total en negativo: $${Math.abs(totalFinal).toLocaleString('es-AR')}. Factura anulada: ${formDataVenta.comprobante_anula || 'no especificada'}. Movimientos generados.`
-          : esND
-          ? `Nota de Débito registrada. Total: $${totalFinal.toLocaleString('es-AR')}. Movimiento generado en Tesorería.`
-          : "Factura de Venta registrada correctamente.",
-        { id: toastId, duration: 6000 }
-      );
     } catch (err) {
       console.error(err);
-      toast.error("Error al registrar la factura de venta: " + (err.message || ''), { id: toastId });
+      toast.error('Error: ' + (err.message || ''), { id: toastId });
     } finally {
       setIsSavingVenta(false);
     }
   };
 
-  const handleEliminarMovimiento = async (m) => {
-    const mId = m.id || m.ID || m.Id;
-    if (!mId) return;
-    if (!window.confirm("¿Estás seguro de eliminar este movimiento?")) return;
-    const toastId = toast.loading('Eliminando movimiento...');
-    try {
-      await eliminarDoc('tesoreria', mId);
-      const retsAsociadas = retenciones.filter(r => String(r.tesoreria_id) === String(mId));
-      for (const r of retsAsociadas) {
-        await eliminarDoc('retenciones', r.id || r.ID);
-      }
-      toast.success('Movimiento eliminado correctamente', { id: toastId });
-    } catch (err) {
-      console.error(err);
-      toast.error("Error al eliminar: " + (err.message || ''), { id: toastId });
-    }
-  };
+  // ────────────────────────────────────────────────────────
+  // Handlers: Retenciones
+  // ────────────────────────────────────────────────────────
 
   const handleSubirCertificadoRetencion = async (retencion, file) => {
     if (!file) return;
-    const retId = retencion.id || retencion.ID;
-    if (!retId) {
-      toast.error("No se pudo identificar la retención.");
-      return;
-    }
-    setSubiendoCertificadoId(retId);
+    const id = retencion.id || retencion.ID;
+    if (!id) return;
+    setSubiendoCertificadoId(id);
     const toastId = toast.loading('Subiendo certificado...');
     try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64String = reader.result;
-        try {
-          const urlDrive = await subirArchivoADrive(base64String, 'Retenciones');
-          if (!urlDrive) {
-            toast.error("No se pudo subir el archivo a Drive.", { id: toastId });
-            return;
-          }
-          await actualizarDoc('retenciones', retId, {
-            certificado_url: urlDrive,
-            certificado_nombre: file.name,
-          });
-          toast.success("¡Certificado subido correctamente!", { id: toastId });
-        } catch (err) {
-          console.error("Error al guardar el certificado:", err);
-          toast.error("Error: " + (err.message || ''), { id: toastId });
-        } finally {
-          setSubiendoCertificadoId(null);
-        }
-      };
-      reader.readAsDataURL(file);
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      await subirCertificadoRetencion(id, base64, file.name);
+      toast.success('Certificado subido correctamente', { id: toastId });
     } catch (err) {
+      toast.error('Error: ' + (err.message || ''), { id: toastId });
+    } finally {
       setSubiendoCertificadoId(null);
-      toast.error("Error al leer el archivo: " + (err.message || ''), { id: toastId });
     }
   };
 
-  const totalIngresos = movimientos
-    .filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'ingreso')
-    .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
-  const totalEgresos = movimientos
-    .filter(m => String(m.tipo || m.Tipo).toLowerCase() === 'egreso')
-    .reduce((acc, curr) => acc + (Number(curr.monto || curr.Monto) || 0), 0);
-  const balance = totalIngresos - totalEgresos;
-
-  const movimientosFiltrados = movimientos.filter(m => {
-    const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
-    const ref = String(m.referencia || m.Referencia || '').toLowerCase();
-    const matchTexto = concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
-    let matchProveedor = true;
-    if (filtroProveedorMovimientos) {
-      const provObj = proveedores.find(p => String(p.id || p.ID) === String(filtroProveedorMovimientos));
-      const nombreProv = provObj ? (provObj.razon_social || provObj.nombre || '').toLowerCase() : '';
-      matchProveedor = concepto.includes(nombreProv);
-    }
-    let matchTipo = true;
-    if (filtroTipoMovimiento) {
-      const tipoMov = String(m.tipo || m.Tipo || '').toLowerCase().replace(/o$/, 'a');
-      matchTipo = tipoMov === filtroTipoMovimiento.toLowerCase().replace(/o$/, 'a');
-    }
-    let matchOrigen = true;
-    if (filtroOrigen) {
-      const origenMov = inferirOrigenMovimiento(m);
-      matchOrigen = origenMov === filtroOrigen;
-    }
-    return matchTexto && matchProveedor && matchTipo && matchOrigen;
-  }).sort((a, b) => {
-    const fechaA = String(a.fecha || a.Fecha || '');
-    const fechaB = String(b.fecha || b.Fecha || '');
-    return fechaB.localeCompare(fechaA);
-  });
-
-  const retencionesFiltradas = useMemo(() => {
-    return retenciones
-      .filter(r => !filtroTipoRetencion || r.tipo === filtroTipoRetencion)
-      .sort((a, b) => {
-        const fechaA = String(a.fecha || '');
-        const fechaB = String(b.fecha || '');
-        return fechaB.localeCompare(fechaA);
+  const handleEnviarRetencionesAlContador = async (e) => {
+    e.preventDefault();
+    if (!emailContador || emailContador.indexOf('@') === -1) return toast.error('Correo inválido.');
+    if (retencionesFiltradas.length === 0) return toast.error('No hay retenciones para enviar.');
+    setEnviandoRetenciones(true);
+    try {
+      const data = retencionesFiltradas.map(r => {
+        const prov = (proveedores || []).find(p => String(p.id || p.ID) === String(r.proveedor_id));
+        const cli = (clientes || []).find(c => String(c.id || c.ID) === String(r.cliente_id));
+        const obra = (obras || []).find(o => String(o.id || o.ID) === String(r.obra_id));
+        const presu = (presupuestos || []).find(p => String(p.id || p.ID) === String(r.presupuesto_id));
+        return {
+          fecha: r.fecha,
+          tipo: r.tipo,
+          monto: Number(r.monto || 0),
+          comprobante_asociado: r.comprobante_asociado || '',
+          certificado_url: r.certificado_url || '',
+          certificado_nombre: r.certificado_nombre || '',
+          tercero_nombre: prov?.razon_social || prov?.nombre || cli?.razon_social || cli?.nombre || '---',
+          obra_nombre: obra ? `${obra.codigo || ''} ${obra.nombre || obra.nombre_obra || ''}`.trim() : '---',
+          presupuesto_nombre: presu?.codigo || '---',
+        };
       });
-  }, [retenciones, filtroTipoRetencion]);
 
-  const facturasAPagar = facturas.filter(f => {
-    const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
-    if (estado === 'anulada') return false;
-    const esPendiente = estado === 'pendiente' || estado === 'pagado parcial';
-    const provId = String(f.proveedor_id || f.Proveedor_id || '');
-    const matchProveedor = !filtroProveedorPagar || provId === String(filtroProveedorPagar);
-    return esPendiente && matchProveedor;
-  }).sort((a, b) => {
-    const fechaA = String(a.fecha || a.Fecha || '');
-    const fechaB = String(b.fecha || b.Fecha || '');
-    return fechaB.localeCompare(fechaA);
-  });
-
-  const facturasACobrar = facturasVenta.filter(f => {
-    const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
-    if (estado === 'anulada') return false;
-    if (f.es_nota_credito === true) return false;
-    if (f.es_nota_debito === true) return false;
-    return estado === 'pendiente' || estado === 'pagado parcial';
-  }).sort((a, b) => {
-    const fechaA = String(a.fecha_emision || a.fecha || a.Fecha_emision || a.Fecha || '');
-    const fechaB = String(b.fecha_emision || b.fecha || b.Fecha_emision || b.Fecha || '');
-    return fechaB.localeCompare(fechaA);
-  });
-
-  const totalFacturasAPagar = facturasAPagar.reduce((acc, f) => {
-    return acc + (Number(f.total || f.Total || f.TOTAL || 0) || 0);
-  }, 0);
-  const totalFacturasACobrar = facturasACobrar.reduce((acc, f) => {
-    return acc + (Number(f.total || f.Total || f.TOTAL || 0) || 0);
-  }, 0);
-  const flujoNetoPendiente = totalFacturasACobrar - totalFacturasAPagar;
-
-  const cashFlowMensualMap = {};
-  const cashFlowAnualMap = {};
-  movimientos.forEach(m => {
-    const fecha = m.fecha || m.Fecha;
-    if (!fecha) return;
-    const mesAnio = String(fecha).substring(0, 7);
-    const anio = String(fecha).substring(0, 4);
-    const tipo = String(m.tipo || m.Tipo).toLowerCase().replace(/o$/, 'a');
-    const monto = Number(m.monto || m.Monto) || 0;
-    if (tipo === 'anulada') return;
-    if (tipo === 'ingreso' || tipo === 'contabilizada') {
-      if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
-      cashFlowMensualMap[mesAnio].ingresos += monto;
-      if (!cashFlowAnualMap[anio]) cashFlowAnualMap[anio] = { ingresos: 0, egresos: 0 };
-      cashFlowAnualMap[anio].ingresos += monto;
-    } else if (tipo === 'egreso') {
-      if (!cashFlowMensualMap[mesAnio]) cashFlowMensualMap[mesAnio] = { ingresos: 0, egresos: 0 };
-      cashFlowMensualMap[mesAnio].egresos += monto;
-      if (!cashFlowAnualMap[anio]) cashFlowAnualMap[anio] = { ingresos: 0, egresos: 0 };
-      cashFlowAnualMap[anio].egresos += monto;
+      await enviarRetencionesAlContador({
+        email: emailContador,
+        fechaDesde: filtroFechaDesde ? formatearFechaDisplay(filtroFechaDesde) : 'Inicio',
+        fechaHasta: filtroFechaHasta ? formatearFechaDisplay(filtroFechaHasta) : 'Fin',
+        retenciones: data,
+      });
+      toast.success('✅ Correo enviado con las retenciones.');
+      setIsEnviarContadorOpen(false);
+      setEmailContador('');
+    } catch (err) {
+      toast.error('Error al enviar: ' + (err.message || ''));
+    } finally {
+      setEnviandoRetenciones(false);
     }
-  });
-  const listaMensual = Object.keys(cashFlowMensualMap).sort().map(k => ({ periodo: k, ...cashFlowMensualMap[k] }));
-  const listaAnual = Object.keys(cashFlowAnualMap).sort().map(k => ({ periodo: k, ...cashFlowAnualMap[k] }));
+  };
 
-  const totalIvaCompras = facturas.reduce((acc, f) => {
-    const estado = String(f.estado_pago || '').toLowerCase();
-    const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
-    
-    if (estado === 'anulada' || esNC) return acc;
-    
-    const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
-    const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
-    return acc + iva21 + iva105;
-  }, 0);
+  // ────────────────────────────────────────────────────────
+  // Render
+  // ────────────────────────────────────────────────────────
 
-  const totalIvaVentas = useMemo(() => {
-    const facturasUnicas = new Map();
-
-    facturasVenta.forEach(f => {
-      const estado = String(f.estado_pago || '').toLowerCase();
-      const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
-      
-      if (estado === 'anulada' || esNC) return;
-
-      const pv = String(f.punto_venta || '').padStart(5, '0');
-      const nc = String(f.numero_comp || '').padStart(8, '0');
-      const key = `${pv}-${nc}`; 
-
-      if (!facturasUnicas.has(key)) {
-        facturasUnicas.set(key, f);
-      }
-    });
-
-    return Array.from(facturasUnicas.values()).reduce((acc, f) => {
-      const iva21 = Number(f.iva_21 || f.Iva_21 || f.IVA_21 || f.iva21 || 0);
-      const iva105 = Number(f.iva_105 || f.Iva_105 || f.IVA_105 || f.iva105 || 0);
-      return acc + iva21 + iva105;
-    }, 0);
-  }, [facturasVenta]);
-
-  const totalRetencionesIvaMovimientos = movimientos.reduce((acc, m) => {
-    return acc + Number(m.retencion_iva || m.Retencion_iva || 0);
-  }, 0);
-  const posicionIva = totalIvaVentas - totalIvaCompras - totalRetencionesIvaMovimientos;
+  const fechaInputs = (
+    <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+        <span className="text-[10px] font-bold text-slate-500 uppercase">Desde</span>
+        <input
+          type="date"
+          value={filtroFechaDesde}
+          onChange={(e) => setFiltroFechaDesde(e.target.value)}
+          className="bg-transparent text-xs font-semibold text-slate-700 outline-none"
+        />
+      </div>
+      <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+        <span className="text-[10px] font-bold text-slate-500 uppercase">Hasta</span>
+        <input
+          type="date"
+          value={filtroFechaHasta}
+          onChange={(e) => setFiltroFechaHasta(e.target.value)}
+          className="bg-transparent text-xs font-semibold text-slate-700 outline-none"
+        />
+      </div>
+    </div>
+  );
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
@@ -1256,147 +886,79 @@ export default function Tesoreria() {
           <h1 className="text-2xl font-extrabold text-slate-900">Tesorería</h1>
           <p className="text-slate-500 text-sm mt-1">Flujo de caja, IVA, retenciones y movimientos</p>
         </div>
-        
-        {/* Botones de acción */}
         <div className="flex items-center gap-3 w-full md:w-auto">
-          <button onClick={() => {
-            setPasoFacturaVenta('subir');
-            setArchivoBase64Venta('');
-            setNombreArchivoVenta('');
-            setCandidatosCliente([]);
-            setNombreClienteOCR('');
-            setFormDataVenta({
-              tipo_comprobante: 'FACTURA A',
-              punto_venta: '00001',
-              numero_comp: '',
-              cliente_id: '',
-              fecha_emision: new Date().toISOString().split('T')[0],
-              fecha_vencimiento: '',
-              items: [{ id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
-              neto_gravado: 0,
-              iva_21: 0,
-              iva_105: 0,
-              otros_tributos: 0,
-              total: 0,
-              archivo_url: '',
-              estado_pago: 'pendiente',
-              comprobante_anula: ''
-            });
-            setIsFacturaVentaModalOpen(true);
-          }} className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
-            <Plus className="w-4 h-4" /> + Nueva Factura Venta
+          <button
+            onClick={handleNuevaFacturaVenta}
+            className="flex items-center gap-2 px-4 py-2.5 bg-sky-500 hover:bg-sky-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer"
+          >
+            <Plus className="w-4 h-4" /> Nueva Factura Venta
           </button>
-          <button onClick={() => {
-            setEditingId(null);
-            setFormData({
-              tipo: 'Egreso',
-              fecha: new Date().toISOString().split('T')[0],
-              concepto: '',
-              monto: 0,
-              obra_id: '',
-              presupuesto_id: '',
-              contrato_id: '',
-              rubro_imputacion: '',
-              tipo_insumo: 'Materiales',
-              medio_pago: 'transferencia',
-              referencia: '',
-              retencion_suss: 0,
-              retencion_iva: 0,
-              retencion_ganancias: 0,
-              retencion_iibb_pba: 0,
-              retencion_iibb_caba: 0,
-              facturas_aplicadas: [{ id: Date.now(), factura_id: '', monto: 0 }]
-            });
-            setIsModalOpen(true);
-          }} className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm">
+          <button
+            onClick={abrirNuevoMovimiento}
+            className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer"
+          >
             <Plus className="w-4 h-4" /> Nuevo Movimiento
           </button>
         </div>
       </div>
 
-      {/* 🔑 Aviso si se alcanzó el límite de datos */}
-      {movimientos.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100) && (
+      {(movimientos.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100)) && (
         <div className="bg-amber-100 border border-amber-300 p-3 rounded-xl text-xs text-amber-900 font-medium flex items-center gap-2">
           <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>Se alcanzó el límite máximo de movimientos para calcular los KPIs. Si necesitás ver datos más antiguos, <b>ajustá el rango de fechas</b> para achicar el período.</span>
+          <span>Se alcanzó el límite máximo de movimientos. Ajustá el rango de fechas para ver más.</span>
         </div>
       )}
 
+      {/* KPIs principales */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-slate-500 uppercase">Total Ingresos</p>
-            <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {totalIngresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-          </div>
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><ArrowUpRight className="w-6 h-6" /></div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase">Total Ingresos</p>
+          <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {totalIngresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-slate-500 uppercase">Total Egresos</p>
-            <h3 className="text-2xl font-black text-rose-600 mt-1">$ {totalEgresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-          </div>
-          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl"><ArrowDownLeft className="w-6 h-6" /></div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase">Total Egresos</p>
+          <h3 className="text-2xl font-black text-rose-600 mt-1">$ {totalEgresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-slate-500 uppercase">Balance</p>
-            <h3 className={`text-2xl font-black mt-1 ${balance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-          </div>
-          <div className="p-3 bg-slate-100 text-slate-700 rounded-xl"><Wallet className="w-6 h-6" /></div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase">Balance</p>
+          <h3 className={`text-2xl font-black mt-1 ${balance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
         </div>
       </div>
 
+      {/* KPIs pendientes */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-5 rounded-2xl border border-rose-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-rose-600 uppercase">Facturas a Pagar</p>
-            <h3 className="text-2xl font-black text-rose-600 mt-1">$ {totalFacturasAPagar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-            <p className="text-[11px] text-slate-500 mt-1">{facturasAPagar.length} comprobante{facturasAPagar.length === 1 ? '' : 's'} pendiente{facturasAPagar.length === 1 ? '' : 's'}</p>
-          </div>
-          <div className="p-3 bg-rose-50 text-rose-600 rounded-xl"><ArrowDownLeft className="w-6 h-6" /></div>
+        <div className="bg-white p-5 rounded-2xl border border-rose-200 shadow-sm">
+          <p className="text-xs font-bold text-rose-600 uppercase">Facturas a Pagar</p>
+          <h3 className="text-2xl font-black text-rose-600 mt-1">$ {totalFacturasAPagar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+          <p className="text-[11px] text-slate-500 mt-1">{facturasAPagar.length} pendiente{facturasAPagar.length !== 1 ? 's' : ''}</p>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-emerald-600 uppercase">Facturas a Cobrar</p>
-            <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {totalFacturasACobrar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-            <p className="text-[11px] text-slate-500 mt-1">{facturasACobrar.length} comprobante{facturasACobrar.length === 1 ? '' : 's'} pendiente{facturasACobrar.length === 1 ? '' : 's'}</p>
-          </div>
-          <div className="p-3 bg-emerald-50 text-emerald-600 rounded-xl"><ArrowUpRight className="w-6 h-6" /></div>
+        <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-sm">
+          <p className="text-xs font-bold text-emerald-600 uppercase">Facturas a Cobrar</p>
+          <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {totalFacturasACobrar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+          <p className="text-[11px] text-slate-500 mt-1">{facturasACobrar.length} pendiente{facturasACobrar.length !== 1 ? 's' : ''}</p>
         </div>
-        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex items-center justify-between">
-          <div>
-            <p className="text-xs font-bold text-slate-500 uppercase">Flujo Neto Pendiente</p>
-            <h3 className={`text-2xl font-black mt-1 ${flujoNetoPendiente >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>$ {flujoNetoPendiente.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-            <p className="text-[11px] text-slate-500 mt-1">{flujoNetoPendiente >= 0 ? 'A favor' : 'A financiar'}</p>
-          </div>
-          <div className="p-3 bg-slate-100 text-slate-700 rounded-xl"><Wallet className="w-6 h-6" /></div>
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
+          <p className="text-xs font-bold text-slate-500 uppercase">Flujo Neto Pendiente</p>
+          <h3 className={`text-2xl font-black mt-1 ${flujoNetoPendiente >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+            $ {flujoNetoPendiente.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+          </h3>
+          <p className="text-[11px] text-slate-500 mt-1">{flujoNetoPendiente >= 0 ? 'A favor' : 'A financiar'}</p>
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm">
-        <div className="flex gap-2 flex-wrap">
-          <button onClick={() => setActiveTab('movimientos')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'movimientos' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Movimientos</button>
-          <button onClick={() => setActiveTab('facturas_pagar')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'facturas_pagar' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Facturas a pagar ({facturasAPagar.length})</button>
-          <button onClick={() => setActiveTab('facturas_cobrar')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'facturas_cobrar' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Facturas a cobrar ({facturasACobrar.length})</button>
-          <button onClick={() => setActiveTab('cashflow')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'cashflow' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Cash Flow</button>
-          <button onClick={() => setActiveTab('iva')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'iva' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>IVA</button>
-          <button onClick={() => setActiveTab('retenciones')} className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${activeTab === 'retenciones' ? 'bg-amber-500 text-white shadow-sm' : 'bg-slate-50 text-slate-600 border border-slate-200 hover:bg-slate-100'}`}>Retenciones ({retenciones.length})</button>
-        </div>
-
+      {/* Tabs + filtros contextuales */}
+      <TabsTesoreria
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        counts={{
+          facturasAPagar: facturasAPagar.length,
+          facturasACobrar: facturasACobrar.length,
+          retenciones: retenciones.length,
+        }}
+      >
         {activeTab === 'movimientos' && (
-          <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap justify-end">
-            {/* 🔑 Inputs de fecha movidos acá para estar junto a los filtros de la tabla */}
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Desde</span>
-                <input type="date" value={filtroFechaDesde} onChange={(e) => setFiltroFechaDesde(e.target.value)} className="bg-transparent text-xs font-semibold text-slate-700 outline-none" />
-              </div>
-              <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
-                <span className="text-[10px] font-bold text-slate-500 uppercase">Hasta</span>
-                <input type="date" value={filtroFechaHasta} onChange={(e) => setFiltroFechaHasta(e.target.value)} className="bg-transparent text-xs font-semibold text-slate-700 outline-none" />
-              </div>
-            </div>
-
+          <>
+            {fechaInputs}
             <select
               value={filtroTipoMovimiento}
               onChange={(e) => setFiltroTipoMovimiento(e.target.value)}
@@ -1405,7 +967,7 @@ export default function Tesoreria() {
               <option value="">Todos los Tipos</option>
               <option value="Ingreso">Ingresos</option>
               <option value="Egreso">Egresos</option>
-              <option value="contabilizada">Contabilizadas (NC/ND)</option>
+              <option value="contabilizada">Contabilizadas</option>
               <option value="anulada">Anuladas</option>
             </select>
             <select
@@ -1414,8 +976,8 @@ export default function Tesoreria() {
               className="bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500"
             >
               <option value="">Todos los Orígenes</option>
-              <option value="venta">Ventas (clientes)</option>
-              <option value="compra">Compras (proveedores)</option>
+              <option value="venta">Ventas</option>
+              <option value="compra">Compras</option>
             </select>
             <div className="min-w-[180px]">
               <BuscadorSelect
@@ -1436,25 +998,48 @@ export default function Tesoreria() {
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs outline-none focus:border-amber-500"
               />
             </div>
-          </div>
+          </>
         )}
 
         {activeTab === 'facturas_pagar' && (
-          <div className="flex items-center gap-3 w-full sm:w-auto">
-            <div className="w-full sm:w-72">
-              <BuscadorSelect
-                opciones={[{ id: '', label: 'Todos los Proveedores (Filtrar)' }, ...opcionesProveedores]}
-                value={filtroProveedorPagar}
-                onChange={setFiltroProveedorPagar}
-                placeholder="Todos los Proveedores (Filtrar)"
-                minChars={3}
-              />
-            </div>
+          <div className="w-full sm:w-72">
+            <BuscadorSelect
+              opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
+              value={filtroProveedorPagar}
+              onChange={setFiltroProveedorPagar}
+              placeholder="Todos los Proveedores"
+              minChars={3}
+            />
           </div>
         )}
 
+        {activeTab === 'facturas_cobrar' && (
+          <>
+            {fechaInputs}
+            <div className="w-full sm:w-72">
+              <BuscadorSelect
+                opciones={[{ id: '', label: 'Todos los Clientes' }, ...opcionesClientes]}
+                value={filtroClienteCobrar}
+                onChange={setFiltroClienteCobrar}
+                placeholder="Todos los Clientes"
+                minChars={3}
+              />
+            </div>
+          </>
+        )}
+
         {activeTab === 'retenciones' && (
-          <div className="flex items-center gap-3 w-full sm:w-auto">
+          <>
+            {fechaInputs}
+            <div className="w-full sm:w-64">
+              <BuscadorSelect
+                opciones={[{ id: '', label: 'Todos los terceros' }, ...opcionesTerceros]}
+                value={filtroClienteRetencion}
+                onChange={setFiltroClienteRetencion}
+                placeholder="Todos los terceros"
+                minChars={3}
+              />
+            </div>
             <select
               value={filtroTipoRetencion}
               onChange={(e) => setFiltroTipoRetencion(e.target.value)}
@@ -1467,317 +1052,54 @@ export default function Tesoreria() {
               <option value="IIBB PBA">IIBB PBA</option>
               <option value="IIBB CABA">IIBB CABA</option>
             </select>
-          </div>
+            <button
+              onClick={() => setIsEnviarContadorOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-sm transition-colors cursor-pointer"
+            >
+              <Mail className="w-4 h-4" /> Enviar al Contador
+            </button>
+          </>
         )}
-      </div>
+      </TabsTesoreria>
 
+      {/* Contenido por tab */}
       {activeTab === 'movimientos' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-          {movimientosFiltrados.length === 0 ? (
-            <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
-              <Wallet className="w-10 h-10 text-slate-300" />
-              <span>No hay movimientos registrados con los filtros seleccionados.</span>
-            </div>
-          ) : (
-            <table className="w-full text-left text-xs table-fixed">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="w-24 px-3 py-4">Fecha</th>
-                  <th className="w-28 px-3 py-4">Tipo</th>
-                  <th className="w-auto px-4 py-4">Concepto</th>
-                  <th className="w-32 px-3 py-4">Contrato ID</th>
-                  <th className="w-40 px-3 py-4">Imputación / Rubro</th>
-                  <th className="w-24 px-3 py-4">Medio Pago</th>
-                  <th className="w-40 px-4 py-4 text-right">Monto Neto</th>
-                  <th className="w-24 px-3 py-4 text-right">Acciones</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {movimientosFiltrados.map((m, index) => {
-                  const tipo = String(m.tipo || m.Tipo || 'Egreso').toLowerCase().replace(/o$/, 'a');
-                  const monto = Number(m.monto || m.Monto) || 0;
-                  const rubroImputacion = m.rubro_imputacion || m.Rubro_imputacion || '---';
-                  const tipoInsumo = m.tipo_insumo || m.Tipo_insumo || '';
-                  const contratoIdVal = m.contrato_id || m.Contrato_id || m.contratoid || '---';
-                  const esContabilizada = tipo === 'contabilizada';
-                  const esAnulada = tipo === 'anulada';
-                  const origenMov = inferirOrigenMovimiento(m);
-                  let clasesBadge = 'bg-rose-100 text-rose-800';
-                  let labelBadge = tipo;
-                  if (esAnulada) {
-                    clasesBadge = 'bg-slate-300 text-slate-800';
-                    labelBadge = 'ANULADA';
-                  } else if (esContabilizada) {
-                    if (origenMov === 'compra') {
-                      clasesBadge = 'bg-amber-100 text-amber-800';
-                    } else {
-                      clasesBadge = 'bg-emerald-100 text-emerald-800';
-                    }
-                    labelBadge = 'CONTABILIZADA';
-                  } else if (tipo === 'ingreso') {
-                    clasesBadge = 'bg-emerald-100 text-emerald-800';
-                  }
-                  return (
-                    <tr key={m.id || m.ID || index} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-3 py-4 text-slate-600 truncate">{formatearFechaDisplay(m.fecha || m.Fecha)}</td>
-                      <td className="px-3 py-4">
-                        <span className={`px-2 py-0.5 rounded-full font-bold text-[10px] uppercase ${clasesBadge}`}>
-                          {labelBadge}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 font-bold text-slate-900 break-words">{m.concepto || m.Concepto || '---'}</td>
-                      <td className="px-3 py-4 text-slate-600 truncate font-mono">{contratoIdVal}</td>
-                      <td className="px-3 py-4 text-slate-700">
-                        <span className="font-semibold block truncate">{rubroImputacion}</span>
-                        {tipoInsumo && <span className="text-[10px] text-slate-400 truncate block">{tipoInsumo}</span>}
-                      </td>
-                      <td className="px-3 py-4 uppercase text-slate-600 truncate">{m.medio_pago || m.Medio_pago || '---'}</td>
-                      <td className={`px-4 py-4 text-right font-black whitespace-nowrap ${
-                        esAnulada ? 'text-slate-400 italic'
-                        : monto < 0 ? 'text-rose-600'
-                        : (tipo === 'ingreso' || esContabilizada) ? 'text-emerald-600'
-                        : 'text-slate-900'
-                      }`}>
-                        {esAnulada ? '—' : `$ ${monto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                      </td>
-                      <td className="px-3 py-4 text-right space-x-1">
-                        <button onClick={() => handleEditarMovimiento(m)} className="p-1.5 text-slate-400 hover:text-amber-600 bg-white border rounded shadow-sm" title="Editar"><Edit2 className="w-3.5 h-3.5" /></button>
-                        <button onClick={() => handleEliminarMovimiento(m)} className="p-1.5 text-slate-400 hover:text-red-600 bg-white border rounded shadow-sm" title="Eliminar"><Trash2 className="w-3.5 h-3.5" /></button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+          <TablaMovimientos
+            movimientos={movimientosFiltrados}
+            onEditar={handleEditarMovimiento}
+            onEliminar={handleEliminarMovimiento}
+          />
         </div>
       )}
 
       {activeTab === 'facturas_pagar' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-          {facturasAPagar.length === 0 ? (
-            <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
-              <Clock className="w-10 h-10 text-slate-300" />
-              <span>No hay facturas pendientes de pago para el proveedor seleccionado.</span>
-            </div>
-          ) : (
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="px-6 py-4">Código / N° Factura</th>
-                  <th className="px-6 py-4">Proveedor</th>
-                  <th className="px-4 py-4">Fecha Emisión</th>
-                  <th className="px-4 py-4">Vencimiento</th>
-                  <th className="px-4 py-4 text-right">Total a Pagar</th>
-                  <th className="px-4 py-4 text-center">Estado</th>
-                  <th className="px-6 py-4 text-right">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {facturasAPagar.map((f, index) => {
-                  const provId = f.proveedor_id || f.Proveedor_id;
-                  const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
-                  const totalVal = Number(f.total || f.Total || 0) || 0;
-                  const codigoDisplay = f.codigo || f.Codigo || `FAC-${String(index + 1).padStart(4, '0')}`;
-                  const nFactura = f.n_factura || f.N_factura || '---';
-                  const estadoPago = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
-                  const tipoComp = String(f.comprobante_tipo || f.tipo_comprobante || '').toUpperCase();
-                  const esNC = tipoComp.includes('NOTA DE CREDITO') || tipoComp.includes('NOTA DE CRÉDITO');
-                  return (
-                    <tr key={f.id || f.ID || index} className={`hover:bg-slate-50 transition-colors ${esNC ? 'bg-amber-50/40' : ''}`}>
-                      <td className="px-6 py-4 font-bold text-blue-600">
-                        {codigoDisplay} <span className="text-slate-500 font-normal">({nFactura})</span>
-                        {esNC && <span className="ml-2 px-1.5 py-0.5 bg-amber-200 text-amber-900 text-[9px] font-bold rounded">NC</span>}
-                      </td>
-                      <td className="px-6 py-4 font-bold text-slate-900">{prov?.razon_social || prov?.nombre || 'Proveedor'}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha || f.Fecha)}</td>
-                      <td className="px-4 py-4 font-semibold text-rose-600">{formatearFechaDisplay(f.vencimiento || f.Vencimiento)}</td>
-                      <td className={`px-4 py-4 text-right font-black ${totalVal < 0 ? 'text-rose-600' : 'text-slate-900'}`}>
-                        {totalVal < 0 ? `- $ ${Math.abs(totalVal).toLocaleString('es-AR', { minimumFractionDigits: 2 })}` : `$ ${totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}`}
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${
-                          estadoPago === 'pagado parcial' ? 'bg-sky-100 text-sky-800'
-                          : estadoPago === 'contabilizado' ? 'bg-emerald-100 text-emerald-800'
-                          : 'bg-amber-100 text-amber-800'
-                        }`}>
-                          {estadoPago}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {esNC ? (
-                          estadoPago === 'contabilizado' ? (
-                            <span className="text-[11px] text-emerald-700 font-bold">✓ Contabilizada</span>
-                          ) : (
-                            <button
-                              onClick={() => handleContabilizarNC(f)}
-                              className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
-                            >
-                              Contabilizar
-                            </button>
-                          )
-                        ) : (
-                          <button
-                            onClick={() => handlePagarFacturaCompra(f)}
-                            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
-                          >
-                            Registrar Pago
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+          <TablaFacturasPagar
+            facturas={facturasAPagar}
+            proveedores={proveedores}
+            onPagar={handlePagarFacturaCompra}
+            onContabilizarNC={handleContabilizarNC}
+          />
         </div>
       )}
 
       {activeTab === 'facturas_cobrar' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-          {facturasACobrar.length === 0 ? (
-            <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
-              <Clock className="w-10 h-10 text-slate-300" />
-              <span>No hay facturas de venta pendientes de cobro.</span>
-            </div>
-          ) : (
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="px-6 py-4">Tipo / N° Comprobante</th>
-                  <th className="px-6 py-4">Cliente</th>
-                  <th className="px-4 py-4">Fecha Emisión</th>
-                  <th className="px-4 py-4">Vencimiento</th>
-                  <th className="px-4 py-4 text-right">Total a Cobrar</th>
-                  <th className="px-4 py-4 text-center">Archivo</th>
-                  <th className="px-4 py-4 text-center">Estado</th>
-                  <th className="px-6 py-4 text-right">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {facturasACobrar.map((f, index) => {
-                  const cliId = f.cliente_id || f.Cliente_id;
-                  const cliente = clientes.find(c => String(c.id || c.ID) === String(cliId));
-                  const totalVal = Number(f.total || f.Total || 0) || 0;
-                  const tipoComp = f.tipo_comprobante || f.Tipo_comprobante || 'FACTURA A';
-                  const nComp = f.numero_comp || f.Numero_comp || '---';
-                  const estadoPago = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
-                  const urlArchivo = f.archivo_url || f.Archivo_url || f.archivo || f.Archivo || '';
-                  return (
-                    <tr key={f.id || f.ID || index} className="hover:bg-slate-50 transition-colors">
-                      <td className="px-6 py-4 font-bold text-sky-600">{tipoComp} <span className="text-slate-500 font-normal">({nComp})</span></td>
-                      <td className="px-6 py-4 font-bold text-slate-900">{cliente?.razon_social || cliente?.nombre || 'Cliente'}</td>
-                      <td className="px-4 py-4 text-slate-600">{formatearFechaDisplay(f.fecha_emision || f.Fecha_emision || f.fecha || f.Fecha)}</td>
-                      <td className="px-4 py-4 font-semibold text-rose-600">{formatearFechaDisplay(f.fecha_vencimiento || f.Fecha_vencimiento || f.vencimiento || f.Vencimiento)}</td>
-                      <td className="px-4 py-4 text-right font-black text-slate-900">$ {totalVal.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-4 text-center">
-                        {urlArchivo && String(urlArchivo).startsWith('http') ? (
-                          <a
-                            href={urlArchivo}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center justify-center p-1.5 bg-sky-50 text-sky-600 hover:bg-sky-100 rounded-lg transition-colors border border-sky-200 shadow-sm"
-                            title="Ver comprobante en Google Drive"
-                          >
-                            <Paperclip className="w-4 h-4" />
-                          </a>
-                        ) : (
-                          <span className="text-slate-300 text-[10px]">Sin archivo</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-4 text-center">
-                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${estadoPago === 'pagado parcial' ? 'bg-sky-100 text-sky-800' : 'bg-amber-100 text-amber-800'}`}>
-                          {estadoPago}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        <button
-                          onClick={() => handleCobrarFacturaVenta(f)}
-                          className="px-3 py-1.5 bg-sky-500 hover:bg-sky-600 text-white rounded-lg font-bold text-[11px] shadow-sm transition-colors"
-                        >
-                          Registrar Cobro
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+          <TablaFacturasCobrar
+            facturas={facturasACobrar}
+            clientes={clientes}
+            obras={obras}
+            onCobrar={handleCobrarFacturaVenta}
+            onEditar={handleEditarFacturaVenta}
+          />
         </div>
       )}
 
       {activeTab === 'cashflow' && (
         <div className="space-y-8">
-          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
-            <h3 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-amber-500" /> Cash Flow Mensual
-            </h3>
-            {listaMensual.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs">No hay datos suficientes para mostrar el cash flow mensual.</div>
-            ) : (
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
-                      <th className="px-6 py-3">Periodo (Mes)</th>
-                      <th className="px-4 py-3 text-right text-emerald-600">Ingresos</th>
-                      <th className="px-4 py-3 text-right text-rose-600">Egresos</th>
-                      <th className="px-6 py-3 text-right">Neto / Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {listaMensual.map((row, idx) => {
-                      const neto = row.ingresos - row.egresos;
-                      return (
-                        <tr key={idx} className="hover:bg-slate-50">
-                          <td className="px-6 py-3 font-bold text-slate-800">{row.periodo}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-emerald-600">$ {row.ingresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-rose-600">$ {row.egresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className={`px-6 py-3 text-right font-black ${neto >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {neto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-          <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-4">
-            <h3 className="font-extrabold text-sm uppercase text-slate-800 flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-amber-500" /> Cash Flow Anual
-            </h3>
-            {listaAnual.length === 0 ? (
-              <div className="py-12 text-center text-slate-400 text-xs">No hay datos suficientes para mostrar el cash flow anual.</div>
-            ) : (
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
-                      <th className="px-6 py-3">Año</th>
-                      <th className="px-4 py-3 text-right text-emerald-600">Ingresos</th>
-                      <th className="px-4 py-3 text-right text-rose-600">Egresos</th>
-                      <th className="px-6 py-3 text-right">Neto / Balance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {listaAnual.map((row, idx) => {
-                      const neto = row.ingresos - row.egresos;
-                      return (
-                        <tr key={idx} className="hover:bg-slate-50">
-                          <td className="px-6 py-3 font-bold text-slate-800">{row.periodo}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-emerald-600">$ {row.ingresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className="px-4 py-3 text-right font-semibold text-rose-600">$ {row.egresos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                          <td className={`px-6 py-3 text-right font-black ${neto >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {neto.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          <CashFlowTabla titulo="Cash Flow Mensual" filas={listaMensual} columnaPeriodo="Periodo (Mes)" />
+          <CashFlowTabla titulo="Cash Flow Anual" filas={listaAnual} columnaPeriodo="Año" />
         </div>
       )}
 
@@ -1796,7 +1118,7 @@ export default function Tesoreria() {
             </div>
             <div className="bg-amber-50/40 border border-amber-200 p-6 rounded-2xl shadow-sm">
               <p className="text-xs font-bold text-amber-700 uppercase">Retenciones IVA</p>
-              <h3 className="text-2xl font-black text-amber-900 mt-2">$ {totalRetencionesIvaMovimientos.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+              <h3 className="text-2xl font-black text-amber-900 mt-2">$ {totalRetencionesIva.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
               <span className="text-[11px] text-slate-500 mt-1 block">Pagos a cuenta sufridos</span>
             </div>
             <div className="bg-emerald-50/40 border border-emerald-200 p-6 rounded-2xl shadow-sm">
@@ -1806,9 +1128,10 @@ export default function Tesoreria() {
             </div>
           </div>
           <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm space-y-2">
-            <h4 className="text-xs font-extrabold text-slate-800 uppercase">Cálculo: Posición IVA = IVA Ventas – IVA Compras – Retenciones IVA</h4>
+            <h4 className="text-xs font-extrabold text-slate-800 uppercase">Cálculo: IVA Ventas – IVA Compras – Retenciones IVA</h4>
             <p className="text-xs text-slate-600 font-mono">
-              $ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalRetencionesIvaMovimientos.toLocaleString('es-AR', { minimumFractionDigits: 2 })} = <span className="font-bold text-emerald-600">$ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })} ({posicionIva <= 0 ? 'A favor' : 'A pagar'})</span>
+              $ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalRetencionesIva.toLocaleString('es-AR', { minimumFractionDigits: 2 })} =
+              <span className="font-bold text-emerald-600 ml-2">$ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })} ({posicionIva <= 0 ? 'A favor' : 'A pagar'})</span>
             </p>
           </div>
         </div>
@@ -1816,661 +1139,81 @@ export default function Tesoreria() {
 
       {activeTab === 'retenciones' && (
         <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
-          {retencionesFiltradas.length === 0 ? (
-            <div className="p-16 text-center text-slate-400 text-sm flex flex-col items-center justify-center gap-2">
-              <FileText className="w-10 h-10 text-slate-300" />
-              <span>No hay retenciones registradas.</span>
-            </div>
-          ) : (
-            <table className="w-full text-left text-xs">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider border-b border-slate-200">
-                  <th className="px-4 py-4">Fecha</th>
-                  <th className="px-4 py-4">Tipo</th>
-                  <th className="px-6 py-4">Cliente/Proveedor</th>
-                  <th className="px-4 py-4">Comprobante</th>
-                  <th className="px-4 py-4">Obra</th>
-                  <th className="px-4 py-4">Presupuesto</th>
-                  <th className="px-4 py-4 text-right">Monto</th>
-                  <th className="px-6 py-4 text-center">Certificado</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {retencionesFiltradas.map(r => {
-                  const provId = r.proveedor_id || '';
-                  const cliId = r.cliente_id || '';
-                  const prov = proveedores.find(p => String(p.id || p.ID) === String(provId));
-                  const cli = clientes.find(c => String(c.id || c.ID) === String(cliId));
-                  const terceroNombre = prov?.razon_social || prov?.nombre || cli?.razon_social || cli?.nombre || '---';
-                  
-                  const obraId = r.obra_id || '';
-                  const obra = obras.find(o => String(o.id || o.ID) === String(obraId));
-                  const presId = r.presupuesto_id || '';
-                  const presu = presupuestos.find(p => String(p.id || p.ID) === String(presId));
-                  const rId = r.id || r.ID;
-                  const tieneCertificado = r.certificado_url && r.certificado_url.startsWith('http');
-                  const subiendo = String(subiendoCertificadoId) === String(rId);
-                  let badgeClase = 'bg-slate-100 text-slate-800';
-                  if (r.tipo === 'SUSS') badgeClase = 'bg-blue-100 text-blue-800';
-                  else if (r.tipo === 'IVA') badgeClase = 'bg-amber-100 text-amber-800';
-                  else if (r.tipo === 'Ganancias') badgeClase = 'bg-rose-100 text-rose-800';
-                  else if (r.tipo === 'IIBB PBA') badgeClase = 'bg-emerald-100 text-emerald-800';
-                  else if (r.tipo === 'IIBB CABA') badgeClase = 'bg-cyan-100 text-cyan-800';
-                  return (
-                    <tr key={rId} className="hover:bg-slate-50">
-                      <td className="px-4 py-3 text-slate-600">{formatearFechaDisplay(r.fecha)}</td>
-                      <td className="px-4 py-3">
-                        <span className={`px-2.5 py-1 rounded-full font-bold text-[10px] uppercase ${badgeClase}`}>
-                          {r.tipo}
-                        </span>
-                        {r.es_manual && <span className="ml-1 text-[9px] text-slate-400 italic">manual</span>}
-                      </td>
-                      <td className="px-6 py-3 font-bold text-slate-900">{terceroNombre}</td>
-                      <td className="px-4 py-3 text-slate-600 truncate">{r.comprobante_asociado || '---'}</td>
-                      <td className="px-4 py-3 text-slate-600 truncate">{obra?.codigo ? `${obra.codigo} - ${obra.nombre || obra.nombre_obra}` : '---'}</td>
-                      <td className="px-4 py-3 text-slate-600 truncate">{presu?.codigo || '---'}</td>
-                      <td className="px-4 py-3 text-right font-black text-slate-900">$ {Number(r.monto || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</td>
-                      <td className="px-6 py-3 text-center">
-                        {tieneCertificado ? (
-                          <a
-                            href={r.certificado_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 rounded-lg font-bold text-[10px] border border-emerald-200 hover:bg-emerald-100"
-                          >
-                            <Paperclip className="w-3 h-3" /> Ver
-                          </a>
-                        ) : (
-                          <div>
-                            <input
-                              type="file"
-                              accept=".pdf,.jpg,.jpeg,.png"
-                              id={`cert-file-${rId}`}
-                              className="hidden"
-                              onChange={(e) => {
-                                const file = e.target.files[0];
-                                if (file) handleSubirCertificadoRetencion(r, file);
-                              }}
-                            />
-                            <label
-                              htmlFor={`cert-file-${rId}`}
-                              className={`px-3 py-1.5 rounded-lg text-[10px] font-bold cursor-pointer inline-flex items-center gap-1 transition-colors ${
-                                subiendo
-                                  ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
-                                  : 'bg-amber-500 text-white hover:bg-amber-600'
-                              }`}
-                            >
-                              {subiendo ? (
-                                <><Loader2 className="w-3 h-3 animate-spin" /> Subiendo...</>
-                              ) : (
-                                <><Upload className="w-3 h-3" /> Subir PDF</>
-                              )}
-                            </label>
-                          </div>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
+          <TablaRetenciones
+            retenciones={retencionesFiltradas}
+            proveedores={proveedores}
+            clientes={clientes}
+            obras={obras}
+            presupuestos={presupuestos}
+            subiendoCertificadoId={subiendoCertificadoId}
+            onSubirCertificado={handleSubirCertificadoRetencion}
+          />
         </div>
       )}
 
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-2xl overflow-hidden my-8">
-            <div className="flex justify-between items-center px-6 py-4 border-b bg-slate-50">
-              <h3 className="font-bold text-slate-900">{editingId ? 'Editar Movimiento' : 'Nuevo Movimiento con Retenciones'}</h3>
-              <button onClick={() => setIsModalOpen(false)} disabled={isSaving} className="text-slate-400 hover:text-slate-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
-            </div>
-            <form onSubmit={handleGuardarMovimiento} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo *</label>
-                  <select required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.tipo} onChange={(e) => setFormData({...formData, tipo: e.target.value})}>
-                    <option value="Egreso">Egreso</option>
-                    <option value="Ingreso">Ingreso</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha *</label>
-                  <input type="date" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.fecha} onChange={(e) => setFormData({...formData, fecha: e.target.value})} />
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto *</label>
-                  <input type="text" required disabled={isSaving} placeholder="Descripción del movimiento..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.concepto} onChange={(e) => setFormData({...formData, concepto: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
-                  <select
-                    disabled={isSaving}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                    value={formData.obra_id}
-                    onChange={(e) => setFormData({...formData, obra_id: e.target.value, presupuesto_id: '', rubro_imputacion: ''})}
-                  >
-                    <option value="">Seleccione obra...</option>
-                    {obras.map(o => <option key={o.id || o.ID} value={o.id || o.ID}>{o.nombre || o.Nombre}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado</label>
-                  <select
-                    disabled={isSaving || !formData.obra_id}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                    value={formData.presupuesto_id}
-                    onChange={(e) => setFormData({...formData, presupuesto_id: e.target.value, rubro_imputacion: ''})}
-                  >
-                    <option value="">{formData.obra_id ? 'Seleccione presupuesto...' : 'Primero seleccione obra...'}</option>
-                    {presupuestosDisponibles.map(p => (
-                      <option key={p.id || p.ID} value={p.id || p.ID}>
-                        {p.codigo || p.Codigo || `Presupuesto #${p.id || p.ID}`} - {p.nombre || p.Nombre || ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contrato (Opcional)</label>
-                  <select
-                    disabled={isSaving}
-                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                    value={formData.contrato_id}
-                    onChange={(e) => setFormData({...formData, contrato_id: e.target.value})}
-                  >
-                    <option value="">Seleccione contrato...</option>
-                    {contratos.map(c => (
-                      <option key={c.id || c.ID} value={c.id || c.ID}>
-                        {c.codigo || c.Codigo || `Contrato #${c.id || c.ID}`} - {c.nombre || c.Nombre || ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {formData.tipo === 'Egreso' && (
-                  <>
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
-                      <select
-                        disabled={isSaving}
-                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                        value={formData.tipo_insumo}
-                        onChange={(e) => setFormData({...formData, tipo_insumo: e.target.value, rubro_imputacion: ''})}
-                      >
-                        <option value="Materiales">Materiales</option>
-                        <option value="Mano de Obra">Mano de Obra</option>
-                        <option value="Subcontratos">Subcontratos</option>
-                        <option value="Equipos y herramientas">Equipos y herramientas</option>
-                        <option value="Gastos Generales">Gastos Generales</option>
-                      </select>
-                    </div>
-                    <div className="sm:col-span-2">
-                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
-                      {String(formData.tipo_insumo).toLowerCase() === 'gastos generales' ? (
-                        <select
-                          disabled={isSaving}
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                          value={formData.rubro_imputacion}
-                          onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
-                        >
-                          <option value="">Seleccione gasto general...</option>
-                          {gastosGeneralesConceptos.map((g, idx) => <option key={idx} value={g}>{g}</option>)}
-                        </select>
-                      ) : (
-                        <select
-                          disabled={isSaving || !formData.presupuesto_id}
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                          value={formData.rubro_imputacion}
-                          onChange={(e) => setFormData({...formData, rubro_imputacion: e.target.value})}
-                        >
-                          <option value="">{formData.presupuesto_id ? 'Seleccione rubro del presupuesto...' : 'Primero seleccione presupuesto...'}</option>
-                          {rubrosDelPresupuesto.map((r, idx) => (
-                            <option key={idx} value={r}>{r}</option>
-                          ))}
-                        </select>
-                      )}
-                    </div>
-                  </>
-                )}
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Monto Bruto / Factura ($) *</label>
-                  <input type="number" step="0.01" required disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.monto} onChange={(e) => setFormData({...formData, monto: e.target.value})} />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Medio de Pago</label>
-                  <select disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100" value={formData.medio_pago} onChange={(e) => setFormData({...formData, medio_pago: e.target.value})}>
-                    <option value="transferencia">Transferencia</option>
-                    <option value="efectivo">Efectivo</option>
-                    <option value="cheque">Cheque</option>
-                    <option value="tarjeta">Tarjeta</option>
-                  </select>
-                </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Referencia</label>
-                  <input type="text" disabled={isSaving} placeholder="N° cheque, transferencia..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.referencia} onChange={(e) => setFormData({...formData, referencia: e.target.value})} />
-                </div>
-              </div>
+      {/* Modales */}
+      <ModalMovimiento
+        isOpen={isModalMovOpen}
+        onClose={() => setIsModalMovOpen(false)}
+        onSubmit={handleGuardarMovimiento}
+        formData={formDataMov}
+        setFormData={setFormDataMov}
+        isSaving={isSavingMov}
+        editingId={editingMovId}
+        obras={obras}
+        contratos={contratos}
+        presupuestosDisponibles={presupuestosDisponibles}
+        rubrosDelPresupuesto={rubrosDelPresupuesto}
+        gastosGeneralesConceptos={gastosGeneralesConceptos}
+        facturasVenta={facturasVentas}
+        facturasCompra={facturasCompras}
+        clientes={clientes}
+        proveedores={proveedores}
+        totalRetenciones={totalRetencionesMov}
+        montoNetoEfectivo={montoNetoEfectivo}
+        onAgregarFacturaFila={handleAgregarFacturaFila}
+        onCambiarFacturaFila={handleCambiarFacturaFila}
+        onQuitarFacturaFila={handleQuitarFacturaFila}
+      />
 
-              <div className="space-y-3 pt-4 border-t">
-                <h4 className="font-extrabold text-xs uppercase text-slate-800">Retenciones Sufridas (Descuentos)</h4>
-                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">SUSS ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_suss} onChange={(e) => setFormData({...formData, retencion_suss: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">IVA ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iva} onChange={(e) => setFormData({...formData, retencion_iva: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">Ganancias ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_ganancias} onChange={(e) => setFormData({...formData, retencion_ganancias: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">IIBB PBA ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iibb_pba} onChange={(e) => setFormData({...formData, retencion_iibb_pba: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">IIBB CABA ($)</label>
-                    <input type="number" step="0.01" disabled={isSaving} className="w-full bg-white border border-slate-300 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.retencion_iibb_caba} onChange={(e) => setFormData({...formData, retencion_iibb_caba: e.target.value})} />
-                  </div>
-                  <div className="bg-amber-50 p-2 rounded-xl border border-amber-200 flex flex-col justify-center">
-                    <span className="text-[10px] font-bold text-amber-800 uppercase">Neto Cash Flow:</span>
-                    <span className="text-xs font-black text-amber-900">$ {montoNetoEfectivo.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
-                  </div>
-                </div>
-              </div>
+      <ModalFacturaVenta
+        isOpen={isModalVentaOpen}
+        onClose={() => setIsModalVentaOpen(false)}
+        onSubmit={handleGuardarFacturaVenta}
+        paso={pasoFacturaVenta}
+        setPaso={setPasoFacturaVenta}
+        leyendoFactura={leyendoFactura}
+        onSubirArchivo={procesarArchivoFacturaVenta}
+        formDataVenta={formDataVenta}
+        setFormDataVenta={setFormDataVenta}
+        archivoBase64Venta={archivoBase64Venta}
+        setArchivoBase64Venta={setArchivoBase64Venta}
+        nombreArchivoVenta={nombreArchivoVenta}
+        setNombreArchivoVenta={setNombreArchivoVenta}
+        isSavingVenta={isSavingVenta}
+        editingId={editingVentaId}
+        clientes={clientes}
+        obras={obras}
+        candidatosCliente={candidatosCliente}
+        nombreClienteOCR={nombreClienteOCR}
+        onAgregarItem={handleAgregarItem}
+        onCambiarItem={handleCambiarItem}
+        onQuitarItem={handleQuitarItem}
+      />
 
-              <div className="space-y-3 pt-4 border-t">
-                <div className="flex justify-between items-center">
-                  <div>
-                    <h4 className="font-extrabold text-xs uppercase text-slate-800">
-                      {formData.tipo.toLowerCase() === 'ingreso' ? 'Aplicar a Facturas de Venta (Cobro)' : 'Aplicar a Facturas de Compra (Pago)'}
-                    </h4>
-                    <p className="text-[11px] text-slate-500">Asocia este movimiento a una o varias facturas (montos totales o parciales).</p>
-                  </div>
-                  <button type="button" onClick={handleAgregarFacturaFila} disabled={isSaving} className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold transition-colors disabled:opacity-50">
-                    <Plus className="w-3.5 h-3.5" /> Agregar Factura
-                  </button>
-                </div>
-                <div className="border border-slate-200 rounded-xl overflow-hidden">
-                  <table className="w-full text-left text-xs">
-                    <thead>
-                      <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
-                        <th className="px-3 py-2.5">Factura</th>
-                        <th className="px-3 py-2.5 w-36 text-right">Monto Aplicado</th>
-                        <th className="px-3 py-2.5 w-12 text-center">Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {Array.isArray(formData.facturas_aplicadas) && formData.facturas_aplicadas.map((item) => (
-                        <tr key={item.id} className="hover:bg-slate-50">
-                          <td className="px-3 py-2">
-                            <select
-                              disabled={isSaving}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100"
-                              value={item.factura_id}
-                              onChange={(e) => handleCambiarFacturaFila(item.id, 'factura_id', e.target.value)}
-                            >
-                              <option value="">Seleccionar factura...</option>
-                              {String(formData.tipo).toLowerCase() === 'ingreso' ? (
-                                facturasVenta
-                                  .filter(f => String(f.estado_pago || '').toLowerCase() !== 'anulada' && f.es_nota_credito !== true && f.es_nota_debito !== true)
-                                  .map(f => {
-                                    const cli = clientes.find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
-                                    const facturaIdReal = f.id || f.ID;
-                                    return (
-                                      <option key={facturaIdReal} value={facturaIdReal}>
-                                        {f.tipo_comprobante || 'FAC'} ({f.numero_comp || ''}) - {cli?.razon_social || cli?.nombre || 'Cliente'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
-                                      </option>
-                                    );
-                                  })
-                              ) : (
-                                facturas
-                                  .filter(f => String(f.estado_pago || '').toLowerCase() !== 'anulada' && f.es_nota_credito !== true)
-                                  .map(f => {
-                                    const prov = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
-                                    const facturaCompraIdReal = f.id || f.ID;
-                                    return (
-                                      <option key={facturaCompraIdReal} value={facturaCompraIdReal}>
-                                        {f.codigo || 'FAC'} - {prov?.razon_social || prov?.nombre || 'Proveedor'} ($ {Number(f.total || 0).toLocaleString('es-AR')})
-                                      </option>
-                                    );
-                                  })
-                              )}
-                            </select>
-                          </td>
-                          <td className="px-3 py-2 text-right">
-                            <input
-                              type="number"
-                              step="0.01"
-                              disabled={isSaving}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-amber-500 disabled:bg-slate-100"
-                              value={item.monto}
-                              onChange={(e) => handleCambiarFacturaFila(item.id, 'monto', e.target.value)}
-                            />
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            <button type="button" onClick={() => handleQuitarFacturaFila(item.id)} disabled={isSaving} className="text-slate-400 hover:text-red-600 disabled:opacity-50"><Trash2 className="w-4 h-4 mx-auto" /></button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-4 border-t">
-                <button type="button" onClick={() => setIsModalOpen(false)} disabled={isSaving} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Cancelar</button>
-                <button type="submit" disabled={isSaving} className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
-                  {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-                  {isSaving ? 'Registrando...' : (editingId ? 'Actualizar' : 'Registrar')}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {isFacturaVentaModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-3xl overflow-hidden my-8">
-            <div className="flex justify-between items-center px-6 py-4 border-b bg-sky-50">
-              <h3 className="font-bold text-sky-950">+ Nueva Factura de Venta</h3>
-              <button onClick={() => setIsFacturaVentaModalOpen(false)} disabled={isSavingVenta} className="text-sky-400 hover:text-sky-700 disabled:opacity-50"><X className="w-5 h-5"/></button>
-            </div>
-            {pasoFacturaVenta === 'subir' ? (
-              <div className="p-8 space-y-6 text-center">
-                {leyendoFactura ? (
-                  <div className="py-12 space-y-4">
-                    <div className="w-16 h-16 bg-sky-100 text-sky-600 rounded-2xl flex items-center justify-center mx-auto animate-pulse">
-                      <Loader2 className="w-8 h-8 animate-spin" />
-                    </div>
-                    <div>
-                      <h4 className="text-base font-extrabold text-slate-900">Analizando factura con Inteligencia Artificial...</h4>
-                      <p className="text-xs text-slate-500 mt-1">Extrayendo número, cliente, fechas, ítems e importes automáticamente.</p>
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="w-16 h-16 bg-sky-50 text-sky-500 rounded-2xl flex items-center justify-center mx-auto shadow-sm">
-                      <Upload className="w-8 h-8" />
-                    </div>
-                    <div>
-                      <h4 className="text-base font-extrabold text-slate-900">Subir factura de venta (IA)</h4>
-                      <p className="text-xs text-slate-500 mt-1">Selecciona el archivo PDF o imagen para leerlo mediante IA y completar el formulario.</p>
-                    </div>
-                    <div className="max-w-md mx-auto space-y-4">
-                      <label className="border-2 border-dashed border-sky-300 rounded-2xl p-8 bg-sky-50/50 hover:bg-sky-50 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 block">
-                        <Upload className="w-10 h-10 text-sky-500 mb-1" />
-                        <span className="text-xs font-bold text-sky-900">Haz clic para seleccionar el comprobante</span>
-                        <span className="text-[10px] text-slate-400">Soporta PDF, PNG, JPG (Procesamiento con IA del servidor)</span>
-                        <input
-                          type="file"
-                          accept=".pdf,.png,.jpg,.jpeg"
-                          className="hidden"
-                          onChange={procesarArchivoFacturaVenta}
-                          disabled={leyendoFactura}
-                        />
-                      </label>
-                    </div>
-                    <div className="flex justify-between items-center pt-4 border-t">
-                      <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} className="px-4 py-2 text-xs font-semibold text-slate-600">Cancelar</button>
-                      <button
-                        type="button"
-                        onClick={() => setPasoFacturaVenta('formulario')}
-                        className="text-xs text-sky-600 font-bold hover:underline"
-                      >
-                        O completar manualmente &rarr;
-                      </button>
-                    </div>
-                  </>
-                )}
-              </div>
-            ) : (
-              <form onSubmit={handleGuardarFacturaVenta} className="p-6 space-y-6 max-h-[80vh] overflow-y-auto">
-                <div className="flex items-center justify-between bg-sky-50 p-3 rounded-xl border border-sky-200">
-                  <div className="flex items-center gap-2">
-                    <Sparkles className="w-4 h-4 text-sky-600" />
-                    <span className="text-xs font-bold text-sky-950">
-                      {archivoBase64Venta ? `Factura analizada (${nombreArchivoVenta || 'Adjunta'})` : 'Formulario completado manualmente'}
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setPasoFacturaVenta('subir')}
-                    disabled={isSavingVenta}
-                    className="flex items-center gap-1.5 text-xs font-bold text-sky-600 hover:text-sky-800 disabled:opacity-50"
-                  >
-                    <ArrowLeft className="w-4 h-4" /> Cambiar archivo
-                  </button>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <div className="sm:col-span-3">
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Comprobante *</label>
-                    <select
-                      required
-                      disabled={isSavingVenta}
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 uppercase disabled:bg-slate-100"
-                      value={formDataVenta.tipo_comprobante}
-                      onChange={(e) => setFormDataVenta({ ...formDataVenta, tipo_comprobante: e.target.value })}
-                    >
-                      <optgroup label="── FACTURAS ──">
-                        <option value="FACTURA A">FACTURA A</option>
-                        <option value="FACTURA B">FACTURA B</option>
-                        <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) A</option>
-                        <option value="FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B">FACTURA DE CREDITO ELECTRONICA MiPyMEs (FCE) B</option>
-                      </optgroup>
-                      <optgroup label="── NOTAS DE CRÉDITO ──">
-                        <option value="NOTA DE CREDITO A">NOTA DE CREDITO A</option>
-                        <option value="NOTA DE CREDITO B">NOTA DE CREDITO B</option>
-                        <option value="NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A">NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) A</option>
-                        <option value="NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B">NOTA DE CREDITO ELECTRONICA MiPyMEs (FCE) B</option>
-                      </optgroup>
-                      <optgroup label="── NOTAS DE DÉBITO ──">
-                        <option value="NOTA DE DEBITO A">NOTA DE DEBITO A</option>
-                        <option value="NOTA DE DEBITO B">NOTA DE DEBITO B</option>
-                        <option value="NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A">NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) A</option>
-                        <option value="NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B">NOTA DE DEBITO ELECTRONICA MiPyMEs (FCE) B</option>
-                      </optgroup>
-                      <optgroup label="── RECIBOS ──">
-                        <option value="RECIBO A">RECIBO A</option>
-                        <option value="RECIBO B">RECIBO B</option>
-                      </optgroup>
-                    </select>
-                    {archivoBase64Venta && formDataVenta.tipo_comprobante && (
-                      <p className="text-[10px] text-emerald-600 font-bold mt-1 flex items-center gap-1">
-                        <Check className="w-3 h-3" /> Tipo detectado por IA: {formDataVenta.tipo_comprobante}
-                      </p>
-                    )}
-                    {esNotaCredito(formDataVenta.tipo_comprobante) && (
-                      <div className="mt-2 flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        <FileText className="w-3.5 h-3.5 text-amber-600 mt-0.5 shrink-0" />
-                        <p className="text-[10px] font-bold text-amber-900">
-                          Este comprobante es una Nota de Crédito. Al guardar, los importes se registrarán en NEGATIVO automáticamente y la factura que anula quedará marcada como ANULADA.
-                        </p>
-                      </div>
-                    )}
-                    {esNotaCredito(formDataVenta.tipo_comprobante) && (
-                      <div className="mt-2">
-                        <label className="block text-xs font-bold text-slate-700 uppercase mb-1">
-                          Comprobante que Anula (Punto Venta-Número) *
-                        </label>
-                        <input
-                          type="text"
-                          required={esNotaCredito(formDataVenta.tipo_comprobante)}
-                          disabled={isSavingVenta}
-                          placeholder="Ej: 00001-00000172"
-                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100"
-                          value={formDataVenta.comprobante_anula}
-                          onChange={(e) => setFormDataVenta({ ...formDataVenta, comprobante_anula: e.target.value })}
-                        />
-                        <p className="text-[10px] text-slate-500 mt-1">
-                          Ingresá el punto de venta y número de la factura que esta Nota de Crédito anula. Formato: <strong>00001-00000172</strong>
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Punto de Venta</label>
-                    <input type="text" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.punto_venta} onChange={(e) => setFormDataVenta({...formDataVenta, punto_venta: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Comp. Nro *</label>
-                    <input type="text" required disabled={isSavingVenta} placeholder="Ej: 00000171" className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.numero_comp} onChange={(e) => setFormDataVenta({...formDataVenta, numero_comp: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Cliente *</label>
-                    <select required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.cliente_id} onChange={(e) => setFormDataVenta({...formDataVenta, cliente_id: e.target.value})}>
-                      <option value="">Seleccione cliente...</option>
-                      {clientes.map(c => <option key={c.id || c.ID} value={c.id || c.ID}>{c.razon_social || c.nombre}</option>)}
-                    </select>
-                  </div>
-                  {candidatosCliente.length > 1 && (
-                    <div className="sm:col-span-3 bg-amber-50 border-2 border-amber-400 rounded-lg px-4 py-3">
-                      <div className="flex items-start gap-2 mb-2">
-                        <AlertTriangle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                        <div>
-                          <p className="text-xs font-bold text-amber-900">
-                            El OCR detectó "<strong>{nombreClienteOCR}</strong>" — hay {candidatosCliente.length} clientes parecidos.
-                          </p>
-                          <p className="text-[10px] text-amber-700 mt-1">Elegí el correcto:</p>
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {candidatosCliente.map((cliCand) => {
-                          const cliIdCand = cliCand.id || cliCand.ID || cliCand.Id;
-                          const cliNomCand = cliCand.razon_social || cliCand.nombre || 'Cliente';
-                          const seleccionado = String(formDataVenta.cliente_id) === String(cliIdCand);
-                          return (
-                            <button
-                              key={cliIdCand}
-                              type="button"
-                              onClick={() => setFormDataVenta({ ...formDataVenta, cliente_id: cliIdCand })}
-                              className={`px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-colors ${
-                                seleccionado
-                                  ? 'bg-amber-500 text-white border-amber-600'
-                                  : 'bg-white text-amber-800 border-amber-300 hover:bg-amber-100'
-                              }`}
-                            >
-                              {seleccionado ? '✓ ' : ''}{cliNomCand}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
-                    <input type="date" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.fecha_emision} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_emision: e.target.value})} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Vto. Pago</label>
-                    <input type="date" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.fecha_vencimiento} onChange={(e) => setFormDataVenta({...formDataVenta, fecha_vencimiento: e.target.value})} />
-                  </div>
-                </div>
-                <div className="space-y-3 pt-4 border-t">
-                  <div className="flex justify-between items-center">
-                    <h4 className="font-extrabold text-xs uppercase text-slate-800">Detalle de Conceptos / Ítems</h4>
-                    <button type="button" onClick={handleAgregarItemVenta} disabled={isSavingVenta} className="flex items-center gap-1.5 px-3 py-1.5 bg-sky-50 hover:bg-sky-100 text-sky-700 rounded-lg text-xs font-bold transition-colors disabled:opacity-50">
-                      <Plus className="w-3.5 h-3.5" /> Agregar Ítem
-                    </button>
-                  </div>
-                  <div className="border border-slate-200 rounded-xl overflow-hidden">
-                    <table className="w-full text-left text-xs">
-                      <thead>
-                        <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
-                          <th className="px-3 py-2.5">Descripción / Producto / Servicio</th>
-                          <th className="px-3 py-2.5 w-20 text-center">Cant.</th>
-                          <th className="px-3 py-2.5 w-28 text-right">P. Unitario</th>
-                          <th className="px-3 py-2.5 w-36 text-right">Subtotal</th>
-                          <th className="px-3 py-2.5 w-12 text-center">Acción</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {formDataVenta.items.map((item) => (
-                          <tr key={item.id} className="hover:bg-slate-50">
-                            <td className="px-3 py-2">
-                              <input
-                                type="text"
-                                disabled={isSavingVenta}
-                                placeholder="Detalle del concepto..."
-                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-semibold outline-none focus:border-sky-500 disabled:bg-slate-100"
-                                value={item.descripcion}
-                                onChange={(e) => handleCambiarItemVenta(item.id, 'descripcion', e.target.value)}
-                              />
-                            </td>
-                            <td className="px-3 py-2">
-                              <input
-                                type="number"
-                                step="0.01"
-                                disabled={isSavingVenta}
-                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-center font-bold outline-none focus:border-sky-500 disabled:bg-slate-100"
-                                value={item.cantidad}
-                                onChange={(e) => handleCambiarItemVenta(item.id, 'cantidad', e.target.value)}
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-right">
-                              <input
-                                type="number"
-                                step="0.01"
-                                disabled={isSavingVenta}
-                                className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-right font-bold outline-none focus:border-sky-500 disabled:bg-slate-100"
-                                value={item.precio_unitario}
-                                onChange={(e) => handleCambiarItemVenta(item.id, 'precio_unitario', e.target.value)}
-                              />
-                            </td>
-                            <td className="px-3 py-2 text-right font-black text-slate-900 whitespace-nowrap">
-                              $ {Number(item.subtotal || 0).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                            </td>
-                            <td className="px-3 py-2 text-center">
-                              <button type="button" onClick={() => handleQuitarItemVenta(item.id)} disabled={isSavingVenta} className="text-slate-400 hover:text-red-600 disabled:opacity-50"><Trash2 className="w-4 h-4 mx-auto" /></button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Neto Gravado ($)</label>
-                    <input type="number" step="0.01" className="w-full bg-slate-50 border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none" value={formDataVenta.neto_gravado} readOnly />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 21% ($)</label>
-                    <input type="number" step="0.01" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.iva_21} onChange={(e) => {
-                      const iva = Number(e.target.value) || 0;
-                      const total = Number(formDataVenta.neto_gravado) + iva + Number(formDataVenta.iva_105 || 0) + Number(formDataVenta.otros_tributos || 0);
-                      setFormDataVenta({...formDataVenta, iva_21: iva, total: total});
-                    }} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">IVA 10.5% ($)</label>
-                    <input type="number" step="0.01" disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-bold outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.iva_105} onChange={(e) => {
-                      const iva105 = Number(e.target.value) || 0;
-                      const total = Number(formDataVenta.neto_gravado) + Number(formDataVenta.iva_21 || 0) + iva105 + Number(formDataVenta.otros_tributos || 0);
-                      setFormDataVenta({...formDataVenta, iva_105: iva105, total: total});
-                    }} />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Total ($)</label>
-                    <input type="number" step="0.01" required disabled={isSavingVenta} className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-black text-sky-600 outline-none focus:border-sky-500 disabled:bg-slate-100" value={formDataVenta.total} onChange={(e) => setFormDataVenta({...formDataVenta, total: e.target.value})} />
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2 pt-4 border-t">
-                  <button type="button" onClick={() => setIsFacturaVentaModalOpen(false)} disabled={isSavingVenta} className="px-4 py-2 text-xs font-semibold text-slate-600 disabled:opacity-50">Cancelar</button>
-                  <button type="submit" disabled={isSavingVenta} className="px-6 py-2.5 bg-sky-500 hover:bg-sky-600 disabled:bg-sky-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2">
-                    {isSavingVenta && <Loader2 className="w-4 h-4 animate-spin" />}
-                    {isSavingVenta ? 'Guardando...' : 'Guardar Factura Venta'}
-                  </button>
-                </div>
-              </form>
-            )}
-          </div>
-        </div>
-      )}
+      <ModalEnviarContador
+        isOpen={isEnviarContadorOpen}
+        onClose={() => setIsEnviarContadorOpen(false)}
+        onSubmit={handleEnviarRetencionesAlContador}
+        emailContador={emailContador}
+        setEmailContador={setEmailContador}
+        enviando={enviandoRetenciones}
+        cantidadItems={retencionesFiltradas.length}
+        filtroDesde={filtroFechaDesde}
+        filtroHasta={filtroFechaHasta}
+        formatearFechaDisplay={formatearFechaDisplay}
+        tipo="retenciones"
+      />
     </div>
   );
 }
