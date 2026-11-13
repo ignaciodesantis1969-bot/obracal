@@ -1,12 +1,13 @@
+// src/utils/exportUtils.js
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = false, coeficiente = 1, notas = {}) => {
   try {
     if (!rubrosItems || rubrosItems.length === 0) {
-      alert("No hay ítems disponibles para exportar.");
+      toast.error("No hay ítems disponibles para exportar.");
       return;
     }
 
@@ -70,7 +71,7 @@ export const exportarPresupuestoExcel = (presupuesto, rubrosItems, esVenta = fal
     XLSX.writeFile(workbook, `Presupuesto_${presupuesto?.codigo || 'Detalle'}_${tipoSufijo}.xlsx`);
   } catch (error) {
     console.error("Error al exportar Excel:", error);
-    alert("No se pudo generar el archivo Excel.");
+    toast.error("No se pudo generar el archivo Excel.");
   }
 };
 
@@ -312,6 +313,6 @@ export const exportarPresupuestoPDF = async (presupuesto, obra, cliente, rubrosI
     doc.save(`Presupuesto_${presupuesto?.codigo || 'Detalle'}_${tipoSufijo}.pdf`);
   } catch (error) {
     console.error("Error al exportar PDF:", error);
-    alert("No se pudo generar el archivo PDF.");
+    toast.error("No se pudo generar el archivo PDF.");
   }
 };

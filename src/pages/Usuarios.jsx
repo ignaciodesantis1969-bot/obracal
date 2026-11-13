@@ -4,12 +4,11 @@ import { UserPlus, UserX, Shield, Mail, Loader2, Edit2, Check } from 'lucide-rea
 import { initializeApp, getApps } from 'firebase/app';
 import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '@/firebase';
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function Usuarios() {
-  // 🔑 NUEVO: leemos usuarios en tiempo real desde Firestore
   const { data: usuarios, loading: isLoading, error: errorFirestore } = useFirestoreCollection('usuarios');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -23,15 +22,13 @@ export default function Usuarios() {
     role: 'operador'
   });
 
-  // 🔑 FIX: crear usuario → Firebase Auth + Firestore (sin Apps Script)
   const handleCrear = async (e) => {
     e.preventDefault();
     if (isSubmitting) return;
 
     setIsSubmitting(true);
+    const toastId = toast.loading('Creando usuario...');
     try {
-      // PASO 1: crear en Firebase Auth usando una app secundaria
-      // (para no cerrar la sesión del admin que está creando al usuario)
       const secondaryAppName = "SecondaryUserCreationApp";
       let secondaryApp = getApps().find(app => app.name === secondaryAppName);
 
@@ -42,7 +39,6 @@ export default function Usuarios() {
 
       await createUserWithEmailAndPassword(secondaryAuth, nuevoUsuario.email, nuevoUsuario.password);
 
-      // PASO 2: guardar el perfil en Firestore (colección `usuarios`)
       await crearDoc('usuarios', {
         nombre: nuevoUsuario.nombre,
         email: nuevoUsuario.email,
@@ -50,24 +46,23 @@ export default function Usuarios() {
         obras_asignadas: ''
       });
 
-      alert("Usuario creado con éxito.");
+      toast.success("Usuario creado con éxito.", { id: toastId });
       setNuevoUsuario({ email: '', password: '', nombre: '', role: 'operador' });
-      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error("Detalle Firebase:", err);
       let mensajeError = err.message || "Verifica los datos.";
       if (err.code === 'auth/email-already-in-use' || mensajeError.includes('email-already-in-use')) {
         mensajeError = "El correo electrónico ya se encuentra registrado en Firebase Authentication.";
       }
-      alert("Error al registrar usuario: " + mensajeError);
+      toast.error("Error al registrar usuario: " + mensajeError, { id: toastId });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // 🔑 FIX: cambiar rol → actualizarDoc en Firestore
   const handleCambiarRol = async (idUsuario, emailUsuario, nombreUsuario) => {
     if (!nuevoRolTemporal) return;
+    const toastId = toast.loading('Actualizando rol...');
     try {
       await actualizarDoc('usuarios', idUsuario, {
         email: emailUsuario,
@@ -75,26 +70,24 @@ export default function Usuarios() {
         role: nuevoRolTemporal
       });
 
-      alert("Rol actualizado con éxito.");
+      toast.success("Rol actualizado con éxito.", { id: toastId });
       setEditandoRolId(null);
-      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error(err);
-      alert("Error al actualizar rol: " + (err.message || ''));
+      toast.error("Error al actualizar rol: " + (err.message || ''), { id: toastId });
     }
   };
 
-  // 🔑 FIX: dar de baja → eliminarDoc en Firestore
   const handleDarDeBaja = async (id, nombre) => {
     if (!window.confirm(`¿Eliminar a ${nombre}?`)) return;
 
+    const toastId = toast.loading('Eliminando usuario...');
     try {
       await eliminarDoc('usuarios', id);
-      alert("Usuario eliminado.");
-      // Firestore actualiza la lista en tiempo real.
+      toast.success("Usuario eliminado.", { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''), { id: toastId });
     }
   };
 
