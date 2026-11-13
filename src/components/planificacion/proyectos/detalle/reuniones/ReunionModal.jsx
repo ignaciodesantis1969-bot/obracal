@@ -4,6 +4,7 @@ import { X, Save, Loader2, Users as UsersIcon, FileText, CheckSquare } from 'luc
 import Modal from '@/components/planificacion/shared/Modal';
 import { cn } from '@/lib/utils';
 import CompromisosList from './CompromisosList';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 const TIPOS_REUNION = [
   { value: 'obra',         label: '🏗️ Obra',         color: 'bg-blue-100 text-blue-800' },
@@ -93,11 +94,11 @@ export default function ReunionModal({
     e.preventDefault();
 
     if (!formData.titulo.trim()) {
-      alert('El título es obligatorio');
+      toast.error('El título es obligatorio');
       return;
     }
     if (!formData.fecha) {
-      alert('La fecha es obligatoria');
+      toast.error('La fecha es obligatoria');
       return;
     }
 
