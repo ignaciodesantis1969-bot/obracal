@@ -8,6 +8,7 @@ import { GOOGLE_SCRIPT_URL } from '@/api';
 import BuscadorSelect from '@/components/BuscadorSelect';
 import { auth } from '@/firebase';
 import { limit, orderBy, where } from 'firebase/firestore';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 const esNotaCredito = (tipoComprobante) => {
   return String(tipoComprobante || '').toUpperCase().includes('NOTA DE CREDITO');
@@ -441,7 +442,7 @@ export default function Tesoreria() {
   const handleContabilizarNC = async (f) => {
     const facturaId = f.id || f.ID;
     if (!facturaId) {
-      alert("No se pudo identificar la NC.");
+      toast.error("No se pudo identificar la NC.");
       return;
     }
     if (!window.confirm(
@@ -449,6 +450,7 @@ export default function Tesoreria() {
       "Se va a crear un movimiento contable en Tesorería con el monto en negativo. " +
       "Esto afectará los totales de compras e IVA."
     )) return;
+    const toastId = toast.loading('Contabilizando NC...');
     try {
       const provObj = proveedores.find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
       const nombreProv = provObj?.razon_social || provObj?.nombre || 'Proveedor';
@@ -479,10 +481,10 @@ export default function Tesoreria() {
       };
       await crearDoc('tesoreria', movimiento);
       await actualizarDoc('facturas_compras', facturaId, { estado_pago: 'contabilizado' });
-      console.log(`✅ NC contabilizada: ${conceptoMov}`);
+      toast.success(`NC contabilizada: ${conceptoMov}`, { id: toastId });
     } catch (err) {
       console.error('[Tesoreria] Error al contabilizar NC:', err);
-      alert('Error al contabilizar la NC: ' + (err.message || ''));
+      toast.error('Error al contabilizar la NC: ' + (err.message || ''), { id: toastId });
     }
   };
 
@@ -595,7 +597,7 @@ export default function Tesoreria() {
 
   const procesarArchivoFacturaVenta = async (e) => {
     if (!GOOGLE_SCRIPT_URL) {
-      alert("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
+      toast.error("ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.");
       return;
     }
     const archivo = e.target.files[0];
@@ -639,16 +641,11 @@ export default function Tesoreria() {
             setNombreClienteOCR(nombreClienteBusqueda);
             if (nombreClienteBusqueda && clientes.length > 0) {
               const { mejor, candidatos, scoreMejor } = buscarMejorMatch(nombreClienteBusqueda, clientes);
-              console.log('[OCR] Buscando cliente:', nombreClienteBusqueda, '| Score mejor:', scoreMejor, '| Candidatos:', candidatos.length);
               if (mejor && candidatos.length === 1) {
                 clienteEncontradoId = mejor.id || mejor.ID || mejor.Id || '';
-                console.log('[OCR] Cliente matcheado (único):', mejor.razon_social || mejor.nombre);
               } else if (mejor && candidatos.length > 1) {
                 candidatosFinales = candidatos;
                 clienteEncontradoId = mejor.id || mejor.ID || mejor.Id || '';
-                console.log('[OCR] Múltiples candidatos, mostrar selector. Mejor:', mejor.razon_social || mejor.nombre, '| Total:', candidatos.length);
-              } else {
-                console.warn('[OCR] Sin match. Gemini devolvió:', nombreClienteBusqueda);
               }
             }
             setCandidatosCliente(candidatosFinales);
@@ -678,7 +675,6 @@ export default function Tesoreria() {
               data.tipo_factura,
               archivo.name || ''
             );
-            console.log('[OCR] tipo_comprobante →', tipoComprobanteMapeado, '| comprobante_anula →', comprobanteAnulaDetectado);
             setFormDataVenta(prev => ({
               ...prev,
               tipo_comprobante: tipoComprobanteMapeado,
@@ -705,7 +701,7 @@ export default function Tesoreria() {
             }));
             if (nombreClienteBusqueda && !clienteEncontradoId && candidatosFinales.length === 0) {
               setTimeout(() => {
-                alert(
+                toast.error(
                   `⚠️ El OCR detectó el cliente "${nombreClienteBusqueda}" pero no se encontró en el sistema.\n\n` +
                   `Creá el cliente primero desde la sección Clientes, o seleccionalo manualmente si ya existe con otro nombre.`
                 );
@@ -715,11 +711,11 @@ export default function Tesoreria() {
             setPasoFacturaVenta('formulario');
             setIsFacturaVentaModalOpen(true);
           } else {
-            alert("Error de IA: " + (data.error || "No se pudieron extraer los datos."));
+            toast.error("Error de IA: " + (data.error || "No se pudieron extraer los datos."));
           }
         } catch (fetchErr) {
           console.error("Error en el fetch:", fetchErr);
-          alert("Error de conexión con el servidor.");
+          toast.error("Error de conexión con el servidor.");
         } finally {
           setLeyendoFactura(false);
           e.target.value = "";
@@ -727,11 +723,11 @@ export default function Tesoreria() {
       };
       reader.onerror = () => {
         setLeyendoFactura(false);
-        alert("Error al leer el archivo local.");
+        toast.error("Error al leer el archivo local.");
       };
     } catch (err) {
       setLeyendoFactura(false);
-      alert("Error inesperado: " + err.message);
+      toast.error("Error inesperado: " + err.message);
     }
   };
 
@@ -739,6 +735,7 @@ export default function Tesoreria() {
     e.preventDefault();
     if (isSaving) return;
     setIsSaving(true);
+    const toastId = toast.loading('Guardando movimiento...');
     try {
       const payloadData = {
         ...formData,
@@ -874,9 +871,10 @@ export default function Tesoreria() {
         }
       }
       setIsModalOpen(false);
+      toast.success('Movimiento guardado correctamente', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al guardar movimiento: " + (err.message || ''));
+      toast.error("Error al guardar movimiento: " + (err.message || ''), { id: toastId });
     } finally {
       setIsSaving(false);
     }
@@ -886,6 +884,7 @@ export default function Tesoreria() {
     e.preventDefault();
     if (isSavingVenta) return;
     setIsSavingVenta(true);
+    const toastId = toast.loading('Guardando factura de venta...');
     try {
       let archivoUrlFinal = formDataVenta.archivo_url || '';
       if (archivoBase64Venta && archivoBase64Venta.indexOf('data:') === 0) {
@@ -987,7 +986,7 @@ export default function Tesoreria() {
               console.error("Error creando movimiento de anulación:", errAnul);
             }
           } else {
-            alert(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} en el sistema. La Nota de Crédito se guardó pero la factura no se marcó como anulada.`);
+            toast.error(`⚠️ No se encontró la factura ${formDataVenta.comprobante_anula} en el sistema. La Nota de Crédito se guardó pero la factura no se marcó como anulada.`);
           }
         } catch (errNC) {
           console.error("Error al anular factura original:", errNC);
@@ -1033,16 +1032,18 @@ export default function Tesoreria() {
       setIsFacturaVentaModalOpen(false);
       setArchivoBase64Venta('');
       setNombreArchivoVenta('');
-      alert(
+      
+      toast.success(
         esNC
-          ? `Nota de Crédito registrada correctamente.\n- Total en negativo: $${Math.abs(totalFinal).toLocaleString('es-AR')}\n- Factura anulada: ${formDataVenta.comprobante_anula || 'no especificada'}\n- Movimientos generados en Tesorería`
+          ? `Nota de Crédito registrada. Total en negativo: $${Math.abs(totalFinal).toLocaleString('es-AR')}. Factura anulada: ${formDataVenta.comprobante_anula || 'no especificada'}. Movimientos generados.`
           : esND
-          ? `Nota de Débito registrada correctamente.\n- Total: $${totalFinal.toLocaleString('es-AR')}\n- Movimiento generado en Tesorería`
-          : "Factura de Venta registrada correctamente."
+          ? `Nota de Débito registrada. Total: $${totalFinal.toLocaleString('es-AR')}. Movimiento generado en Tesorería.`
+          : "Factura de Venta registrada correctamente.",
+        { id: toastId, duration: 6000 }
       );
     } catch (err) {
       console.error(err);
-      alert("Error al registrar la factura de venta: " + (err.message || ''));
+      toast.error("Error al registrar la factura de venta: " + (err.message || ''), { id: toastId });
     } finally {
       setIsSavingVenta(false);
     }
@@ -1052,15 +1053,17 @@ export default function Tesoreria() {
     const mId = m.id || m.ID || m.Id;
     if (!mId) return;
     if (!window.confirm("¿Estás seguro de eliminar este movimiento?")) return;
+    const toastId = toast.loading('Eliminando movimiento...');
     try {
       await eliminarDoc('tesoreria', mId);
       const retsAsociadas = retenciones.filter(r => String(r.tesoreria_id) === String(mId));
       for (const r of retsAsociadas) {
         await eliminarDoc('retenciones', r.id || r.ID);
       }
+      toast.success('Movimiento eliminado correctamente', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''), { id: toastId });
     }
   };
 
@@ -1068,10 +1071,11 @@ export default function Tesoreria() {
     if (!file) return;
     const retId = retencion.id || retencion.ID;
     if (!retId) {
-      alert("No se pudo identificar la retención.");
+      toast.error("No se pudo identificar la retención.");
       return;
     }
     setSubiendoCertificadoId(retId);
+    const toastId = toast.loading('Subiendo certificado...');
     try {
       const reader = new FileReader();
       reader.onloadend = async () => {
@@ -1079,17 +1083,17 @@ export default function Tesoreria() {
         try {
           const urlDrive = await subirArchivoADrive(base64String, 'Retenciones');
           if (!urlDrive) {
-            alert("No se pudo subir el archivo a Drive.");
+            toast.error("No se pudo subir el archivo a Drive.", { id: toastId });
             return;
           }
           await actualizarDoc('retenciones', retId, {
             certificado_url: urlDrive,
             certificado_nombre: file.name,
           });
-          alert("¡Certificado subido correctamente!");
+          toast.success("¡Certificado subido correctamente!", { id: toastId });
         } catch (err) {
           console.error("Error al guardar el certificado:", err);
-          alert("Error: " + (err.message || ''));
+          toast.error("Error: " + (err.message || ''), { id: toastId });
         } finally {
           setSubiendoCertificadoId(null);
         }
@@ -1097,7 +1101,7 @@ export default function Tesoreria() {
       reader.readAsDataURL(file);
     } catch (err) {
       setSubiendoCertificadoId(null);
-      alert("Error al leer el archivo: " + (err.message || ''));
+      toast.error("Error al leer el archivo: " + (err.message || ''), { id: toastId });
     }
   };
 

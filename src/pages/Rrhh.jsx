@@ -1,26 +1,20 @@
+// src/pages/Rrhh.jsx
 import React, { useState } from 'react';
 import { Users, Plus, Search, Trash2, Edit2, X, DollarSign, ArrowLeft, UserPlus, RefreshCw, Calendar, FileText, CheckCircle2, ShieldCheck, PieChart, Upload, ExternalLink, FileCheck, Image as ImageIcon, Loader2, Send, AlertCircle } from 'lucide-react';
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc, eliminarDocsFiltrados } from '@/lib/firestoreHelpers';
-// 🔑 FIX: Apps Script solo se usa para subir archivos a Drive
 import { GOOGLE_SCRIPT_URL } from '@/api';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db, auth } from '@/firebase'; 
 import { doc, getDoc } from 'firebase/firestore';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
-// ═══════════════════════════════════════════════════════════════════════════
-// HELPERS DE FORMATO DE MONEDA
-// ═══════════════════════════════════════════════════════════════════════════
-
-// 🔑 NUEVO: formato estándar de moneda para toda la app (es-AR, 2 decimales, miles con punto)
 const formatearMoneda = (valor) => {
   const num = Number(valor) || 0;
   return num.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 };
 
 export default function Rrhh() {
-  // 🔑 NUEVO: leemos todas las colecciones necesarias en paralelo
   const { data: personalInicial } = useFirestoreCollection('personal');
   const { data: insumos } = useFirestoreCollection('insumos');
   const { data: obras } = useFirestoreCollection('obras');
@@ -37,7 +31,6 @@ export default function Rrhh() {
   const [volcandoCargaId, setVolcandoCargaId] = useState(null);
 
   const safePersonal = Array.isArray(personalInicial) ? personalInicial : [];
-    // 🔑 NUEVO: Escuchar cambios en la colección 'personal' en tiempo real
   const [personalTiempoReal, setPersonalTiempoReal] = React.useState(safePersonal);
 
   React.useEffect(() => {
@@ -93,7 +86,6 @@ export default function Rrhh() {
 
   const [personalSalarios, setPersonalSalarios] = useState(procesarPersonalInicial(safePersonal));
 
-  // 🔑 CAMBIO: ahora es "variación porcentual" (ej: 1.9 = +1.9%, -5 = -5%)
   const [variacionParitaria, setVariacionParitaria] = useState('');
   const [mesAcuerdoGlobal, setMesAcuerdoGlobal] = useState('Agosto 2026');
 
@@ -140,10 +132,9 @@ export default function Rrhh() {
     };
     buscarFoto();
   }, [legajoEmpleadoSeleccionado]);
-    // Estado para la foto de Firebase
+
   const [fotoDirectaFirebase, setFotoDirectaFirebase] = useState(null);
 
-  // Efecto para buscar la foto en Firebase cuando se selecciona un empleado
   React.useEffect(() => {
     const buscarFoto = async () => {
       if (!legajoEmpleadoSeleccionado) {
@@ -177,8 +168,6 @@ export default function Rrhh() {
       setLegajoEmpleadoSeleccionado(String(safePersonal[0].id || safePersonal[0].ID || ''));
     }
   }, [safePersonal, legajoEmpleadoSeleccionado]);
-   
- 
 
   React.useEffect(() => {
     if (safePersonal.length > 0 && !legajoEmpleadoSeleccionado) {
@@ -248,7 +237,6 @@ export default function Rrhh() {
     ];
   }, [tipoProyectoCarga, presupuestoSeleccionadoCarga, safePresupuestos, safeRubros]);
 
-  // 🔑 FIX: sincroniza personal ↔ detalle de carga.
   React.useEffect(() => {
     if (safePersonal.length > 0) {
       const procesados = procesarPersonalInicial(safePersonal);
@@ -317,7 +305,6 @@ export default function Rrhh() {
   const subirArchivoADrive = async (base64, tabla, subseccion = '') => {
     if (!base64 || base64.indexOf('data:') !== 0) return base64 || '';
     try {
-      // 🔑 1. Obtenemos el token
       let idToken = '';
       if (auth.currentUser) {
         idToken = await auth.currentUser.getIdToken(true);
@@ -331,7 +318,6 @@ export default function Rrhh() {
           base64,
           tabla,
           subseccion,
-          // 🔑 2. Lo enviamos en el body igual que en Compras.jsx
           idToken: idToken 
         })
       });
@@ -368,33 +354,37 @@ export default function Rrhh() {
 
   const handleGuardarPersonal = async (e) => {
     e.preventDefault();
+    const toastId = toast.loading('Guardando personal...');
     try {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = formData;
 
       if (editingId) {
         await actualizarDoc('personal', editingId, datosLimpios);
+        toast.success('Personal actualizado correctamente', { id: toastId });
       } else {
         await crearDoc('personal', datosLimpios);
+        toast.success('Personal creado correctamente', { id: toastId });
       }
 
       setIsModalOpen(false);
     } catch (err) {
       console.error(err);
-      alert("Error al guardar: " + (err.message || ''));
+      toast.error("Error al guardar: " + (err.message || ''), { id: toastId });
     }
   };
 
   const handleEliminarPersonal = async (id) => {
     if (!id || !window.confirm("¿Estás seguro de eliminar este registro?")) return;
+    const toastId = toast.loading('Eliminando personal...');
     try {
       await eliminarDoc('personal', id);
-
       setDetalleCargaPersonal(prev => prev.filter(item =>
         String(item.id || item.empleado_id) !== String(id)
       ));
+      toast.success('Personal eliminado', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''), { id: toastId });
     }
   };
 
@@ -414,23 +404,20 @@ export default function Rrhh() {
     }
   };
 
-  // 🔑 CAMBIO: ahora el input es "variación %" (ej: 1.9 = +1.9%, -5 = -5%).
-  // El factor se calcula como: factor = 1 + (variacion / 100).
   const handleAplicarParitariaMasiva = async () => {
     const variacion = Number(variacionParitaria);
     if (isNaN(variacion)) {
-      alert("Ingresá una variación válida en % (ej: 1.9 para +1.9%, -5 para -5%).");
+      toast.error("Ingresá una variación válida en % (ej: 1.9 para +1.9%, -5 para -5%).");
       return;
     }
 
     const factor = 1 + (variacion / 100);
 
     if (factor <= 0) {
-      alert("La variación ingresada deja el factor en 0 o negativo. Verificá el valor.");
+      toast.error("La variación ingresada deja el factor en 0 o negativo. Verificá el valor.");
       return;
     }
 
-    // Confirmación con preview de un salario de ejemplo
     const ejemplo = personalSalarios.find(p => Number(p.costo_en_mano) > 0);
     let msg = `Se va a aplicar una variación de ${variacion > 0 ? '+' : ''}${variacion}% a TODOS los salarios.\n\nFactor: ×${factor.toFixed(4)}\n`;
     if (ejemplo) {
@@ -449,6 +436,7 @@ export default function Rrhh() {
     }));
 
     setPersonalSalarios(nuevosSalarios);
+    const toastId = toast.loading('Guardando nuevos salarios...');
 
     try {
       for (let p of nuevosSalarios) {
@@ -459,10 +447,10 @@ export default function Rrhh() {
           mes_acuerdo: p.mes_acuerdo
         });
       }
-      alert("¡Paritaria y salarios actualizados y guardados correctamente para todo el personal!");
+      toast.success("¡Paritaria y salarios actualizados y guardados correctamente!", { id: toastId });
     } catch (err) {
       console.error("Error al guardar paritaria masiva:", err);
-      alert("Hubo un error al sincronizar con Firestore.");
+      toast.error("Hubo un error al sincronizar con Firestore.", { id: toastId });
     }
   };
 
@@ -495,10 +483,9 @@ export default function Rrhh() {
   const totalViaticos = (Number(viaticosCuadrilla.cantidad) || 0) * (Number(viaticosCuadrilla.costo) || 0);
   const costoDiarioCuadrilla = sumaSubtotalesPersonal + totalViaticos;
 
-  // 🔑 FIX: guardar cuadrilla como insumo directo a Firestore
   const handleGuardarCuadrillaComoInsumo = async () => {
     if (!nombreCuadrilla.trim()) {
-      alert("Por favor ingresa un nombre para la cuadrilla.");
+      toast.error("Por favor ingresa un nombre para la cuadrilla.");
       return;
     }
 
@@ -511,6 +498,7 @@ export default function Rrhh() {
       if (!ok) return;
     }
 
+    const toastId = toast.loading('Guardando cuadrilla...');
     try {
       const payloadInsumo = {
         nombre_del_articulo: nombreCuadrilla,
@@ -532,11 +520,11 @@ export default function Rrhh() {
         await crearDoc('insumos', payloadInsumo);
       }
 
-      alert("¡Cuadrilla guardada e impactada en el Maestro de Insumos con éxito!");
+      toast.success("¡Cuadrilla guardada e impactada en el Maestro de Insumos con éxito!", { id: toastId });
       setVistaCuadrilla('lista');
     } catch (err) {
       console.error(err);
-      alert("Error al guardar la cuadrilla: " + (err.message || ''));
+      toast.error("Error al guardar la cuadrilla: " + (err.message || ''), { id: toastId });
     }
   };
 
@@ -580,21 +568,24 @@ export default function Rrhh() {
 
   const handleEliminarCuadrilla = async (cId) => {
     if (!cId || !window.confirm("¿Estás seguro de eliminar esta cuadrilla del maestro de insumos?")) return;
+    const toastId = toast.loading('Eliminando cuadrilla...');
     try {
       await eliminarDoc('insumos', cId);
+      toast.success('Cuadrilla eliminada', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''), { id: toastId });
     }
   };
 
   const handleSubirDocumentoFijo = async (docTitulo, file) => {
     if (!file) return;
     if (!legajoEmpleadoSeleccionado) {
-      alert("Por favor selecciona un trabajador.");
+      toast.error("Por favor selecciona un trabajador.");
       return;
     }
 
+    const toastId = toast.loading(`Subiendo ${docTitulo}...`);
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64String = reader.result;
@@ -611,10 +602,10 @@ export default function Rrhh() {
           fecha: new Date().toISOString().split('T')[0]
         });
 
-        alert(`¡Documento "${docTitulo}" subido y archivado con éxito!`);
+        toast.success(`¡Documento "${docTitulo}" subido y archivado con éxito!`, { id: toastId });
       } catch (err) {
         console.error(err);
-        alert("Error al subir el documento: " + (err.message || ''));
+        toast.error("Error al subir el documento: " + (err.message || ''), { id: toastId });
       } finally {
         setCargandoLegajo(false);
       }
@@ -625,10 +616,11 @@ export default function Rrhh() {
   const handleSubirFotoTrabajador = async (file) => {
     if (!file) return;
     if (!legajoEmpleadoSeleccionado) {
-      alert("Por favor selecciona un trabajador.");
+      toast.error("Por favor selecciona un trabajador.");
       return;
     }
 
+    const toastId = toast.loading('Subiendo foto de perfil...');
     const reader = new FileReader();
     reader.onloadend = async () => {
       const base64String = reader.result;
@@ -645,10 +637,10 @@ export default function Rrhh() {
           fecha: new Date().toISOString().split('T')[0]
         });
 
-        alert("¡Foto de perfil actualizada con éxito!");
+        toast.success("¡Foto de perfil actualizada con éxito!", { id: toastId });
       } catch (err) {
         console.error(err);
-        alert("Error al subir la foto: " + (err.message || ''));
+        toast.error("Error al subir la foto: " + (err.message || ''), { id: toastId });
       } finally {
         setCargandoLegajo(false);
       }
@@ -672,19 +664,20 @@ export default function Rrhh() {
   const handleSubirLegajoLibre = async (e) => {
     e.preventDefault();
     if (!legajoEmpleadoSeleccionado) {
-      alert("Por favor selecciona un trabajador.");
+      toast.error("Por favor selecciona un trabajador.");
       return;
     }
     if (!nombreDocumentoLegajo.trim()) {
-      alert("Por favor ingresa un nombre para el documento.");
+      toast.error("Por favor ingresa un nombre para el documento.");
       return;
     }
     if (!archivoLegajoBase64) {
-      alert("Por favor selecciona un archivo PDF, JPG o PNG.");
+      toast.error("Por favor selecciona un archivo PDF, JPG o PNG.");
       return;
     }
 
     setCargandoLegajo(true);
+    const toastId = toast.loading('Subiendo documento...');
     try {
       const urlDrive = await subirArchivoADrive(archivoLegajoBase64, 'Legajos', legajoSubseccionActiva);
 
@@ -697,12 +690,12 @@ export default function Rrhh() {
         fecha: new Date().toISOString().split('T')[0]
       });
 
-      alert("¡Documento de legajo subido y archivado con éxito!");
+      toast.success("¡Documento de legajo subido y archivado con éxito!", { id: toastId });
       setNombreDocumentoLegajo('');
       setArchivoLegajoBase64('');
     } catch (err) {
       console.error(err);
-      alert("Error al subir el documento: " + (err.message || ''));
+      toast.error("Error al subir el documento: " + (err.message || ''), { id: toastId });
     } finally {
       setCargandoLegajo(false);
     }
@@ -710,11 +703,13 @@ export default function Rrhh() {
 
   const handleEliminarLegajo = async (id) => {
     if (!id || !window.confirm("¿Estás seguro de eliminar este documento del legajo?")) return;
+    const toastId = toast.loading('Eliminando documento...');
     try {
       await eliminarDoc('legajos', id);
+      toast.success('Documento eliminado', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar el documento: " + (err.message || ''));
+      toast.error("Error al eliminar el documento: " + (err.message || ''), { id: toastId });
     }
   };
 
@@ -729,14 +724,12 @@ export default function Rrhh() {
     return { ...item, subtotalJornales, subtotalViaticos, totalOperario };
   });
 
-  // 🔑 FIX A: helper para saber si un empleado está activo
   const esEmpleadoActivo = (item) => {
     const emp = personalSalarios.find(p => String(p.id || p.ID) === String(item.id || item.empleado_id));
-    if (!emp) return true; // si no encuentra el empleado, mostrarlo (cargas viejas)
+    if (!emp) return true;
     return String(emp.estado || '').toLowerCase() === 'activo';
   };
 
-  // 🔑 FIX A: filtrar empleados de baja en los cálculos de totales
   const detalleCargaSoloActivos = detalleCargaCalculado.filter(esEmpleadoActivo);
 
   const totalGeneralCarga = detalleCargaSoloActivos.reduce((acc, curr) => acc + curr.totalOperario, 0);
@@ -759,7 +752,7 @@ export default function Rrhh() {
 
   const handleEliminarRubro = (id) => {
     if (distribucionRubros.length <= 1) {
-      alert("Debe haber al menos un rubro de distribución.");
+      toast.error("Debe haber al menos un rubro de distribución.");
       return;
     }
     setDistribucionRubros(prev => prev.filter(r => r.id !== id));
@@ -769,20 +762,20 @@ export default function Rrhh() {
 
   const validarDistribucionRubros = () => {
     if (tipoProyectoCarga === 'obra' && !presupuestoSeleccionadoCarga) {
-      alert("Por favor selecciona un Presupuesto.");
+      toast.error("Por favor selecciona un Presupuesto.");
       return false;
     }
     if (tipoProyectoCarga === 'contrato' && !contratoSeleccionadoCarga) {
-      alert("Por favor selecciona un Contrato de Mantenimiento.");
+      toast.error("Por favor selecciona un Contrato de Mantenimiento.");
       return false;
     }
     if (Math.abs(sumaPorcentajesRubros - 100) > 0.01) {
-      alert(`La suma de los porcentajes de los rubros debe ser 100%. Actualmente suma ${sumaPorcentajesRubros}%.`);
+      toast.error(`La suma de los porcentajes de los rubros debe ser 100%. Actualmente suma ${sumaPorcentajesRubros}%.`);
       return false;
     }
     for (let r of distribucionRubros) {
       if (!r.rubro.trim()) {
-        alert("Todos los rubros deben tener un nombre o descripción seleccionada.");
+        toast.error("Todos los rubros deben tener un nombre o descripción seleccionada.");
         return false;
       }
     }
@@ -793,11 +786,12 @@ export default function Rrhh() {
     if (!validarDistribucionRubros()) return;
 
     if (totalGeneralCarga <= 0) {
-      alert("El total de la carga es $0. Verifica los días o jornales ingresados.");
+      toast.error("El total de la carga es $0. Verifica los días o jornales ingresados.");
       return;
     }
 
     setGuardandoCarga(true);
+    const toastId = toast.loading('Guardando carga salarial...');
     try {
       let obraIdAsociada = '';
       if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
@@ -835,17 +829,18 @@ export default function Rrhh() {
         await crearDoc('cargas_semanales', datosLimpios);
       }
 
-      alert(yaEstabaVolcada
-        ? "Carga actualizada. Como ya estaba volcada, quedó PENDIENTE de re-volcar. Los egresos anteriores siguen vigentes hasta que la re-volqués."
-        : (editingCargaId
-            ? "Carga actualizada. Queda pendiente de volcar a Tesorería."
-            : "Carga registrada. Queda pendiente de volcar a Tesorería."));
+      toast.success(
+        yaEstabaVolcada
+          ? "Carga actualizada. Como ya estaba volcada, quedó PENDIENTE de re-volcar."
+          : (editingCargaId ? "Carga actualizada. Queda pendiente de volcar a Tesorería." : "Carga registrada. Queda pendiente de volcar a Tesorería."),
+        { id: toastId }
+      );
 
       setEditingCargaId(null);
       setActiveTab('historial_carga');
     } catch (err) {
       console.error(err);
-      alert("Error al guardar la carga salarial: " + (err.message || ''));
+      toast.error("Error al guardar la carga salarial: " + (err.message || ''), { id: toastId });
     } finally {
       setGuardandoCarga(false);
     }
@@ -855,11 +850,12 @@ export default function Rrhh() {
     if (!validarDistribucionRubros()) return;
 
     if (totalCargasSociales <= 0) {
-      alert("El total de cargas sociales es $0. Tilda al menos un operario.");
+      toast.error("El total de cargas sociales es $0. Tilda al menos un operario.");
       return;
     }
 
     setGuardandoCargasSociales(true);
+    const toastId = toast.loading('Guardando cargas sociales...');
     try {
       let obraIdAsociada = '';
       if (tipoProyectoCarga === 'obra' && presupuestoSeleccionadoCarga) {
@@ -886,11 +882,11 @@ export default function Rrhh() {
 
       await crearDoc('cargas_semanales', payloadCargaHistorialCS);
 
-      alert("¡Cargas sociales registradas! Quedan pendientes de volcar a Tesorería desde el historial.");
+      toast.success("¡Cargas sociales registradas! Quedan pendientes de volcar a Tesorería.", { id: toastId });
       setActiveTab('historial_carga');
     } catch (err) {
       console.error(err);
-      alert("Error al guardar las cargas sociales: " + (err.message || ''));
+      toast.error("Error al guardar las cargas sociales: " + (err.message || ''), { id: toastId });
     } finally {
       setGuardandoCargasSociales(false);
     }
@@ -899,7 +895,7 @@ export default function Rrhh() {
   const handleVolcarCargaATesoreria = async (carga) => {
     const cargaId = carga.id || carga.ID;
     if (!cargaId) {
-      alert("No se pudo identificar la carga.");
+      toast.error("No se pudo identificar la carga.");
       return;
     }
 
@@ -922,11 +918,12 @@ export default function Rrhh() {
       : carga.distribucion_rubros;
 
     if (!Array.isArray(rubros) || rubros.length === 0) {
-      alert("La carga no tiene rubros definidos.");
+      toast.error("La carga no tiene rubros definidos.");
       return;
     }
 
     setVolcandoCargaId(cargaId);
+    const toastId = toast.loading('Volcando a Tesorería...');
     try {
       if (esReVolcado) {
         try {
@@ -935,7 +932,7 @@ export default function Rrhh() {
           );
         } catch (errBorrar) {
           console.error("Error borrando egresos previos:", errBorrar);
-          alert("Error al borrar los egresos anteriores: " + (errBorrar.message || ''));
+          toast.error("Error al borrar los egresos anteriores: " + (errBorrar.message || ''), { id: toastId });
           return;
         }
       }
@@ -990,12 +987,15 @@ export default function Rrhh() {
         fecha_volcado: new Date().toISOString().split('T')[0]
       });
 
-      alert(esReVolcado
-        ? `¡Carga re-volcada! Se reemplazaron los egresos anteriores (${creados} nuevos egresos creados).`
-        : `¡Carga volcada a Tesorería! (${creados} egresos creados).`);
+      toast.success(
+        esReVolcado
+          ? `¡Carga re-volcada! Se reemplazaron los egresos anteriores (${creados} nuevos egresos creados).`
+          : `¡Carga volcada a Tesorería! (${creados} egresos creados).`,
+        { id: toastId }
+      );
     } catch (err) {
       console.error(err);
-      alert("Error al volcar la carga a Tesorería: " + (err.message || ''));
+      toast.error("Error al volcar la carga a Tesorería: " + (err.message || ''), { id: toastId });
     } finally {
       setVolcandoCargaId(null);
     }
@@ -1034,6 +1034,7 @@ export default function Rrhh() {
       : "¿Estás seguro de eliminar esta carga del historial?";
     if (!window.confirm(msg)) return;
 
+    const toastId = toast.loading('Eliminando carga...');
     try {
       if (estaVolcada) {
         await eliminarDocsFiltrados('tesoreria', (docData) =>
@@ -1042,13 +1043,13 @@ export default function Rrhh() {
       }
 
       await eliminarDoc('cargas_semanales', cId);
+      toast.success('Carga eliminada correctamente', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar la carga: " + (err.message || ''));
+      toast.error("Error al eliminar la carga: " + (err.message || ''), { id: toastId });
     }
   };
-  // 🔑 NUEVO: ordenar historial de cargas por fecha DESC (más reciente primero).
-  // Desempate por _creadoEn DESC si dos cargas tienen la misma fecha.
+
   const cargasHorasOrdenadas = React.useMemo(() => {
     return [...cargasHorasLista].sort((a, b) => {
       const fechaA = String(a.fecha || a.Fecha || '');
@@ -1607,7 +1608,6 @@ export default function Rrhh() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 bg-white">
-                      {/* 🔑 FIX A: solo empleados activos en salarios acordados */}
                       {personalSalarios
                         .filter(p => String(p.estado || '').toLowerCase() === 'activo')
                         .map((p, idx) => {
@@ -2111,7 +2111,6 @@ export default function Rrhh() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {/* 🔑 FIX A: solo empleados activos en carga semanal */}
                   {detalleCargaCalculado
                     .filter(esEmpleadoActivo)
                     .map((item, idx) => (
