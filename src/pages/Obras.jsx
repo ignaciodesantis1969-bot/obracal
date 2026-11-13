@@ -4,11 +4,11 @@ import { Plus, Trash2, Edit2, Search, Loader2, Calculator, MapPin } from 'lucide
 import { useLoadScript, GoogleMap, Marker } from '@react-google-maps/api';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 // Configuración del mapa
 const mapContainerStyle = { width: '100%', height: '300px', borderRadius: '12px' };
 const defaultCenter = { lat: -34.6037, lng: -58.3816 };
-// 🔑 IMPORTANTE: Agregamos 'marker' y 'places' a las librerías
 const libraries = ['places', 'marker']; 
 
 export default function Obras() {
@@ -31,14 +31,12 @@ export default function Obras() {
   const [map, setMap] = useState(null);
   const [markerPosition, setMarkerPosition] = useState(defaultCenter);
   
-  // 🔑 Referencia para el contenedor del buscador moderno
   const autocompleteContainerRef = useRef(null);
 
   const [nuevaObra, setNuevaObra] = useState({
     codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: '' 
   });
 
-  // TUS FUNCIONES ORIGINALES
   const generarProximoCodigo = (listaObras) => {
     if (!listaObras || listaObras.length === 0) return 'OB001';
     let maxNum = 0;
@@ -59,15 +57,12 @@ export default function Obras() {
     }
   }, [isFormOpen, editingId, obras]);
 
-  // 🔑 EFECTO PARA INICIALIZAR EL BUSCADOR MODERNO (PlaceAutocompleteElement)
   useEffect(() => {
     if (isLoaded && autocompleteContainerRef.current && window.google?.maps?.places?.PlaceAutocompleteElement) {
-      // Creamos el componente moderno
       const placeAutocomplete = new window.google.maps.places.PlaceAutocompleteElement({
         componentRestrictions: { country: 'ar' },
       });
 
-      // Escuchamos el evento de selección
       placeAutocomplete.addEventListener('gmp-select', async (event) => {
         const place = event.placePrediction.toPlace();
         await place.fetchFields({
@@ -90,7 +85,6 @@ export default function Obras() {
         }
       });
 
-      // Limpiamos el contenedor y agregamos el nuevo componente
       autocompleteContainerRef.current.innerHTML = '';
       autocompleteContainerRef.current.appendChild(placeAutocomplete);
     }
@@ -134,19 +128,22 @@ export default function Obras() {
     e.preventDefault();
     if (isSaving) return;
     setIsSaving(true);
+    const toastId = toast.loading('Guardando obra...');
     try {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = nuevaObra;
       if (editingId) {
         await actualizarDoc('obras', editingId, datosLimpios);
+        toast.success('Obra actualizada correctamente', { id: toastId });
       } else {
         await crearDoc('obras', datosLimpios);
+        toast.success('Obra creada correctamente', { id: toastId });
       }
       setNuevaObra({ codigo: '', nombre: '', cliente_id: '', direccion: '', ciudad: '', estado: 'activa', fecha_de_inicio: '', notas: '', latitud: '', longitud: '' });
       setEditingId(null);
       setIsFormOpen(false);
     } catch (err) {
       console.error(err);
-      alert("Error al guardar: " + (err.message || ''));
+      toast.error("Error al guardar: " + (err.message || ''), { id: toastId });
     } finally {
       setIsSaving(false);
     }
@@ -154,11 +151,13 @@ export default function Obras() {
 
   const handleEliminar = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar esta obra?")) return;
+    const toastId = toast.loading('Eliminando obra...');
     try {
       await eliminarDoc('obras', id);
+      toast.success('Obra eliminada', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''), { id: toastId });
     }
   };
 
@@ -268,13 +267,9 @@ export default function Obras() {
             </div>
             <input type="text" placeholder="Notas adicionales" className="bg-white border border-slate-300 rounded-lg px-3 py-2 text-sm md:col-span-2 focus:outline-none focus:border-amber-500 shadow-sm" value={nuevaObra.notas} onChange={(e) => setNuevaObra({ ...nuevaObra, notas: e.target.value })} />
 
-            {/* 🔑 NUEVO BUSCADOR MODERNO */}
             <div className="md:col-span-4 mt-2">
               <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Ubicación Geográfica</label>
-              
-              {/* Contenedor donde se inyectará el componente de Google */}
               <div ref={autocompleteContainerRef} className="mb-2 w-full"></div>
-
               <div className="rounded-xl overflow-hidden border border-slate-300 shadow-inner">
                 <GoogleMap
                   mapContainerStyle={mapContainerStyle}

@@ -6,24 +6,22 @@ import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { useAuth } from '@/hooks/useAuth';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { usuariosResponsables } from '@/lib/planificacionHelpers';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function ContratosMantenimiento() {
   const { user } = useAuth();
 
-  // 🔑 Lectura de Firestore
   const { data: contratosFs, loading: loadingContratos } = useFirestoreCollection('contratos');
   const { data: clientes, loading: loadingClientes } = useFirestoreCollection('clientes');
   const { data: usuariosFs } = useFirestoreCollection('usuarios');
 
   const usuarios = useMemo(() => (Array.isArray(usuariosFs) ? usuariosFs : []), [usuariosFs]);
 
-  // 🔑 Usuarios que pueden ser responsables (jefe_obra / admin / administrador)
   const responsablesDisponibles = useMemo(
     () => usuariosResponsables(usuarios),
     [usuarios]
   );
 
-  // 🔑 Filtrar contratos por responsable (si es jefe_obra)
   const contratos = useMemo(() => {
     const todos = Array.isArray(contratosFs) ? contratosFs : [];
     if (!user) return todos;
@@ -49,7 +47,6 @@ export default function ContratosMantenimiento() {
   const [contratoDetalle, setContratoDetalle] = useState(null);
   const [subTabDetalle, setSubTabDetalle] = useState('fee');
 
-  // Estados para archivos, claves y firmantes por defecto
   const [contratoGeneralFile, setContratoGeneralFile] = useState(null);
   const [acuerdoEconomicoFile, setAcuerdoEconomicoFile] = useState(null);
   const [claveProveedor, setClaveProveedor] = useState('JP4829');
@@ -95,11 +92,8 @@ export default function ContratosMantenimiento() {
   const [ajustesAplicados, setAjustesAplicados] = useState([]);
   const [nuevoMes, setNuevoMes] = useState({ mes: '', uocra: 0, ipc: 0, dolar: 0 });
 
-  // 🔑 NUEVO: flag y mes del primer certificado
   const [primerCertificadoHecho, setPrimerCertificadoHecho] = useState(false);
   const [primerCertificadoMes, setPrimerCertificadoMes] = useState('');
-
-  // 🔑 NUEVO: índice del mes elegido como 1er certificado (se persiste junto al flag)
   const [mesCertificadoIdx, setMesCertificadoIdx] = useState(null);
 
   useEffect(() => {
@@ -112,7 +106,6 @@ export default function ContratosMantenimiento() {
       let cCargo = 'Supervisor de Planta';
       let cNombre = 'Carlos Gómez';
 
-      // 🔑 NUEVO: reset de flags al cambiar de contrato
       setPrimerCertificadoHecho(false);
       setPrimerCertificadoMes('');
       setMesCertificadoIdx(null);
@@ -129,7 +122,6 @@ export default function ContratosMantenimiento() {
           if (jsonData.proveedorNombre) pNombre = jsonData.proveedorNombre;
           if (jsonData.clienteCargo) cCargo = jsonData.clienteCargo;
           if (jsonData.clienteNombre) cNombre = jsonData.clienteNombre;
-          // 🔑 NUEVO: leer flags del primer certificado
           if (jsonData.primerCertificadoHecho === true) setPrimerCertificadoHecho(true);
           if (jsonData.primerCertificadoMes) setPrimerCertificadoMes(String(jsonData.primerCertificadoMes));
           if (jsonData.mesCertificadoIdx != null) setMesCertificadoIdx(Number(jsonData.mesCertificadoIdx));
@@ -186,7 +178,6 @@ export default function ContratosMantenimiento() {
         proveedorNombre: newProvNom !== undefined ? newProvNom : proveedorNombre,
         clienteCargo: newCliCargo !== undefined ? newCliCargo : clienteCargo,
         clienteNombre: newCliNom !== undefined ? newCliNom : clienteNombre,
-        // 🔑 NUEVO: persistir flags del primer certificado
         primerCertificadoHecho,
         primerCertificadoMes,
         mesCertificadoIdx
@@ -201,7 +192,6 @@ export default function ContratosMantenimiento() {
     }
   };
 
-  // 🔑 FIX: acepta opts para persistir los flags del 1er certificado sin pisarlos
   const guardarCambiosPolinomicaEnServidor = async (nuevosRegistros, nuevosAjustes, opts = {}) => {
     if (!contratoDetalle) return;
     try {
@@ -212,7 +202,6 @@ export default function ContratosMantenimiento() {
         descActual = descActual.split('---DATOS_POLINOMICA---')[0].trim();
       }
 
-      // 🔑 NUEVO: permitir override de los flags desde opts
       const flagHecho = opts.primerCertificadoHecho !== undefined
         ? opts.primerCertificadoHecho
         : primerCertificadoHecho;
@@ -232,7 +221,6 @@ export default function ContratosMantenimiento() {
         proveedorNombre: proveedorNombre,
         clienteCargo: clienteCargo,
         clienteNombre: clienteNombre,
-        // 🔑 NUEVO: persistir flags del primer certificado
         primerCertificadoHecho: flagHecho,
         primerCertificadoMes: flagMes,
         mesCertificadoIdx: flagIdx
@@ -258,12 +246,11 @@ export default function ContratosMantenimiento() {
 
   const eliminarMesPolinomica = (idx) => {
     if (idx === 0) {
-      alert("No se puede eliminar el Mes Base (Mes 1).");
+      toast.error("No se puede eliminar el Mes Base (Mes 1).");
       return;
     }
     const actualizados = registrosMeses.filter((_, i) => i !== idx);
     setRegistrosMeses(actualizados);
-    // 🔑 FIX: si borramos el mes elegido como certificado, limpiar el índice
     if (mesCertificadoIdx === idx) setMesCertificadoIdx(null);
     guardarCambiosPolinomicaEnServidor(actualizados, ajustesAplicados);
   };
@@ -296,7 +283,7 @@ export default function ContratosMantenimiento() {
       link.click();
     } catch (err) {
       console.error("Error al generar la imagen:", err);
-      alert("No se pudo generar la imagen del contrato.");
+      toast.error("No se pudo generar la imagen del contrato.");
     }
   };
 
@@ -316,7 +303,6 @@ export default function ContratosMantenimiento() {
     clienteKey: 'CG9012',
     clienteCargo: 'Supervisor de Planta',
     clienteNombre: 'Carlos Gómez',
-    // 🔑 NUEVO: responsable del contrato
     responsable_id: '',
   });
 
@@ -419,14 +405,13 @@ export default function ContratosMantenimiento() {
     setModalAbierto(true);
   };
 
-  // 🔑 Guardar contrato con responsable
   const guardarContrato = async (e) => {
     e.preventDefault();
     setCargando(true);
+    const toastId = toast.loading('Guardando contrato...');
     try {
       let descClean = formData.descripcion || '';
 
-      // 🔑 FIX: preservar primerCertificadoHecho/Mes/Idx si estamos editando
       let flagHecho = false;
       let flagMes = '';
       let flagIdx = null;
@@ -455,7 +440,6 @@ export default function ContratosMantenimiento() {
         proveedorNombre: formData.proveedorNombre,
         clienteCargo: formData.clienteCargo,
         clienteNombre: formData.clienteNombre,
-        // 🔑 NUEVO: persistir flags del primer certificado
         primerCertificadoHecho: flagHecho,
         primerCertificadoMes: flagMes,
         mesCertificadoIdx: flagIdx
@@ -463,7 +447,6 @@ export default function ContratosMantenimiento() {
 
       const descripcionFinal = `${descClean}\n---DATOS_SICE_INTEGRAL---\n${payloadDataJson}`;
 
-      // 🔑 Resolver datos del responsable
       const respSeleccionado = responsablesDisponibles.find(u =>
         String(u.id) === String(formData.responsable_id)
       );
@@ -473,7 +456,6 @@ export default function ContratosMantenimiento() {
         descripcion: descripcionFinal,
         porcentaje_beneficio_deseado: Number(porcentajeBeneficioDeseado),
         fee_materiales: Number(porcentajeFee.toFixed(2)),
-        // 🔑 NUEVO: responsable
         responsable_id: respSeleccionado ? String(respSeleccionado.id) : '',
         responsable_nombre: respSeleccionado?.nombre || '',
         responsable_email: respSeleccionado?.email || '',
@@ -483,26 +465,30 @@ export default function ContratosMantenimiento() {
 
       if (contratoEditando) {
         await actualizarDoc('contratos', contratoEditando.id, datosLimpios);
+        toast.success('Contrato actualizado correctamente', { id: toastId });
       } else {
         await crearDoc('contratos', datosLimpios);
+        toast.success('Contrato creado correctamente', { id: toastId });
       }
 
       setModalAbierto(false);
     } catch (err) {
       console.error(err);
-      alert("Error al guardar: " + (err.message || ''));
+      toast.error("Error al guardar: " + (err.message || ''), { id: toastId });
     } finally {
       setCargando(false);
     }
   };
 
   const eliminarContrato = async (id) => {
-    if (!confirm("¿Estás seguro de eliminar este contrato?")) return;
+    if (!window.confirm("¿Estás seguro de eliminar este contrato?")) return;
+    const toastId = toast.loading('Eliminando contrato...');
     try {
       await eliminarDoc('contratos', id);
+      toast.success('Contrato eliminado correctamente', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''), { id: toastId });
     }
   };
 
@@ -535,8 +521,6 @@ export default function ContratosMantenimiento() {
     return true;
   });
 
-  // 🔑 FIX: si el 1er certificado NO está hecho, NO resetea el ciclo en meses intermedios.
-  // Solo acumula hasta el final. Cuando sí está hecho, comportamiento actual.
   const procesarMesesPolinomica = () => {
     let acumuladoTotal = 0;
     let cicloAcumulado = 0;
@@ -556,19 +540,15 @@ export default function ContratosMantenimiento() {
         });
       } else {
         const prevU = Number(registrosMeses[idx - 1].uocra) || 1;
-        const prevI = Number(registrosMeses[idx - 1].ipc) || 1; // 🔑 FIX: Tratamos el IPC como índice
+        const prevI = Number(registrosMeses[idx - 1].ipc) || 1;
         const prevD = Number(registrosMeses[idx - 1].dolar) || 1;
 
-        // 🔑 FIX: Calculamos la variación real para los TRES indicadores
         const varUocra = ((Number(reg.uocra) / prevU) - 1) * 100;
-        const varIpc = ((Number(reg.ipc) / prevI) - 1) * 100; // 🔑 Ahora calcula la variación del IPC
+        const varIpc = ((Number(reg.ipc) / prevI) - 1) * 100;
         const varDolar = ((Number(reg.dolar) / prevD) - 1) * 100;
 
-        // Aplicamos la fórmula de incidencia exacta de tu Excel
         const poliMes = (varUocra * 0.80) + (varIpc * 0.10) + (varDolar * 0.10);
 
-        // 🔑 FIX: si el 1er certificado NO está hecho, no reseteamos el ciclo.
-        // Acumulamos siempre hasta el final del array.
         if (primerCertificadoHecho) {
           cicloAcumulado += poliMes;
           acumuladoTotal += poliMes;
@@ -587,9 +567,6 @@ export default function ContratosMantenimiento() {
 
           if (supera) cicloAcumulado = 0;
         } else {
-          // Modo "1er certificado pendiente": acumulamos sin resetear.
-          // El reajusteAplicado solo se marca si ESTE es el mes elegido como certificado
-          // (y aún así lo maneja marcarPrimerCertificado, no lo disparamos acá).
           cicloAcumulado += poliMes;
           acumuladoTotal += poliMes;
 
@@ -612,7 +589,6 @@ export default function ContratosMantenimiento() {
   const mesesProcesados = procesarMesesPolinomica();
   const polinomioAcumuladoTotal = mesesProcesados.length > 0 ? mesesProcesados[mesesProcesados.length - 1].acumuladoTotal : 0;
 
-  // 🔑 FIX: mesPendienteAplicar solo tiene sentido cuando el 1er certificado ya se hizo
   const mesPendienteAplicar = primerCertificadoHecho
     ? mesesProcesados.find(m => m.reajusteAplicado && !ajustesAplicados.some(a => a.mes === m.mes))
     : null;
@@ -627,27 +603,26 @@ export default function ContratosMantenimiento() {
     const nuevosAjustes = [...ajustesAplicados, nuevoAjuste];
     setAjustesAplicados(nuevosAjustes);
     guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes);
+    toast.success('Ajuste aplicado correctamente');
   };
 
-  // 🔑 NUEVO: marcar el 1er certificado en el mes elegido por el usuario
   const marcarPrimerCertificado = () => {
     if (mesCertificadoIdx == null || mesCertificadoIdx < 1 || mesCertificadoIdx >= registrosMeses.length) {
-      alert("Primero elegí el mes en el que vas a hacer el 1er certificado (📌 en la tabla).");
+      toast.error("Primero elegí el mes en el que vas a hacer el 1er certificado (📌 en la tabla).");
       return;
     }
 
     const mesElegido = registrosMeses[mesCertificadoIdx];
     const mesCertificadoNombre = mesElegido.mes;
 
-    // 🔑 Calcular el acumulado REAL desde el mes base hasta el mes elegido (sin reset)
     let acumuladoSinReset = 0;
     for (let i = 1; i <= mesCertificadoIdx; i++) {
       const prevU = Number(registrosMeses[i - 1].uocra) || 1;
-      const prevI = Number(registrosMeses[i - 1].ipc) || 1; // 🔑 Fix IPC
+      const prevI = Number(registrosMeses[i - 1].ipc) || 1;
       const prevD = Number(registrosMeses[i - 1].dolar) || 1;
       
       const varUocra = ((Number(registrosMeses[i].uocra) / prevU) - 1) * 100;
-      const varIpc = ((Number(registrosMeses[i].ipc) / prevI) - 1) * 100; // 🔑 Calcula variación del IPC
+      const varIpc = ((Number(registrosMeses[i].ipc) / prevI) - 1) * 100;
       const varDolar = ((Number(registrosMeses[i].dolar) / prevD) - 1) * 100;
       
       acumuladoSinReset += (varUocra * 0.80) + (varIpc * 0.10) + (varDolar * 0.10);
@@ -672,12 +647,11 @@ export default function ContratosMantenimiento() {
         nuevosAjustes = [...ajustesAplicados, nuevoAjuste];
         setAjustesAplicados(nuevosAjustes);
       }
-      alert(`✅ 1er Certificado marcado para "${mesCertificadoNombre}".\nAcumulado real hasta ese mes: +${acumuladoSinReset.toFixed(2)}% (superó el 5%).\nSe aplicó el ajuste.`);
+      toast.success(`✅ 1er Certificado marcado para "${mesCertificadoNombre}". Acumulado: +${acumuladoSinReset.toFixed(2)}% (superó el 5%). Ajuste aplicado.`);
     } else {
-      alert(`✅ 1er Certificado marcado para "${mesCertificadoNombre}".\nAcumulado real hasta ese mes: +${acumuladoSinReset.toFixed(2)}% (no superó el 5%).\nEl ciclo sigue acumulando: cuando supere el 5%, vas a poder aplicar el ajuste desde "Cálculo de Horas (HH)".`);
+      toast.success(`✅ 1er Certificado marcado para "${mesCertificadoNombre}". Acumulado: +${acumuladoSinReset.toFixed(2)}% (no superó el 5%).`);
     }
 
-    // 🔑 Persistir TODO en una sola escritura
     guardarCambiosPolinomicaEnServidor(registrosMeses, nuevosAjustes, {
       primerCertificadoHecho: true,
       primerCertificadoMes: mesCertificadoNombre,
@@ -690,7 +664,6 @@ export default function ContratosMantenimiento() {
     const nuevosAjustes = ajustesAplicados.filter((_, i) => i !== indexAjuste);
     setAjustesAplicados(nuevosAjustes);
 
-    // 🔑 NUEVO: si el ajuste eliminado correspondía al 1er certificado, resetear el flag
     let flagHecho = primerCertificadoHecho;
     let flagMes = primerCertificadoMes;
     let flagIdx = mesCertificadoIdx;
@@ -708,6 +681,7 @@ export default function ContratosMantenimiento() {
       primerCertificadoMes: flagMes,
       mesCertificadoIdx: flagIdx
     });
+    toast.success('Ajuste eliminado correctamente');
   };
 
   if (contratoDetalle) {
@@ -751,7 +725,6 @@ export default function ContratosMantenimiento() {
                 )}
                 <h1 className="text-xl font-black text-slate-800">{contratoDetalle.nombre_contrato || 'Contrato sin nombre'}</h1>
                 <span className="text-xs font-semibold px-2.5 py-0.5 bg-slate-100 text-slate-600 rounded-lg">{contratoDetalle.estado}</span>
-                {/* 🔑 NUEVO: chip del 1er certificado */}
                 {primerCertificadoHecho && (
                   <span className="text-xs font-bold px-2.5 py-0.5 bg-emerald-500/10 text-emerald-700 rounded-full border border-emerald-500/30 flex items-center gap-1">
                     <Award className="w-3.5 h-3.5" /> 1er Certificado: {primerCertificadoMes || '—'}
@@ -1072,7 +1045,6 @@ export default function ContratosMantenimiento() {
                 </div>
               </div>
 
-              {/* 🔑 NUEVO: bloque del 1er certificado (con selector de mes) */}
               {!primerCertificadoHecho ? (
                 <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3">
@@ -1091,10 +1063,10 @@ export default function ContratosMantenimiento() {
                               let acum = 0;
                               for (let i = 1; i <= mesCertificadoIdx; i++) {
                                 const prevU = Number(registrosMeses[i - 1].uocra) || 1;
-                                const prevI = Number(registrosMeses[i - 1].ipc) || 1; // 🔑 FIX
+                                const prevI = Number(registrosMeses[i - 1].ipc) || 1;
                                 const prevD = Number(registrosMeses[i - 1].dolar) || 1;
                                 const vU = ((Number(registrosMeses[i].uocra) / prevU) - 1) * 100;
-                                const vI = ((Number(registrosMeses[i].ipc) / prevI) - 1) * 100; // 🔑 FIX
+                                const vI = ((Number(registrosMeses[i].ipc) / prevI) - 1) * 100;
                                 const vD = ((Number(registrosMeses[i].dolar) / prevD) - 1) * 100;
                                 acum += (vU * 0.80) + (vI * 0.10) + (vD * 0.10);
                               }
@@ -1151,7 +1123,6 @@ export default function ContratosMantenimiento() {
                   />
                 </div>
                 <div>
-                  {/* 🔑 FIX: Cambiamos el label a Índice en lugar de % */}
                   <label className="block text-xs font-semibold text-slate-600 mb-1">IPC Nac. (Índice)</label>
                   <input
                     type="number"
@@ -1184,10 +1155,8 @@ export default function ContratosMantenimiento() {
                   <thead>
                     <tr className="bg-slate-50 text-slate-600 font-semibold border-b border-slate-200">
                       <th className="p-4">Período</th>
-                      {/* 🔑 NUEVO: columna de selección del mes del 1er certificado */}
                       <th className="p-4 text-center">1er Cert.</th>
                       <th className="p-4 text-center">U.O.C.R.A. (80%)</th>
-                      {/* 🔑 FIX: Cambiamos el header a Índice */}
                       <th className="p-4 text-center">IPC Nac. (10%)</th>
                       <th className="p-4 text-center">Dólar BNA (10%)</th>
                       <th className="p-4 text-right bg-amber-500/10 text-slate-900">Polinómica del Mes</th>
@@ -1217,7 +1186,6 @@ export default function ContratosMantenimiento() {
                                 {esBase && <span className="text-[10px] bg-amber-100 text-amber-800 px-2 py-0.5 rounded shrink-0">BASE</span>}
                               </div>
                             </td>
-                            {/* 🔑 NUEVO: radio button para elegir el mes del 1er certificado */}
                             <td className="p-4 text-center">
                               {!esBase && !primerCertificadoHecho && (
                                 <button
@@ -1258,7 +1226,6 @@ export default function ContratosMantenimiento() {
                               )}
                             </td>
                             <td className="p-4 text-center">
-                              {/* 🔑 FIX: Ahora el valor ingresado es un Índice, no un porcentaje */}
                               <input
                                 type="number"
                                 step="0.01"
@@ -1798,7 +1765,6 @@ export default function ContratosMantenimiento() {
                 </div>
               </div>
 
-              {/* 🔑 NUEVO: Responsable del contrato */}
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-2">
                 <label className="block text-xs font-black text-blue-900 uppercase flex items-center gap-1.5">
                   <User className="w-4 h-4 text-blue-600" />

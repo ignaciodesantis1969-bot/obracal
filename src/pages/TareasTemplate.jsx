@@ -1,14 +1,12 @@
 // src/pages/TareasTemplate.jsx
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Copy, Search, Download, Loader2, FolderPlus, Clock, ChevronDown, ChevronUp, X, Filter } from 'lucide-react';
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
-// 🔑 NUEVO: combo con búsqueda para rubros
 import BuscadorSelect from '@/components/BuscadorSelect';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function TareasTemplate() {
-  // 🔑 NUEVO: leemos las 3 colecciones necesarias en paralelo
   const { data: items, loading: loadingItems } = useFirestoreCollection('maestro');
   const { data: insumosDisponibles, loading: loadingInsumos } = useFirestoreCollection('insumos');
   const { data: rubrosList, loading: loadingRubros } = useFirestoreCollection('rubros');
@@ -38,7 +36,6 @@ export default function TareasTemplate() {
 
   const [busquedaInsumo, setBusquedaInsumo] = useState('');
 
-  // 🔑 NUEVO: cuando llega el maestro desde Firestore, abrimos todos los rubros por defecto
   useEffect(() => {
     if (items.length > 0) {
       const rubrosUnicos = [...new Set([
@@ -155,6 +152,7 @@ export default function TareasTemplate() {
       insumosParseados = [];
     }
 
+    const toastId = toast.loading('Duplicando tarea...');
     try {
       const itemADuplicar = {
         codigo: item.codigo || '',
@@ -170,9 +168,10 @@ export default function TareasTemplate() {
 
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = itemADuplicar;
       await crearDoc('maestro', datosLimpios);
+      toast.success('Tarea duplicada correctamente', { id: toastId });
     } catch (err) {
       console.error(err);
-      alert("Error al duplicar la tarea: " + (err.message || ''));
+      toast.error("Error al duplicar la tarea: " + (err.message || ''), { id: toastId });
     }
   };
 
@@ -189,17 +188,17 @@ export default function TareasTemplate() {
     return `R${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  // 🔑 FIX: guardado directo a Firestore (rubro → colección 'rubros'; tarea → colección 'maestro')
   const handleGuardar = async (e) => {
     e.preventDefault();
     if (isSaving) return;
 
     setIsSaving(true);
+    const toastId = toast.loading('Guardando...');
     try {
       if (activeForm === 'rubro') {
         const nombreRubroUpper = (formData.rubro || '').trim().toUpperCase();
         if (!nombreRubroUpper) {
-          alert("Ingrese un nombre de rubro válido.");
+          toast.error("Ingrese un nombre de rubro válido.", { id: toastId });
           setIsSaving(false);
           return;
         }
@@ -215,6 +214,7 @@ export default function TareasTemplate() {
         setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
         setEditingId(null);
         setActiveForm(null);
+        toast.success('Rubro creado correctamente', { id: toastId });
         return;
       }
 
@@ -232,8 +232,10 @@ export default function TareasTemplate() {
 
       if (editingId) {
         await actualizarDoc('maestro', editingId, datosLimpios);
+        toast.success('Tarea actualizada correctamente', { id: toastId });
       } else {
         await crearDoc('maestro', datosLimpios);
+        toast.success('Tarea creada correctamente', { id: toastId });
       }
 
       setFormData({ codigo: '', rubro: '', tarea: '', unidad: 'm2', descripcion: '', costo_estimado: 0, hs_mo: '', insumos_asociados: [], estado: 'activo' });
@@ -241,7 +243,7 @@ export default function TareasTemplate() {
       setActiveForm(null);
     } catch (err) {
       console.error(err);
-      alert("Error al guardar: " + (err.message || ''));
+      toast.error("Error al guardar: " + (err.message || ''), { id: toastId });
     } finally {
       setIsSaving(false);
     }
@@ -249,11 +251,13 @@ export default function TareasTemplate() {
 
   const handleEliminar = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar este registro?")) return;
+    const toastId = toast.loading('Eliminando...');
     try {
       await eliminarDoc('maestro', id);
+      toast.success('Tarea eliminada', { id: toastId });
     } catch (err) {
       console.error("Error al eliminar tarea:", err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''), { id: toastId });
     }
   };
 
@@ -265,15 +269,17 @@ export default function TareasTemplate() {
     );
 
     if (!rubroEncontrado || !rubroEncontrado.id) {
-      alert("No se encontró el rubro en la base de datos.");
+      toast.error("No se encontró el rubro en la base de datos.");
       return;
     }
 
+    const toastId = toast.loading('Eliminando rubro...');
     try {
       await eliminarDoc('rubros', rubroEncontrado.id);
+      toast.success('Rubro eliminado', { id: toastId });
     } catch (err) {
       console.error("Error al eliminar el rubro:", err);
-      alert("Error al eliminar el rubro: " + (err.message || ''));
+      toast.error("Error al eliminar el rubro: " + (err.message || ''), { id: toastId });
     }
   };
 
@@ -282,7 +288,6 @@ export default function TareasTemplate() {
     ...rubrosList.map(r => String(r.nombre || r.Nombre || '').toUpperCase())
   ])].filter(Boolean).sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  // 🔑 NUEVO: opciones para el BuscadorSelect (rubros)
   const opcionesRubros = listaRubrosUnicos.map(r => ({ id: r, label: r }));
 
   const insumosFiltradosBusqueda = insumosDisponibles.filter(i =>
@@ -309,11 +314,9 @@ export default function TareasTemplate() {
     return rubroMatches || hasMatchingTask;
   });
 
-  // 🔑 NUEVO (fix b): abrir modal "Nueva Tarea" pre-cargando el rubro filtrado
   const handleNuevaTarea = () => {
     setActiveForm('tarea');
     setEditingId(null);
-    // Si hay un filtro activo, precargamos ese rubro. Si no, el primero de la lista.
     const rubroPorDefecto = selectedRubro
       ? selectedRubro.toUpperCase()
       : (listaRubrosUnicos[0] || '');
@@ -364,7 +367,6 @@ export default function TareasTemplate() {
           />
         </div>
 
-        {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
         <div className="w-full md:w-80 shrink-0">
           <BuscadorSelect
             opciones={[{ id: '', label: 'Todos los Rubros' }, ...opcionesRubros]}
@@ -408,7 +410,6 @@ export default function TareasTemplate() {
                 <>
                   <div>
                     <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Seleccionar Rubro *</label>
-                    {/* 🔑 FIX: reemplazado <select> por BuscadorSelect. Se pre-carga con el rubro filtrado (fix b). */}
                     <BuscadorSelect
                       opciones={opcionesRubros}
                       value={formData.rubro}
