@@ -1,14 +1,12 @@
 // src/pages/Proveedores.jsx
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2, X, Filter } from 'lucide-react';
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
-// 🔑 NUEVO: combo con búsqueda para rubros
 import BuscadorSelect from '@/components/BuscadorSelect';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function Proveedores() {
-  // 🔑 NUEVO: lectura en tiempo real desde Firestore (colección `proveedores`)
   const { data: proveedores, loading: isLoading, error: errorFirestore } = useFirestoreCollection('proveedores');
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -17,7 +15,6 @@ export default function Proveedores() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingProveedor, setEditingProveedor] = useState(null);
 
-  // 🛡️ ESTADOS DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSavingCreate, setIsSavingCreate] = useState(false);
   const [isSavingUpdate, setIsSavingUpdate] = useState(false);
 
@@ -31,7 +28,6 @@ export default function Proveedores() {
     contacto: ''
   });
 
-  // 🔑 NUEVO: autogenera PR### basándose en los proveedores existentes
   const generarCodigoAutomatico = (lista) => {
     let maxNum = 0;
     (lista || []).forEach(p => {
@@ -45,8 +41,6 @@ export default function Proveedores() {
     return `PR${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  // 🔑 NUEVO: cuando el usuario abre el modal de "Nuevo Proveedor",
-  // se autogenera el código. Al editar, se respeta el que ya tenía.
   useEffect(() => {
     if (isModalOpen && proveedores.length > 0 && !nuevoProveedor.codigo) {
       setNuevoProveedor(prev => ({
@@ -57,7 +51,6 @@ export default function Proveedores() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isModalOpen, proveedores]);
 
-  // 🔑 FIX: creación directo a Firestore (sin fetch al Apps Script)
   const handleCrear = async (e) => {
     e.preventDefault();
     if (isSavingCreate) return;
@@ -73,18 +66,18 @@ export default function Proveedores() {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = proveedorConCodigo;
 
       await crearDoc('proveedores', datosLimpios);
+      toast.success('Proveedor creado correctamente');
 
       setIsModalOpen(false);
       setNuevoProveedor({ codigo: '', razon_social: '', rubro: '', cuit: '', telefono: '', email: '', contacto: '' });
     } catch (err) {
       console.error("Error:", err);
-      alert("Error al crear proveedor: " + (err.message || ''));
+      toast.error("Error al crear proveedor: " + (err.message || ''));
     } finally {
       setIsSavingCreate(false);
     }
   };
 
-  // 🔑 FIX: actualización directo a Firestore
   const handleActualizar = async (e) => {
     e.preventDefault();
     if (!editingProveedor || isSavingUpdate) return;
@@ -94,40 +87,37 @@ export default function Proveedores() {
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = editingProveedor;
 
       await actualizarDoc('proveedores', id, datosLimpios);
+      toast.success('Proveedor actualizado correctamente');
 
       setIsEditModalOpen(false);
       setEditingProveedor(null);
     } catch (err) {
       console.error("Error:", err);
-      alert("Error al actualizar proveedor: " + (err.message || ''));
+      toast.error("Error al actualizar proveedor: " + (err.message || ''));
     } finally {
       setIsSavingUpdate(false);
     }
   };
 
-  // 🔑 FIX: eliminación directo a Firestore
   const handleEliminar = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar este proveedor?")) return;
     try {
       await eliminarDoc('proveedores', id);
+      toast.success('Proveedor eliminado');
     } catch (err) {
       console.error("Error al eliminar:", err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''));
     }
   };
 
-  // 🔑 FIX: la lista de rubros sale SOLO de los proveedores existentes.
-  // Los rubros del Maestro de Tareas NO se mezclan con los de Proveedores.
   const rubrosUnicos = [...new Set(
     (proveedores || [])
       .map(p => String(p.rubro || p.Rubro || '').trim().toUpperCase())
       .filter(Boolean)
   )].sort((a, b) => a.localeCompare(b, 'es', { sensitivity: 'base' }));
 
-  // 🔑 NUEVO: opciones para todos los combos (filtro + modales)
   const opcionesRubros = rubrosUnicos.map(r => ({ id: r, label: r }));
 
-  // Filtrado combinado por texto y por rubro seleccionado
   const proveedoresFiltrados = proveedores.filter(p => {
     const razonSocial = String(p.razon_social || p.nombre || '').toLowerCase();
     const rubro = String(p.rubro || p.Rubro || '').trim().toUpperCase();
@@ -156,7 +146,6 @@ export default function Proveedores() {
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto pb-12">
-      {/* Cabecera Principal */}
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Gestión de Proveedores</h1>
@@ -183,9 +172,7 @@ export default function Proveedores() {
         </button>
       </div>
 
-      {/* Barra de Búsqueda y Filtro por Rubro */}
       <div className="flex flex-col md:flex-row items-center gap-3">
-        {/* Buscador */}
         <div className="flex items-center gap-3 bg-white px-4 py-3 rounded-2xl border border-slate-300 shadow-sm w-full flex-1">
           <Search className="w-5 h-5 text-slate-400 shrink-0" />
           <input
@@ -197,7 +184,6 @@ export default function Proveedores() {
           />
         </div>
 
-        {/* 🔑 FIX: el FILTRO solo muestra rubros que existen entre proveedores */}
         <div className="w-full md:w-80 shrink-0">
           <BuscadorSelect
             opciones={[{ id: '', label: 'Todos los Rubros' }, ...opcionesRubros]}
@@ -215,7 +201,6 @@ export default function Proveedores() {
         </div>
       )}
 
-      {/* Tabla de Proveedores */}
       <div className="bg-white rounded-2xl border border-slate-300 shadow-sm overflow-hidden">
         {proveedoresFiltrados.length === 0 ? (
           <div className="p-12 text-center text-slate-400 text-sm">
@@ -285,7 +270,6 @@ export default function Proveedores() {
         )}
       </div>
 
-      {/* Modal Nuevo Proveedor */}
       {isModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
@@ -321,7 +305,6 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
-                {/* 🔑 Modal ALTA: usa opcionesRubros (solo proveedores) */}
                 <BuscadorSelect
                   opciones={opcionesRubros}
                   value={nuevoProveedor.rubro}
@@ -406,7 +389,6 @@ export default function Proveedores() {
         </div>
       )}
 
-      {/* Modal Modificar Proveedor */}
       {isEditModalOpen && editingProveedor && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4">
           <div className="bg-white rounded-2xl shadow-2xl border border-slate-300 w-full max-w-md overflow-hidden">
@@ -440,7 +422,6 @@ export default function Proveedores() {
 
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro *</label>
-                {/* 🔑 Modal EDICIÓN: usa opcionesRubros (solo proveedores) */}
                 <BuscadorSelect
                   opciones={opcionesRubros}
                   value={editingProveedor.rubro || editingProveedor.Rubro || ''}

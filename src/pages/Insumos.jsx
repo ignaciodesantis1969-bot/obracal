@@ -1,14 +1,12 @@
 // src/pages/Insumos.jsx
 import { useState } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2 } from 'lucide-react';
-// 🔑 NUEVO: lectura/escritura directo a Firestore
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
-// 🔑 NUEVO: combo con búsqueda para proveedores
 import BuscadorSelect from '@/components/BuscadorSelect';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function Insumos() {
-  // 🔑 NUEVO: leemos insumos + proveedores en paralelo desde Firestore
   const { data: insumos, loading: loadingInsumos, error: errorInsumos } = useFirestoreCollection('insumos');
   const { data: proveedores, loading: loadingProveedores } = useFirestoreCollection('proveedores');
 
@@ -20,8 +18,6 @@ export default function Insumos() {
   const [filtroProveedor, setFiltroProveedor] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
-
-  // 🛡️ ESTADO DE BLOQUEO CONTRA CLICS MÚLTIPLES (DUPLICACIÓN)
   const [isSaving, setIsSaving] = useState(false);
 
   const [nuevoInsumo, setNuevoInsumo] = useState({
@@ -34,7 +30,6 @@ export default function Insumos() {
     estado: 'activo'
   });
 
-  // 🔑 NUEVO: autogenera INS### basándose en el mayor número existente
   const generarCodigoAutomatico = (listaInsumos) => {
     let maxNum = 0;
     (listaInsumos || []).forEach(i => {
@@ -83,7 +78,6 @@ export default function Insumos() {
     setIsFormOpen(true);
   };
 
-  // 🔑 FIX: guardado directo a Firestore (create / update)
   const handleGuardar = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -98,8 +92,10 @@ export default function Insumos() {
 
       if (editingId) {
         await actualizarDoc('insumos', editingId, datosLimpios);
+        toast.success('Insumo actualizado correctamente');
       } else {
         await crearDoc('insumos', datosLimpios);
+        toast.success('Insumo creado correctamente');
       }
 
       setNuevoInsumo({ codigo: '', nombre: '', tipo: 'Material', proveedor_id: '', unidad: 'un', costo_unitario: '', estado: 'activo' });
@@ -107,20 +103,20 @@ export default function Insumos() {
       setIsFormOpen(false);
     } catch (err) {
       console.error("Error al guardar insumo:", err);
-      alert("Error al guardar: " + (err.message || 'Error desconocido'));
+      toast.error("Error al guardar: " + (err.message || 'Error desconocido'));
     } finally {
       setIsSaving(false);
     }
   };
 
-  // 🔑 FIX: eliminación directo a Firestore
   const handleEliminar = async (id) => {
     if (!window.confirm("¿Estás seguro de eliminar este insumo?")) return;
     try {
       await eliminarDoc('insumos', id);
+      toast.success('Insumo eliminado');
     } catch (err) {
       console.error("Error al eliminar:", err);
-      alert("Error al eliminar: " + (err.message || ''));
+      toast.error("Error al eliminar: " + (err.message || ''));
     }
   };
 
@@ -129,7 +125,6 @@ export default function Insumos() {
     return prov ? (prov.razon_social || prov.nombre) : '—';
   };
 
-  // 🔑 NUEVO: preparar opciones de proveedores para el BuscadorSelect
   const opcionesProveedores = (proveedores || []).map(p => ({
     id: p.id,
     label: `${p.codigo ? p.codigo + ' - ' : ''}${p.razon_social || p.nombre || 'Sin nombre'}`
@@ -214,7 +209,6 @@ export default function Insumos() {
             <span>{editingId ? 'Modificar Insumo' : 'Registrar Nuevo Insumo'}</span>
           </h2>
           <form onSubmit={handleGuardar} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-            {/* 🔑 FIX: reemplazado <select> por BuscadorSelect */}
             <BuscadorSelect
               opciones={opcionesProveedores}
               value={nuevoInsumo.proveedor_id}
@@ -309,7 +303,6 @@ export default function Insumos() {
             />
           </div>
           <div className="flex flex-col sm:flex-row gap-2">
-            {/* 🔑 FIX: filtro de proveedor también usa BuscadorSelect */}
             <div className="min-w-[200px]">
               <BuscadorSelect
                 opciones={[{ id: '', label: 'Todos los proveedores' }, ...opcionesProveedores]}

@@ -1,10 +1,11 @@
+// src/pages/Clientes.jsx
 import { useState, useEffect } from 'react';
 import { Plus, Trash2, Edit2, Search, Loader2 } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function Clientes() {
-  // 🔑 LECTURA: Firestore en tiempo real
   const { data: clientes, loading: isLoading, error: errorFirestore } = useFirestoreCollection('clientes');
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -24,13 +25,10 @@ export default function Clientes() {
     estado: 'activo'
   });
 
-  // 🔑 Genera el siguiente código basándose en los clientes existentes
-  // Formato: CL001, CL002, CL003...
   const generarSiguienteCodigoCliente = () => {
     let maxNum = 0;
     clientes.forEach(c => {
       const cod = String(c.codigo || '').toUpperCase().trim();
-      // Acepta "CL001", "CL1", "CL-001", etc.
       const match = cod.match(/^CL-?0*(\d+)$/);
       if (match) {
         const num = parseInt(match[1], 10);
@@ -40,9 +38,6 @@ export default function Clientes() {
     return `CL${String(maxNum + 1).padStart(3, '0')}`;
   };
 
-  // 🔑 Cuando el usuario abre el modal de "Nuevo Cliente",
-  // se autogenera el código.
-  // Cuando edita un cliente existente, se respeta el código que ya tenía.
   useEffect(() => {
     if (isFormOpen && !editingId && clientes.length > 0 && !nuevoCliente.codigo) {
       setNuevoCliente(prev => ({
@@ -69,11 +64,10 @@ export default function Clientes() {
     setIsFormOpen(true);
   };
 
-  // 🔑 Handler para abrir el modal de "Nuevo Cliente"
   const handleNuevoClienteClick = () => {
     setEditingId(null);
     setNuevoCliente({
-      codigo: generarSiguienteCodigoCliente(), // 🔑 Autogenera al abrir
+      codigo: generarSiguienteCodigoCliente(),
       razon_social: '',
       cuit: '',
       telefono: '',
@@ -86,29 +80,28 @@ export default function Clientes() {
     setIsFormOpen(true);
   };
 
-  // 🔑 ESCRITURA: directo a Firestore
   const handleGuardar = async (e) => {
     e.preventDefault();
     if (isSaving) return;
 
     setIsSaving(true);
     try {
-      // Limpiar los campos internos de Firestore (los que empiezan con _)
       const { _creadoEn, _actualizadoEn, id, ...datosLimpios } = nuevoCliente;
 
       if (editingId) {
         await actualizarDoc('clientes', editingId, datosLimpios);
+        toast.success('Cliente actualizado correctamente');
       } else {
         await crearDoc('clientes', datosLimpios);
+        toast.success('Cliente creado correctamente');
       }
 
       setNuevoCliente({ codigo: '', razon_social: '', cuit: '', telefono: '', email: '', direccion: '', ciudad: '', provincia: '', estado: 'activo' });
       setEditingId(null);
       setIsFormOpen(false);
-      // Firestore actualiza la lista en tiempo real.
     } catch (err) {
       console.error(err);
-      alert("Error al guardar: " + err.message);
+      toast.error("Error al guardar: " + err.message);
     } finally {
       setIsSaving(false);
     }
@@ -118,9 +111,10 @@ export default function Clientes() {
     if (!window.confirm("¿Estás seguro de eliminar este cliente?")) return;
     try {
       await eliminarDoc('clientes', id);
+      toast.success('Cliente eliminado');
     } catch (err) {
       console.error(err);
-      alert("Error al eliminar: " + err.message);
+      toast.error("Error al eliminar: " + err.message);
     }
   };
 
@@ -139,7 +133,6 @@ export default function Clientes() {
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       
-      {/* HEADER */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Clientes</h1>
@@ -155,7 +148,6 @@ export default function Clientes() {
         </div>
       </div>
 
-      {/* FORMULARIO DESPLEGABLE */}
       {isFormOpen && (
         <div className="bg-slate-200/90 p-6 rounded-xl border border-slate-400 shadow-md animate-in fade-in slide-in-from-top-4 duration-200">
           <h2 className="text-base font-semibold mb-4 text-slate-800 flex items-center justify-between">
@@ -243,7 +235,6 @@ export default function Clientes() {
         </div>
       )}
 
-      {/* TABLA Y BUSCADOR */}
       <div className="bg-white border border-slate-300 rounded-xl shadow-sm overflow-hidden flex flex-col">
         <div className="p-4 border-b border-slate-200 bg-white">
           <div className="relative">
