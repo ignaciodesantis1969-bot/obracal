@@ -1,8 +1,9 @@
 // src/pages/Asistencias.jsx
 import { useState, useMemo } from 'react';
-import { Calendar, Clock, MapPin, User, ShieldCheck, X, Download } from 'lucide-react'; // 🔑 Agregado Download
-import * as XLSX from 'xlsx'; // 🔑 Agregada librería de Excel
+import { Calendar, Clock, MapPin, User, ShieldCheck, X, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
+import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
 
 export default function Asistencias() {
   const { data: asistencias, loading: loadingAsistencias } = useFirestoreCollection('attendance_records');
@@ -100,37 +101,50 @@ export default function Asistencias() {
     setFechaHasta('');
   };
 
-  // 🔑 FUNCIÓN PARA EXPORTAR A EXCEL
+  // 🔑 FUNCIÓN PARA EXPORTAR A EXCEL MEJORADA
   const exportarAExcel = () => {
-    // 1. Preparamos los datos con las columnas que queremos en el Excel
-    const datosParaExcel = asistenciasAgrupadas.map(asist => ({
-      'Fecha': formatearFechaVisual(asist.fechaDia),
-      'Empleado': asist.nombreEmpleado,
-      'Especialidad': asist.especialidad,
-      'Obra': asist.nombreObra,
-      'Hora Entrada': asist.entrada || '-',
-      'Hora Salida': asist.salida || '-',
-      'Verificación Facial': asist.rostroOk ? 'OK' : 'Manual',
-    }));
+    if (asistenciasAgrupadas.length === 0) {
+      toast.error("No hay datos para exportar con los filtros actuales.");
+      return;
+    }
+    
+    const toastId = toast.loading('Generando Excel...');
+    try {
+      // 1. Preparamos los datos con las columnas que queremos en el Excel
+      const datosParaExcel = asistenciasAgrupadas.map(asist => ({
+        'Fecha': formatearFechaVisual(asist.fechaDia),
+        'Empleado': asist.nombreEmpleado,
+        'Especialidad': asist.especialidad,
+        'Obra': asist.nombreObra,
+        'Hora Entrada': asist.entrada || '-',
+        'Hora Salida': asist.salida || '-',
+        'Verificación Facial': asist.rostroOk ? 'OK' : 'Manual',
+      }));
 
-    // 2. Creamos la hoja de cálculo
-    const hoja = XLSX.utils.json_to_sheet(datosParaExcel);
+      // 2. Creamos la hoja de cálculo
+      const hoja = XLSX.utils.json_to_sheet(datosParaExcel);
 
-    // 3. Ajustamos el ancho de las columnas para que se lea bien
-    hoja['!cols'] = [
-      { wch: 12 }, // Fecha
-      { wch: 30 }, // Empleado
-      { wch: 20 }, // Especialidad
-      { wch: 30 }, // Obra
-      { wch: 15 }, // Entrada
-      { wch: 15 }, // Salida
-      { wch: 20 }, // Verificación
-    ];
+      // 3. Ajustamos el ancho de las columnas para que se lea bien
+      hoja['!cols'] = [
+        { wch: 12 }, // Fecha
+        { wch: 30 }, // Empleado
+        { wch: 20 }, // Especialidad
+        { wch: 30 }, // Obra
+        { wch: 15 }, // Entrada
+        { wch: 15 }, // Salida
+        { wch: 20 }, // Verificación
+      ];
 
-    // 4. Creamos el libro de trabajo y lo descargamos
-    const libro = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(libro, hoja, 'Asistencias');
-    XLSX.writeFile(libro, `Asistencias_${new Date().toISOString().split('T')[0]}.xlsx`);
+      // 4. Creamos el libro de trabajo y lo descargamos
+      const libro = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(libro, hoja, 'Asistencias');
+      XLSX.writeFile(libro, `Asistencias_${new Date().toISOString().split('T')[0]}.xlsx`);
+      
+      toast.success('¡Excel exportado correctamente!', { id: toastId });
+    } catch (err) {
+      console.error("Error al exportar Excel:", err);
+      toast.error("Error al generar el Excel: " + (err.message || ''), { id: toastId });
+    }
   };
 
   return (
@@ -144,7 +158,6 @@ export default function Asistencias() {
           <p className="text-slate-500 text-sm mt-1">Registros agrupados por día</p>
         </div>
         
-        {/* 🔑 BOTÓN DE EXPORTAR */}
         <button
           onClick={exportarAExcel}
           disabled={asistenciasAgrupadas.length === 0}
@@ -158,7 +171,6 @@ export default function Asistencias() {
       <div className="bg-white p-4 rounded-xl border border-slate-300 shadow-sm">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
           
-          {/* Filtro Obra */}
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Obra</label>
             <select
@@ -173,7 +185,6 @@ export default function Asistencias() {
             </select>
           </div>
 
-          {/* Filtro Empleado */}
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Empleado</label>
             <select
@@ -188,7 +199,6 @@ export default function Asistencias() {
             </select>
           </div>
 
-          {/* Filtro Fecha Desde */}
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Desde</label>
             <input
@@ -199,7 +209,6 @@ export default function Asistencias() {
             />
           </div>
 
-          {/* Filtro Fecha Hasta */}
           <div>
             <label className="block text-[10px] font-bold text-slate-500 uppercase mb-1">Hasta</label>
             <input
@@ -210,7 +219,6 @@ export default function Asistencias() {
             />
           </div>
 
-          {/* Botón Limpiar */}
           <div>
             <button
               onClick={limpiarFiltros}
