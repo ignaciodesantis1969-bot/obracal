@@ -57,28 +57,31 @@ export default function ModalFacturaVenta({
 
   const inputProps = { disabled: isSavingVenta || esReadOnly };
 
-  // 🔑 Presupuestos filtrados por Obra y que estén Aprobados (tolerante a mayúsculas/espacios)
+  // 🔑 Presupuestos filtrados por Obra y validando el estado real (`estado_presupuesto`)
   const presupuestosDeObra = (presupuestos || []).filter(p => {
     if (!formDataVenta.obra_id) return false;
-    const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
-    const estado = String(p.estado || p.Estado || '').toLowerCase();
-    const esAprobado = estado.includes('aprobad') || estado.includes('activo') || estado === '';
+    const pObraId = String(p.obra_id || p.Obra_id || p.id_obra || p.Id_Obra || p.obraId || '');
+    const estado = String(p.estado_presupuesto || p.estado || p.Estado || '').toLowerCase();
+    const esAprobado = estado.includes('aprobad') || estado.includes('activo');
     return pObraId === String(formDataVenta.obra_id) && esAprobado;
   });
 
-  // 🔑 Certificados filtrados por Presupuesto o Contrato
+  // 🔑 Certificados filtrados por Obra, Presupuesto o Contrato
   const certificadosFiltrados = (certificados || []).filter(c => {
-    if (formDataVenta.contrato_id) {
-      const certContratoId = String(c.contrato_id || c.Contrato_id || '');
-      return certContratoId === String(formDataVenta.contrato_id);
-    }
-    if (formDataVenta.presupuesto_id) {
-      const certPresId = String(c.presupuesto_id || c.Presupuesto_id || '');
-      return certPresId === String(formDataVenta.presupuesto_id);
-    }
+    // 1. Filtrar por Obra
     if (formDataVenta.obra_id) {
       const certObraId = String(c.obra_id || c.Obra_id || '');
-      return certObraId === String(formDataVenta.obra_id);
+      if (certObraId === String(formDataVenta.obra_id)) return true;
+    }
+    // 2. Filtrar por Presupuesto
+    if (formDataVenta.presupuesto_id) {
+      const certPresId = String(c.presupuesto_id || c.Presupuesto_id || '');
+      if (certPresId === String(formDataVenta.presupuesto_id)) return true;
+    }
+    // 3. Filtrar por Contrato
+    if (formDataVenta.contrato_id) {
+      const certContratoId = String(c.contrato_id || c.Contrato_id || '');
+      if (certContratoId === String(formDataVenta.contrato_id)) return true;
     }
     return false; 
   });
@@ -359,10 +362,9 @@ export default function ModalFacturaVenta({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra (opcional)</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra (Locación) (opcional)</label>
                 <select
                   {...inputProps}
-                  disabled={!!formDataVenta.contrato_id || inputProps.disabled}
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:opacity-60"
                   value={formDataVenta.obra_id || ''}
                   onChange={(e) => setFormDataVenta({ ...formDataVenta, obra_id: e.target.value, presupuesto_id: '', certificado_id: '' })}
@@ -380,15 +382,14 @@ export default function ModalFacturaVenta({
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contrato de Mantenimiento (opcional)</label>
                 <select
                   {...inputProps}
-                  disabled={!!formDataVenta.obra_id || inputProps.disabled}
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:opacity-60"
                   value={formDataVenta.contrato_id || ''}
-                  onChange={(e) => setFormDataVenta({ ...formDataVenta, contrato_id: e.target.value, obra_id: '', presupuesto_id: '', certificado_id: '' })}
+                  onChange={(e) => setFormDataVenta({ ...formDataVenta, contrato_id: e.target.value, certificado_id: '' })}
                 >
                   <option value="">Sin contrato asignado</option>
                   {contratos.map((c, idx) => (
                     <option key={c.id || c.ID || idx} value={c.id || c.ID}>
-                      {c.codigo || c.Codigo || c.nro_contrato ? `[${c.codigo || c.Codigo || c.nro_contrato}] ` : ''}{c.nombre || c.Nombre || c.descripcion || `Contrato #${idx + 1}`}
+                      {c.codigo || c.Codigo || c.nro_contrato ? `[${c.codigo || c.Codigo || c.nro_contrato}] ` : ''}{c.nombre_contrato || c.nombre || c.Nombre || `Contrato #${idx + 1}`}
                     </option>
                   ))}
                 </select>
@@ -416,7 +417,7 @@ export default function ModalFacturaVenta({
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Certificado Asociado (opcional)</label>
                 <select
                   {...inputProps}
-                  disabled={(!formDataVenta.presupuesto_id && !formDataVenta.contrato_id) || inputProps.disabled}
+                  disabled={(!formDataVenta.presupuesto_id && !formDataVenta.contrato_id && !formDataVenta.obra_id) || inputProps.disabled}
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:opacity-60"
                   value={formDataVenta.certificado_id || ''}
                   onChange={(e) => setFormDataVenta({ ...formDataVenta, certificado_id: e.target.value })}

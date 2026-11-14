@@ -90,18 +90,20 @@ export default function Tesoreria() {
   const { data: obras } = useFirestoreCollection('obras');
   const { data: presupuestos } = useFirestoreCollection('presupuestos');
   
-  // 🔑 Normalizamos contratos para asegurar que sea un array
-  const { data: contratosRaw } = useFirestoreCollection('contratos');
+  // 🔑 Normalizamos contratos para asegurar que siempre sea un array sin importar cómo venga
+  const { data: contratosFs } = useFirestoreCollection('contratos');
   const contratos = useMemo(() => {
-    if (Array.isArray(contratosRaw)) return contratosRaw;
-    if (contratosRaw && typeof contratosRaw === 'object') {
-      if (Array.isArray(contratosRaw.data)) return contratosRaw.data;
-      if (Array.isArray(contratosRaw.items)) return contratosRaw.items;
-      const foundArray = Object.values(contratosRaw).find(val => Array.isArray(val));
-      if (foundArray) return foundArray;
+    if (Array.isArray(contratosFs)) return contratosFs;
+    if (contratosFs && typeof contratosFs === 'object') {
+      if (Array.isArray(contratosFs.data)) return contratosFs.data;
+      if (Array.isArray(contratosFs.items)) return contratosFs.items;
+      if (Array.isArray(contratosFs.contratos_mantenimiento)) return contratosFs.contratos_mantenimiento;
+      if (Array.isArray(contratosFs.contratosMantenimiento)) return contratosFs.contratosMantenimiento;
+      const possible = Object.values(contratosFs).find(val => Array.isArray(val));
+      if (possible) return possible;
     }
     return [];
-  }, [contratosRaw]);
+  }, [contratosFs]);
 
   const { data: certificados } = useFirestoreCollection('certificados');
 
@@ -211,8 +213,8 @@ export default function Tesoreria() {
   const presupuestosDisponibles = useMemo(() => {
     return (presupuestos || []).filter(p => {
       if (!formDataMov.obra_id) return false;
-      const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
-      const estado = String(p.estado || p.Estado || '').toLowerCase();
+      const pObraId = String(p.obra_id || p.Obra_id || p.id_obra || p.Id_Obra || p.obraId || '');
+      const estado = String(p.estado_presupuesto || p.estado || p.Estado || '').toLowerCase();
       return pObraId === String(formDataMov.obra_id) && (estado.includes('aprobad') || estado === 'activo' || estado === '');
     });
   }, [presupuestos, formDataMov.obra_id]);

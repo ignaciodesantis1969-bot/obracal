@@ -6,16 +6,24 @@ import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { useAuth } from '@/hooks/useAuth';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { usuariosResponsables } from '@/lib/planificacionHelpers';
-import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
+import toast from 'react-hot-toast';
 
 export default function ContratosMantenimiento() {
   const { user } = useAuth();
 
-  const { data: contratosFs, loading: loadingContratos } = useFirestoreCollection('contratos');
-  const { data: clientes, loading: loadingClientes } = useFirestoreCollection('clientes');
+  const { data: contratosFs } = useFirestoreCollection('contratos');
+  const { data: clientes } = useFirestoreCollection('clientes');
   const { data: usuariosFs } = useFirestoreCollection('usuarios');
+  const { data: obrasFs } = useFirestoreCollection('obras'); // 🔑 Traemos las obras
 
   const usuarios = useMemo(() => (Array.isArray(usuariosFs) ? usuariosFs : []), [usuariosFs]);
+  
+  // 🔑 Normalizamos obras para asegurar que sea un array
+  const obras = useMemo(() => {
+    if (Array.isArray(obrasFs)) return obrasFs;
+    if (obrasFs && typeof obrasFs === 'object' && Array.isArray(obrasFs.data)) return obrasFs.data;
+    return [];
+  }, [obrasFs]);
 
   const responsablesDisponibles = useMemo(
     () => usuariosResponsables(usuarios),
@@ -292,6 +300,7 @@ export default function ContratosMantenimiento() {
     nro_contrato_cliente: '',
     nombre_contrato: '',
     cliente: '',
+    obra_id: '', // 🔑 Agregamos obra_id al estado inicial
     ubicacion: '',
     mes_base: '',
     actualizacion: 'Polinómica',
@@ -331,6 +340,7 @@ export default function ContratosMantenimiento() {
       nro_contrato_cliente: '',
       nombre_contrato: '',
       cliente: '',
+      obra_id: '',
       ubicacion: '',
       mes_base: mesActualStr,
       actualizacion: 'Polinómica',
@@ -382,6 +392,7 @@ export default function ContratosMantenimiento() {
       nro_contrato_cliente: c.nro_contrato_cliente || c.nroContratoCliente || '',
       nombre_contrato: c.nombre_contrato || '',
       cliente: c.cliente || '',
+      obra_id: c.obra_id || '', // 🔑 Cargamos el obra_id
       ubicacion: c.ubicacion || '',
       mes_base: c.mes_base || '',
       actualizacion: c.actualizacion || 'Polinómica',
@@ -1753,16 +1764,41 @@ export default function ContratosMantenimiento() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-slate-600 mb-1">Ubicación / Planta Industrial</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="Ej: Planta Benavidez / Sector A..."
-                    value={formData.ubicacion}
-                    onChange={(e) => setFormData({...formData, ubicacion: e.target.value})}
+                  <label className="block text-xs font-semibold text-slate-600 mb-1">Obra / Locación (Relacionada)</label>
+                  <select
+                    value={formData.obra_id}
+                    onChange={(e) => {
+                      const selectedObraId = e.target.value;
+                      const obraSel = obras.find(o => String(o.id || o.ID) === String(selectedObraId));
+                      const nombreObra = obraSel ? (obraSel.nombre || obraSel.Nombre || obraSel.nombre_obra) : '';
+                      setFormData({
+                        ...formData,
+                        obra_id: selectedObraId,
+                        ubicacion: nombreObra || formData.ubicacion // Autocompleta la ubicación con el nombre de la obra
+                      });
+                    }}
                     className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
-                  />
+                  >
+                    <option value="">Seleccionar obra / locación...</option>
+                    {obras.map((o) => (
+                      <option key={o.id || o.ID} value={o.id || o.ID}>
+                        {o.codigo ? `[${o.codigo}] ` : ''}{o.nombre || o.Nombre || o.nombre_obra}
+                      </option>
+                    ))}
+                  </select>
                 </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Ubicación / Planta Industrial (Texto)</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej: Planta Benavidez / Sector A..."
+                  value={formData.ubicacion}
+                  onChange={(e) => setFormData({...formData, ubicacion: e.target.value})}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-amber-500"
+                />
               </div>
 
               <div className="bg-blue-50 border border-blue-200 rounded-2xl p-4 space-y-2">
