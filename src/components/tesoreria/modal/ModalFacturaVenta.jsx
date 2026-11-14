@@ -26,6 +26,7 @@ export default function ModalFacturaVenta({
   editingId,
   clientes,
   obras,
+  presupuestos,
   certificados,
   candidatosCliente,
   nombreClienteOCR,
@@ -55,10 +56,24 @@ export default function ModalFacturaVenta({
 
   const inputProps = { disabled: isSavingVenta || esReadOnly };
 
+  // 🔑 Filtro para presupuestos según la obra seleccionada
+  const presupuestosDeObra = (presupuestos || []).filter(p => {
+    if (!formDataVenta.obra_id) return false;
+    const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
+    return pObraId === String(formDataVenta.obra_id);
+  });
+
+  // 🔑 Filtro para certificados según el presupuesto u obra
   const certificadosFiltrados = (certificados || []).filter(c => {
-    if (!formDataVenta.obra_id) return true; // Si no hay obra, mostrar todos
-    const certObraId = String(c.obra_id || c.Obra_id || '');
-    return certObraId === String(formDataVenta.obra_id);
+    if (formDataVenta.presupuesto_id) {
+      const certPresId = String(c.presupuesto_id || c.Presupuesto_id || '');
+      return certPresId === String(formDataVenta.presupuesto_id);
+    }
+    if (formDataVenta.obra_id) {
+      const certObraId = String(c.obra_id || c.Obra_id || '');
+      return certObraId === String(formDataVenta.obra_id);
+    }
+    return false; 
   });
 
   return (
@@ -313,7 +328,7 @@ export default function ModalFacturaVenta({
               )}
             </div>
 
-            {/* Fechas + Obra + Certificado + Archivo */}
+            {/* Fechas + Obra + Presupuesto + Certificado + Archivo */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
@@ -342,7 +357,7 @@ export default function ModalFacturaVenta({
                   {...inputProps}
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100"
                   value={formDataVenta.obra_id || ''}
-                  onChange={(e) => setFormDataVenta({ ...formDataVenta, obra_id: e.target.value, certificado_id: '' })}
+                  onChange={(e) => setFormDataVenta({ ...formDataVenta, obra_id: e.target.value, presupuesto_id: '', certificado_id: '' })}
                 >
                   <option value="">Sin obra asignada</option>
                   {obras.map(o => (
@@ -354,19 +369,43 @@ export default function ModalFacturaVenta({
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto (opcional)</label>
+                <select
+                  {...inputProps}
+                  disabled={!formDataVenta.obra_id || inputProps.disabled}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:opacity-60"
+                  value={formDataVenta.presupuesto_id || ''}
+                  onChange={(e) => setFormDataVenta({ ...formDataVenta, presupuesto_id: e.target.value, certificado_id: '' })}
+                >
+                  <option value="">{formDataVenta.obra_id ? 'Seleccione presupuesto...' : 'Primero seleccione obra...'}</option>
+                  {presupuestosDeObra.map(p => (
+                    <option key={p.id || p.ID} value={p.id || p.ID}>
+                      {p.codigo || p.Codigo || `Presupuesto #${p.id || p.ID}`} - {p.nombre || p.Nombre || ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sm:col-span-2">
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Certificado Asociado (opcional)</label>
                 <select
                   {...inputProps}
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100"
+                  disabled={!formDataVenta.presupuesto_id || inputProps.disabled}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:opacity-60"
                   value={formDataVenta.certificado_id || ''}
                   onChange={(e) => setFormDataVenta({ ...formDataVenta, certificado_id: e.target.value })}
                 >
                   <option value="">Sin certificado asignado</option>
-                  {certificadosFiltrados.map(c => (
-                    <option key={c.id || c.ID} value={c.id || c.ID}>
-                      {c.numero || c.certificado_nro || c.codigo || `Certificado #${c.id || c.ID}`}
-                    </option>
-                  ))}
+                  {certificadosFiltrados.map(c => {
+                    const tipo = c.tipo || c.Tipo || 'Cert.';
+                    const nro = c.certificado_nro || c.numero || c.codigo || c.id || c.ID;
+                    const fecha = c.fecha_emision || c.fecha || '';
+                    return (
+                      <option key={c.id || c.ID} value={c.id || c.ID}>
+                        {tipo} N° {nro} {fecha ? `- ${fecha}` : ''}
+                      </option>
+                    );
+                  })}
                 </select>
               </div>
 

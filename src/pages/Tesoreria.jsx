@@ -68,6 +68,7 @@ const FORM_DATA_VENTA_INICIAL = () => ({
   numero_comp: '',
   cliente_id: '',
   obra_id: '',
+  presupuesto_id: '', // 🔑 AGREGADO
   certificado_id: '',
   fecha_emision: new Date().toISOString().split('T')[0],
   fecha_vencimiento: '',
@@ -563,6 +564,7 @@ export default function Tesoreria() {
       numero_comp: f.numero_comp || '',
       cliente_id: f.cliente_id || '',
       obra_id: f.obra_id || '',
+      presupuesto_id: f.presupuesto_id || '', // 🔑 MAPEADO
       certificado_id: f.certificado_id || '',
       fecha_emision: formatearFechaParaInput(f.fecha_emision || f.fecha) || new Date().toISOString().split('T')[0],
       fecha_vencimiento: formatearFechaParaInput(f.fecha_vencimiento || f.vencimiento) || '',
@@ -1197,6 +1199,7 @@ export default function Tesoreria() {
         editingId={editingVentaId}
         clientes={clientes}
         obras={obras}
+        presupuestos={presupuestos}
         certificados={certificados}
         candidatosCliente={candidatosCliente}
         nombreClienteOCR={nombreClienteOCR}
