@@ -26,6 +26,7 @@ export default function ModalFacturaVenta({
   editingId,
   clientes,
   obras,
+  certificados,
   candidatosCliente,
   nombreClienteOCR,
   onAgregarItem,
@@ -53,6 +54,12 @@ export default function ModalFacturaVenta({
   };
 
   const inputProps = { disabled: isSavingVenta || esReadOnly };
+
+  const certificadosFiltrados = (certificados || []).filter(c => {
+    if (!formDataVenta.obra_id) return true; // Si no hay obra, mostrar todos
+    const certObraId = String(c.obra_id || c.Obra_id || '');
+    return certObraId === String(formDataVenta.obra_id);
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
@@ -306,7 +313,7 @@ export default function ModalFacturaVenta({
               )}
             </div>
 
-            {/* Fechas + Obra + Certificado */}
+            {/* Fechas + Obra + Certificado + Archivo */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
@@ -335,7 +342,7 @@ export default function ModalFacturaVenta({
                   {...inputProps}
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100"
                   value={formDataVenta.obra_id || ''}
-                  onChange={(e) => setFormDataVenta({ ...formDataVenta, obra_id: e.target.value })}
+                  onChange={(e) => setFormDataVenta({ ...formDataVenta, obra_id: e.target.value, certificado_id: '' })}
                 >
                   <option value="">Sin obra asignada</option>
                   {obras.map(o => (
@@ -347,7 +354,24 @@ export default function ModalFacturaVenta({
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Certificado / Comprobante adjunto</label>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Certificado Asociado (opcional)</label>
+                <select
+                  {...inputProps}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100"
+                  value={formDataVenta.certificado_id || ''}
+                  onChange={(e) => setFormDataVenta({ ...formDataVenta, certificado_id: e.target.value })}
+                >
+                  <option value="">Sin certificado asignado</option>
+                  {certificadosFiltrados.map(c => (
+                    <option key={c.id || c.ID} value={c.id || c.ID}>
+                      {c.numero || c.certificado_nro || c.codigo || `Certificado #${c.id || c.ID}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Comprobante Adjunto (opcional)</label>
                 <div className="flex items-center gap-2">
                   {formDataVenta.archivo_url && String(formDataVenta.archivo_url).startsWith('http') && (
                     <a
@@ -372,7 +396,7 @@ export default function ModalFacturaVenta({
                         onClick={() => fileInputRef.current?.click()}
                         className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[11px] font-bold cursor-pointer"
                       >
-                        {formDataVenta.archivo_url ? 'Reemplazar' : 'Adjuntar'}
+                        {formDataVenta.archivo_url ? 'Reemplazar archivo' : 'Adjuntar archivo'}
                       </button>
                       <input
                         ref={fileInputRef}

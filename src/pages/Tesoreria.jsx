@@ -68,6 +68,7 @@ const FORM_DATA_VENTA_INICIAL = () => ({
   numero_comp: '',
   cliente_id: '',
   obra_id: '',
+  certificado_id: '',
   fecha_emision: new Date().toISOString().split('T')[0],
   fecha_vencimiento: '',
   items: [{ id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
@@ -87,6 +88,7 @@ export default function Tesoreria() {
   const { data: obras } = useFirestoreCollection('obras');
   const { data: presupuestos } = useFirestoreCollection('presupuestos');
   const { data: contratos } = useFirestoreCollection('contratos');
+  const { data: certificados } = useFirestoreCollection('certificados');
 
   const [activeTab, setActiveTab] = useState('movimientos');
 
@@ -561,6 +563,7 @@ export default function Tesoreria() {
       numero_comp: f.numero_comp || '',
       cliente_id: f.cliente_id || '',
       obra_id: f.obra_id || '',
+      certificado_id: f.certificado_id || '',
       fecha_emision: formatearFechaParaInput(f.fecha_emision || f.fecha) || new Date().toISOString().split('T')[0],
       fecha_vencimiento: formatearFechaParaInput(f.fecha_vencimiento || f.vencimiento) || '',
       items,
@@ -1194,6 +1197,7 @@ export default function Tesoreria() {
         editingId={editingVentaId}
         clientes={clientes}
         obras={obras}
+        certificados={certificados}
         candidatosCliente={candidatosCliente}
         nombreClienteOCR={nombreClienteOCR}
         onAgregarItem={handleAgregarItem}
