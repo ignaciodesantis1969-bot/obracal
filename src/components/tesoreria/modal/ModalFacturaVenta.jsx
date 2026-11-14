@@ -27,6 +27,7 @@ export default function ModalFacturaVenta({
   clientes,
   obras,
   presupuestos,
+  contratos, // 🔑 AGREGADO
   certificados,
   candidatosCliente,
   nombreClienteOCR,
@@ -56,15 +57,20 @@ export default function ModalFacturaVenta({
 
   const inputProps = { disabled: isSavingVenta || esReadOnly };
 
-  // 🔑 Filtro para presupuestos según la obra seleccionada
+  // 🔑 Presupuestos filtrados por Obra y que estén Aprobados
   const presupuestosDeObra = (presupuestos || []).filter(p => {
     if (!formDataVenta.obra_id) return false;
     const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
-    return pObraId === String(formDataVenta.obra_id);
+    const estado = String(p.estado || p.Estado || '').toLowerCase();
+    return pObraId === String(formDataVenta.obra_id) && (estado === 'aprobado' || estado === 'activo' || estado === '');
   });
 
-  // 🔑 Filtro para certificados según el presupuesto u obra
+  // 🔑 Certificados filtrados por Presupuesto o Contrato
   const certificadosFiltrados = (certificados || []).filter(c => {
+    if (formDataVenta.contrato_id) {
+      const certContratoId = String(c.contrato_id || c.Contrato_id || '');
+      return certContratoId === String(formDataVenta.contrato_id);
+    }
     if (formDataVenta.presupuesto_id) {
       const certPresId = String(c.presupuesto_id || c.Presupuesto_id || '');
       return certPresId === String(formDataVenta.presupuesto_id);
@@ -328,7 +334,7 @@ export default function ModalFacturaVenta({
               )}
             </div>
 
-            {/* Fechas + Obra + Presupuesto + Certificado + Archivo */}
+            {/* Fechas + Obra + Contrato + Presupuesto + Certificado + Archivo */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Fecha Emisión</label>
@@ -355,7 +361,8 @@ export default function ModalFacturaVenta({
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra (opcional)</label>
                 <select
                   {...inputProps}
-                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100"
+                  disabled={!!formDataVenta.contrato_id || inputProps.disabled}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:opacity-60"
                   value={formDataVenta.obra_id || ''}
                   onChange={(e) => setFormDataVenta({ ...formDataVenta, obra_id: e.target.value, presupuesto_id: '', certificado_id: '' })}
                 >
@@ -369,10 +376,28 @@ export default function ModalFacturaVenta({
               </div>
 
               <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contrato de Mantenimiento (opcional)</label>
+                <select
+                  {...inputProps}
+                  disabled={!!formDataVenta.obra_id || inputProps.disabled}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:opacity-60"
+                  value={formDataVenta.contrato_id || ''}
+                  onChange={(e) => setFormDataVenta({ ...formDataVenta, contrato_id: e.target.value, obra_id: '', presupuesto_id: '', certificado_id: '' })}
+                >
+                  <option value="">Sin contrato asignado</option>
+                  {contratos.map(c => (
+                    <option key={c.id || c.ID} value={c.id || c.ID}>
+                      {c.codigo || c.Codigo || `Contrato #${c.id || c.ID}`} - {c.nombre || c.Nombre || ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto (opcional)</label>
                 <select
                   {...inputProps}
-                  disabled={!formDataVenta.obra_id || inputProps.disabled}
+                  disabled={!formDataVenta.obra_id || !!formDataVenta.contrato_id || inputProps.disabled}
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:opacity-60"
                   value={formDataVenta.presupuesto_id || ''}
                   onChange={(e) => setFormDataVenta({ ...formDataVenta, presupuesto_id: e.target.value, certificado_id: '' })}
@@ -390,7 +415,7 @@ export default function ModalFacturaVenta({
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Certificado Asociado (opcional)</label>
                 <select
                   {...inputProps}
-                  disabled={!formDataVenta.presupuesto_id || inputProps.disabled}
+                  disabled={(!formDataVenta.presupuesto_id && !formDataVenta.contrato_id) || inputProps.disabled}
                   className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-sky-500 disabled:bg-slate-100 disabled:opacity-60"
                   value={formDataVenta.certificado_id || ''}
                   onChange={(e) => setFormDataVenta({ ...formDataVenta, certificado_id: e.target.value })}
