@@ -69,7 +69,7 @@ const FORM_DATA_VENTA_INICIAL = () => ({
   cliente_id: '',
   obra_id: '',
   presupuesto_id: '',
-  contrato_id: '', // 🔑 AGREGADO
+  contrato_id: '',
   certificado_id: '',
   fecha_emision: new Date().toISOString().split('T')[0],
   fecha_vencimiento: '',
@@ -89,7 +89,20 @@ export default function Tesoreria() {
   const { data: clientes } = useFirestoreCollection('clientes');
   const { data: obras } = useFirestoreCollection('obras');
   const { data: presupuestos } = useFirestoreCollection('presupuestos');
-  const { data: contratos } = useFirestoreCollection('contratos');
+  
+  // 🔑 Normalizamos contratos para asegurar que sea un array
+  const { data: contratosRaw } = useFirestoreCollection('contratos');
+  const contratos = useMemo(() => {
+    if (Array.isArray(contratosRaw)) return contratosRaw;
+    if (contratosRaw && typeof contratosRaw === 'object') {
+      if (Array.isArray(contratosRaw.data)) return contratosRaw.data;
+      if (Array.isArray(contratosRaw.items)) return contratosRaw.items;
+      const foundArray = Object.values(contratosRaw).find(val => Array.isArray(val));
+      if (foundArray) return foundArray;
+    }
+    return [];
+  }, [contratosRaw]);
+
   const { data: certificados } = useFirestoreCollection('certificados');
 
   const [activeTab, setActiveTab] = useState('movimientos');
@@ -200,7 +213,7 @@ export default function Tesoreria() {
       if (!formDataMov.obra_id) return false;
       const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
       const estado = String(p.estado || p.Estado || '').toLowerCase();
-      return pObraId === String(formDataMov.obra_id) && (estado === 'aprobado' || estado === 'activo' || estado === '');
+      return pObraId === String(formDataMov.obra_id) && (estado.includes('aprobad') || estado === 'activo' || estado === '');
     });
   }, [presupuestos, formDataMov.obra_id]);
 
@@ -566,7 +579,7 @@ export default function Tesoreria() {
       cliente_id: f.cliente_id || '',
       obra_id: f.obra_id || '',
       presupuesto_id: f.presupuesto_id || '',
-      contrato_id: f.contrato_id || '', // 🔑 MAPEADO
+      contrato_id: f.contrato_id || '',
       certificado_id: f.certificado_id || '',
       fecha_emision: formatearFechaParaInput(f.fecha_emision || f.fecha) || new Date().toISOString().split('T')[0],
       fecha_vencimiento: formatearFechaParaInput(f.fecha_vencimiento || f.vencimiento) || '',
@@ -1202,7 +1215,7 @@ export default function Tesoreria() {
         clientes={clientes}
         obras={obras}
         presupuestos={presupuestos}
-        contratos={contratos} // 🔑 PASAMOS CONTRATOS
+        contratos={contratos}
         certificados={certificados}
         candidatosCliente={candidatosCliente}
         nombreClienteOCR={nombreClienteOCR}

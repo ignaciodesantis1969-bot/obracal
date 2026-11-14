@@ -27,7 +27,7 @@ export default function ModalFacturaVenta({
   clientes,
   obras,
   presupuestos,
-  contratos, // 🔑 AGREGADO
+  contratos,
   certificados,
   candidatosCliente,
   nombreClienteOCR,
@@ -57,12 +57,13 @@ export default function ModalFacturaVenta({
 
   const inputProps = { disabled: isSavingVenta || esReadOnly };
 
-  // 🔑 Presupuestos filtrados por Obra y que estén Aprobados
+  // 🔑 Presupuestos filtrados por Obra y que estén Aprobados (tolerante a mayúsculas/espacios)
   const presupuestosDeObra = (presupuestos || []).filter(p => {
     if (!formDataVenta.obra_id) return false;
     const pObraId = String(p.obra_id || p.Obra_id || p.obraId || '');
     const estado = String(p.estado || p.Estado || '').toLowerCase();
-    return pObraId === String(formDataVenta.obra_id) && (estado === 'aprobado' || estado === 'activo' || estado === '');
+    const esAprobado = estado.includes('aprobad') || estado.includes('activo') || estado === '';
+    return pObraId === String(formDataVenta.obra_id) && esAprobado;
   });
 
   // 🔑 Certificados filtrados por Presupuesto o Contrato
@@ -385,9 +386,9 @@ export default function ModalFacturaVenta({
                   onChange={(e) => setFormDataVenta({ ...formDataVenta, contrato_id: e.target.value, obra_id: '', presupuesto_id: '', certificado_id: '' })}
                 >
                   <option value="">Sin contrato asignado</option>
-                  {contratos.map(c => (
-                    <option key={c.id || c.ID} value={c.id || c.ID}>
-                      {c.codigo || c.Codigo || `Contrato #${c.id || c.ID}`} - {c.nombre || c.Nombre || ''}
+                  {contratos.map((c, idx) => (
+                    <option key={c.id || c.ID || idx} value={c.id || c.ID}>
+                      {c.codigo || c.Codigo || c.nro_contrato ? `[${c.codigo || c.Codigo || c.nro_contrato}] ` : ''}{c.nombre || c.Nombre || c.descripcion || `Contrato #${idx + 1}`}
                     </option>
                   ))}
                 </select>
