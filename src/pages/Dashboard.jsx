@@ -16,6 +16,11 @@ import {
   AlertTriangle,
   Calendar,
   TrendingUp,
+  Activity,
+  PieChart,
+  Scale,
+  ShieldAlert,
+  ArrowRightLeft
 } from 'lucide-react';
 import {
   BarChart,
@@ -101,7 +106,6 @@ export default function Dashboard() {
   // ═══════════════════════════════════════════════════════════════════════
   const totalPresupuestos = presupuestos.length;
 
-  // 🔑 FIX: Lógica idéntica a la pantalla de Presupuestos (sin agrupar por código)
   const presupuestosAprobados = useMemo(() => {
     return presupuestos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'aprobado').length;
   }, [presupuestos]);
@@ -110,7 +114,6 @@ export default function Dashboard() {
     const entregados = presupuestos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'entregado').length;
     const rechazados = presupuestos.filter(p => normalizarEstado(p.estado_presupuesto || p.estado) === 'rechazado').length;
     
-    // Base: Entregados + Rechazados
     const base = entregados + rechazados;
     if (base === 0) return 0;
     return Math.round((presupuestosAprobados / base) * 100);
@@ -122,7 +125,7 @@ export default function Dashboard() {
   );
 
   // ═══════════════════════════════════════════════════════════════════════
-  // FILA 2 — FACTURACIÓN
+  // CÁLCULOS PREVIOS (Usados en Indicadores y Facturación)
   // ═══════════════════════════════════════════════════════════════════════
   const totalFacturadoVentas = useMemo(
     () => facturasVentas.reduce((s, f) => s + (Number(f.total || 0) || 0), 0),
@@ -153,6 +156,45 @@ export default function Dashboard() {
     [facturasCompras]
   );
 
+  const totalFacturasACobrar = useMemo(
+    () => facturasVentas
+      .filter(f => {
+        const estado = normalizarEstado(f.estado_pago);
+        return estado === 'pendiente' || estado === 'pagado parcial' || estado === '';
+      })
+      .reduce((s, f) => s + (Number(f.total || 0) || 0), 0),
+    [facturasVentas]
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════
+  // INDICADORES FINANCIEROS (Cálculos)
+  // ═══════════════════════════════════════════════════════════════════════
+  const indicadores = useMemo(() => {
+    // 1. Margen Bruto: (Ventas Netas - Costos Netos) / Ventas Netas * 100
+    const totalVentasNeto = facturasVentas.reduce((acc, f) => acc + (Number(f.neto_gravado || f.subtotal) || 0), 0);
+    const totalComprasNeto = facturasCompras.reduce((acc, f) => acc + (Number(f.subtotal) || 0), 0);
+    const margenBruto = totalVentasNeto > 0 ? ((totalVentasNeto - totalComprasNeto) / totalVentasNeto) * 100 : 0;
+
+    // 2. EBITDA: Flujo de caja operativo
+    const ebitda = totalIngresos - totalEgresos;
+
+    // 3. R.O.E.: Beneficio Neto / Patrimonio Neto (Estimado con capital invertido = Total Facturado)
+    const capitalInvertido = totalFacturadoVentas > 0 ? totalFacturadoVentas : 1;
+    const roe = (ebitda / capitalInvertido) * 100;
+
+    // 4. Prueba Ácida: Activo Corriente / Pasivo Corriente (Usamos CxC / CxP)
+    const pruebaAcida = totalFacturasAPagar > 0 ? (totalFacturasACobrar / totalFacturasAPagar) : 0;
+
+    // 5. Ratio de Endeudamiento: Pasivo / Activo (Estimado con CxP sobre Activo Total)
+    const activoTotal = totalFacturasACobrar + (ebitda > 0 ? ebitda : 0);
+    const ratioEndeudamiento = activoTotal > 0 ? (totalFacturasAPagar / activoTotal) * 100 : 0;
+
+    // 6. Cash Flow Operativo
+    const cashFlowOperativo = ebitda;
+
+    return { margenBruto, ebitda, roe, pruebaAcida, ratioEndeudamiento, cashFlowOperativo };
+  }, [facturasVentas, facturasCompras, totalIngresos, totalEgresos, totalFacturadoVentas, totalFacturasACobrar, totalFacturasAPagar]);
+
   // ═══════════════════════════════════════════════════════════════════════
   // FILA 3 — IVA
   // ═══════════════════════════════════════════════════════════════════════
@@ -161,7 +203,6 @@ export default function Dashboard() {
       const estado = normalizarEstado(f.estado_pago);
       const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
       
-      // 🔑 FIX: Ignorar anuladas y NC
       if (estado === 'anulada' || esNC) return s;
       
       const iva21 = Number(f.iva_21 || f.Iva_21 || 0);
@@ -204,7 +245,7 @@ export default function Dashboard() {
   const saldoIva = totalIvaVentas - totalIvaCompras - totalRetencionesIva;
 
   // ═══════════════════════════════════════════════════════════════════════
-  // FILA 4 — ESTADO DE PRESUPUESTOS (lógica acumulativa original)
+  // FILA 4 — ESTADO DE PRESUPUESTOS
   // ═══════════════════════════════════════════════════════════════════════
   const estadoPresupuestos = useMemo(() => {
     const conteo = {
@@ -364,6 +405,111 @@ export default function Dashboard() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════ */}
+      {/* NUEVA FILA — INDICADORES FINANCIEROS (2x3) */}
+      {/* ═══════════════════════════════════════════════════════════════ */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        
+        {/* 1. Margen Bruto */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex flex-col justify-between relative overflow-hidden">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <TrendingUp className="w-4 h-4 text-emerald-500" />
+              <p className="text-xs font-bold text-slate-500 uppercase">Margen Bruto</p>
+            </div>
+            <h3 className={`text-2xl font-black ${indicadores.margenBruto >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {indicadores.margenBruto.toFixed(2)} %
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">Cuánto se gana con lo que vendes (Ventas - Costos).</p>
+        </div>
+
+        {/* 2. EBITDA */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex flex-col justify-between relative overflow-hidden">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Activity className="w-4 h-4 text-blue-500" />
+              <p className="text-xs font-bold text-slate-500 uppercase">EBITDA</p>
+            </div>
+            <h3 className={`text-2xl font-black ${indicadores.ebitda >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+              {fmt(indicadores.ebitda)}
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">Caja operativa antes de impuestos e intereses.</p>
+        </div>
+
+        {/* 3. ROE (Con cartel provisorio) */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex flex-col justify-between relative overflow-hidden">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <PieChart className="w-4 h-4 text-purple-500" />
+              <p className="text-xs font-bold text-slate-500 uppercase">R.O.E.</p>
+            </div>
+            <h3 className={`text-2xl font-black ${indicadores.roe >= 0 ? 'text-purple-600' : 'text-rose-600'}`}>
+              {indicadores.roe.toFixed(2)} %
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">Retorno del capital invertido.</p>
+          
+          {/* Cartel Provisorio */}
+          <div className="absolute bottom-0 right-0 w-20 h-20 overflow-hidden pointer-events-none rounded-br-2xl">
+            <div className="absolute bottom-[14px] -right-[20px] bg-amber-500 text-white text-[8px] font-black py-0.5 w-[80px] text-center rotate-[-45deg] shadow-sm">
+              PROVISORIO
+            </div>
+          </div>
+        </div>
+
+        {/* 4. Prueba Ácida */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex flex-col justify-between relative overflow-hidden">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Scale className="w-4 h-4 text-amber-500" />
+              <p className="text-xs font-bold text-slate-500 uppercase">Prueba Ácida</p>
+            </div>
+            <h3 className={`text-2xl font-black ${indicadores.pruebaAcida >= 1 ? 'text-emerald-600' : 'text-amber-600'}`}>
+              {indicadores.pruebaAcida.toFixed(2)}
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">Poder de pagar deudas a corto plazo (ideal {">"} 1.0).</p>
+        </div>
+
+        {/* 5. Ratio de Endeudamiento (Con cartel provisorio) */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex flex-col justify-between relative overflow-hidden">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <ShieldAlert className="w-4 h-4 text-rose-500" />
+              <p className="text-xs font-bold text-slate-500 uppercase">Ratio Endeudamiento</p>
+            </div>
+            <h3 className={`text-2xl font-black ${indicadores.ratioEndeudamiento > 60 ? 'text-rose-600' : 'text-slate-900'}`}>
+              {indicadores.ratioEndeudamiento.toFixed(2)} %
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">Deuda sostenible (Pasivo sobre Activo).</p>
+
+          {/* Cartel Provisorio */}
+          <div className="absolute bottom-0 right-0 w-20 h-20 overflow-hidden pointer-events-none rounded-br-2xl">
+            <div className="absolute bottom-[14px] -right-[20px] bg-amber-500 text-white text-[8px] font-black py-0.5 w-[80px] text-center rotate-[-45deg] shadow-sm">
+              PROVISORIO
+            </div>
+          </div>
+        </div>
+
+        {/* 6. Cash Flow Operativo */}
+        <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm flex flex-col justify-between relative overflow-hidden">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <ArrowRightLeft className="w-4 h-4 text-sky-500" />
+              <p className="text-xs font-bold text-slate-500 uppercase">Cash Flow Operativo</p>
+            </div>
+            <h3 className={`text-2xl font-black ${indicadores.cashFlowOperativo >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
+              {fmt(indicadores.cashFlowOperativo)}
+            </h3>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-2">Cuánta plata entra y cuánta sale en la operación diaria.</p>
+        </div>
+
+      </div>
+
+      {/* ═══════════════════════════════════════════════════════════════ */}
       {/* FILA 2 — FACTURACIÓN */}
       {/* ═══════════════════════════════════════════════════════════════ */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -400,42 +546,12 @@ export default function Dashboard() {
             <h3 className="font-extrabold text-slate-800 text-sm uppercase">Estado de los Presupuestos</h3>
           </div>
           <div className="space-y-2 pt-2">
-            <BarraEstadoObra
-              label="Borrador"
-              count={estadoPresupuestos.borrador}
-              total={totalPresupuestos}
-              color="bg-slate-500"
-            />
-            <BarraEstadoObra
-              label="Entregado"
-              count={estadoPresupuestos.entregado}
-              total={totalPresupuestos}
-              color="bg-purple-500"
-            />
-            <BarraEstadoObra
-              label="Aprobados"
-              count={estadoPresupuestos.aprobado}
-              total={totalPresupuestos}
-              color="bg-emerald-500"
-            />
-            <BarraEstadoObra
-              label="Rechazados"
-              count={estadoPresupuestos.rechazado}
-              total={totalPresupuestos}
-              color="bg-rose-500"
-            />
-            <BarraEstadoObra
-              label="En Ejecución"
-              count={estadoPresupuestos.en_ejecucion}
-              total={totalPresupuestos}
-              color="bg-indigo-500"
-            />
-            <BarraEstadoObra
-              label="Finalizados"
-              count={estadoPresupuestos.finalizado}
-              total={totalPresupuestos}
-              color="bg-teal-500"
-            />
+            <BarraEstadoObra label="Borrador" count={estadoPresupuestos.borrador} total={totalPresupuestos} color="bg-slate-500" />
+            <BarraEstadoObra label="Entregado" count={estadoPresupuestos.entregado} total={totalPresupuestos} color="bg-purple-500" />
+            <BarraEstadoObra label="Aprobados" count={estadoPresupuestos.aprobado} total={totalPresupuestos} color="bg-emerald-500" />
+            <BarraEstadoObra label="Rechazados" count={estadoPresupuestos.rechazado} total={totalPresupuestos} color="bg-rose-500" />
+            <BarraEstadoObra label="En Ejecución" count={estadoPresupuestos.en_ejecucion} total={totalPresupuestos} color="bg-indigo-500" />
+            <BarraEstadoObra label="Finalizados" count={estadoPresupuestos.finalizado} total={totalPresupuestos} color="bg-teal-500" />
           </div>
         </div>
 
