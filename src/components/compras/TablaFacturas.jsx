@@ -8,6 +8,7 @@ export default function TablaFacturas({
   buscarValorEnObjeto,
   handleVerArchivo,
   handleEditarFacturaClick,
+  handleAsignarFacturaClick,
   handleEliminarFactura,
   formatearFechaDisplay,
   esACompletar,
@@ -56,9 +57,9 @@ export default function TablaFacturas({
           const rubroImputacion = buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion', 'rubro_presupuesto', 'Rubro_presupuesto', 'rubro', 'Rubro', 'rubroimputacion']);
           const tipoInsumo = buscarValorEnObjeto(f, ['tipo_insumo', 'Tipo_insumo', 'insumo', 'Insumo', 'renglon', 'Renglon', 'tipoinsumo']);
           const detalleGasto = buscarValorEnObjeto(f, ['detalle_gasto', 'detalle', 'Detalle_gasto']);
-          
+
           const esGastoLibreRow = tipoGastoDisplay === 'Gasto Corriente' || tipoGastoDisplay === 'Gasto Extra';
-          const textoImputacion = esGastoLibreRow 
+          const textoImputacion = esGastoLibreRow
                                   ? (detalleGasto || '---')
                                   : `${rubroImputacion || '---'} ${tipoInsumo && tipoInsumo !== 'Material' ? '('+tipoInsumo+')' : ''}`;
 
@@ -95,9 +96,9 @@ export default function TablaFacturas({
                 {estadoPago === 'a asignar' ? (
                   <button
                     type="button"
-                    onClick={() => handleEditarFacturaClick(f)}
+                    onClick={() => (handleAsignarFacturaClick ? handleAsignarFacturaClick(f) : handleEditarFacturaClick(f))}
                     className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold text-[10px] uppercase shadow-sm cursor-pointer transition-colors"
-                    title="Asignar estado de pago"
+                    title="Asignar proveedor, obra y pasar a pendiente"
                   >
                     Asignar
                   </button>

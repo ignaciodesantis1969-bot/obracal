@@ -105,6 +105,7 @@ export default function Compras() {
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isFacturaModalOpen, setIsFacturaModalOpen] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [isAsignandoFactura, setIsAsignandoFactura] = useState(false);
   const [isOcModalOpen, setIsOcModalOpen] = useState(false);
   const [editingOcId, setEditingOcId] = useState(null);
   const [isEnviarContadorModalOpen, setIsEnviarContadorModalOpen] = useState(false);
@@ -435,6 +436,7 @@ export default function Compras() {
             setTimeout(() => toast.error(`⚠️ El OCR detectó el proveedor "${nombreProvBusqueda}" pero no se encontró.`), 100);
           }
 
+          setIsAsignandoFactura(false);
           setIsUploadModalOpen(false);
           setIsFacturaModalOpen(true);
         } catch (fetchErr) {
@@ -457,6 +459,7 @@ export default function Compras() {
   };
 
   const handleEditarFacturaClick = (f) => {
+    setIsAsignandoFactura(false);
     const realId = buscarValorEnObjeto(f, ['id', 'ID', 'Id', 'codigo']);
     setEditingId(realId);
     setCandidatosProveedor([]);
@@ -525,6 +528,11 @@ export default function Compras() {
     setIsFacturaModalOpen(true);
   };
 
+  const handleAsignarFacturaClick = (f) => {
+    handleEditarFacturaClick(f);
+    setIsAsignandoFactura(true);
+  };
+
   const handleGuardarFactura = async (e) => {
     e.preventDefault();
     if (isSaving) return;
@@ -560,11 +568,14 @@ export default function Compras() {
     const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
     const tempId = editingId || `temp_${Date.now()}`;
 
-    const estadoPagoFinal = estabaAAsignar
-      ? 'a asignar'
-      : esNotaCredito
-      ? 'pendiente'
-      : formData.estado_pago;
+    const estadoPagoFinal =
+      estabaAAsignar && !isAsignandoFactura
+        ? 'a asignar'
+        : esNotaCredito
+        ? 'pendiente'
+        : isAsignandoFactura
+        ? 'pendiente'
+        : formData.estado_pago;
 
     const datosOptimistas = {
       ...formData,
@@ -603,6 +614,7 @@ export default function Compras() {
       editingId ? prev.map((p) => (p.id === editingId ? datosOptimistas : p)) : [datosOptimistas, ...prev]
     );
     setIsFacturaModalOpen(false);
+    setIsAsignandoFactura(false);
     setIsSaving(true);
 
     try {
@@ -1024,6 +1036,7 @@ export default function Compras() {
           <button
             onClick={() => {
               setEditingId(null);
+              setIsAsignandoFactura(false);
               setCandidatosProveedor([]);
               setNombreProveedorOCR('');
               setFormData({
@@ -1217,6 +1230,7 @@ export default function Compras() {
             buscarValorEnObjeto={buscarValorEnObjeto}
             handleVerArchivo={handleVerArchivo}
             handleEditarFacturaClick={handleEditarFacturaClick}
+            handleAsignarFacturaClick={handleAsignarFacturaClick}
             handleEliminarFactura={handleEliminarFactura}
             formatearFechaDisplay={formatearFechaDisplay}
             esACompletar={esACompletar}
@@ -1271,7 +1285,10 @@ export default function Compras() {
 
       <ModalFactura
         isOpen={isFacturaModalOpen}
-        onClose={() => setIsFacturaModalOpen(false)}
+        onClose={() => {
+          setIsFacturaModalOpen(false);
+          setIsAsignandoFactura(false);
+        }}
         onSubmit={handleGuardarFactura}
         formData={formData}
         setFormData={setFormData}
