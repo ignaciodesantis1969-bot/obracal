@@ -89,7 +89,7 @@ export default function Tesoreria() {
   const { data: clientes } = useFirestoreCollection('clientes');
   const { data: obras } = useFirestoreCollection('obras');
   const { data: presupuestos } = useFirestoreCollection('presupuestos');
-  
+
   // 🔑 Normalizamos contratos para asegurar que siempre sea un array sin importar cómo venga
   const { data: contratosFs } = useFirestoreCollection('contratos');
   const contratos = useMemo(() => {
@@ -108,6 +108,7 @@ export default function Tesoreria() {
   const { data: certificados } = useFirestoreCollection('certificados');
 
   const [activeTab, setActiveTab] = useState('movimientos');
+  const [cargarTodoTesoreria, setCargarTodoTesoreria] = useState(false);
 
   // Filtros
   const [filtroFechaDesde, setFiltroFechaDesde] = useState('');
@@ -153,9 +154,9 @@ export default function Tesoreria() {
     if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
     if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
     c.push(orderBy('fecha', 'desc'));
-    c.push(limit(isFiltered ? 500 : 100));
+    if (!cargarTodoTesoreria) c.push(limit(isFiltered ? 500 : 100));
     return c;
-  }, [filtroFechaDesde, filtroFechaHasta]);
+  }, [filtroFechaDesde, filtroFechaHasta, cargarTodoTesoreria]);
   const { data: movimientos } = useFirestoreQuery('tesoreria', movimientosConstraints);
 
   const facturasComprasConstraints = useMemo(() => {
@@ -164,9 +165,9 @@ export default function Tesoreria() {
     if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
     if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
     c.push(orderBy('fecha', 'desc'));
-    c.push(limit(isFiltered ? 500 : 100));
+    if (!cargarTodoTesoreria) c.push(limit(isFiltered ? 500 : 100));
     return c;
-  }, [filtroFechaDesde, filtroFechaHasta]);
+  }, [filtroFechaDesde, filtroFechaHasta, cargarTodoTesoreria]);
   const { data: facturasCompras } = useFirestoreQuery('facturas_compras', facturasComprasConstraints);
 
   const facturasVentasConstraints = useMemo(() => {
@@ -175,9 +176,9 @@ export default function Tesoreria() {
     if (filtroFechaDesde) c.push(where('fecha_emision', '>=', filtroFechaDesde));
     if (filtroFechaHasta) c.push(where('fecha_emision', '<=', filtroFechaHasta));
     c.push(orderBy('fecha_emision', 'desc'));
-    c.push(limit(isFiltered ? 500 : 100));
+    if (!cargarTodoTesoreria) c.push(limit(isFiltered ? 500 : 100));
     return c;
-  }, [filtroFechaDesde, filtroFechaHasta]);
+  }, [filtroFechaDesde, filtroFechaHasta, cargarTodoTesoreria]);
   const { data: facturasVentas } = useFirestoreQuery('facturas_ventas', facturasVentasConstraints);
 
   const retencionesConstraints = useMemo(() => {
@@ -186,9 +187,9 @@ export default function Tesoreria() {
     if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
     if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
     c.push(orderBy('fecha', 'desc'));
-    c.push(limit(isFiltered ? 500 : 100));
+    if (!cargarTodoTesoreria) c.push(limit(isFiltered ? 500 : 100));
     return c;
-  }, [filtroFechaDesde, filtroFechaHasta]);
+  }, [filtroFechaDesde, filtroFechaHasta, cargarTodoTesoreria]);
   const { data: retenciones } = useFirestoreQuery('retenciones', retencionesConstraints);
 
   // Derivados
@@ -878,6 +879,12 @@ export default function Tesoreria() {
   // Render
   // ────────────────────────────────────────────────────────
 
+  const topeActualTesoreria = filtroFechaDesde || filtroFechaHasta ? 500 : 100;
+  const mostrarBotonCargarTodo =
+    !cargarTodoTesoreria &&
+    ((activeTab === 'movimientos' && (movimientos || []).length >= topeActualTesoreria) ||
+      (activeTab === 'facturas_pagar' && (facturasCompras || []).length >= topeActualTesoreria));
+
   const fechaInputs = (
     <div className="flex items-center gap-2">
       <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
@@ -924,10 +931,21 @@ export default function Tesoreria() {
         </div>
       </div>
 
-      {(movimientos.length === (filtroFechaDesde || filtroFechaHasta ? 500 : 100)) && (
-        <div className="bg-amber-100 border border-amber-300 p-3 rounded-xl text-xs text-amber-900 font-medium flex items-center gap-2">
-          <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-          <span>Se alcanzó el límite máximo de movimientos. Ajustá el rango de fechas para ver más.</span>
+      {mostrarBotonCargarTodo && (
+        <div className="bg-amber-100 border border-amber-300 px-4 py-3 rounded-xl text-xs text-amber-900 font-medium flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              Se alcanzó el límite máximo de {activeTab === 'movimientos' ? 'movimientos' : 'facturas a pagar'}. Ajustá el rango de fechas o presioná Cargar todo.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setCargarTodoTesoreria(true)}
+            className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold cursor-pointer transition-colors shrink-0"
+          >
+            Cargar todo
+          </button>
         </div>
       )}
 
