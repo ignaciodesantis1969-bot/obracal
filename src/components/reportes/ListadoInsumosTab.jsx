@@ -2,10 +2,25 @@
 import React, { useState, useMemo } from 'react';
 import toast from 'react-hot-toast';
 import { GOOGLE_SCRIPT_URL } from '@/api';
-import { Package, FileText, Filter, ArrowUpDown, FileSpreadsheet } from 'lucide-react'; // 🔑 Agregamos FileSpreadsheet
+import { Package, FileText, Filter, ArrowUpDown, FileSpreadsheet } from 'lucide-react';
 import { useObraData } from '../../hooks/useObraData';
 import { auth } from '@/firebase';
-import * as XLSX from 'xlsx'; // 🔑 Importamos XLSX
+import * as XLSX from 'xlsx';
+
+const ESTADOS_PRESUPUESTO_HABILITADOS = new Set([
+  'borrador',
+  'entregado',
+  'aprobado',
+  'aprobada'
+]);
+
+const formatearEtiquetaEstado = (estadoRaw) => {
+  const est = String(estadoRaw || '').toLowerCase().trim();
+  if (est === 'aprobado' || est === 'aprobada') return 'Aprobado';
+  if (est === 'entregado') return 'Entregado';
+  if (est === 'borrador') return 'Borrador';
+  return est || 'Sin estado';
+};
 
 export default function ListadoInsumosTab({
   presupuestos = [],
@@ -49,7 +64,7 @@ export default function ListadoInsumosTab({
     if (tipoExp.includes('material') || tipoExp.includes('insumo')) return 'Materiales';
 
     const tc = limpiarTexto(textoCompleto);
-    
+
     if (tc.includes('mano de obra') || tc.includes('sueldo') || tc.includes('viatico') || tc.includes('cargas sociales') || tc.includes('jornal') || tc.includes('oficial') || tc.includes('ayudante')) {
       return 'Mano de Obra';
     }
@@ -57,20 +72,20 @@ export default function ListadoInsumosTab({
     if (tc.includes('subcontrato') || tc.includes('contratista') || tc.includes('servicio de terceros') || tc.includes('sub-contrato') || tc.includes('mano de obra subcontratada')) {
       return 'Subcontratos';
     }
-    
+
     if (tc.includes('alquiler de equipo') || tc.includes('maquinaria pesada') || tc.includes('retroexcavadora') || tc.includes('hormigonera') || tc.includes('andamio') || tc.includes('guinche') || tc.includes('compactadora')) {
       return 'Equipos';
     }
 
     if (tc.includes('gasto general') || tc.includes('imprevisto') || tc.includes('seguridad e higiene') || tc.includes('epp')) return 'Gastos Generales';
-    
-    return 'Materiales'; 
+
+    return 'Materiales';
   };
 
   const proveedoresList = useMemo(() => {
     const p1 = extraerArrayDatos(propProveedores);
     const p2 = extraerArrayDatos(proveedoresSheet);
-    
+
     let extraGlobales = [];
     if (typeof window !== 'undefined' && window.globalData) {
       extraGlobales = extraerArrayDatos(window.globalData.proveedores);
@@ -93,7 +108,7 @@ export default function ListadoInsumosTab({
   const maestroInsumosMap = useMemo(() => {
     const i1 = extraerArrayDatos(propInsumos);
     const i2 = extraerArrayDatos(insumosSheet);
-    
+
     let extraGlobales = [];
     if (typeof window !== 'undefined' && window.globalData) {
       extraGlobales = extraerArrayDatos(window.globalData.insumos);
@@ -105,7 +120,7 @@ export default function ListadoInsumosTab({
       if (!ins) return;
       const codigo = String(ins.codigo || ins.Codigo || ins.id || '').trim().toLowerCase();
       const nombre = String(ins.nombre || ins.Nombre || '').trim().toLowerCase();
-      
+
       const tipoOficial = resolverTipoInsumoOficial(ins.nombre || '', ins.tipo || ins.Tipo || ins.categoria || ins.rubro || '');
 
       const provId = String(ins.proveedor_id || ins.proveedorId || ins.proveedor || '').trim();
@@ -130,25 +145,27 @@ export default function ListadoInsumosTab({
 
   const ordenCategorias = useMemo(() => ['Materiales', 'Mano de Obra', 'Equipos', 'Subcontratos', 'Gastos Generales'], []);
 
-  const presupuestosAprobados = useMemo(() => {
+  const presupuestosDisponibles = useMemo(() => {
     const list = Array.isArray(presupuestos) ? presupuestos : [];
     return list.filter(p => {
       const est = String(p?.estado_presupuesto || p?.estado || p?.Estado_presupuesto || '').toLowerCase().trim();
-      return est === 'aprobado' || est === 'aprobada';
+      return ESTADOS_PRESUPUESTO_HABILITADOS.has(est);
     });
   }, [presupuestos]);
 
   const presupuestoInsumosSeleccionado = useMemo(() => {
     if (!insumoPresupuestoId) return null;
-    return presupuestosAprobados.find(p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(insumoPresupuestoId));
-  }, [insumoPresupuestoId, presupuestosAprobados]);
+    return presupuestosDisponibles.find(
+      p => String(p?.id || p?.ID || p?.codigo || p?.Codigo) === String(insumoPresupuestoId)
+    );
+  }, [insumoPresupuestoId, presupuestosDisponibles]);
 
   const insumosPorRubro = useMemo(() => {
     if (!presupuestoInsumosSeleccionado) return {};
 
-    let rawDetalle = presupuestoInsumosSeleccionado?.items_detalle || 
-                     presupuestoInsumosSeleccionado?.itemsDetalle || 
-                     presupuestoInsumosSeleccionado?.rubros || 
+    let rawDetalle = presupuestoInsumosSeleccionado?.items_detalle ||
+                     presupuestoInsumosSeleccionado?.itemsDetalle ||
+                     presupuestoInsumosSeleccionado?.rubros ||
                      presupuestoInsumosSeleccionado?.detalles || {};
 
     if (typeof rawDetalle === 'string') {
@@ -165,7 +182,7 @@ export default function ListadoInsumosTab({
     if (Array.isArray(rubrosList)) {
       rubrosList.forEach((r, rIdx) => {
         const nombreRubro = r?.rubro || r?.nombre || `Rubro ${rIdx + 1}`;
-        
+
         let tareasList = r?.tareas || r?.items || r?.subitems || [];
         if (typeof tareasList === 'string') {
           try { tareasList = JSON.parse(tareasList); } catch { tareasList = []; }
@@ -182,7 +199,7 @@ export default function ListadoInsumosTab({
             }
 
             const cantidadTarea = Number(t?.cantidad || t?.cant || t?.cantidad_total || 1);
-            
+
             const costoUnitarioTarea = Number(
               t?.costo_unitario || t?.costoUnitario || t?.precio_unitario || t?.precioUnitario || t?.precio || t?.unitario || t?.costo || 0
             );
@@ -250,7 +267,7 @@ export default function ListadoInsumosTab({
               });
 
               const factorAjuste = (totalTareaDirecto > 0 && sumaTotalInsumosTarea > 0 && totalTareaDirecto > sumaTotalInsumosTarea)
-                ? totalTareaDirecto / sumaTotalInsumosTarea 
+                ? totalTareaDirecto / sumaTotalInsumosTarea
                 : 1;
 
               insumosProcesadosTemp.forEach(({ catFinal, item }) => {
@@ -273,8 +290,8 @@ export default function ListadoInsumosTab({
       try { comercialObj = JSON.parse(comercialObj); } catch { comercialObj = {}; }
     }
 
-    let gastosGeneralesArray = comercialObj?.gastos_generales_insumos || 
-                               rawDetalle?.gastos_generales_insumos || 
+    let gastosGeneralesArray = comercialObj?.gastos_generales_insumos ||
+                               rawDetalle?.gastos_generales_insumos ||
                                rawDetalle?.gastos_generales || [];
 
     if (typeof gastosGeneralesArray === 'string') {
@@ -336,9 +353,9 @@ export default function ListadoInsumosTab({
     }
 
     const presupuestoTotalGlobal = Number(
-      presupuestoInsumosSeleccionado?.total_general || 
-      presupuestoInsumosSeleccionado?.totalGeneral || 
-      presupuestoInsumosSeleccionado?.monto_total || 
+      presupuestoInsumosSeleccionado?.total_general ||
+      presupuestoInsumosSeleccionado?.totalGeneral ||
+      presupuestoInsumosSeleccionado?.monto_total ||
       presupuestoInsumosSeleccionado?.total || 0
     );
 
@@ -412,7 +429,7 @@ export default function ListadoInsumosTab({
         insumos: insumosGenerales,
         idToken: idToken
       };
-      
+
       const res = await fetch(GOOGLE_SCRIPT_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -435,7 +452,6 @@ export default function ListadoInsumosTab({
     }
   };
 
-  // 🔑 NUEVA FUNCIÓN PARA EXPORTAR A EXCEL
   const exportarInsumosExcel = () => {
     if (!presupuestoInsumosSeleccionado) {
       toast.error('Seleccione un presupuesto para exportar insumos.');
@@ -445,41 +461,38 @@ export default function ListadoInsumosTab({
     try {
       const toastId = toast.loading('Generando Excel...');
 
-      // Armamos la matriz de datos
       const wscols = [
-        { wch: 20 }, // Categoría
-        { wch: 50 }, // Insumo
-        { wch: 30 }, // Proveedor
-        { wch: 10 }, // Unidad
-        { wch: 15 }, // Cantidad
-        { wch: 20 }, // Costo Unitario
-        { wch: 20 }  // Total
+        { wch: 20 },
+        { wch: 50 },
+        { wch: 30 },
+        { wch: 10 },
+        { wch: 15 },
+        { wch: 20 },
+        { wch: 20 }
       ];
 
       const datosExcel = [];
-      
-      // Título y encabezado
+      const estadoEtiqueta = formatearEtiquetaEstado(
+        presupuestoInsumosSeleccionado?.estado_presupuesto || presupuestoInsumosSeleccionado?.estado
+      );
+
       datosExcel.push(['LISTADO DE INSUMOS POR PRESUPUESTO']);
       datosExcel.push([`Obra: ${presupuestoInsumosSeleccionado?.nombre || presupuestoInsumosSeleccionado?.nombre_obra || 'Insumos Obra'}`]);
-      datosExcel.push([`Código Presupuesto: ${presupuestoInsumosSeleccionado?.codigo || insumoPresupuestoId}`]);
+      datosExcel.push([`Código Presupuesto: ${presupuestoInsumosSeleccionado?.codigo || insumoPresupuestoId} (${estadoEtiqueta})`]);
       datosExcel.push([`Fecha de Emisión: ${new Date().toLocaleDateString('es-AR')}`]);
-      datosExcel.push([]); // Fila vacía
+      datosExcel.push([]);
 
-      // Encabezados de tabla
       datosExcel.push(['Categoría', 'Insumo / Artículo', 'Proveedor', 'Unidad', 'Cant.', 'Costo Unitario ($)', 'Total ($)']);
 
-      // Datos agrupados
       ordenCategorias.forEach(cat => {
         const itemsCat = insumosGenerales[cat] || [];
-        
-        // Aplicamos el mismo filtro de proveedor de la pantalla
-        const itemsFiltrados = proveedorFiltro 
+
+        const itemsFiltrados = proveedorFiltro
           ? itemsCat.filter(it => String(it?.proveedor).toLowerCase() === proveedorFiltro.toLowerCase())
           : itemsCat;
 
         if (itemsFiltrados.length === 0) return;
 
-        // Agrupamos igual que en la vista
         const agrupadosMap = {};
         itemsFiltrados.forEach(it => {
           const nombreNorm = String(it?.nombre || 'Sin nombre').trim();
@@ -501,7 +514,6 @@ export default function ListadoInsumosTab({
 
         let itemsAgrupados = Object.values(agrupadosMap);
 
-        // Ordenamos igual que en la pantalla
         itemsAgrupados.sort((a, b) => {
           if (ordenPrecio === 'mayorPrecioTotal') return Number(b.total) - Number(a.total);
           if (ordenPrecio === 'menorPrecioTotal') return Number(a.total) - Number(b.total);
@@ -510,7 +522,7 @@ export default function ListadoInsumosTab({
 
         itemsAgrupados.forEach(item => {
           const costoUnit = item.cantidad > 0 ? item.total / item.cantidad : 0;
-          
+
           datosExcel.push([
             cat,
             item.nombre,
@@ -523,14 +535,12 @@ export default function ListadoInsumosTab({
         });
       });
 
-      // Creamos el libro y la hoja
       const ws = XLSX.utils.aoa_to_sheet(datosExcel);
-      ws['!cols'] = wscols; // Aplicamos anchos de columna
+      ws['!cols'] = wscols;
 
       const wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, "Insumos");
 
-      // Descargamos el archivo
       const nombreArchivo = `Insumos_${presupuestoInsumosSeleccionado?.codigo || 'Obra'}_${new Date().getTime()}.xlsx`;
       XLSX.writeFile(wb, nombreArchivo);
 
@@ -548,22 +558,23 @@ export default function ListadoInsumosTab({
           <h3 className="text-sm font-extrabold text-slate-900 uppercase flex items-center gap-2">
             <Package className="w-4 h-4 text-amber-500" /> Listado de Insumos por Presupuesto
           </h3>
-          <p className="text-xs text-slate-500 mt-0.5">Seleccione un presupuesto aprobado para desglosar sus insumos discriminando proveedores.</p>
+          <p className="text-xs text-slate-500 mt-0.5">Seleccione un presupuesto (borrador, entregado o aprobado) para desglosar sus insumos discriminando proveedores.</p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <select
             value={insumoPresupuestoId}
             onChange={(e) => setInsumoPresupuestoId(e.target.value)}
-            className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[240px]"
+            className="bg-slate-50 border border-slate-300 rounded-xl px-4 py-2 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 cursor-pointer min-w-[260px]"
           >
-            <option value="">-- Seleccionar Presupuesto ({presupuestosAprobados.length} disp.) --</option>
-            {presupuestosAprobados.map(p => {
+            <option value="">-- Seleccionar Presupuesto ({presupuestosDisponibles.length} disp.) --</option>
+            {presupuestosDisponibles.map(p => {
               const pId = p?.id || p?.ID || p?.codigo;
               const pCod = p?.codigo || pId;
               const pNom = p?.nombre || p?.nombre_obra || 'Presupuesto';
+              const estLabel = formatearEtiquetaEstado(p?.estado_presupuesto || p?.estado || p?.Estado_presupuesto);
               return (
                 <option key={pId} value={pId}>
-                  [{pCod}] {pNom}
+                  [{pCod}] {pNom} ({estLabel})
                 </option>
               );
             })}
@@ -602,8 +613,7 @@ export default function ListadoInsumosTab({
           >
             {vistaGeneralInsumos ? 'Ver por Rubros' : 'Ver Vista General'}
           </button>
-          
-          {/* 🔑 NUEVO BOTÓN DE EXCEL */}
+
           <button
             onClick={exportarInsumosExcel}
             className="px-4 py-2 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 transition-colors cursor-pointer flex items-center gap-1.5 shadow-xs"
@@ -639,11 +649,11 @@ export default function ListadoInsumosTab({
               </span>
             )}
           </div>
-          
+
           {ordenCategorias.map(cat => {
             const itemsCat = insumosGenerales[cat] || [];
-            
-            const itemsFiltrados = proveedorFiltro 
+
+            const itemsFiltrados = proveedorFiltro
               ? itemsCat.filter(it => String(it?.proveedor).toLowerCase() === proveedorFiltro.toLowerCase())
               : itemsCat;
 
@@ -728,14 +738,14 @@ export default function ListadoInsumosTab({
                 <div className="bg-slate-900 px-4 py-3 border-b border-slate-800">
                   <h4 className="font-black text-xs text-white uppercase tracking-wide">{nombreRubro}</h4>
                 </div>
-                
+
                 {ordenCategorias.map(cat => {
                   let itemsCat = cats[cat] || [];
                   if (proveedorFiltro) {
                     itemsCat = itemsCat.filter(it => String(it?.proveedor).toLowerCase() === proveedorFiltro.toLowerCase());
                   }
                   if (itemsCat.length === 0) return null;
-                  
+
                   itemsCat.sort((a, b) => {
                     if (ordenPrecio === 'mayorPrecioTotal') return Number(b.total) - Number(a.total);
                     if (ordenPrecio === 'menorPrecioTotal') return Number(a.total) - Number(b.total);
@@ -743,7 +753,7 @@ export default function ListadoInsumosTab({
                   });
 
                   const subCatTotal = itemsCat.reduce((acc, i) => acc + (Number(i?.total) || 0), 0);
-                  
+
                   return (
                     <div key={cat} className="border-b border-slate-200 last:border-0">
                       <div className="flex justify-between items-center bg-slate-800 text-white px-4 py-2 border-b border-slate-700">
