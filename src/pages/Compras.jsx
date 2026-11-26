@@ -21,6 +21,7 @@ import ModalSubirFactura from '@/components/compras/ModalSubirFactura';
 import ModalEnviarContador from '@/components/compras/ModalEnviarContador';
 import TablaFacturas from '@/components/compras/TablaFacturas';
 import TablaOrdenesCompra from '@/components/compras/TablaOrdenesCompra';
+import EstadoCuentaCentrosGenerales from '@/components/compras/EstadoCuentaCentrosGenerales';
 
 const esACompletar = (valor) => /\ba completar\b/i.test(String(valor || ''));
 
@@ -59,6 +60,9 @@ export default function Compras() {
   const [deletedFacturas, setDeletedFacturas] = useState([]);
   const [optimisticOcs, setOptimisticOcs] = useState([]);
   const [deletedOcs, setDeletedOcs] = useState([]);
+
+  // Lote específico para envío al contador desde Estado de Cuenta de Centros Generales
+  const [loteContadorPersonalizado, setLoteContadorPersonalizado] = useState(null);
 
   const obtenerIdReal = (obj) => String(obj?.id || obj?.ID || obj?.Id || obj?.codigo || '');
 
@@ -133,6 +137,7 @@ export default function Compras() {
     rubro_imputacion: '',
     tipo_insumo: 'Material',
     detalle_gasto: '',
+    subcuenta_extra: '',
     fecha: new Date().toISOString().split('T')[0],
     vencimiento: '',
     estado_pago: 'pendiente',
@@ -193,6 +198,15 @@ export default function Compras() {
 
     return '';
   }, []);
+
+  const subcuentasExtraDisponibles = useMemo(() => {
+    const setSubs = new Set();
+    (facturasRender || []).forEach((f) => {
+      const val = String(buscarValorEnObjeto(f, ['subcuenta_extra', 'Subcuenta_extra']) || '').trim();
+      if (val && !esACompletar(val)) setSubs.add(val);
+    });
+    return Array.from(setSubs).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [facturasRender, buscarValorEnObjeto]);
 
   const extraerArrayDatos = useCallback((fuente) => {
     if (Array.isArray(fuente)) return fuente;
@@ -477,6 +491,10 @@ export default function Compras() {
       buscarValorEnObjeto(f, ['tipo_gasto']) === 'A completar' || !buscarValorEnObjeto(f, ['tipo_gasto'])
         ? 'Presupuesto'
         : buscarValorEnObjeto(f, ['tipo_gasto']);
+    const subcuentaExtraVal =
+      buscarValorEnObjeto(f, ['subcuenta_extra', 'Subcuenta_extra']) === 'A completar'
+        ? ''
+        : buscarValorEnObjeto(f, ['subcuenta_extra', 'Subcuenta_extra']) || '';
 
     let provIdVal = buscarValorEnObjeto(f, ['proveedor_id']);
     if ((!provIdVal || provIdVal === 0) && buscarValorEnObjeto(f, ['proveedor']) && proveedores.length > 0) {
@@ -510,6 +528,7 @@ export default function Compras() {
       rubro_imputacion: rubroImputacionVal,
       tipo_insumo: tipoInsumoVal,
       detalle_gasto: buscarValorEnObjeto(f, ['detalle_gasto']) || '',
+      subcuenta_extra: tipoGastoObtenido === 'Gasto Extra' ? subcuentaExtraVal : '',
       fecha: formatearFechaParaInput(buscarValorEnObjeto(f, ['fecha'])),
       vencimiento: formatearFechaParaInput(buscarValorEnObjeto(f, ['vencimiento'])),
       estado_pago: normalizarEstadoPago(buscarValorEnObjeto(f, ['estado_pago'])),
@@ -566,6 +585,8 @@ export default function Compras() {
       formData.tipo_gasto === 'Gastos Directos';
     const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
     const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
+    const esGastoExtra = formData.tipo_gasto === 'Gasto Extra';
+    const subcuentaExtraFinal = esGastoExtra ? String(formData.subcuenta_extra || '').trim() : '';
     const tempId = editingId || `temp_${Date.now()}`;
 
     const estadoPagoFinal =
@@ -603,6 +624,7 @@ export default function Compras() {
       tipo_insumo: esPresupuestario || esContrato ? formData.tipo_insumo : '',
       insumo: esPresupuestario || esContrato ? formData.tipo_insumo : '',
       detalle_gasto: esGastoLibre ? formData.detalle_gasto : '',
+      subcuenta_extra: subcuentaExtraFinal,
       es_nota_credito: esNotaCredito,
       comprobante_anula: esNotaCredito ? formData.comprobante_anula || '' : '',
       remitente: formData.remitente || '',
@@ -887,14 +909,21 @@ export default function Compras() {
     }
   };
 
+  const facturasActivasParaContador = useMemo(() => {
+    return loteContadorPersonalizado ? loteContadorPersonalizado.facturas : facturasFiltradas;
+  }, [loteContadorPersonalizado, facturasFiltradas]);
+
+  const desdeContadorActivo = loteContadorPersonalizado ? loteContadorPersonalizado.desde : filtroFechaDesde;
+  const hastaContadorActivo = loteContadorPersonalizado ? loteContadorPersonalizado.hasta : filtroFechaHasta;
+
   const handleEnviarAlContador = async (e) => {
     e.preventDefault();
     if (!emailContador || emailContador.indexOf('@') === -1) return toast.error('Correo inválido.');
-    if (facturasFiltradas.length === 0) return toast.error('No hay facturas para enviar.');
+    if (facturasActivasParaContador.length === 0) return toast.error('No hay facturas para enviar.');
 
     setEnviandoFacturas(true);
     try {
-      const facturasParaEnviar = facturasFiltradas
+      const facturasParaEnviar = facturasActivasParaContador
         .filter((f) => !obtenerIdReal(f).startsWith('temp_'))
         .map((f, index) => {
           const provId = buscarValorEnObjeto(f, ['proveedor_id']);
@@ -919,8 +948,8 @@ export default function Compras() {
         body: JSON.stringify({
           action: 'enviarFacturasAlContador',
           email: emailContador,
-          fechaDesde: filtroFechaDesde ? formatearFechaDisplay(filtroFechaDesde) : 'Inicio',
-          fechaHasta: filtroFechaHasta ? formatearFechaDisplay(filtroFechaHasta) : 'Fin',
+          fechaDesde: desdeContadorActivo ? formatearFechaDisplay(desdeContadorActivo) : 'Inicio',
+          fechaHasta: hastaContadorActivo ? formatearFechaDisplay(hastaContadorActivo) : 'Fin',
           facturas: facturasParaEnviar,
           idToken,
         }),
@@ -929,6 +958,7 @@ export default function Compras() {
       if (data.success) {
         toast.success('✅ Correo enviado.');
         setIsEnviarContadorModalOpen(false);
+        setLoteContadorPersonalizado(null);
         setEmailContador('');
       } else {
         toast.error('⚠️ Error: ' + data.error);
@@ -1003,9 +1033,9 @@ export default function Compras() {
       <div className="bg-white p-6 rounded-2xl border border-slate-300 shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
         <div>
           <h1 className="text-2xl font-extrabold text-slate-900">Compras</h1>
-          <p className="text-slate-500 text-sm mt-1">Órdenes de compra y facturas de proveedores</p>
+          <p className="text-slate-500 text-sm mt-1">Órdenes de compra, facturas de proveedores y estados de cuenta generales</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <button
             onClick={() => {
               setEditingOcId(null);
@@ -1053,6 +1083,7 @@ export default function Compras() {
                 rubro_imputacion: '',
                 tipo_insumo: 'Material',
                 detalle_gasto: '',
+                subcuenta_extra: '',
                 fecha: new Date().toISOString().split('T')[0],
                 vencimiento: '',
                 estado_pago: 'pendiente',
@@ -1075,7 +1106,10 @@ export default function Compras() {
             <Plus className="w-4 h-4" /> Nueva Factura
           </button>
           <button
-            onClick={() => setIsEnviarContadorModalOpen(true)}
+            onClick={() => {
+              setLoteContadorPersonalizado(null);
+              setIsEnviarContadorModalOpen(true);
+            }}
             className="flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium text-sm transition-colors shadow-sm cursor-pointer"
           >
             <Mail className="w-4 h-4" /> Enviar a Contador
@@ -1083,108 +1117,110 @@ export default function Compras() {
         </div>
       </div>
 
-      {/* 🔑 FILTROS DINÁMICOS SEGÚN LA PESTAÑA */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
-        <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
-          <BuscadorSelect
-            opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
-            value={activeTab === 'facturas' ? filtroProveedor : filtroProveedorOc}
-            onChange={activeTab === 'facturas' ? setFiltroProveedor : setFiltroProveedorOc}
-            placeholder="Todos"
-            minChars={3}
-          />
-        </div>
-
-        {activeTab === 'facturas' && (
-          <>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de Pago</label>
-              <select
-                value={filtroEstadoPago}
-                onChange={(e) => setFiltroEstadoPago(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"
-              >
-                <option value="">Todos</option>
-                <option value="a asignar">A Asignar</option>
-                <option value="pendiente">Pendiente</option>
-                <option value="contabilizado">Contabilizado</option>
-                <option value="pagado">Pagado</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Doc. Aprobado</label>
-              <select
-                value={filtroDocumento}
-                onChange={(e) => setFiltroDocumento(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"
-              >
-                <option value="">Todos</option>
-                <optgroup label="Presupuestos">
-                  {listaPresupuestosFinal.map((pr) => (
-                    <option key={`pr-${pr.id}`} value={`PRES-${pr.id}`}>
-                      {pr.codigo} - {pr.nombre}
-                    </option>
-                  ))}
-                </optgroup>
-                <optgroup label="Contratos">
-                  {listaContratosFinal.map((c, idx) => (
-                    <option key={`c-${c.id || idx}`} value={`CONT-${c.id || idx}`}>
-                      [{c.codigo || 'S/C'}] {c.nombre || 'Contrato'}
-                    </option>
-                  ))}
-                </optgroup>
-              </select>
-            </div>
-          </>
-        )}
-
-        {activeTab === 'ordenes' && (
-          <>
-            <div>
-              <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de la OC</label>
-              <select
-                value={filtroEstadoOc}
-                onChange={(e) => setFiltroEstadoOc(e.target.value)}
-                className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"
-              >
-                <option value="">Todos</option>
-                <option value="pendiente">Pendiente</option>
-                <option value="aprobada">Aprobada</option>
-                <option value="recibida">Recibida</option>
-              </select>
-            </div>
-            <div></div>
-          </>
-        )}
-
-        <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Desde</label>
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
-            <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-            <input
-              type="date"
-              value={activeTab === 'facturas' ? filtroFechaDesde : filtroFechaDesdeOc}
-              onChange={(e) => (activeTab === 'facturas' ? setFiltroFechaDesde(e.target.value) : setFiltroFechaDesdeOc(e.target.value))}
-              className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none"
+      {/* 🔑 FILTROS DINÁMICOS PARA FACTURAS Y ÓRDENES */}
+      {activeTab !== 'centros_generales' && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 bg-white p-4 rounded-2xl border border-slate-300 shadow-sm items-end">
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Proveedor</label>
+            <BuscadorSelect
+              opciones={[{ id: '', label: 'Todos los Proveedores' }, ...opcionesProveedores]}
+              value={activeTab === 'facturas' ? filtroProveedor : filtroProveedorOc}
+              onChange={activeTab === 'facturas' ? setFiltroProveedor : setFiltroProveedorOc}
+              placeholder="Todos"
+              minChars={3}
             />
           </div>
-        </div>
-        <div>
-          <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Hasta</label>
-          <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
-            <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
-            <input
-              type="date"
-              value={activeTab === 'facturas' ? filtroFechaHasta : filtroFechaHastaOc}
-              onChange={(e) => (activeTab === 'facturas' ? setFiltroFechaHasta(e.target.value) : setFiltroFechaHastaOc(e.target.value))}
-              className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none"
-            />
+
+          {activeTab === 'facturas' && (
+            <>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de Pago</label>
+                <select
+                  value={filtroEstadoPago}
+                  onChange={(e) => setFiltroEstadoPago(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="">Todos</option>
+                  <option value="a asignar">A Asignar</option>
+                  <option value="pendiente">Pendiente</option>
+                  <option value="contabilizado">Contabilizado</option>
+                  <option value="pagado">Pagado</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Doc. Aprobado</label>
+                <select
+                  value={filtroDocumento}
+                  onChange={(e) => setFiltroDocumento(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="">Todos</option>
+                  <optgroup label="Presupuestos">
+                    {listaPresupuestosFinal.map((pr) => (
+                      <option key={`pr-${pr.id}`} value={`PRES-${pr.id}`}>
+                        {pr.codigo} - {pr.nombre}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <optgroup label="Contratos">
+                    {listaContratosFinal.map((c, idx) => (
+                      <option key={`c-${c.id || idx}`} value={`CONT-${c.id || idx}`}>
+                        [{c.codigo || 'S/C'}] {c.nombre || 'Contrato'}
+                      </option>
+                    ))}
+                  </optgroup>
+                </select>
+              </div>
+            </>
+          )}
+
+          {activeTab === 'ordenes' && (
+            <>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Estado de la OC</label>
+                <select
+                  value={filtroEstadoOc}
+                  onChange={(e) => setFiltroEstadoOc(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-xl px-3 py-2 text-xs font-semibold text-slate-700 uppercase outline-none focus:border-amber-500 cursor-pointer"
+                >
+                  <option value="">Todos</option>
+                  <option value="pendiente">Pendiente</option>
+                  <option value="aprobada">Aprobada</option>
+                  <option value="recibida">Recibida</option>
+                </select>
+              </div>
+              <div></div>
+            </>
+          )}
+
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Desde</label>
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+              <input
+                type="date"
+                value={activeTab === 'facturas' ? filtroFechaDesde : filtroFechaDesdeOc}
+                onChange={(e) => (activeTab === 'facturas' ? setFiltroFechaDesde(e.target.value) : setFiltroFechaDesdeOc(e.target.value))}
+                className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase mb-1">Hasta</label>
+            <div className="flex items-center gap-2 bg-slate-50 border border-slate-300 rounded-xl px-3 py-2">
+              <Calendar className="w-4 h-4 text-slate-400 shrink-0" />
+              <input
+                type="date"
+                value={activeTab === 'facturas' ? filtroFechaHasta : filtroFechaHastaOc}
+                onChange={(e) => (activeTab === 'facturas' ? setFiltroFechaHasta(e.target.value) : setFiltroFechaHastaOc(e.target.value))}
+                className="w-full bg-transparent text-xs font-semibold text-slate-700 outline-none"
+              />
+            </div>
           </div>
         </div>
-      </div>
+      )}
 
-      <div className="flex gap-2 border-b border-slate-200 pb-2">
+      <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
         <button
           onClick={() => setActiveTab('ordenes')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
@@ -1204,6 +1240,16 @@ export default function Compras() {
           }`}
         >
           Facturas ({facturasRender.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('centros_generales')}
+          className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            activeTab === 'centros_generales'
+              ? 'bg-amber-500 text-white shadow-sm'
+              : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+          }`}
+        >
+          Estado de Cuenta (Directos / Corrientes / Extra)
         </button>
       </div>
 
@@ -1256,6 +1302,27 @@ export default function Compras() {
         </div>
       )}
 
+      {activeTab === 'centros_generales' && (
+        <EstadoCuentaCentrosGenerales
+          facturasRender={facturasRender}
+          proveedores={proveedores}
+          buscarValorEnObjeto={buscarValorEnObjeto}
+          formatearFechaDisplay={formatearFechaDisplay}
+          handleVerArchivo={handleVerArchivo}
+          handleEditarFacturaClick={handleEditarFacturaClick}
+          esACompletar={esACompletar}
+          obtenerIdReal={obtenerIdReal}
+          onAbrirEnviarContadorFiltrado={(listaFiltrada, rango) => {
+            setLoteContadorPersonalizado({
+              facturas: listaFiltrada,
+              desde: rango?.desde || '',
+              hasta: rango?.hasta || ''
+            });
+            setIsEnviarContadorModalOpen(true);
+          }}
+        />
+      )}
+
       <ModalOrdenCompra
         isOpen={isOcModalOpen}
         onClose={() => setIsOcModalOpen(false)}
@@ -1302,19 +1369,23 @@ export default function Compras() {
         listaContratosFinal={listaContratosFinal}
         rubrosDelPresupuesto={rubrosDelPresupuesto}
         gastosGeneralesDelPresupuesto={gastosGeneralesDelPresupuesto}
+        subcuentasExtraDisponibles={subcuentasExtraDisponibles}
         buscarValorEnObjeto={buscarValorEnObjeto}
       />
 
       <ModalEnviarContador
         isOpen={isEnviarContadorModalOpen}
-        onClose={() => setIsEnviarContadorModalOpen(false)}
+        onClose={() => {
+          setIsEnviarContadorModalOpen(false);
+          setLoteContadorPersonalizado(null);
+        }}
         onSubmit={handleEnviarAlContador}
         emailContador={emailContador}
         setEmailContador={setEmailContador}
         enviandoFacturas={enviandoFacturas}
-        cantidadFacturas={facturasFiltradas.length}
-        filtroFechaDesde={filtroFechaDesde}
-        filtroFechaHasta={filtroFechaHasta}
+        cantidadFacturas={facturasActivasParaContador.length}
+        filtroFechaDesde={desdeContadorActivo}
+        filtroFechaHasta={hastaContadorActivo}
         formatearFechaDisplay={formatearFechaDisplay}
       />
     </div>

@@ -2,7 +2,7 @@
 import React from 'react';
 import { X, AlertCircle, Loader2, CheckCircle2, AlertTriangle } from 'lucide-react';
 import BuscadorSelect from '@/components/BuscadorSelect';
-// esto no hace nada
+
 export default function ModalFactura({
   isOpen,
   onClose,
@@ -19,6 +19,7 @@ export default function ModalFactura({
   listaContratosFinal,
   rubrosDelPresupuesto,
   gastosGeneralesDelPresupuesto,
+  subcuentasExtraDisponibles = [],
   buscarValorEnObjeto
 }) {
   if (!isOpen) return null;
@@ -27,6 +28,7 @@ export default function ModalFactura({
   const esTipoPresupuestario = formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta' || formData.tipo_gasto === 'Gastos Directos';
   const esTipoContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
   const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
+  const esGastoExtra = formData.tipo_gasto === 'Gasto Extra';
   const requiereObra = esTipoPresupuestario || esTipoContrato;
   const esNotaCreditoForm = String(formData.comprobante_tipo || '').toLowerCase().includes('nota de crédito') ||
                             String(formData.comprobante_tipo || '').toLowerCase().includes('nota de credito');
@@ -169,7 +171,8 @@ export default function ModalFactura({
                     contrato_id: '',
                     rubro_imputacion: val === 'Contrato de Mantenimiento' ? 'Materiales del Contrato' : '',
                     tipo_insumo: val === 'Contrato de Mantenimiento' ? 'Material' : 'Material',
-                    detalle_gasto: ''
+                    detalle_gasto: '',
+                    subcuenta_extra: val === 'Gasto Extra' ? (formData.subcuenta_extra || '') : ''
                   });
                 }}>
                 <option value="Presupuesto">Presupuesto Aprobado</option>
@@ -244,8 +247,29 @@ export default function ModalFactura({
               </div>
             )}
 
+            {esGastoExtra && (
+              <div className={esGastoLibre ? 'sm:col-span-1' : 'sm:col-span-3'}>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subcuenta Gasto Extra *</label>
+                <input
+                  type="text"
+                  list="subcuentas-gasto-extra"
+                  required={esGastoExtra}
+                  disabled={isSaving}
+                  placeholder="Ej: Legales, Adecuaciones, Multas..."
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100"
+                  value={formData.subcuenta_extra || ''}
+                  onChange={(e) => setFormData({ ...formData, subcuenta_extra: e.target.value })}
+                />
+                <datalist id="subcuentas-gasto-extra">
+                  {subcuentasExtraDisponibles.map((sub) => (
+                    <option key={sub} value={sub} />
+                  ))}
+                </datalist>
+              </div>
+            )}
+
             {esGastoLibre && (
-              <div className="sm:col-span-3">
+              <div className={esGastoExtra ? 'sm:col-span-2' : 'sm:col-span-3'}>
                 <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Detalle del Gasto *</label>
                 <input type="text" required disabled={isSaving} placeholder="Ej: Servicio de Asesoramiento en HyS..." className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100" value={formData.detalle_gasto} onChange={(e) => setFormData({...formData, detalle_gasto: e.target.value})} />
               </div>
