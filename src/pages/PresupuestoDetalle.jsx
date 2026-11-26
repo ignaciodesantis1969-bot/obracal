@@ -1,11 +1,11 @@
 // src/pages/PresupuestoDetalle.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, BarChart3, Calculator, ArrowLeft, TrendingUp, Lock, ChevronDown, ChevronUp, ChevronRight, FileText, CheckSquare, Square, ListChecks } from 'lucide-react';
+import { Plus, Trash2, Edit2, Loader2, FolderPlus, X, Calculator, ArrowLeft, Lock, ChevronDown, ChevronUp, ChevronRight, FileText, CheckSquare, Square, ListChecks, UserPlus } from 'lucide-react';
 import { exportarPresupuestoExcel, exportarPresupuestoPDF } from '../utils/exportUtils';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc } from '@/lib/firestoreHelpers';
-import toast from 'react-hot-toast'; // 🔑 IMPORTAMOS TOAST
+import toast from 'react-hot-toast';
 
 export default function PresupuestoDetalle() {
   const { id: presupuestoId } = useParams();
@@ -14,12 +14,10 @@ export default function PresupuestoDetalle() {
   const { data: obras, loading: loadingObras } = useFirestoreCollection('obras');
   const { data: clientes } = useFirestoreCollection('clientes');
   const { data: maestroRaw } = useFirestoreCollection('maestro');
-  const { data: certificados } = useFirestoreCollection('certificados');
   const { data: insumosList } = useFirestoreCollection('insumos');
   const { data: rubrosList } = useFirestoreCollection('rubros');
 
   const isLoading = loadingPres || loadingObras;
-  const errorFirestore = null;
 
   const presupuesto = useMemo(
     () => presupuestos.find(p => String(p.id).trim() === String(presupuestoId).trim()) || {},
@@ -104,6 +102,9 @@ export default function PresupuestoDetalle() {
     beneficio: 20.27
   });
 
+  // Participación en el beneficio total (SICE SA + Asociados)
+  const [asociadosBeneficio, setAsociadosBeneficio] = useState([]);
+
   const [rubrosColapsados, setRubrosColapsados] = useState({});
   const [rubrosConOrden, setRubrosConOrden] = useState([]);
   const [itemsDetalle, setItemsDetalle] = useState([]);
@@ -143,6 +144,11 @@ export default function PresupuestoDetalle() {
       if (comercialParseado.impuestos_porcentajes) {
         setImpuestosPorcentajes(prev => ({ ...prev, ...comercialParseado.impuestos_porcentajes }));
       }
+      if (Array.isArray(comercialParseado.asociados_beneficio)) {
+        setAsociadosBeneficio(comercialParseado.asociados_beneficio);
+      } else {
+        setAsociadosBeneficio([]);
+      }
       if (comercialParseado.notas) {
         setNotasPresupuesto(prev => ({ ...prev, ...comercialParseado.notas }));
       }
@@ -169,6 +175,14 @@ export default function PresupuestoDetalle() {
           if (imp && typeof imp === 'object') {
             setImpuestosPorcentajes(prev => ({ ...prev, ...imp }));
           }
+        } catch (e) {}
+      }
+      if (presupuesto.asociados_beneficio) {
+        try {
+          const asoc = typeof presupuesto.asociados_beneficio === 'string'
+            ? JSON.parse(presupuesto.asociados_beneficio)
+            : presupuesto.asociados_beneficio;
+          if (Array.isArray(asoc)) setAsociadosBeneficio(asoc);
         } catch (e) {}
       }
     }
@@ -280,6 +294,7 @@ export default function PresupuestoDetalle() {
         porcentaje_comision_venta: porcentajeComisionVenta,
         porcentaje_imprevistos: porcentajeImprevistos,
         impuestos_porcentajes: impuestosPorcentajes,
+        asociados_beneficio: asociadosBeneficio,
         notas: notasPresupuesto
       }
     };
@@ -292,7 +307,8 @@ export default function PresupuestoDetalle() {
       gastos_generales_insumos: JSON.stringify(gastosGeneralesInsumos),
       porcentaje_comision_venta: porcentajeComisionVenta,
       porcentaje_imprevistos: porcentajeImprevistos,
-      impuestos_porcentajes: JSON.stringify(impuestosPorcentajes)
+      impuestos_porcentajes: JSON.stringify(impuestosPorcentajes),
+      asociados_beneficio: JSON.stringify(asociadosBeneficio)
     };
 
     try {
@@ -605,6 +621,31 @@ export default function PresupuestoDetalle() {
     }
   };
 
+  const handleAgregarAsociado = () => {
+    if (!esBorrador) return;
+    const indice = asociadosBeneficio.length + 1;
+    setAsociadosBeneficio(prev => [
+      ...prev,
+      {
+        id: `asoc_${Date.now()}_${indice}`,
+        nombre: `Asociado ${indice}`,
+        porcentaje: indice === 1 ? 40 : 0
+      }
+    ]);
+  };
+
+  const handleCambiarAsociado = (id, campo, valor) => {
+    if (!esBorrador) return;
+    setAsociadosBeneficio(prev =>
+      prev.map(a => (a.id === id ? { ...a, [campo]: valor } : a))
+    );
+  };
+
+  const handleEliminarAsociado = (id) => {
+    if (!esBorrador) return;
+    setAsociadosBeneficio(prev => prev.filter(a => a.id !== id));
+  };
+
   if (isLoading) {
     return <div className="p-12 text-center"><Loader2 className="w-8 h-8 animate-spin mx-auto text-amber-500" /></div>;
   }
@@ -642,6 +683,12 @@ export default function PresupuestoDetalle() {
   const coeficientePaseCalculado = costoDirectoBase > 0 ? precioVentaCalculado / costoDirectoBase : 1;
   const coeficientePase = Number(presupuesto?.coeficiente_pase) || coeficientePaseCalculado;
   const precioVentaGeneral = costoDirectoBase * coeficientePase;
+
+  // Cálculo del Beneficio Total y su reparto entre SICE SA y Asociados
+  const beneficioTotalMonto = precioVentaCalculado * (Number(impuestosPorcentajes.beneficio || 0) / 100);
+  const sumaPorcentajeAsociados = asociadosBeneficio.reduce((acc, a) => acc + (Number(a.porcentaje) || 0), 0);
+  const porcentajeSiceParticipacion = asociadosBeneficio.length > 0 ? Math.max(0, 100 - sumaPorcentajeAsociados) : 100;
+  const montoSiceBeneficio = beneficioTotalMonto * (porcentajeSiceParticipacion / 100);
 
   const rubrosDisponiblesMaestro = [...new Set([
     ...rubrosList.map(r => String(r.nombre || r.Nombre || '').trim().toUpperCase()),
@@ -1217,14 +1264,25 @@ export default function PresupuestoDetalle() {
           </div>
 
           <div className="space-y-4">
-            <h4 className="font-extrabold text-sm text-slate-800 uppercase">Impuestos y Beneficio</h4>
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+              <h4 className="font-extrabold text-sm text-slate-800 uppercase">Impuestos y Beneficio</h4>
+              {esBorrador && (
+                <button
+                  type="button"
+                  onClick={handleAgregarAsociado}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <UserPlus className="w-3.5 h-3.5" /> Agregar Asociado
+                </button>
+              )}
+            </div>
 
             <div className="border border-slate-200 rounded-xl overflow-hidden">
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
                     <th className="px-6 py-3">Concepto</th>
-                    <th className="px-6 py-3 w-40 text-center">Porcentaje (%)</th>
+                    <th className="px-6 py-3 w-44 text-center">Porcentaje (%)</th>
                     <th className="px-6 py-3 w-48 text-right">Monto calculado</th>
                   </tr>
                 </thead>
@@ -1324,8 +1382,12 @@ export default function PresupuestoDetalle() {
                       $ {Math.round(precioVentaCalculado * (Number(impuestosPorcentajes.debitosCreditos) / 100)).toLocaleString('es-AR')}
                     </td>
                   </tr>
-                  <tr className="bg-emerald-50/50 hover:bg-emerald-50">
-                    <td className="px-6 py-3 font-extrabold text-emerald-800">Beneficio</td>
+
+                  {/* Beneficio Total */}
+                  <tr className="bg-emerald-50/70 hover:bg-emerald-50">
+                    <td className="px-6 py-3 font-extrabold text-emerald-900">
+                      Beneficio Total
+                    </td>
                     <td className="px-6 py-3 text-center">
                       <div className="flex items-center justify-center gap-1">
                         <input
@@ -1339,10 +1401,84 @@ export default function PresupuestoDetalle() {
                         <span className="text-emerald-700">%</span>
                       </div>
                     </td>
-                    <td className="px-6 py-3 text-right font-black text-emerald-700">
-                      $ {Math.round(precioVentaCalculado * (Number(impuestosPorcentajes.beneficio) / 100)).toLocaleString('es-AR')}
+                    <td className="px-6 py-3 text-right font-black text-emerald-800">
+                      $ {Math.round(beneficioTotalMonto).toLocaleString('es-AR')}
                     </td>
                   </tr>
+
+                  {/* Desglose de participación cuando hay asociados */}
+                  {asociadosBeneficio.length > 0 && (
+                    <>
+                      <tr className="bg-slate-50/80">
+                        <td className="px-6 py-2.5 pl-10 font-bold text-slate-800">
+                          SICE SA ({porcentajeSiceParticipacion.toLocaleString('es-AR', { maximumFractionDigits: 2 })}%)
+                        </td>
+                        <td className="px-6 py-2.5 text-center font-bold text-slate-700">
+                          {porcentajeSiceParticipacion.toLocaleString('es-AR', { maximumFractionDigits: 2 })}% del beneficio
+                        </td>
+                        <td className="px-6 py-2.5 text-right font-extrabold text-slate-900">
+                          $ {Math.round(montoSiceBeneficio).toLocaleString('es-AR')}
+                        </td>
+                      </tr>
+
+                      {asociadosBeneficio.map((asoc) => {
+                        const pctAsoc = Number(asoc.porcentaje) || 0;
+                        const montoAsoc = beneficioTotalMonto * (pctAsoc / 100);
+                        return (
+                          <tr key={asoc.id} className="bg-amber-50/30 hover:bg-amber-50/60">
+                            <td className="px-6 py-2.5 pl-10">
+                              <div className="flex items-center gap-2">
+                                <input
+                                  type="text"
+                                  disabled={!esBorrador}
+                                  placeholder="Nombre del asociado..."
+                                  className="w-56 bg-white border border-slate-300 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                                  value={asoc.nombre}
+                                  onChange={(e) => handleCambiarAsociado(asoc.id, 'nombre', e.target.value)}
+                                />
+                                {esBorrador && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEliminarAsociado(asoc.id)}
+                                    className="p-1 text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                                    title="Quitar asociado"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-6 py-2.5 text-center">
+                              <div className="flex items-center justify-center gap-1">
+                                <input
+                                  type="number"
+                                  disabled={!esBorrador}
+                                  step="0.01"
+                                  min="0"
+                                  max="100"
+                                  className="w-24 bg-white border border-amber-300 rounded-lg px-2 py-1 text-center font-bold text-amber-800 outline-none focus:border-amber-500 disabled:bg-slate-50"
+                                  value={asoc.porcentaje}
+                                  onChange={(e) => handleCambiarAsociado(asoc.id, 'porcentaje', e.target.value)}
+                                />
+                                <span className="text-amber-800 font-semibold">%</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-2.5 text-right font-extrabold text-amber-800">
+                              $ {Math.round(montoAsoc).toLocaleString('es-AR')}
+                            </td>
+                          </tr>
+                        );
+                      })}
+
+                      {sumaPorcentajeAsociados > 100 && (
+                        <tr className="bg-red-50">
+                          <td colSpan="3" className="px-6 py-2 text-[11px] font-bold text-red-700">
+                            ⚠️ La suma de los asociados ({sumaPorcentajeAsociados}%) supera el 100% del beneficio total.
+                          </td>
+                        </tr>
+                      )}
+                    </>
+                  )}
                 </tbody>
               </table>
             </div>
