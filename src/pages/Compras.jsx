@@ -30,6 +30,9 @@ const normalizarEstadoPago = (raw) => {
   return s || 'pendiente';
 };
 
+const esCentroGeneralTipo = (tipo) =>
+  tipo === 'Gastos Directos' || tipo === 'Gasto Corriente' || tipo === 'Gasto Extra';
+
 export default function Compras() {
   const { data: ordenesCompra } = useFirestoreCollection('ordenes_compra');
   const { data: proveedores } = useFirestoreCollection('proveedores');
@@ -544,18 +547,22 @@ export default function Compras() {
     setCandidatosProveedor([]);
     setNombreProveedorOCR('');
 
-    const rubroImputacionVal =
-      buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion']) === 'A completar'
-        ? ''
-        : buscarValorEnObjeto(f, ['rubro_imputacion']);
-    const tipoInsumoVal =
-      buscarValorEnObjeto(f, ['tipo_insumo']) === 'A completar'
-        ? 'Material'
-        : buscarValorEnObjeto(f, ['tipo_insumo']) || 'Material';
     const tipoGastoObtenido =
       buscarValorEnObjeto(f, ['tipo_gasto']) === 'A completar' || !buscarValorEnObjeto(f, ['tipo_gasto'])
         ? 'Presupuesto'
         : buscarValorEnObjeto(f, ['tipo_gasto']);
+    const esGeneral = esCentroGeneralTipo(tipoGastoObtenido);
+
+    const rubroImputacionVal =
+      esGeneral || buscarValorEnObjeto(f, ['rubro_imputacion', 'Rubro_imputacion']) === 'A completar'
+        ? ''
+        : buscarValorEnObjeto(f, ['rubro_imputacion']);
+    const tipoInsumoVal =
+      esGeneral
+        ? ''
+        : buscarValorEnObjeto(f, ['tipo_insumo']) === 'A completar'
+        ? 'Material'
+        : buscarValorEnObjeto(f, ['tipo_insumo']) || 'Material';
     const subcuentaExtraVal =
       buscarValorEnObjeto(f, ['subcuenta_extra', 'Subcuenta_extra']) === 'A completar'
         ? ''
@@ -574,11 +581,12 @@ export default function Compras() {
       n_factura: buscarValorEnObjeto(f, ['n_factura']) || '',
       proveedor_id: provIdVal || '',
       proveedor: buscarValorEnObjeto(f, ['proveedor']) || '',
-      obra_id: buscarValorEnObjeto(f, ['obra_id']) === 'A completar' ? '' : buscarValorEnObjeto(f, ['obra_id']) || '',
+      obra_id:
+        esGeneral || buscarValorEnObjeto(f, ['obra_id']) === 'A completar'
+          ? ''
+          : buscarValorEnObjeto(f, ['obra_id']) || '',
       presupuesto_id:
-        tipoGastoObtenido === 'Presupuesto' ||
-        tipoGastoObtenido === 'Viaticos-Nafta' ||
-        tipoGastoObtenido === 'Gastos Directos'
+        tipoGastoObtenido === 'Presupuesto' || tipoGastoObtenido === 'Viaticos-Nafta'
           ? buscarValorEnObjeto(f, ['presupuesto_id']) === 'A completar'
             ? ''
             : buscarValorEnObjeto(f, ['presupuesto_id'])
@@ -645,11 +653,9 @@ export default function Compras() {
         .includes('nota de credito');
     const factorSigno = esNotaCredito ? -1 : 1;
     const esPresupuestario =
-      formData.tipo_gasto === 'Presupuesto' ||
-      formData.tipo_gasto === 'Viaticos-Nafta' ||
-      formData.tipo_gasto === 'Gastos Directos';
+      formData.tipo_gasto === 'Presupuesto' || formData.tipo_gasto === 'Viaticos-Nafta';
     const esContrato = formData.tipo_gasto === 'Contrato de Mantenimiento';
-    const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
+    const esGastoLibre = esCentroGeneralTipo(formData.tipo_gasto);
     const esGastoExtra = formData.tipo_gasto === 'Gasto Extra';
     const subcuentaExtraFinal = esGastoExtra ? String(formData.subcuenta_extra || '').trim() : '';
     const tempId = editingId || `temp_${Date.now()}`;
@@ -1318,7 +1324,7 @@ export default function Compras() {
             setLoteContadorPersonalizado({
               facturas: listaFiltrada,
               desde: rango?.desde || '',
-              hasta: rango?.hasta || ''
+              hasta: rango?.hasta || '',
             });
             setIsEnviarContadorModalOpen(true);
           }}

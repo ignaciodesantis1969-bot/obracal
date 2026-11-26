@@ -15,6 +15,7 @@ export default function ModalMovimiento({
   presupuestosDisponibles,
   rubrosDelPresupuesto,
   gastosGeneralesConceptos,
+  subcuentasExtraDisponibles = [],
   facturasVenta,
   facturasCompra,
   clientes,
@@ -28,6 +29,11 @@ export default function ModalMovimiento({
   if (!isOpen) return null;
 
   const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
+  const esEgresoGeneral =
+    !esIngreso &&
+    (formData.tipo_gasto === 'Gastos Directos' ||
+      formData.tipo_gasto === 'Gasto Corriente' ||
+      formData.tipo_gasto === 'Gasto Extra');
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4 overflow-y-auto">
@@ -54,7 +60,16 @@ export default function ModalMovimiento({
                 disabled={isSaving}
                 className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 uppercase disabled:bg-slate-100"
                 value={formData.tipo}
-                onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+                onChange={(e) => {
+                  const nuevoTipo = e.target.value;
+                  setFormData({
+                    ...formData,
+                    tipo: nuevoTipo,
+                    ...(String(nuevoTipo).toLowerCase() === 'ingreso'
+                      ? { tipo_gasto: '', subcuenta_extra: '' }
+                      : {}),
+                  });
+                }}
               >
                 <option value="Egreso">Egreso</option>
                 <option value="Ingreso">Ingreso</option>
@@ -71,6 +86,57 @@ export default function ModalMovimiento({
                 onChange={(e) => setFormData({ ...formData, fecha: e.target.value })}
               />
             </div>
+
+            {!esIngreso && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Centro / Tipo de Gasto</label>
+                <select
+                  disabled={isSaving}
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100"
+                  value={formData.tipo_gasto || ''}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    const esGeneral =
+                      val === 'Gastos Directos' || val === 'Gasto Corriente' || val === 'Gasto Extra';
+                    setFormData({
+                      ...formData,
+                      tipo_gasto: val,
+                      obra_id: esGeneral ? '' : formData.obra_id,
+                      presupuesto_id: esGeneral ? '' : formData.presupuesto_id,
+                      contrato_id: esGeneral ? '' : formData.contrato_id,
+                      rubro_imputacion: esGeneral ? '' : formData.rubro_imputacion,
+                      subcuenta_extra: val === 'Gasto Extra' ? formData.subcuenta_extra || '' : '',
+                    });
+                  }}
+                >
+                  <option value="">Imputación de Obra / Contrato</option>
+                  <option value="Gastos Directos">Gastos Directos</option>
+                  <option value="Gasto Corriente">Gasto Corriente</option>
+                  <option value="Gasto Extra">Gasto Extra</option>
+                </select>
+              </div>
+            )}
+
+            {!esIngreso && formData.tipo_gasto === 'Gasto Extra' && (
+              <div>
+                <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Subcuenta Gasto Extra</label>
+                <input
+                  type="text"
+                  list="subcuentas-gasto-extra-mov"
+                  disabled={isSaving}
+                  placeholder="Ej: Legales, Casa Los Sauces..."
+                  className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold outline-none focus:border-amber-500 disabled:bg-slate-100"
+                  value={formData.subcuenta_extra || ''}
+                  onChange={(e) => setFormData({ ...formData, subcuenta_extra: e.target.value })}
+                />
+                <datalist id="subcuentas-gasto-extra-mov">
+                  {subcuentasExtraDisponibles.map((sub) => (
+                    <option key={sub} value={sub} />
+                  ))}
+                </datalist>
+              </div>
+            )}
+
             <div className="sm:col-span-2">
               <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Concepto *</label>
               <input
@@ -83,117 +149,132 @@ export default function ModalMovimiento({
                 onChange={(e) => setFormData({ ...formData, concepto: e.target.value })}
               />
             </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
-              <select
-                disabled={isSaving}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                value={formData.obra_id}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  obra_id: e.target.value,
-                  presupuesto_id: '',
-                  rubro_imputacion: '',
-                })}
-              >
-                <option value="">Seleccione obra...</option>
-                {obras.map(o => (
-                  <option key={o.id || o.ID} value={o.id || o.ID}>
-                    {o.nombre || o.Nombre}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado</label>
-              <select
-                disabled={isSaving || !formData.obra_id}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                value={formData.presupuesto_id}
-                onChange={(e) => setFormData({
-                  ...formData,
-                  presupuesto_id: e.target.value,
-                  rubro_imputacion: '',
-                })}
-              >
-                <option value="">
-                  {formData.obra_id ? 'Seleccione presupuesto...' : 'Primero seleccione obra...'}
-                </option>
-                {presupuestosDisponibles.map(p => (
-                  <option key={p.id || p.ID} value={p.id || p.ID}>
-                    {p.codigo || p.Codigo || `Presupuesto #${p.id || p.ID}`} - {p.nombre || p.Nombre || ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contrato (Opcional)</label>
-              <select
-                disabled={isSaving}
-                className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                value={formData.contrato_id}
-                onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}
-              >
-                <option value="">Seleccione contrato...</option>
-                {contratos.map(c => (
-                  <option key={c.id || c.ID} value={c.id || c.ID}>
-                    {c.codigo || c.Codigo || `Contrato #${c.id || c.ID}`} - {c.nombre || c.Nombre || ''}
-                  </option>
-                ))}
-              </select>
-            </div>
 
-            {formData.tipo === 'Egreso' && (
+            {!esEgresoGeneral && (
               <>
                 <div>
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Obra</label>
                   <select
                     disabled={isSaving}
                     className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                    value={formData.tipo_insumo}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      tipo_insumo: e.target.value,
-                      rubro_imputacion: '',
-                    })}
+                    value={formData.obra_id}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        obra_id: e.target.value,
+                        presupuesto_id: '',
+                        rubro_imputacion: '',
+                      })
+                    }
                   >
-                    <option value="Materiales">Materiales</option>
-                    <option value="Mano de Obra">Mano de Obra</option>
-                    <option value="Subcontratos">Subcontratos</option>
-                    <option value="Equipos y herramientas">Equipos y herramientas</option>
-                    <option value="Gastos Generales">Gastos Generales</option>
+                    <option value="">Seleccione obra...</option>
+                    {obras.map((o) => (
+                      <option key={o.id || o.ID} value={o.id || o.ID}>
+                        {o.nombre || o.Nombre}
+                      </option>
+                    ))}
                   </select>
                 </div>
-                <div className="sm:col-span-2">
-                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
-                  {String(formData.tipo_insumo).toLowerCase() === 'gastos generales' ? (
-                    <select
-                      disabled={isSaving}
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                      value={formData.rubro_imputacion}
-                      onChange={(e) => setFormData({ ...formData, rubro_imputacion: e.target.value })}
-                    >
-                      <option value="">Seleccione gasto general...</option>
-                      {gastosGeneralesConceptos.map((g, idx) => (
-                        <option key={idx} value={g}>{g}</option>
-                      ))}
-                    </select>
-                  ) : (
-                    <select
-                      disabled={isSaving || !formData.presupuesto_id}
-                      className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
-                      value={formData.rubro_imputacion}
-                      onChange={(e) => setFormData({ ...formData, rubro_imputacion: e.target.value })}
-                    >
-                      <option value="">
-                        {formData.presupuesto_id ? 'Seleccione rubro del presupuesto...' : 'Primero seleccione presupuesto...'}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Presupuesto Aprobado</label>
+                  <select
+                    disabled={isSaving || !formData.obra_id}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                    value={formData.presupuesto_id}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        presupuesto_id: e.target.value,
+                        rubro_imputacion: '',
+                      })
+                    }
+                  >
+                    <option value="">
+                      {formData.obra_id ? 'Seleccione presupuesto...' : 'Primero seleccione obra...'}
+                    </option>
+                    {presupuestosDisponibles.map((p) => (
+                      <option key={p.id || p.ID} value={p.id || p.ID}>
+                        {p.codigo || p.Codigo || `Presupuesto #${p.id || p.ID}`} - {p.nombre || p.Nombre || ''}
                       </option>
-                      {rubrosDelPresupuesto.map((r, idx) => (
-                        <option key={idx} value={r}>{r}</option>
-                      ))}
-                    </select>
-                  )}
+                    ))}
+                  </select>
                 </div>
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Contrato (Opcional)</label>
+                  <select
+                    disabled={isSaving}
+                    className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                    value={formData.contrato_id}
+                    onChange={(e) => setFormData({ ...formData, contrato_id: e.target.value })}
+                  >
+                    <option value="">Seleccione contrato...</option>
+                    {contratos.map((c) => (
+                      <option key={c.id || c.ID} value={c.id || c.ID}>
+                        {c.codigo || c.Codigo || `Contrato #${c.id || c.ID}`} - {c.nombre || c.Nombre || ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {formData.tipo === 'Egreso' && (
+                  <>
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Tipo de Insumo</label>
+                      <select
+                        disabled={isSaving}
+                        className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                        value={formData.tipo_insumo}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            tipo_insumo: e.target.value,
+                            rubro_imputacion: '',
+                          })
+                        }
+                      >
+                        <option value="Materiales">Materiales</option>
+                        <option value="Mano de Obra">Mano de Obra</option>
+                        <option value="Subcontratos">Subcontratos</option>
+                        <option value="Equipos y herramientas">Equipos y herramientas</option>
+                        <option value="Gastos Generales">Gastos Generales</option>
+                      </select>
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className="block text-xs font-bold text-slate-700 uppercase mb-1">Rubro de Imputación</label>
+                      {String(formData.tipo_insumo).toLowerCase() === 'gastos generales' ? (
+                        <select
+                          disabled={isSaving}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                          value={formData.rubro_imputacion}
+                          onChange={(e) => setFormData({ ...formData, rubro_imputacion: e.target.value })}
+                        >
+                          <option value="">Seleccione gasto general...</option>
+                          {gastosGeneralesConceptos.map((g, idx) => (
+                            <option key={idx} value={g}>
+                              {g}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <select
+                          disabled={isSaving || !formData.presupuesto_id}
+                          className="w-full bg-white border border-slate-300 rounded-lg px-3 py-2 text-xs font-semibold uppercase outline-none focus:border-amber-500 disabled:bg-slate-100"
+                          value={formData.rubro_imputacion}
+                          onChange={(e) => setFormData({ ...formData, rubro_imputacion: e.target.value })}
+                        >
+                          <option value="">
+                            {formData.presupuesto_id ? 'Seleccione rubro del presupuesto...' : 'Primero seleccione presupuesto...'}
+                          </option>
+                          {rubrosDelPresupuesto.map((r, idx) => (
+                            <option key={idx} value={r}>
+                              {r}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+                    </div>
+                  </>
+                )}
               </>
             )}
 
@@ -309,14 +390,15 @@ export default function ModalMovimiento({
                             <option value="">Seleccionar factura...</option>
                             {esIngreso
                               ? facturasVenta
-                                  .filter(f =>
-                                    String(f.estado_pago || '').toLowerCase() !== 'anulada' &&
-                                    f.es_nota_credito !== true &&
-                                    f.es_nota_debito !== true
+                                  .filter(
+                                    (f) =>
+                                      String(f.estado_pago || '').toLowerCase() !== 'anulada' &&
+                                      f.es_nota_credito !== true &&
+                                      f.es_nota_debito !== true
                                   )
-                                  .map(f => {
+                                  .map((f) => {
                                     const cli = clientes.find(
-                                      c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id)
+                                      (c) => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id)
                                     );
                                     const realId = f.id || f.ID;
                                     return (
@@ -327,13 +409,14 @@ export default function ModalMovimiento({
                                     );
                                   })
                               : facturasCompra
-                                  .filter(f =>
-                                    String(f.estado_pago || '').toLowerCase() !== 'anulada' &&
-                                    f.es_nota_credito !== true
+                                  .filter(
+                                    (f) =>
+                                      String(f.estado_pago || '').toLowerCase() !== 'anulada' &&
+                                      f.es_nota_credito !== true
                                   )
-                                  .map(f => {
+                                  .map((f) => {
                                     const prov = proveedores.find(
-                                      p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id)
+                                      (p) => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id)
                                     );
                                     const realId = f.id || f.ID;
                                     return (
@@ -386,7 +469,7 @@ export default function ModalMovimiento({
               className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300 text-white rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 cursor-pointer"
             >
               {isSaving && <Loader2 className="w-4 h-4 animate-spin" />}
-              {isSaving ? 'Registrando...' : (editingId ? 'Actualizar' : 'Registrar')}
+              {isSaving ? 'Registrando...' : editingId ? 'Actualizar' : 'Registrar'}
             </button>
           </div>
         </form>

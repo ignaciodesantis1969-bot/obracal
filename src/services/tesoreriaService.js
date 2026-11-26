@@ -16,9 +16,6 @@ import {
 // Drive / GAS
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Sube un archivo base64 a Drive vía GAS. Devuelve la URL, o '' si falla.
- */
 export const subirArchivoADrive = async (base64, tabla) => {
   if (!base64 || !base64.startsWith('data:')) return base64 || '';
   try {
@@ -44,9 +41,6 @@ export const subirArchivoADrive = async (base64, tabla) => {
   }
 };
 
-/**
- * Procesa OCR de una factura de venta vía GAS. Devuelve el JSON parseado o lanza error.
- */
 export const procesarFacturaVentaConIA = async ({ base64, mimeType }) => {
   if (!GOOGLE_SCRIPT_URL) throw new Error('GOOGLE_SCRIPT_URL no está configurada.');
   const idToken = auth.currentUser ? await auth.currentUser.getIdToken(true) : '';
@@ -87,7 +81,7 @@ const resolverContextoComprobante = ({
 }) => {
   const esIngreso = String(formData.tipo).toLowerCase() === 'ingreso';
   const facturaAsociadaId =
-    formData.facturas_aplicadas?.find(f => f.factura_id)?.factura_id || '';
+    formData.facturas_aplicadas?.find((f) => f.factura_id)?.factura_id || '';
 
   let nroComprobanteTexto = '---';
   let proveedorIdReal = formData.proveedor_id || '';
@@ -95,19 +89,19 @@ const resolverContextoComprobante = ({
 
   if (facturaAsociadaId) {
     if (esIngreso) {
-      const fac = facturasVentas.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
+      const fac = facturasVentas.find((f) => String(f.id || f.ID) === String(facturaAsociadaId));
       if (fac) {
         const pv = fac.punto_venta ? String(fac.punto_venta).padStart(5, '0') : '';
         const nc = fac.numero_comp ? String(fac.numero_comp).padStart(8, '0') : '';
-        nroComprobanteTexto = pv && nc ? `${pv}-${nc}` : (fac.numero_comp || '---');
+        nroComprobanteTexto = pv && nc ? `${pv}-${nc}` : fac.numero_comp || '---';
         if (!clienteIdReal) clienteIdReal = fac.cliente_id || fac.Cliente_id || '';
       }
     } else {
-      const fac = facturasCompras.find(f => String(f.id || f.ID) === String(facturaAsociadaId));
+      const fac = facturasCompras.find((f) => String(f.id || f.ID) === String(facturaAsociadaId));
       if (fac) {
         const pv = fac.punto_venta ? String(fac.punto_venta).padStart(5, '0') : '';
         const nc = fac.numero_comp ? String(fac.numero_comp).padStart(8, '0') : '';
-        nroComprobanteTexto = pv && nc ? `${pv}-${nc}` : (fac.n_factura || fac.numero_comp || '---');
+        nroComprobanteTexto = pv && nc ? `${pv}-${nc}` : fac.n_factura || fac.numero_comp || '---';
         if (!proveedorIdReal) proveedorIdReal = fac.proveedor_id || fac.Proveedor_id || '';
       }
     }
@@ -116,13 +110,13 @@ const resolverContextoComprobante = ({
   if (formData.concepto) {
     const conceptoLower = formData.concepto.toLowerCase();
     if (esIngreso && !clienteIdReal) {
-      const match = clientes.find(c => {
+      const match = clientes.find((c) => {
         const nombre = String(c.razon_social || c.nombre || '').toLowerCase();
         return nombre.length > 3 && conceptoLower.includes(nombre);
       });
       if (match) clienteIdReal = match.id || match.ID;
     } else if (!esIngreso && !proveedorIdReal) {
-      const match = proveedores.find(p => {
+      const match = proveedores.find((p) => {
         const nombre = String(p.razon_social || p.nombre || '').toLowerCase();
         return nombre.length > 3 && conceptoLower.includes(nombre);
       });
@@ -148,7 +142,7 @@ const sincronizarRetenciones = async ({
 }) => {
   if (editingId) {
     const viejas = retencionesExistentes.filter(
-      r => String(r.tesoreria_id) === String(editingId)
+      (r) => String(r.tesoreria_id) === String(editingId)
     );
     for (const r of viejas) {
       try {
@@ -204,7 +198,7 @@ const actualizarEstadosFacturasAplicadas = async ({
 
   for (const item of formData.facturas_aplicadas) {
     if (!item.factura_id) continue;
-    const fac = listaObjetivo.find(f => String(f.id || f.ID) === String(item.factura_id));
+    const fac = listaObjetivo.find((f) => String(f.id || f.ID) === String(item.factura_id));
     if (!fac) continue;
     const total = Number(fac.total || fac.Total || 0);
     const aplicado = Number(item.monto || 0);
@@ -231,8 +225,11 @@ export const guardarMovimientoTesoreria = async ({
   proveedores = [],
   clientes = [],
 }) => {
+  const esGastoExtra = formData.tipo_gasto === 'Gasto Extra';
   const payload = {
     ...formData,
+    tipo_gasto: formData.tipo_gasto || '',
+    subcuenta_extra: esGastoExtra ? String(formData.subcuenta_extra || '').trim() : '',
     monto: montoNetoEfectivo,
     facturas_aplicadas: JSON.stringify(formData.facturas_aplicadas),
   };
@@ -287,11 +284,14 @@ export const contabilizarNCCompra = async (factura, proveedores = []) => {
   if (!facturaId) throw new Error('No se pudo identificar la NC.');
 
   const prov = proveedores.find(
-    p => String(p.id || p.ID) === String(factura.proveedor_id || factura.Proveedor_id)
+    (p) => String(p.id || p.ID) === String(factura.proveedor_id || factura.Proveedor_id)
   );
   const nombreProv = prov?.razon_social || prov?.nombre || 'Proveedor';
   const tipoComp = factura.comprobante_tipo || factura.tipo_comprobante || 'Nota de Crédito';
   const nFactura = factura.n_factura || factura.numero_comp || 'S/N';
+  const tipoGasto = factura.tipo_gasto || '';
+  const subcuentaExtra =
+    tipoGasto === 'Gasto Extra' ? String(factura.subcuenta_extra || '').trim() : '';
   const concepto = `${tipoComp} ${nFactura} - ${nombreProv}`;
 
   await crearDoc('tesoreria', {
@@ -303,6 +303,8 @@ export const contabilizarNCCompra = async (factura, proveedores = []) => {
     obra_id: factura.obra_id || '',
     presupuesto_id: factura.presupuesto_id || '',
     contrato_id: factura.contrato_id || '',
+    tipo_gasto: tipoGasto,
+    subcuenta_extra: subcuentaExtra,
     rubro_imputacion: factura.rubro_imputacion || '',
     tipo_insumo: factura.tipo_insumo || '',
     medio_pago: '',
@@ -355,14 +357,14 @@ const anularFacturaPorNC = async ({ formDataVenta, facturasVentas, nuevoDocId })
   });
   if (!original && ncNorm) {
     original = facturasVentas.find(
-      f => esFacturable(f) && normalizarNumComp(f.numero_comp) === ncNorm
+      (f) => esFacturable(f) && normalizarNumComp(f.numero_comp) === ncNorm
     );
   }
 
   if (!original) {
     throw new Error(
       `No se encontró la factura ${formDataVenta.comprobante_anula} en el sistema. ` +
-      `La Nota de Crédito se guardó pero la factura no se marcó como anulada.`
+        `La Nota de Crédito se guardó pero la factura no se marcó como anulada.`
     );
   }
 
@@ -433,10 +435,6 @@ const crearMovimientoContableNCND = async ({ formDataVenta, nuevoDocId, totalFin
   });
 };
 
-/**
- * Crea una factura de venta (con o sin archivo), maneja NC/ND y anulación de la original.
- * Devuelve { nuevoDocId, totalFinal, esNC, esND, anulacionFallida }.
- */
 export const crearFacturaVenta = async ({
   formDataVenta,
   archivoBase64,
@@ -460,7 +458,7 @@ export const crearFacturaVenta = async ({
     otros_tributos: Number(formDataVenta.otros_tributos || 0) * signo,
     total: totalFinal,
     archivo_url: archivoUrlFinal,
-    estado_pago: esNC ? 'anulada' : (formDataVenta.estado_pago || 'pendiente'),
+    estado_pago: esNC ? 'anulada' : formDataVenta.estado_pago || 'pendiente',
     es_nota_credito: esNC,
     es_nota_debito: esND,
     items: JSON.stringify(formDataVenta.items || []),
@@ -492,11 +490,6 @@ export const crearFacturaVenta = async ({
   return { nuevoDocId, totalFinal, esNC, esND, anulacionFallida };
 };
 
-/**
- * Actualiza una factura de venta existente (usado por el modal de edición).
- * NO permite cambiar los importes en negativo de una NC ya contabilizada
- * desde acá (eso lo maneja el flujo de anulación).
- */
 export const actualizarFacturaVenta = async (facturaId, datos) => {
   if (!facturaId) throw new Error('Falta el ID de la factura.');
   const payload = { ...datos };
@@ -524,14 +517,7 @@ export const subirCertificadoRetencion = async (retencionId, base64, nombreArchi
   });
   return url;
 };
-// ─────────────────────────────────────────────────────────────
-// Envío al contador
-// ─────────────────────────────────────────────────────────────
 
-/**
- * Envía un lote de retenciones al contador vía GAS.
- * Requiere que en Apps Script exista `action: 'enviarRetencionesAlContador'`.
- */
 export const enviarRetencionesAlContador = async ({
   email,
   fechaDesde,

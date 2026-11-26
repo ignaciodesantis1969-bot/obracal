@@ -50,6 +50,8 @@ const FORM_DATA_MOV_INICIAL = () => ({
   obra_id: '',
   presupuesto_id: '',
   contrato_id: '',
+  tipo_gasto: '',
+  subcuenta_extra: '',
   rubro_imputacion: '',
   tipo_insumo: 'Materiales',
   medio_pago: 'transferencia',
@@ -99,7 +101,7 @@ export default function Tesoreria() {
       if (Array.isArray(contratosFs.items)) return contratosFs.items;
       if (Array.isArray(contratosFs.contratos_mantenimiento)) return contratosFs.contratos_mantenimiento;
       if (Array.isArray(contratosFs.contratosMantenimiento)) return contratosFs.contratosMantenimiento;
-      const possible = Object.values(contratosFs).find(val => Array.isArray(val));
+      const possible = Object.values(contratosFs).find((val) => Array.isArray(val));
       if (possible) return possible;
     }
     return [];
@@ -193,18 +195,31 @@ export default function Tesoreria() {
   const { data: retenciones } = useFirestoreQuery('retenciones', retencionesConstraints);
 
   // Derivados
+  const subcuentasExtraDisponibles = useMemo(() => {
+    const setSubs = new Set();
+    (facturasCompras || []).forEach((f) => {
+      const val = String(f.subcuenta_extra || f.Subcuenta_extra || '').trim();
+      if (val && !/\ba completar\b/i.test(val)) setSubs.add(val);
+    });
+    (movimientos || []).forEach((m) => {
+      const val = String(m.subcuenta_extra || m.Subcuenta_extra || '').trim();
+      if (val && !/\ba completar\b/i.test(val)) setSubs.add(val);
+    });
+    return Array.from(setSubs).sort((a, b) => a.localeCompare(b, 'es'));
+  }, [facturasCompras, movimientos]);
+
   const opcionesProveedores = useMemo(
-    () => (proveedores || []).map(p => ({ id: p.id || p.ID, label: p.razon_social || p.nombre || 'Sin nombre' })),
+    () => (proveedores || []).map((p) => ({ id: p.id || p.ID, label: p.razon_social || p.nombre || 'Sin nombre' })),
     [proveedores]
   );
   const opcionesClientes = useMemo(
-    () => (clientes || []).map(c => ({ id: c.id || c.ID, label: c.razon_social || c.nombre || 'Sin nombre' })),
+    () => (clientes || []).map((c) => ({ id: c.id || c.ID, label: c.razon_social || c.nombre || 'Sin nombre' })),
     [clientes]
   );
   const opcionesTerceros = useMemo(() => {
     const map = new Map();
-    (proveedores || []).forEach(p => map.set(String(p.id || p.ID), p.razon_social || p.nombre || 'Sin nombre'));
-    (clientes || []).forEach(c => {
+    (proveedores || []).forEach((p) => map.set(String(p.id || p.ID), p.razon_social || p.nombre || 'Sin nombre'));
+    (clientes || []).forEach((c) => {
       const key = String(c.id || c.ID);
       if (!map.has(key)) map.set(key, c.razon_social || c.nombre || 'Sin nombre');
     });
@@ -212,7 +227,7 @@ export default function Tesoreria() {
   }, [proveedores, clientes]);
 
   const presupuestosDisponibles = useMemo(() => {
-    return (presupuestos || []).filter(p => {
+    return (presupuestos || []).filter((p) => {
       if (!formDataMov.obra_id) return false;
       const pObraId = String(p.obra_id || p.Obra_id || p.id_obra || p.Id_Obra || p.obraId || '');
       const estado = String(p.estado_presupuesto || p.estado || p.Estado || '').toLowerCase();
@@ -222,14 +237,14 @@ export default function Tesoreria() {
 
   const rubrosDelPresupuesto = useMemo(() => {
     if (!formDataMov.presupuesto_id) return [];
-    const presu = (presupuestos || []).find(p => String(p.id || p.ID) === String(formDataMov.presupuesto_id));
+    const presu = (presupuestos || []).find((p) => String(p.id || p.ID) === String(formDataMov.presupuesto_id));
     if (!presu) return [];
     const raw = presu.items_detalle || presu.Items_detalle || '';
     if (!raw) return [];
     try {
       const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
       const listaRubros = parsed.rubros || parsed.Rubros || [];
-      return listaRubros.map(r => r.rubro || r.Rubro || r.nombre || r.Nombre).filter(Boolean);
+      return listaRubros.map((r) => r.rubro || r.Rubro || r.nombre || r.Nombre).filter(Boolean);
     } catch {
       return [];
     }
@@ -237,17 +252,21 @@ export default function Tesoreria() {
 
   const gastosGeneralesConceptos = useMemo(() => {
     if (!formDataMov.presupuesto_id) return [];
-    const presu = (presupuestos || []).find(p => String(p.id || p.ID) === String(formDataMov.presupuesto_id));
+    const presu = (presupuestos || []).find((p) => String(p.id || p.ID) === String(formDataMov.presupuesto_id));
     if (!presu) return [];
     const raw = presu.items_detalle || presu.Items_detalle || '';
     if (!raw) return [];
     let parsed = raw;
     if (typeof parsed === 'string') {
-      try { parsed = JSON.parse(parsed); } catch { return []; }
+      try {
+        parsed = JSON.parse(parsed);
+      } catch {
+        return [];
+      }
     }
     const insumosGG = parsed?.comercial?.gastos_generales_insumos || [];
     if (!Array.isArray(insumosGG)) return [];
-    return insumosGG.map(g => (g.concepto || g.Concepto || '').trim()).filter(Boolean);
+    return insumosGG.map((g) => (g.concepto || g.Concepto || '').trim()).filter(Boolean);
   }, [presupuestos, formDataMov.presupuesto_id]);
 
   const totalRetencionesMov =
@@ -259,13 +278,17 @@ export default function Tesoreria() {
   const montoNetoEfectivo = Math.max(0, Number(formDataMov.monto || 0) - totalRetencionesMov);
 
   const movimientosFiltrados = useMemo(() => {
-    return (movimientos || []).filter(m => {
+    return (movimientos || []).filter((m) => {
       const concepto = String(m.concepto || m.Concepto || '').toLowerCase();
       const ref = String(m.referencia || m.Referencia || '').toLowerCase();
-      const matchTexto = concepto.includes(searchTerm.toLowerCase()) || ref.includes(searchTerm.toLowerCase());
+      const subcuenta = String(m.subcuenta_extra || m.Subcuenta_extra || '').toLowerCase();
+      const matchTexto =
+        concepto.includes(searchTerm.toLowerCase()) ||
+        ref.includes(searchTerm.toLowerCase()) ||
+        subcuenta.includes(searchTerm.toLowerCase());
       let matchProveedor = true;
       if (filtroProveedorMovimientos) {
-        const prov = (proveedores || []).find(p => String(p.id || p.ID) === String(filtroProveedorMovimientos));
+        const prov = (proveedores || []).find((p) => String(p.id || p.ID) === String(filtroProveedorMovimientos));
         const nombreProv = prov ? (prov.razon_social || prov.nombre || '').toLowerCase() : '';
         matchProveedor = concepto.includes(nombreProv);
       }
@@ -281,10 +304,12 @@ export default function Tesoreria() {
   }, [movimientos, searchTerm, filtroProveedorMovimientos, filtroTipoMovimiento, filtroOrigen, proveedores]);
 
   const retencionesFiltradas = useMemo(() => {
-    return (retenciones || []).filter(r => {
+    return (retenciones || []).filter((r) => {
       if (filtroTipoRetencion && r.tipo !== filtroTipoRetencion) return false;
       if (filtroClienteRetencion) {
-        const match = String(r.cliente_id) === String(filtroClienteRetencion) || String(r.proveedor_id) === String(filtroClienteRetencion);
+        const match =
+          String(r.cliente_id) === String(filtroClienteRetencion) ||
+          String(r.proveedor_id) === String(filtroClienteRetencion);
         if (!match) return false;
       }
       return true;
@@ -292,7 +317,7 @@ export default function Tesoreria() {
   }, [retenciones, filtroTipoRetencion, filtroClienteRetencion]);
 
   const facturasAPagar = useMemo(() => {
-    return (facturasCompras || []).filter(f => {
+    return (facturasCompras || []).filter((f) => {
       const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
       if (estado === 'anulada') return false;
       const esPendiente = estado === 'pendiente' || estado === 'pagado parcial' || estado === 'a asignar';
@@ -303,7 +328,7 @@ export default function Tesoreria() {
   }, [facturasCompras, filtroProveedorPagar]);
 
   const facturasACobrar = useMemo(() => {
-    return (facturasVentas || []).filter(f => {
+    return (facturasVentas || []).filter((f) => {
       const estado = String(f.estado_pago || f.Estado_pago || 'pendiente').toLowerCase();
       if (estado === 'anulada') return false;
       if (f.es_nota_credito === true || f.es_nota_debito === true) return false;
@@ -315,10 +340,10 @@ export default function Tesoreria() {
 
   // KPIs
   const totalIngresos = (movimientos || [])
-    .filter(m => String(m.tipo || m.Tipo || '').toLowerCase() === 'ingreso')
+    .filter((m) => String(m.tipo || m.Tipo || '').toLowerCase() === 'ingreso')
     .reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
   const totalEgresos = (movimientos || [])
-    .filter(m => String(m.tipo || m.Tipo || '').toLowerCase() === 'egreso')
+    .filter((m) => String(m.tipo || m.Tipo || '').toLowerCase() === 'egreso')
     .reduce((acc, m) => acc + (Number(m.monto || m.Monto) || 0), 0);
   const balance = totalIngresos - totalEgresos;
 
@@ -330,7 +355,7 @@ export default function Tesoreria() {
   const { listaMensual, listaAnual } = useMemo(() => {
     const mensualMap = {};
     const anualMap = {};
-    (movimientos || []).forEach(m => {
+    (movimientos || []).forEach((m) => {
       const fecha = m.fecha || m.Fecha;
       if (!fecha) return;
       const mesAnio = String(fecha).substring(0, 7);
@@ -349,24 +374,30 @@ export default function Tesoreria() {
       }
     });
     return {
-      listaMensual: Object.keys(mensualMap).sort().map(k => ({ periodo: k, ...mensualMap[k] })),
-      listaAnual: Object.keys(anualMap).sort().map(k => ({ periodo: k, ...anualMap[k] })),
+      listaMensual: Object.keys(mensualMap)
+        .sort()
+        .map((k) => ({ periodo: k, ...mensualMap[k] })),
+      listaAnual: Object.keys(anualMap)
+        .sort()
+        .map((k) => ({ periodo: k, ...anualMap[k] })),
     };
   }, [movimientos]);
 
   // IVA
   const totalIvaCompras = (facturasCompras || []).reduce((acc, f) => {
     const estado = String(f.estado_pago || '').toLowerCase();
-    const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
+    const esNC =
+      f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
     if (estado === 'anulada' || esNC) return acc;
     return acc + Number(f.iva_21 || f.iva21 || 0) + Number(f.iva_105 || f.iva105 || 0);
   }, 0);
 
   const totalIvaVentas = useMemo(() => {
     const unicas = new Map();
-    (facturasVentas || []).forEach(f => {
+    (facturasVentas || []).forEach((f) => {
       const estado = String(f.estado_pago || '').toLowerCase();
-      const esNC = f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
+      const esNC =
+        f.es_nota_credito === true || String(f.tipo_comprobante || '').toUpperCase().includes('NOTA DE CREDITO');
       if (estado === 'anulada' || esNC) return;
       const pv = String(f.punto_venta || '').padStart(5, '0');
       const nc = String(f.numero_comp || '').padStart(8, '0');
@@ -403,9 +434,12 @@ export default function Tesoreria() {
       try {
         const parsed = typeof faRaw === 'string' ? JSON.parse(faRaw) : faRaw;
         if (Array.isArray(parsed) && parsed.length > 0) facturasAplicadas = parsed;
-      } catch { /* noop */ }
+      } catch {
+        /* noop */
+      }
     }
-    const bruto = Number(m.monto || 0) +
+    const bruto =
+      Number(m.monto || 0) +
       Number(m.retencion_suss || 0) +
       Number(m.retencion_iva || 0) +
       Number(m.retencion_ganancias || 0) +
@@ -419,6 +453,8 @@ export default function Tesoreria() {
       obra_id: m.obra_id || '',
       presupuesto_id: m.presupuesto_id || '',
       contrato_id: m.contrato_id || '',
+      tipo_gasto: m.tipo_gasto || '',
+      subcuenta_extra: m.subcuenta_extra || '',
       rubro_imputacion: m.rubro_imputacion || '',
       tipo_insumo: m.tipo_insumo || 'Materiales',
       medio_pago: m.medio_pago || 'transferencia',
@@ -465,7 +501,7 @@ export default function Tesoreria() {
     if (!window.confirm('¿Estás seguro de eliminar este movimiento?')) return;
     const toastId = toast.loading('Eliminando movimiento...');
     try {
-      const retsAsociadas = (retenciones || []).filter(r => String(r.tesoreria_id) === String(id));
+      const retsAsociadas = (retenciones || []).filter((r) => String(r.tesoreria_id) === String(id));
       await eliminarMovimientoTesoreria(id, retsAsociadas);
       toast.success('Movimiento eliminado', { id: toastId });
     } catch (err) {
@@ -474,26 +510,26 @@ export default function Tesoreria() {
   };
 
   const handleAgregarFacturaFila = () => {
-    setFormDataMov(prev => ({
+    setFormDataMov((prev) => ({
       ...prev,
       facturas_aplicadas: [...prev.facturas_aplicadas, { id: Date.now(), factura_id: '', monto: 0 }],
     }));
   };
 
   const handleCambiarFacturaFila = (id, campo, valor) => {
-    const nuevas = formDataMov.facturas_aplicadas.map(item => {
+    const nuevas = formDataMov.facturas_aplicadas.map((item) => {
       if (item.id !== id) return item;
       const actualizado = { ...item, [campo]: valor };
       if (campo === 'factura_id') {
         const esIngreso = String(formDataMov.tipo).toLowerCase() === 'ingreso';
         const lista = esIngreso ? facturasVentas : facturasCompras;
-        const fac = lista.find(f => String(f.id || f.ID) === String(valor));
+        const fac = lista.find((f) => String(f.id || f.ID) === String(valor));
         if (fac) actualizado.monto = Number(fac.total || fac.Total || 0);
       }
       return actualizado;
     });
     const suma = nuevas.reduce((acc, curr) => acc + (Number(curr.monto) || 0), 0);
-    setFormDataMov(prev => ({
+    setFormDataMov((prev) => ({
       ...prev,
       facturas_aplicadas: nuevas,
       monto: suma > 0 ? suma : prev.monto,
@@ -501,9 +537,9 @@ export default function Tesoreria() {
   };
 
   const handleQuitarFacturaFila = (id) => {
-    const nuevas = formDataMov.facturas_aplicadas.filter(i => i.id !== id);
+    const nuevas = formDataMov.facturas_aplicadas.filter((i) => i.id !== id);
     const suma = nuevas.reduce((acc, curr) => acc + (Number(curr.monto) || 0), 0);
-    setFormDataMov(prev => ({ ...prev, facturas_aplicadas: nuevas, monto: suma }));
+    setFormDataMov((prev) => ({ ...prev, facturas_aplicadas: nuevas, monto: suma }));
   };
 
   // ────────────────────────────────────────────────────────
@@ -511,18 +547,23 @@ export default function Tesoreria() {
   // ────────────────────────────────────────────────────────
 
   const handlePagarFacturaCompra = (f) => {
-    const prov = (proveedores || []).find(p => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
+    const prov = (proveedores || []).find((p) => String(p.id || p.ID) === String(f.proveedor_id || f.Proveedor_id));
     const monto = Number(f.total || f.Total || 0);
+    const tipoGasto = f.tipo_gasto || '';
+    const esCentroGeneral =
+      tipoGasto === 'Gastos Directos' || tipoGasto === 'Gasto Corriente' || tipoGasto === 'Gasto Extra';
     setEditingMovId(null);
     setFormDataMov({
       ...FORM_DATA_MOV_INICIAL(),
       tipo: 'Egreso',
       concepto: `Pago Factura ${f.codigo || f.n_factura || ''} - ${prov?.razon_social || prov?.nombre || ''}`,
       monto,
-      obra_id: f.obra_id || '',
-      presupuesto_id: f.presupuesto_id || '',
-      contrato_id: f.contrato_id || '',
-      rubro_imputacion: f.rubro_imputacion || '',
+      obra_id: esCentroGeneral ? '' : f.obra_id || '',
+      presupuesto_id: esCentroGeneral ? '' : f.presupuesto_id || '',
+      contrato_id: esCentroGeneral ? '' : f.contrato_id || '',
+      tipo_gasto: tipoGasto,
+      subcuenta_extra: tipoGasto === 'Gasto Extra' ? f.subcuenta_extra || '' : '',
+      rubro_imputacion: esCentroGeneral ? '' : f.rubro_imputacion || '',
       tipo_insumo: f.tipo_insumo || 'Materiales',
       facturas_aplicadas: [{ id: Date.now(), factura_id: f.id || f.ID, monto }],
     });
@@ -530,11 +571,14 @@ export default function Tesoreria() {
   };
 
   const handleContabilizarNC = async (f) => {
-    if (!window.confirm(
-      '¿Contabilizar esta Nota de Crédito?\n\n' +
-      'Se va a crear un movimiento contable con el monto en negativo. ' +
-      'Esto afectará los totales de compras e IVA.'
-    )) return;
+    if (
+      !window.confirm(
+        '¿Contabilizar esta Nota de Crédito?\n\n' +
+          'Se va a crear un movimiento contable con el monto en negativo. ' +
+          'Esto afectará los totales de compras e IVA.'
+      )
+    )
+      return;
     const toastId = toast.loading('Contabilizando NC...');
     try {
       const concepto = await contabilizarNCCompra(f, proveedores);
@@ -549,7 +593,7 @@ export default function Tesoreria() {
   // ────────────────────────────────────────────────────────
 
   const handleCobrarFacturaVenta = (f) => {
-    const cli = (clientes || []).find(c => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
+    const cli = (clientes || []).find((c) => String(c.id || c.ID) === String(f.cliente_id || f.Cliente_id));
     const monto = Number(f.total || f.Total || 0);
     setEditingMovId(null);
     setFormDataMov({
@@ -573,7 +617,9 @@ export default function Tesoreria() {
     try {
       const parsed = typeof f.items === 'string' ? JSON.parse(f.items) : f.items;
       if (Array.isArray(parsed) && parsed.length > 0) items = parsed;
-    } catch { /* noop */ }
+    } catch {
+      /* noop */
+    }
     setFormDataVenta({
       ...FORM_DATA_VENTA_INICIAL(),
       tipo_comprobante: f.tipo_comprobante || 'FACTURA A',
@@ -662,7 +708,7 @@ export default function Tesoreria() {
         const totalVal = Number(data.total) || netoVal + ivaVal + iva105Val;
         const tipoMapeado = mapearTipoComprobante(data.tipo_comprobante, data.tipo_factura, archivo.name || '');
 
-        setFormDataVenta(prev => ({
+        setFormDataVenta((prev) => ({
           ...prev,
           tipo_comprobante: tipoMapeado,
           punto_venta: pv,
@@ -676,13 +722,15 @@ export default function Tesoreria() {
           total: totalVal || prev.total,
           archivo_url: base64Data,
           comprobante_anula: data.comprobante_anula || prev.comprobante_anula,
-          items: [{
-            id: Date.now(),
-            descripcion: (data.items && data.items[0]?.descripcion) || `Factura N° ${nLimpio || '---'}`,
-            cantidad: 1,
-            precio_unitario: netoVal || prev.neto_gravado,
-            subtotal: netoVal || prev.neto_gravado,
-          }],
+          items: [
+            {
+              id: Date.now(),
+              descripcion: (data.items && data.items[0]?.descripcion) || `Factura N° ${nLimpio || '---'}`,
+              cantidad: 1,
+              precio_unitario: netoVal || prev.neto_gravado,
+              subtotal: netoVal || prev.neto_gravado,
+            },
+          ],
         }));
 
         if (nombreBusqueda && !clienteId && candidatosFinales.length === 0) {
@@ -706,7 +754,7 @@ export default function Tesoreria() {
   };
 
   const handleAgregarItem = () => {
-    setFormDataVenta(prev => ({
+    setFormDataVenta((prev) => ({
       ...prev,
       items: [...prev.items, { id: Date.now(), descripcion: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }],
     }));
@@ -720,7 +768,7 @@ export default function Tesoreria() {
   };
 
   const handleCambiarItem = (id, campo, valor) => {
-    const nuevos = formDataVenta.items.map(item => {
+    const nuevos = formDataVenta.items.map((item) => {
       if (item.id !== id) return item;
       const act = { ...item, [campo]: valor };
       if (campo === 'cantidad' || campo === 'precio_unitario') {
@@ -731,7 +779,7 @@ export default function Tesoreria() {
       return act;
     });
     const totales = recalcular(nuevos);
-    setFormDataVenta(prev => ({
+    setFormDataVenta((prev) => ({
       ...prev,
       items: nuevos,
       neto_gravado: totales.neto,
@@ -742,9 +790,9 @@ export default function Tesoreria() {
   };
 
   const handleQuitarItem = (id) => {
-    const nuevos = formDataVenta.items.filter(i => i.id !== id);
+    const nuevos = formDataVenta.items.filter((i) => i.id !== id);
     const totales = recalcular(nuevos);
-    setFormDataVenta(prev => ({
+    setFormDataVenta((prev) => ({
       ...prev,
       items: nuevos,
       neto_gravado: totales.neto,
@@ -760,7 +808,6 @@ export default function Tesoreria() {
     setIsSavingVenta(true);
     const toastId = toast.loading(editingVentaId ? 'Actualizando factura...' : 'Guardando factura...');
     try {
-      // Modo edición: solo actualiza el doc
       if (editingVentaId) {
         let archivoUrlFinal = formDataVenta.archivo_url || '';
         if (archivoBase64Venta && archivoBase64Venta.startsWith('data:')) {
@@ -776,7 +823,6 @@ export default function Tesoreria() {
         return;
       }
 
-      // Modo creación: flujo completo
       const { totalFinal, esNC, esND, anulacionFallida } = await crearFacturaVenta({
         formDataVenta,
         archivoBase64: archivoBase64Venta,
@@ -841,11 +887,11 @@ export default function Tesoreria() {
     if (retencionesFiltradas.length === 0) return toast.error('No hay retenciones para enviar.');
     setEnviandoRetenciones(true);
     try {
-      const data = retencionesFiltradas.map(r => {
-        const prov = (proveedores || []).find(p => String(p.id || p.ID) === String(r.proveedor_id));
-        const cli = (clientes || []).find(c => String(c.id || c.ID) === String(r.cliente_id));
-        const obra = (obras || []).find(o => String(o.id || o.ID) === String(r.obra_id));
-        const presu = (presupuestos || []).find(p => String(p.id || p.ID) === String(r.presupuesto_id));
+      const data = retencionesFiltradas.map((r) => {
+        const prov = (proveedores || []).find((p) => String(p.id || p.ID) === String(r.proveedor_id));
+        const cli = (clientes || []).find((c) => String(c.id || c.ID) === String(r.cliente_id));
+        const obra = (obras || []).find((o) => String(o.id || o.ID) === String(r.obra_id));
+        const presu = (presupuestos || []).find((p) => String(p.id || p.ID) === String(r.presupuesto_id));
         return {
           fecha: r.fecha,
           tipo: r.tipo,
@@ -961,7 +1007,9 @@ export default function Tesoreria() {
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
           <p className="text-xs font-bold text-slate-500 uppercase">Balance</p>
-          <h3 className={`text-2xl font-black mt-1 ${balance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>$ {balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
+          <h3 className={`text-2xl font-black mt-1 ${balance >= 0 ? 'text-slate-900' : 'text-rose-600'}`}>
+            $ {balance.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+          </h3>
         </div>
       </div>
 
@@ -970,12 +1018,16 @@ export default function Tesoreria() {
         <div className="bg-white p-5 rounded-2xl border border-rose-200 shadow-sm">
           <p className="text-xs font-bold text-rose-600 uppercase">Facturas a Pagar</p>
           <h3 className="text-2xl font-black text-rose-600 mt-1">$ {totalFacturasAPagar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-          <p className="text-[11px] text-slate-500 mt-1">{facturasAPagar.length} pendiente{facturasAPagar.length !== 1 ? 's' : ''}</p>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {facturasAPagar.length} pendiente{facturasAPagar.length !== 1 ? 's' : ''}
+          </p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-emerald-200 shadow-sm">
           <p className="text-xs font-bold text-emerald-600 uppercase">Facturas a Cobrar</p>
           <h3 className="text-2xl font-black text-emerald-600 mt-1">$ {totalFacturasACobrar.toLocaleString('es-AR', { minimumFractionDigits: 2 })}</h3>
-          <p className="text-[11px] text-slate-500 mt-1">{facturasACobrar.length} pendiente{facturasACobrar.length !== 1 ? 's' : ''}</p>
+          <p className="text-[11px] text-slate-500 mt-1">
+            {facturasACobrar.length} pendiente{facturasACobrar.length !== 1 ? 's' : ''}
+          </p>
         </div>
         <div className="bg-white p-5 rounded-2xl border border-slate-300 shadow-sm">
           <p className="text-xs font-bold text-slate-500 uppercase">Flujo Neto Pendiente</p>
@@ -1032,7 +1084,7 @@ export default function Tesoreria() {
               <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <input
                 type="text"
-                placeholder="Buscar movimiento..."
+                placeholder="Buscar movimiento o subcuenta..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs outline-none focus:border-amber-500"
@@ -1171,7 +1223,9 @@ export default function Tesoreria() {
             <h4 className="text-xs font-extrabold text-slate-800 uppercase">Cálculo: IVA Ventas – IVA Compras – Retenciones IVA</h4>
             <p className="text-xs text-slate-600 font-mono">
               $ {totalIvaVentas.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalIvaCompras.toLocaleString('es-AR', { minimumFractionDigits: 2 })} – $ {totalRetencionesIva.toLocaleString('es-AR', { minimumFractionDigits: 2 })} =
-              <span className="font-bold text-emerald-600 ml-2">$ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })} ({posicionIva <= 0 ? 'A favor' : 'A pagar'})</span>
+              <span className="font-bold text-emerald-600 ml-2">
+                $ {Math.abs(posicionIva).toLocaleString('es-AR', { minimumFractionDigits: 2 })} ({posicionIva <= 0 ? 'A favor' : 'A pagar'})
+              </span>
             </p>
           </div>
         </div>
@@ -1205,6 +1259,7 @@ export default function Tesoreria() {
         presupuestosDisponibles={presupuestosDisponibles}
         rubrosDelPresupuesto={rubrosDelPresupuesto}
         gastosGeneralesConceptos={gastosGeneralesConceptos}
+        subcuentasExtraDisponibles={subcuentasExtraDisponibles}
         facturasVenta={facturasVentas}
         facturasCompra={facturasCompras}
         clientes={clientes}
