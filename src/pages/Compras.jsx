@@ -1,6 +1,6 @@
 // src/pages/Compras.jsx
 import React, { useState, useMemo, useCallback } from 'react';
-import { Plus, Calendar, AlertTriangle, Mail } from 'lucide-react';
+import { Plus, Calendar, Mail } from 'lucide-react';
 import { useFirestoreCollection } from '@/hooks/useFirestoreCollection';
 import { crearDoc, actualizarDoc, eliminarDoc } from '@/lib/firestoreHelpers';
 import { GOOGLE_SCRIPT_URL } from '@/api';
@@ -26,7 +26,6 @@ const esACompletar = (valor) => /\ba completar\b/i.test(String(valor || ''));
 
 const normalizarEstadoPago = (raw) => {
   const s = String(raw || '').trim();
-  if (s.toLowerCase() === 'a asignar') return 'pendiente';
   return s || 'pendiente';
 };
 
@@ -61,7 +60,7 @@ export default function Compras() {
   const [optimisticOcs, setOptimisticOcs] = useState([]);
   const [deletedOcs, setDeletedOcs] = useState([]);
 
-  const obtenerIdReal = (obj) => String(obj.id || obj.ID || obj.Id || obj.codigo || '');
+  const obtenerIdReal = (obj) => String(obj?.id || obj?.ID || obj?.Id || obj?.codigo || '');
 
   const facturasConstraints = useMemo(() => {
     const c = [];
@@ -82,9 +81,9 @@ export default function Compras() {
 
   const facturasRender = useMemo(() => {
     const idsBorrados = deletedFacturas.map(String);
-    const optimistasValidas = optimisticFacturas.filter(o => !idsBorrados.includes(obtenerIdReal(o)));
-    const idsOptimistas = optimistasValidas.map(o => obtenerIdReal(o));
-    const realesValidas = (facturas || []).filter(f => {
+    const optimistasValidas = optimisticFacturas.filter((o) => !idsBorrados.includes(obtenerIdReal(o)));
+    const idsOptimistas = optimistasValidas.map((o) => obtenerIdReal(o));
+    const realesValidas = (facturas || []).filter((f) => {
       const id = obtenerIdReal(f);
       return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
     });
@@ -93,9 +92,9 @@ export default function Compras() {
 
   const ordenesRender = useMemo(() => {
     const idsBorrados = deletedOcs.map(String);
-    const optimistasValidas = optimisticOcs.filter(o => !idsBorrados.includes(obtenerIdReal(o)));
-    const idsOptimistas = optimistasValidas.map(o => obtenerIdReal(o));
-    const realesValidas = (ordenesCompra || []).filter(oc => {
+    const optimistasValidas = optimisticOcs.filter((o) => !idsBorrados.includes(obtenerIdReal(o)));
+    const idsOptimistas = optimistasValidas.map((o) => obtenerIdReal(o));
+    const realesValidas = (ordenesCompra || []).filter((oc) => {
       const id = obtenerIdReal(oc);
       return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
     });
@@ -536,6 +535,14 @@ export default function Compras() {
       if (facturaExistente) return toast.error(`⚠️ La factura N° ${formData.n_factura} ya existe.`);
     }
 
+    const facturaOriginal = editingId
+      ? facturasRender.find((f) => obtenerIdReal(f) === String(editingId))
+      : null;
+    const estabaAAsignar =
+      String(buscarValorEnObjeto(facturaOriginal, ['estado_pago']) || '')
+        .trim()
+        .toLowerCase() === 'a asignar';
+
     const codigoFinal = editingId ? formData.codigo || generarSiguienteCodigoFactura() : generarSiguienteCodigoFactura();
     const esNotaCredito =
       String(formData.comprobante_tipo || '')
@@ -553,6 +560,12 @@ export default function Compras() {
     const esGastoLibre = formData.tipo_gasto === 'Gasto Corriente' || formData.tipo_gasto === 'Gasto Extra';
     const tempId = editingId || `temp_${Date.now()}`;
 
+    const estadoPagoFinal = estabaAAsignar
+      ? 'a asignar'
+      : esNotaCredito
+      ? 'pendiente'
+      : formData.estado_pago;
+
     const datosOptimistas = {
       ...formData,
       id: tempId,
@@ -565,7 +578,7 @@ export default function Compras() {
       persp_iibb_caba: Math.abs(Number(formData.persp_iibb_caba) || 0) * factorSigno,
       otros_impuestos: Math.abs(Number(formData.otros_impuestos) || 0) * factorSigno,
       total: Math.abs(Number(formData.total) || 0) * factorSigno,
-      estado_pago: esNotaCredito ? 'pendiente' : formData.estado_pago,
+      estado_pago: estadoPagoFinal,
       n_factura: formData.n_factura,
       numero_comp: formData.n_factura,
       proveedor_id: formData.proveedor_id,
@@ -621,7 +634,7 @@ export default function Compras() {
         setOptimisticFacturas((prev) => prev.map((p) => (p.id === tempId ? { ...p, id: nuevoDocId, archivo_url: archivoUrlFinal } : p)));
       }
 
-      if (formData.remitente && !formData.notificado_proveedor && formData.estado_pago !== 'a asignar') {
+      if (formData.remitente && !formData.notificado_proveedor && estadoPagoFinal !== 'a asignar') {
         try {
           const idToken = auth.currentUser ? await auth.currentUser.getIdToken() : '';
           const resMail = await fetch(GOOGLE_SCRIPT_URL, {
@@ -804,7 +817,9 @@ export default function Compras() {
     setGenerandoPdfOcId(ocId);
 
     try {
-      const prov = (proveedores || []).find((p) => String(buscarValorEnObjeto(p, ['id'])) === String(buscarValorEnObjeto(oc, ['proveedor_id'])));
+      const prov = (proveedores || []).find(
+        (p) => String(buscarValorEnObjeto(p, ['id'])) === String(buscarValorEnObjeto(oc, ['proveedor_id']))
+      );
       const obra = (obras || []).find((o) => String(buscarValorEnObjeto(o, ['id'])) === String(buscarValorEnObjeto(oc, ['obra_id'])));
       let insumos = [];
       try {
@@ -1195,21 +1210,6 @@ export default function Compras() {
               </button>
             )}
           </div>
-          {!cargarTodoFacturas && (facturas || []).length >= topeActualFacturas && (
-            <div className="bg-amber-100 border-b border-amber-300 p-3 text-xs text-amber-900 font-medium flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
-                <span>Límite alcanzado. Ajustá fechas o presioná Cargar todo.</span>
-              </div>
-              <button
-                type="button"
-                onClick={() => setCargarTodoFacturas(true)}
-                className="px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold cursor-pointer transition-colors shrink-0"
-              >
-                Cargar todo
-              </button>
-            </div>
-          )}
 
           <TablaFacturas
             facturasFiltradas={facturasFiltradas}
