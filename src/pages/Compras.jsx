@@ -64,47 +64,6 @@ export default function Compras() {
   // Lote específico para envío al contador desde Estado de Cuenta de Centros Generales
   const [loteContadorPersonalizado, setLoteContadorPersonalizado] = useState(null);
 
-  const obtenerIdReal = (obj) => String(obj?.id || obj?.ID || obj?.Id || obj?.codigo || '');
-
-  const facturasConstraints = useMemo(() => {
-    const c = [];
-    const isFiltered = filtroFechaDesde || filtroFechaHasta;
-
-    if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
-    if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
-
-    c.push(orderBy('fecha', 'desc'));
-    if (!cargarTodoFacturas) {
-      c.push(limit(isFiltered ? 500 : 100));
-    }
-
-    return c;
-  }, [filtroFechaDesde, filtroFechaHasta, cargarTodoFacturas]);
-
-  const { data: facturas } = useFirestoreQuery('facturas_compras', facturasConstraints);
-
-  const facturasRender = useMemo(() => {
-    const idsBorrados = deletedFacturas.map(String);
-    const optimistasValidas = optimisticFacturas.filter((o) => !idsBorrados.includes(obtenerIdReal(o)));
-    const idsOptimistas = optimistasValidas.map((o) => obtenerIdReal(o));
-    const realesValidas = (facturas || []).filter((f) => {
-      const id = obtenerIdReal(f);
-      return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
-    });
-    return [...optimistasValidas, ...realesValidas];
-  }, [facturas, optimisticFacturas, deletedFacturas]);
-
-  const ordenesRender = useMemo(() => {
-    const idsBorrados = deletedOcs.map(String);
-    const optimistasValidas = optimisticOcs.filter((o) => !idsBorrados.includes(obtenerIdReal(o)));
-    const idsOptimistas = optimistasValidas.map((o) => obtenerIdReal(o));
-    const realesValidas = (ordenesCompra || []).filter((oc) => {
-      const id = obtenerIdReal(oc);
-      return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
-    });
-    return [...optimistasValidas, ...realesValidas];
-  }, [ordenesCompra, optimisticOcs, deletedOcs]);
-
   // Estados de Modales
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [isFacturaModalOpen, setIsFacturaModalOpen] = useState(false);
@@ -173,6 +132,8 @@ export default function Compras() {
     insumos_oc: [{ id: Date.now(), descripcion: '', cantidad: 1, unidad: 'unidad', p_unitario: 0, total: 0 }],
   });
 
+  const obtenerIdReal = useCallback((obj) => String(obj?.id || obj?.ID || obj?.Id || obj?.codigo || ''), []);
+
   const buscarValorEnObjeto = useCallback((obj, keys) => {
     if (!obj || typeof obj !== 'object') return '';
     const normalizar = (str) =>
@@ -198,6 +159,45 @@ export default function Compras() {
 
     return '';
   }, []);
+
+  const facturasConstraints = useMemo(() => {
+    const c = [];
+    const isFiltered = filtroFechaDesde || filtroFechaHasta;
+
+    if (filtroFechaDesde) c.push(where('fecha', '>=', filtroFechaDesde));
+    if (filtroFechaHasta) c.push(where('fecha', '<=', filtroFechaHasta));
+
+    c.push(orderBy('fecha', 'desc'));
+    if (!cargarTodoFacturas) {
+      c.push(limit(isFiltered ? 500 : 100));
+    }
+
+    return c;
+  }, [filtroFechaDesde, filtroFechaHasta, cargarTodoFacturas]);
+
+  const { data: facturas } = useFirestoreQuery('facturas_compras', facturasConstraints);
+
+  const facturasRender = useMemo(() => {
+    const idsBorrados = deletedFacturas.map(String);
+    const optimistasValidas = optimisticFacturas.filter((o) => !idsBorrados.includes(obtenerIdReal(o)));
+    const idsOptimistas = optimistasValidas.map((o) => obtenerIdReal(o));
+    const realesValidas = (facturas || []).filter((f) => {
+      const id = obtenerIdReal(f);
+      return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
+    });
+    return [...optimistasValidas, ...realesValidas];
+  }, [facturas, optimisticFacturas, deletedFacturas, obtenerIdReal]);
+
+  const ordenesRender = useMemo(() => {
+    const idsBorrados = deletedOcs.map(String);
+    const optimistasValidas = optimisticOcs.filter((o) => !idsBorrados.includes(obtenerIdReal(o)));
+    const idsOptimistas = optimistasValidas.map((o) => obtenerIdReal(o));
+    const realesValidas = (ordenesCompra || []).filter((oc) => {
+      const id = obtenerIdReal(oc);
+      return !idsBorrados.includes(id) && !idsOptimistas.includes(id);
+    });
+    return [...optimistasValidas, ...realesValidas];
+  }, [ordenesCompra, optimisticOcs, deletedOcs, obtenerIdReal]);
 
   const subcuentasExtraDisponibles = useMemo(() => {
     const setSubs = new Set();
@@ -332,15 +332,15 @@ export default function Compras() {
     [proveedores, buscarValorEnObjeto]
   );
 
-  const formatearFechaDisplay = (fechaStr) => {
+  const formatearFechaDisplay = useCallback((fechaStr) => {
     if (!fechaStr) return '---';
     const str = String(fechaStr).split('T')[0];
     const partes = str.split('-');
     if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
     return fechaStr;
-  };
+  }, []);
 
-  const formatearFechaParaInput = (fechaStr) => {
+  const formatearFechaParaInput = useCallback((fechaStr) => {
     if (!fechaStr) return '';
     const str = String(fechaStr).trim().split('T')[0];
     if (str.includes('/')) {
@@ -349,7 +349,7 @@ export default function Compras() {
     }
     if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
     return str;
-  };
+  }, []);
 
   const generarSiguienteCodigoFactura = () => {
     const todas = [...(facturas || []), ...optimisticFacturas];
@@ -370,6 +370,71 @@ export default function Compras() {
     }, 0);
     return `OC-${String(maxNum + 1).padStart(4, '0')}`;
   };
+
+  const facturasFiltradas = useMemo(() => {
+    const filtradas = facturasRender.filter((f) => {
+      const provId = buscarValorEnObjeto(f, ['proveedor_id']);
+      const matchProv = !filtroProveedor || String(provId) === String(filtroProveedor);
+      const fFecha = buscarValorEnObjeto(f, ['fecha']);
+      let matchFecha = true;
+      if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
+      if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
+      let matchDoc = true;
+      if (filtroDocumento) {
+        if (filtroDocumento.startsWith('PRES-')) {
+          matchDoc = String(buscarValorEnObjeto(f, ['presupuesto_id'])).trim() === String(filtroDocumento.replace('PRES-', '')).trim();
+        } else if (filtroDocumento.startsWith('CONT-')) {
+          matchDoc = String(buscarValorEnObjeto(f, ['contrato_id'])).trim() === String(filtroDocumento.replace('CONT-', '')).trim();
+        }
+      }
+      let matchPago = true;
+      if (filtroEstadoPago) {
+        matchPago = String(buscarValorEnObjeto(f, ['estado_pago']) || 'pendiente').toLowerCase().trim() === filtroEstadoPago.toLowerCase();
+      }
+      return matchProv && matchFecha && matchDoc && matchPago;
+    });
+
+    const unicosMap = new Map();
+    filtradas.forEach((f, idx) => {
+      const nroFact = buscarValorEnObjeto(f, ['n_factura']);
+      const totalFact = buscarValorEnObjeto(f, ['total']);
+      const idFact = obtenerIdReal(f);
+      const key = nroFact ? `${nroFact}-${totalFact}` : idFact || `key-${idx}`;
+      if (!unicosMap.has(key)) {
+        unicosMap.set(key, f);
+      } else {
+        const ext = unicosMap.get(key);
+        if (new Date(f._actualizadoEn || f._creadoEn || 0).getTime() > new Date(ext._actualizadoEn || ext._creadoEn || 0).getTime()) {
+          unicosMap.set(key, f);
+        }
+      }
+    });
+    return Array.from(unicosMap.values());
+  }, [facturasRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto, obtenerIdReal]);
+
+  const ordenesFiltradas = useMemo(() => {
+    return ordenesRender.filter((oc) => {
+      const matchProv = !filtroProveedorOc || String(buscarValorEnObjeto(oc, ['proveedor_id'])) === String(filtroProveedorOc);
+      const ocFecha = buscarValorEnObjeto(oc, ['fecha']);
+      let matchFecha = true;
+      if (filtroFechaDesdeOc && ocFecha && ocFecha < filtroFechaDesdeOc) matchFecha = false;
+      if (filtroFechaHastaOc && ocFecha && ocFecha > filtroFechaHastaOc) matchFecha = false;
+
+      let matchEstado = true;
+      if (filtroEstadoOc) {
+        matchEstado = String(buscarValorEnObjeto(oc, ['estado']) || 'pendiente').toLowerCase() === filtroEstadoOc.toLowerCase();
+      }
+
+      return matchProv && matchFecha && matchEstado;
+    });
+  }, [ordenesRender, filtroProveedorOc, filtroFechaDesdeOc, filtroFechaHastaOc, filtroEstadoOc, buscarValorEnObjeto]);
+
+  const facturasActivasParaContador = useMemo(() => {
+    return loteContadorPersonalizado ? loteContadorPersonalizado.facturas : facturasFiltradas;
+  }, [loteContadorPersonalizado, facturasFiltradas]);
+
+  const desdeContadorActivo = loteContadorPersonalizado ? loteContadorPersonalizado.desde : filtroFechaDesde;
+  const hastaContadorActivo = loteContadorPersonalizado ? loteContadorPersonalizado.hasta : filtroFechaHasta;
 
   const handleArchivoSubido = async (e) => {
     if (!GOOGLE_SCRIPT_URL) return toast.error('ERROR: La variable GOOGLE_SCRIPT_URL no está configurada.');
@@ -909,13 +974,6 @@ export default function Compras() {
     }
   };
 
-  const facturasActivasParaContador = useMemo(() => {
-    return loteContadorPersonalizado ? loteContadorPersonalizado.facturas : facturasFiltradas;
-  }, [loteContadorPersonalizado, facturasFiltradas]);
-
-  const desdeContadorActivo = loteContadorPersonalizado ? loteContadorPersonalizado.desde : filtroFechaDesde;
-  const hastaContadorActivo = loteContadorPersonalizado ? loteContadorPersonalizado.hasta : filtroFechaHasta;
-
   const handleEnviarAlContador = async (e) => {
     e.preventDefault();
     if (!emailContador || emailContador.indexOf('@') === -1) return toast.error('Correo inválido.');
@@ -969,62 +1027,6 @@ export default function Compras() {
       setEnviandoFacturas(false);
     }
   };
-
-  const facturasFiltradas = useMemo(() => {
-    const filtradas = facturasRender.filter((f) => {
-      const provId = buscarValorEnObjeto(f, ['proveedor_id']);
-      const matchProv = !filtroProveedor || String(provId) === String(filtroProveedor);
-      const fFecha = buscarValorEnObjeto(f, ['fecha']);
-      let matchFecha = true;
-      if (filtroFechaDesde && fFecha && fFecha < filtroFechaDesde) matchFecha = false;
-      if (filtroFechaHasta && fFecha && fFecha > filtroFechaHasta) matchFecha = false;
-      let matchDoc = true;
-      if (filtroDocumento) {
-        if (filtroDocumento.startsWith('PRES-')) {
-          matchDoc = String(buscarValorEnObjeto(f, ['presupuesto_id'])).trim() === String(filtroDocumento.replace('PRES-', '')).trim();
-        } else if (filtroDocumento.startsWith('CONT-')) {
-          matchDoc = String(buscarValorEnObjeto(f, ['contrato_id'])).trim() === String(filtroDocumento.replace('CONT-', '')).trim();
-        }
-      }
-      let matchPago = true;
-      if (filtroEstadoPago) {
-        matchPago = String(buscarValorEnObjeto(f, ['estado_pago']) || 'pendiente').toLowerCase().trim() === filtroEstadoPago.toLowerCase();
-      }
-      return matchProv && matchFecha && matchDoc && matchPago;
-    });
-
-    const unicosMap = new Map();
-    filtradas.forEach((f) => {
-      const key = buscarValorEnObjeto(f, ['n_factura'])
-        ? `${buscarValorEnObjeto(f, ['n_factura'])}-${buscarValorEnObjeto(f, ['total'])}`
-        : `key-${Math.random()}`;
-      if (!unicosMap.has(key)) unicosMap.set(key, f);
-      else {
-        const ext = unicosMap.get(key);
-        if (new Date(f._actualizadoEn || f._creadoEn || 0).getTime() > new Date(ext._actualizadoEn || ext._creadoEn || 0).getTime()) {
-          unicosMap.set(key, f);
-        }
-      }
-    });
-    return Array.from(unicosMap.values());
-  }, [facturasRender, filtroProveedor, filtroFechaDesde, filtroFechaHasta, filtroDocumento, filtroEstadoPago, buscarValorEnObjeto]);
-
-  const ordenesFiltradas = useMemo(() => {
-    return ordenesRender.filter((oc) => {
-      const matchProv = !filtroProveedorOc || String(buscarValorEnObjeto(oc, ['proveedor_id'])) === String(filtroProveedorOc);
-      const ocFecha = buscarValorEnObjeto(oc, ['fecha']);
-      let matchFecha = true;
-      if (filtroFechaDesdeOc && ocFecha && ocFecha < filtroFechaDesdeOc) matchFecha = false;
-      if (filtroFechaHastaOc && ocFecha && ocFecha > filtroFechaHastaOc) matchFecha = false;
-
-      let matchEstado = true;
-      if (filtroEstadoOc) {
-        matchEstado = String(buscarValorEnObjeto(oc, ['estado']) || 'pendiente').toLowerCase() === filtroEstadoOc.toLowerCase();
-      }
-
-      return matchProv && matchFecha && matchEstado;
-    });
-  }, [ordenesRender, filtroProveedorOc, filtroFechaDesdeOc, filtroFechaHastaOc, filtroEstadoOc, buscarValorEnObjeto]);
 
   const topeActualFacturas = filtroFechaDesde || filtroFechaHasta ? 500 : 100;
 
